@@ -1,10 +1,11 @@
-# mkt-automation
+# marketing-ops-automation
 
-自动化营销组件服务：**目标驱动**（业务目标→plan.json→客群→波次）、多渠道（X / Email / Reddit / LinkedIn，可扩展）、**多通道**（API / browser-cdp / os-input 键鼠模拟 / protocol SMTP）、零凭据优先。
-统一六原语（publish / reply / message / engage / search / inbox）、统一写路径事务管道、统一账本。
+**多平台全链路的自动化营销运营工具**：目标驱动（业务目标→plan→客群→波次→执行→复盘）、多渠道（X / Email / Reddit / LinkedIn，可扩展）、**多通道**（API / browser-CDP / OS 键鼠模拟 / SMTP 等四类十种，含降级储备）、零凭据优先。
+统一六原语（publish / reply / message / engage / search / inbox）、统一写路径事务管道（门禁→节流→回读校验→截图→dry-run 停点→发送→确认→账本）、统一账本。
 三种外壳共用本内核：**CLI（mkt.py）**／**MCP（mcp_server.py）**／**Skill（skills/marketing-ops）**。
 
-> 产品方案见项目目录 `05-产品方案-*.md`；执行架构见 `02-架构设计-*.md`。
+> 定位一句话：agent 当参谋（出方案，产出可校验的数据工件）、内核当执行（守门禁，上限是内核属性）、人当闸门（未经人审的计划拒跑）。
+> 配套的调研与设计文档（现状盘点/架构/渠道风控调研等）存于本地工作区，不随本仓库分发；仓库内 `data/schemas.md` 自含全部数据契约。
 
 ## 合规与纪律（先读这个）
 
@@ -59,7 +60,7 @@ python3 -c "from core.planlint import load_plan, lint_plan; print(lint_plan(load
 ## MCP 服务（mcp_server.py，stdio，零依赖）
 
 ```json
-{"mkt": {"command": "python3", "args": ["/绝对路径/mkt-automation/mcp_server.py"]}}
+{"mkt": {"command": "python3", "args": ["/绝对路径/marketing-ops-automation/mcp_server.py"]}}
 ```
 
 6 个工具：`mkt_status` / `mkt_channels` / `mkt_plan_lint` / `mkt_search` / `mkt_ledger_query`（只读）+ `mkt_run_queue`（写，默认 dry-run；UNVERIFIED 渠道拒实跑；未经人审的 plan 拒跑）。只暴露队列粒度写操作——没有绕过留痕的路径。
@@ -104,4 +105,4 @@ X 渠道 vendor 引入 x-ops-automation（上游 github: roy-tong/x-ops-automati
 
 ## License
 
-MIT。
+MIT（见 [LICENSE](LICENSE)）。`channels/x/vendor/` 引入自同作者仓库 x-ops-automation（MIT）。

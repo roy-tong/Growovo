@@ -5,11 +5,11 @@ description: 目标驱动的营销自动化操作协议。用户提供目标平�
 
 # 营销自动化操作协议（marketing-ops）
 
-本 skill 是 **mkt-automation 执行内核的 agent 操作协议**（05 产品方案 §5.3）：
+本 skill 是 **marketing-ops-automation 执行内核的 agent 操作协议**（05 产品方案 §5.3）：
 agent 当参谋（出方案）、内核当执行（守门禁）、人当闸门（审计划）。动作落到
 CLI（`python3 mkt.py …`）或 MCP（mkt-server），本协议不发明新动作。
 
-仓库位置：`~/Documents/AI app/projects/自动化营销组件/代码仓库/mkt-automation/`
+仓库位置：github.com/roy-tong/marketing-ops-automation（克隆到本机的目录；MCP 配置里用其绝对路径）
 
 ## 何时使用
 
