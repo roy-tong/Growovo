@@ -1,0 +1,10 @@
+# 数据与凭据一律不入库
+data/*
+!data/schemas.md
+profiles/
+logs/
+shots/
+__pycache__/
+*.pyc
+.DS_Store
+.venv/
