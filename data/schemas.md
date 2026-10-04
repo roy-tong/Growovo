@@ -1,5 +1,29 @@
 # 数据 schema（data/，全部 gitignore）
 
+## plans/<plan_id>.json 营销计划（规划层产出，05 产品方案 §2.3）
+
+```json
+{
+  "plan_id": "am-trial20",
+  "goal": "为 AgentMeasure 拿到前 20 个企业试用",
+  "created": "2026-10-04",
+  "hypothesis": "MCP 工具作者有计量痛点",
+  "icp": {"org": "做 agent 产品的团队", "persona": "平台/eval 工程负责人", "beachhead": "MCP 工具作者"},
+  "audience": {"spec": "github:MCP servers 目录维护者", "target_count": 40, "evidence_grade": "B"},
+  "waves": [
+    {"wave": 1, "channel": "email", "action": "message", "size": 30,
+     "content_policy": "求评式/千人千面/禁模板", "queue": "data/queues/am-trial20-w1.json",
+     "caps": {"daily": 30}}
+  ],
+  "success_criteria": {"metric": "reply_rate", "target": "≥5%", "stop": "退信率>5% 即停"},
+  "review": {"human_approved": false, "approved_at": null}
+}
+```
+
+- 校验：`core.planlint.lint_plan`（schema/beachhead/能力矩阵/size≤内核日预算/判据预注册）
+- 强制：`review.human_approved=false` 时，同 campaign 队列被 send_queue 与 MCP 拒跑
+- 上限是内核属性：waves[].size 不得超过 `core/throttle.py` 的日预算，超过 lint 拒收
+
 ## queues/<campaign>.json 队列
 
 ```json

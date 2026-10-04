@@ -1,9 +1,10 @@
 # mkt-automation
 
-自动化营销组件服务：多渠道（X / Email / Reddit / LinkedIn，可扩展）、单机、零凭据优先、CLI 优先。
+自动化营销组件服务：**目标驱动**（业务目标→plan.json→客群→波次）、多渠道（X / Email / Reddit / LinkedIn，可扩展）、**多通道**（API / browser-cdp / os-input 键鼠模拟 / protocol SMTP）、零凭据优先。
 统一六原语（publish / reply / message / engage / search / inbox）、统一写路径事务管道、统一账本。
+三种外壳共用本内核：**CLI（mkt.py）**／**MCP（mcp_server.py）**／**Skill（skills/marketing-ops）**。
 
-> 设计文档与现状梳理见项目目录 `../01…04-*.md` 与合并展示 HTML。
+> 产品方案见项目目录 `05-产品方案-*.md`；执行架构见 `02-架构设计-*.md`。
 
 ## 合规与纪律（先读这个）
 
@@ -40,6 +41,34 @@ python3 mkt.py check              # 确认 CDP 会话与 X/Gmail 登录态
 
 等级含义：PROVEN=真实账号跑通；PORTED=模式已验证、本封装未整跑；UNVERIFIED=选择器未实测，首跑必须人工盯跑（首跑清单见 03 渠道文档 §5）。
 
+## 规划层：计划是数据，人审是闸门（05 产品方案 §2）
+
+```bash
+# 1. agent/人 按 data/schemas.md 的 plan schema 写 data/plans/<plan_id>.json
+# 2. 校验（schema/能力矩阵/size≤内核日预算/判据预注册）
+python3 -c "from core.planlint import load_plan, lint_plan; print(lint_plan(load_plan('data/plans/x.json')))"
+# 3. 人审通过后置 review.human_approved=true —— 否则 send_queue 与 MCP 都拒跑该 campaign
+# 4. 生成 data/queues/<campaign>.json 并执行（见上表）
+```
+
+上限是内核属性：计划里的 size 超过 `core/throttle.py` 日预算会被 lint 拒收。
+
+## MCP 服务（mcp_server.py，stdio，零依赖）
+
+```json
+{"mkt": {"command": "python3", "args": ["/绝对路径/mkt-automation/mcp_server.py"]}}
+```
+
+6 个工具：`mkt_status` / `mkt_channels` / `mkt_plan_lint` / `mkt_search` / `mkt_ledger_query`（只读）+ `mkt_run_queue`（写，默认 dry-run；UNVERIFIED 渠道拒实跑；未经人审的 plan 拒跑）。只暴露队列粒度写操作——没有绕过留痕的路径。
+
+## Skill（skills/marketing-ops/SKILL.md）
+
+agent 操作协议：目标→plan→客群→人审→执行→复盘七步。装入 `~/.agents/skills/` 即可在 ZCode 等宿主触发（内容协作走 warm-email-outreach / expert-review-outreach / b2b-account-mapping）。
+
+## 通道层（core/transports.py）
+
+`api`（OAuth，Reddit 二期）｜`browser-cdp`（PROVEN）｜`os-input`（macOS 键鼠/AX 模拟，UNVERIFIED，transports/os_input.py）｜`protocol`（SMTP，PROVEN）。每渠道×动作声明首选+降级链；降级是内核确定性规则，规划层无权指定通道。
+
 ## 环境变量
 
 | 变量 | 用途 |
@@ -57,9 +86,12 @@ python3 mkt.py check              # 确认 CDP 会话与 X/Gmail 登录态
 ## 结构
 
 ```
-core/      ledger 账本 · gates 门禁 · throttle 节流 · pipeline 写路径事务 · evidence 留证 · cdp 会话
+core/      ledger 账本 · gates 门禁 · throttle 节流 · pipeline 写路径事务 · evidence 留证 · cdp 会话 · transports 通道注册表 · planlint 计划校验/人审强制
 channels/  x/(vendor+adapter) · email_smtp · email_cdp · reddit · linkedin
-tests/     离线单测（21 项，含 449 事故回归）：python3 -m unittest discover tests -v
+transports/  os_input（macOS 键鼠/AX 模拟，UNVERIFIED）
+skills/    marketing-ops（agent 操作协议）
+tests/     离线单测（33 项，含 449 事故回归与人审门禁）：python3 -m unittest discover tests -v
+mcp_server.py  MCP 外壳（stdio JSON-RPC，零依赖）
 ```
 
 X 渠道 vendor 引入 x-ops-automation（上游 github: roy-tong/x-ops-automation），

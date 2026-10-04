@@ -68,6 +68,9 @@ def send_queue(queue_file, *, go=False, only=None, campaign=None, ledger=None,
     throttle = throttle or Throttle(data_dir / "state")
     qcampaign, items = load_queue(queue_file)
     campaign = campaign or qcampaign
+    if go:
+        from core.planlint import enforce_approval
+        enforce_approval(data_dir, campaign)  # 有 plan 且未经人审 → 拒跑
     if only:
         items = [i for i in items if i.get("id") == only or i.get("target") == only]
 
