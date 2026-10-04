@@ -10,22 +10,47 @@ from datetime import date
 from pathlib import Path
 
 # (min_s, max_s, run_cap, daily_cap)；None = 不设
+# 预算口径 = 我们自己的运营预算，一律低于平台官方上限（OFFICIAL_LIMITS），只保守不放松
 INTERVALS = {
-    ("x", "publish"): (45, 90, 50, 100),      # X 免费号每日 ~100 上限（横幅检测在渠道层）
-    ("x", "reply"): (60, 120, 30, 60),
-    ("x", "message"): (75, 150, 15, 30),       # xdm.py 实测节奏
-    ("x", "engage"): (6, 12, 10, 40),          # follow/like 单次 ≤10（硬限制，实测纪律）
+    # X 官方（help.x.com 2026-05 版，06 文档§2）：未验证账号 50 原创+200 回复/日、DM 500/日、
+    # 关注 400/日；页面残留旧"2400/日"字样属历史口径，按新表执行
+    ("x", "publish"): (45, 90, 50, 40),       # 官方 50 原创/日 → 预算 40 留余量
+    ("x", "reply"): (60, 120, 30, 40),        # 官方 200 回复/日 → 预算 40
+    ("x", "message"): (75, 150, 15, 30),       # 官方 500 DM/日 → 预算 30（节奏比上限更重要）
+    ("x", "engage"): (6, 12, 10, 40),          # 官方关注 400/日 → 预算 40
     ("x", "search"): (5, 10, None, None),
-    ("email", "publish"): (60, 150, 50, 100),  # Gmail SMTP 500/日，预算远低于限额
+    # Gmail 官方：免费 500 封/日（网页），SMTP 社区共识 ~100/日（06 文档§2）
+    ("email", "publish"): (60, 150, 50, 100),
     ("email", "reply"): (30, 90, 50, 100),
-    ("email", "message"): (60, 150, 50, 100),
+    ("email", "message"): (60, 150, 50, 100),  # 预算 100 ≤ SMTP 社区共识线
+    # Reddit：新号 ~1 条/10 分钟冷却、子版块 karma/账龄门槛（06 文档§2）
     ("reddit", "publish"): (300, 900, 3, 3),   # 03 文档红线：日 ≤3 帖
-    ("reddit", "reply"): (120, 300, 10, 20),   # 90/10 法则靠内容配额，不靠节奏
+    ("reddit", "reply"): (120, 300, 10, 20),
     ("reddit", "message"): (120, 300, 5, 10),
+    # LinkedIn：邀请 ~100/周（社区共识），预注册到周预算的一半以下
     ("linkedin", "message"): (60, 180, 10, 10),  # Tier B 半自动日 ≤10 连接
     ("linkedin", "reply"): (60, 180, 10, 20),
 }
 FALLBACK = (60, 120, 10, 30)  # 未知渠道动作一律走保守缺省
+
+# 平台官方上限参考（证据分级见 06 文档；供人/规划层对照，代码只信 INTERVALS 预算）
+OFFICIAL_LIMITS = {
+    # X（官方 help.x.com x-limits，2026-05 版；档位细目未公开=UNPUBLISHED）
+    ("x", "publish", "free/unverified"): {"daily": "50 原创 + 200 回复", "grade": "官方"},
+    ("x", "message", "free/unverified"): {"daily": 500, "grade": "官方"},
+    ("x", "engage", "free/unverified"): {"daily_follow": 400, "total_follow": "5000 后按粉丝比例", "grade": "官方"},
+    ("x", "publish", "premium"): {"daily": "未公开（社区传 1 万帖/月）", "grade": "未公开"},
+    # Gmail（官方 support.google.com）
+    ("email", "*", "gmail-free"): {"daily": 500, "grade": "官方"},
+    ("email", "*", "workspace"): {"daily": 2000, "grade": "官方"},
+    ("email", "*", "outlook-free"): {"daily": "~300（社区共识）", "grade": "社区共识"},
+    # Reddit（官方 API 文档）
+    ("reddit", "*", "free-api"): {"qpm": 100, "grade": "官方"},
+    ("reddit", "publish", "new-account"): {"cooldown": "~1 帖/10 分钟，karma 放宽", "grade": "社区共识"},
+    # LinkedIn（邀请=社区共识，InMail=官方）
+    ("linkedin", "message", "free"): {"invites_weekly": "~100", "inmail_monthly": 0, "grade": "混合"},
+    ("linkedin", "message", "sales-navigator-core"): {"invites_weekly": "~200", "inmail_monthly": 50, "grade": "混合"},
+}
 
 
 class ThrottleError(Exception):

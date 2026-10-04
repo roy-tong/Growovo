@@ -160,6 +160,9 @@ def call_tool(name, args):
             return _err(f"MCP 通道当前只支持 email 队列，{channel} 请用 CLI（python3 mkt.py）")
         campaign = q.get("campaign", qpath.stem)
         if go:
+            from core.safety import is_paused
+            if is_paused(DATA):
+                return _err("全局暂停中（mkt pause）——拒绝实跑")
             enforce_approval(DATA, campaign)  # PlanNotApproved 直接报给调用方
         from channels.email_smtp import send_queue
         res = send_queue(qpath, go=go, data_dir=DATA)

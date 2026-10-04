@@ -29,7 +29,10 @@ python3 mkt.py check              # 确认 CDP 会话与 X/Gmail 登录态
 | 命令 | 说明 | 等级 |
 |---|---|---|
 | `python3 mkt.py status` | 全局账本聚合 | — |
-| `python3 mkt.py check` | CDP 会话检查 | — |
+| `python3 mkt.py check` | CDP 会话检查（X/Gmail/Reddit/LinkedIn） | — |
+| `python3 mkt.py report [--hours 24]` | 一页纸运营报告（异常/暂停态/抑制名单） | — |
+| `python3 mkt.py pause --on '原因' / --off` | **全局暂停总闸**（一切写操作拒跑且留痕） | — |
+| `python3 mkt.py contacts add/find/dnc/mark/import` | 线索库操作（幂等去重/DNC 隐藏/er-batch 导入） | — |
 | `mkt x publish/reply/message/engage/search/inbox …` | X 全动作（vendor x-ops-automation） | **PROVEN** |
 | `mkt email message --queue data/queues/w1.json [--go]` | SMTP 发信队列 | **PORTED** |
 | `mkt email inbox` / `mkt email bounces` | CDP 只读扫 Gmail / 退信 | **PORTED**（模式 PROVEN） |
@@ -67,7 +70,9 @@ agent 操作协议：目标→plan→客群→人审→执行→复盘七步。�
 
 ## 通道层（core/transports.py）
 
-`api`（OAuth，Reddit 二期）｜`browser-cdp`（PROVEN）｜`os-input`（macOS 键鼠/AX 模拟，UNVERIFIED，transports/os_input.py）｜`protocol`（SMTP，PROVEN）。每渠道×动作声明首选+降级链；降级是内核确定性规则，规划层无权指定通道。
+ACTIVE×4：`api`（OAuth，Reddit 二期）｜`browser-cdp`（PROVEN）｜`os-input`（macOS 键鼠/AX 模拟，UNVERIFIED，transports/os_input.py）｜`protocol`（SMTP/IMAP，PROVEN）。
+RESERVE×6（通道储备库）：`webdriver`｜`rss-public`（只读）｜`esp-api`（事务邮件）｜`mobile-appium`｜`integration`（平台原生）｜`semi-auto-ui`（人工确认兜底）。
+每渠道×动作声明首选+降级链；**降级用于"路不通"，不用于"绕风控"**——风控信号的响应是降节奏或 `mkt pause`，不是换马甲。风控阈值与账号限额见项目 06 文档（官方口径亲核；代码预算一律低于官方上限，见 throttle.INTERVALS/OFFICIAL_LIMITS）。
 
 ## 环境变量
 

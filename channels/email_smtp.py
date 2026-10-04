@@ -80,7 +80,9 @@ def send_queue(queue_file, *, go=False, only=None, campaign=None, ledger=None,
 
     ch = SMTPChannel() if go else None
     gate = Gate(ledger, suppress=load_suppress(data_dir / "suppress.txt"))
-    pipe = WritePipeline(gate=gate, ledger=ledger, throttle=throttle)
+    from core.safety import pause_file
+    pipe = WritePipeline(gate=gate, ledger=ledger, throttle=throttle,
+                         pause_file=pause_file(data_dir))
     ev = Evidence(data_dir / "shots" / campaign)
 
     log(f"email 队列 {campaign}: {len(items)} 条（{'实跑' if go else 'dry-run'}）")

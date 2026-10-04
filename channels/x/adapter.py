@@ -128,6 +128,13 @@ def run(action, extra_args, *, go=False, campaign=None, ledger=None, log=print):
             raise SystemExit("engage 需要子动作: follow <@a @b> | like <url...>")
         extra_args = extra_args[1:]
 
+    # 全局暂停闸（core.safety）：写操作一律拒跑
+    if is_write:
+        from core.safety import pause_file
+        DATA_ROOT = VENDOR.parents[2] / "data"   # channels/x/vendor → mkt-automation/data
+        if pause_file(DATA_ROOT).exists():
+            raise SystemExit("全局暂停中（mkt pause --off 恢复）——X 写操作拒跑")
+
     before_lines = {"xdm": _xdm_log_lines()}
     cmd = [sys.executable, str(VENDOR / script)] + [str(a) for a in extra_args]
     if is_write and not go:

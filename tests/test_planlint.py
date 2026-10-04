@@ -111,15 +111,23 @@ class TestEnforceApproval(unittest.TestCase):
 
 class TestTransports(unittest.TestCase):
     def test_matrix(self):
+        # 降级链含 RESERVE 备件；primary 取首选
         self.assertEqual(transports.primary("email", "message"), "protocol")
-        self.assertEqual(transports.chain("email", "message"), ["protocol", "browser-cdp"])
+        self.assertEqual(transports.chain("email", "message"),
+                         ["protocol", "esp-api", "browser-cdp", "semi-auto-ui"])
+        # ACTIVE 链只保留当前可执行的通道（esp-api/semi-auto-ui 为 RESERVE）
+        self.assertEqual(transports.active_chain("email", "message"),
+                         ["protocol", "browser-cdp"])
         self.assertEqual(transports.primary("email", "inbox"), "browser-cdp")
         self.assertEqual(transports.primary("x", "publish"), "browser-cdp")
         self.assertEqual(transports.primary("desktop", "publish"), "os-input")
+        self.assertEqual(transports.primary("linkedin", "message"), "browser-cdp")
         self.assertEqual(transports.chain("nosuch", "publish"), [])
 
     def test_registry_entries_exist(self):
-        for t in ("api", "browser-cdp", "os-input", "protocol"):
+        for t in ("api", "browser-cdp", "os-input", "protocol",          # ACTIVE
+                  "webdriver", "rss-public", "esp-api", "mobile-appium",
+                  "integration", "semi-auto-ui"):                         # RESERVE
             self.assertTrue(transports.known(t))
 
 

@@ -24,10 +24,11 @@ def _norm(s):
 
 
 class WritePipeline:
-    def __init__(self, *, gate, ledger, throttle):
+    def __init__(self, *, gate, ledger, throttle, pause_file=None):
         self.gate = gate
         self.ledger = ledger
         self.throttle = throttle
+        self.pause_file = pause_file  # core.safety.pause_file(data_dir)；存在即一切写操作拒跑
 
     def run_one(self, item, *, channel, action, campaign, transport,
                 expect, target, compose, fill, readback, send, confirm,
@@ -36,7 +37,7 @@ class WritePipeline:
 
         expect   期望进入编辑器/邮件正文的文本（回读比对基准）
         target   渠道目标（@handle / email / url / tweet:url…）
-        Gate 拒绝返回 result="rejected"（正常逐条结果，不抛异常）。
+        Gate 拒绝 / 全局暂停 返回 result="rejected"（正常逐条结果，不抛异常）。
         """
         rec = {
             "id": item.get("id", ""),
@@ -44,6 +45,9 @@ class WritePipeline:
             "transport": transport, "target": target,
             "started_at": datetime.now().isoformat(timespec="seconds"),
         }
+        if self.pause_file is not None and self.pause_file.exists():
+            rec.update(result="rejected", detail="全局暂停中（mkt pause --off 恢复）")
+            return self._finish(rec)
         try:
             self.gate.check(channel=channel, action=action, target=target,
                             campaign=campaign, content=expect, max_len=max_len)

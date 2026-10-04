@@ -50,14 +50,69 @@ def cmd_check(args):
         print("先跑 ./launch.command 启动带调试端口的 Chrome。")
         return 2
     try:
-        page.goto("https://x.com/home", wait_until="domcontentloaded", timeout=30000)
-        x_ok = "/login" not in page.url
-        page.goto("https://mail.google.com", wait_until="domcontentloaded", timeout=30000)
-        g_ok = "accounts.google.com" not in page.url
-        print(f"CDP 会话正常。X 登录态: {'OK' if x_ok else '未登录'}；Gmail 登录态: {'OK' if g_ok else '未登录'}")
+        checks = [
+            ("X", "https://x.com/home", "/login"),
+            ("Gmail", "https://mail.google.com", "accounts.google.com"),
+            ("Reddit", "https://old.reddit.com", "login"),
+            ("LinkedIn", "https://www.linkedin.com/feed/", "login"),
+        ]
+        results = []
+        for name, url, bad in checks:
+            try:
+                page.goto(url, wait_until="domcontentloaded", timeout=30000)
+                results.append((name, "OK" if bad not in page.url else "未登录"))
+            except Exception:
+                results.append((name, "检查失败"))
+        print("CDP 会话正常。登录态: " + "；".join(f"{n}={s}" for n, s in results))
         return 0
     finally:
         page.close()
+
+
+def cmd_pause(args):
+    from core.safety import is_paused, pause_file, set_pause
+    if args.off:
+        set_pause(DATA, False)
+        print("已恢复（全局暂停解除）。")
+    elif args.on:
+        set_pause(DATA, True, reason=args.reason or "")
+        print(f"已暂停一切写操作（{pause_file(DATA)}）。恢复: mkt pause --off")
+    else:
+        p = is_paused(DATA)
+        print(f"全局暂停: {'ON — ' + pause_file(DATA).read_text(encoding='utf-8').strip() if p else 'OFF'}")
+
+
+def cmd_report(args):
+    from core.safety import report
+    print(json.dumps(report(DATA, _ledger(), hours=args.hours),
+                     ensure_ascii=False, indent=1))
+
+
+def cmd_contacts(args):
+    from core.contacts import Contacts
+    c = Contacts(DATA / "contacts.jsonl")
+    if args.action == "add":
+        rec = c.add(**json.loads(args.json))
+        print(json.dumps(rec, ensure_ascii=False, indent=1))
+    elif args.action == "find":
+        rows = c.find(platform=args.platform, value=args.value, org=args.org,
+                      text=args.text, include_dnc=args.all)
+        print(f"{len(rows)} 条")
+        for r in rows[:50]:
+            st = r.get("state", {})
+            print(f"  {r['id']}  {r.get('name', '')}  {r.get('org', '')}  "
+                  f"tier{r.get('tier', '?')}  dnc={st.get('dnc', False)}  "
+                  f"{json.dumps(r.get('platforms', {}), ensure_ascii=False)}")
+    elif args.action == "dnc":
+        c.mark(args.contact_id, dnc=True)
+        print(f"{args.contact_id} 已标记 DNC")
+    elif args.action == "mark":
+        updates = json.loads(args.json)
+        rec = c.mark(args.contact_id, **updates)
+        print(json.dumps(rec, ensure_ascii=False, indent=1))
+    elif args.action == "import":
+        print(json.dumps(c.import_legacy(args.file), ensure_ascii=False))
+    return 0
 
 
 def cmd_x(args):
@@ -128,8 +183,25 @@ def build_parser():
 
     sp = sub.add_parser("status", help="账本聚合")
     sp.set_defaults(fn=cmd_status)
-    sp = sub.add_parser("check", help="CDP 会话检查")
+    sp = sub.add_parser("check", help="CDP 会话检查（X/Gmail/Reddit/LinkedIn 登录态）")
     sp.set_defaults(fn=cmd_check)
+    sp = sub.add_parser("pause", help="全局暂停总闸（一切写操作拒跑）")
+    sp.add_argument("--on", action="store_true", help="暂停（可 --reason '原因'）")
+    sp.add_argument("--off", action="store_true", help="恢复")
+    sp.add_argument("--reason", default="")
+    sp.set_defaults(fn=cmd_pause)
+    sp = sub.add_parser("report", help="一页纸运营报告（近 24h 账本/异常/暂停态）")
+    sp.add_argument("--hours", type=int, default=24)
+    sp.set_defaults(fn=cmd_report)
+    sp = sub.add_parser("contacts", help="线索库：add/find/dnc/mark/import")
+    sp.add_argument("action", choices=["add", "find", "dnc", "mark", "import"])
+    sp.add_argument("--json", help="add/mark 的 JSON 字段")
+    sp.add_argument("--platform"); sp.add_argument("--value")
+    sp.add_argument("--org"); sp.add_argument("--text")
+    sp.add_argument("--all", action="store_true", help="find 含 DNC")
+    sp.add_argument("--contact-id")
+    sp.add_argument("--file", help="import 旧格式文件（er-batch）")
+    sp.set_defaults(fn=cmd_contacts)
 
     sp = sub.add_parser("x", help="X 渠道（vendor，PROVEN）")
     sp.add_argument("action", choices=["publish", "reply", "message", "engage", "search", "inbox"])
@@ -174,6 +246,11 @@ def main():
     if getattr(args, "action", None) in ("send", "publish", "reply", "message") \
             and args.cmd == "email" and not args.queue:
         raise SystemExit("email 写动作需要 --queue data/queues/<campaign>.json")
+    if getattr(args, "action", None) == "add" and args.cmd == "contacts" and not args.json:
+        raise SystemExit("contacts add 需要 --json '{\"name\":…, \"platforms\":{…}}'")
+    if getattr(args, "action", None) in ("dnc", "mark") and args.cmd == "contacts" \
+            and not args.contact_id:
+        raise SystemExit(f"contacts {args.action} 需要 --contact-id")
     return args.fn(args) or 0
 
 
