@@ -1,8 +1,9 @@
 # marketing-ops-automation
 
-**多平台全链路的自动化营销运营工具**：目标驱动（业务目标→plan→客群→波次→执行→复盘）、多渠道（X / Email / Reddit / LinkedIn，可扩展）、**多通道**（API / browser-CDP / OS 键鼠模拟 / SMTP 等四类十种，含降级储备）、零凭据优先。
+**多平台全链路的自动化营销运营工具**：目标驱动（业务目标→plan→客群→波次→执行→复盘）、多渠道（X / Email / Reddit / LinkedIn / **GitHub**，可扩展）、**多通道**（API / browser-CDP / OS 键鼠模拟 / SMTP 等四类十种，含降级储备）、零凭据优先。
 统一六原语（publish / reply / message / engage / search / inbox）、统一写路径事务管道（门禁→节流→回读校验→截图→dry-run 停点→发送→确认→账本）、统一账本。
-三种外壳共用本内核：**CLI（mkt.py）**／**MCP（mcp_server.py）**／**Skill（skills/marketing-ops）**。
+三种外壳共用本内核：**CLI（mkt.py）**／**MCP（mcp_server.py）**／**Skill（skills/marketing-ops + skills/github-project-ops）**。
+GitHub 渠道额外承载**项目经营管线**：audit 体检 → inbox 零响应巡检 → reply 社区响应（见 skills/github-project-ops）。
 
 > 定位一句话：agent 当参谋（出方案，产出可校验的数据工件）、内核当执行（守门禁，上限是内核属性）、人当闸门（未经人审的计划拒跑）。
 > 配套的调研与设计文档（现状盘点/架构/渠道风控调研等）存于本地工作区，不随本仓库分发；仓库内 `data/schemas.md` 自含全部数据契约。
@@ -42,6 +43,10 @@ python3 mkt.py check              # 确认 CDP 会话与 X/Gmail 登录态
 | `mkt reddit publish --sub <版块> --title … --body-file … [--go]` | 发帖（日 ≤3） | **UNVERIFIED** |
 | `mkt linkedin search --keywords "…"` | 只读搜人 | **UNVERIFIED** |
 | `mkt linkedin message --url <profile> --note-file … [--go]` | 半自动连接请求（终端确认） | **UNVERIFIED** |
+| `mkt github audit --repo owner/repo` | **仓库体检**（基础/社区健康/releases/贡献者集中度/AI-readiness/Scorecard） | **PROVEN** |
+| `mkt github inbox --repo owner/repo` | open issues/PR 清单 + 零回复标记（48h 首响巡检） | **PROVEN** |
+| `mkt github search --query "…"` | 仓库搜索（客群/对标发现） | **PROVEN** |
+| `mkt github reply --repo o/r --number N --text "…" [--go]` | issue/PR 评论（api 通道写路径首例；需 `MKT_GITHUB_TOKEN`） | **UNVERIFIED** |
 
 等级含义：PROVEN=真实账号跑通；PORTED=模式已验证、本封装未整跑；UNVERIFIED=选择器未实测，首跑必须人工盯跑（首跑清单见 03 渠道文档 §5）。
 
@@ -65,9 +70,10 @@ python3 -c "from core.planlint import load_plan, lint_plan; print(lint_plan(load
 
 6 个工具：`mkt_status` / `mkt_channels` / `mkt_plan_lint` / `mkt_search` / `mkt_ledger_query`（只读）+ `mkt_run_queue`（写，默认 dry-run；UNVERIFIED 渠道拒实跑；未经人审的 plan 拒跑）。只暴露队列粒度写操作——没有绕过留痕的路径。
 
-## Skill（skills/marketing-ops/SKILL.md）
+## Skill（skills/）
 
-agent 操作协议：目标→plan→客群→人审→执行→复盘七步。装入 `~/.agents/skills/` 即可在 ZCode 等宿主触发（内容协作走 warm-email-outreach / expert-review-outreach / b2b-account-mapping）。
+- `skills/marketing-ops/SKILL.md`：agent 操作协议，目标→plan→客群→人审→执行→复盘七步。装入 `~/.agents/skills/` 即可在 ZCode 等宿主触发（内容协作走 warm-email-outreach / expert-review-outreach / b2b-account-mapping）。
+- `skills/github-project-ops/`：**GitHub 项目经营协议**（开源与闭源通用）——定位诊断（四象限+七阶段）→ 仓库体检清单 → 增长 playbook → 闭源经营模式库；含独立体检脚本 `scripts/repo_audit.py`（零依赖发行版）。与 CLI 的关系：skill 是协议与判断，`mkt github *` 是采数与执行。
 
 ## 通道层（core/transports.py）
 
@@ -82,6 +88,7 @@ RESERVE×6（通道储备库）：`webdriver`｜`rss-public`（只读）｜`esp-
 | `MKT_CDP_URL` | CDP 端点（默认 http://127.0.0.1:9222） |
 | `MKT_EMAIL_USER` / `MKT_EMAIL_APP_PASSWORD` | Gmail SMTP（App Password，绝不入库） |
 | `MKT_LINKEDIN_AUTO=1` | 解锁 LinkedIn 全自动（不建议；默认半自动需终端确认） |
+| `MKT_GITHUB_TOKEN` | GitHub PAT（仅写操作 reply 需要；读原语匿名可用，限额 60 次/时） |
 
 ## 数据三件套（`data/`，gitignore）
 
@@ -93,10 +100,10 @@ RESERVE×6（通道储备库）：`webdriver`｜`rss-public`（只读）｜`esp-
 
 ```
 core/      ledger 账本 · gates 门禁 · throttle 节流 · pipeline 写路径事务 · evidence 留证 · cdp 会话 · transports 通道注册表 · planlint 计划校验/人审强制
-channels/  x/(vendor+adapter) · email_smtp · email_cdp · reddit · linkedin
+channels/  x/(vendor+adapter) · email_smtp · email_cdp · reddit · linkedin · github（api 通道首发）
 transports/  os_input（macOS 键鼠/AX 模拟，UNVERIFIED）
-skills/    marketing-ops（agent 操作协议）
-tests/     离线单测（33 项，含 449 事故回归与人审门禁）：python3 -m unittest discover tests -v
+skills/    marketing-ops（agent 操作协议）· github-project-ops（GitHub 项目经营协议+体检脚本）
+tests/     离线单测（41 项，含 449 事故回归与人审门禁）：python3 -m unittest discover tests -v
 mcp_server.py  MCP 外壳（stdio JSON-RPC，零依赖）
 ```
 

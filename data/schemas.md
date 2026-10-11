@@ -5,7 +5,7 @@
 ```json
 {
   "plan_id": "am-trial20",
-  "goal": "为 AgentMeasure 拿到前 20 个企业试用",
+  "goal": "为 <你的产品> 拿到前 20 个企业试用",
   "created": "2026-10-04",
   "hypothesis": "MCP 工具作者有计量痛点",
   "icp": {"org": "做 agent 产品的团队", "persona": "平台/eval 工程负责人", "beachhead": "MCP 工具作者"},

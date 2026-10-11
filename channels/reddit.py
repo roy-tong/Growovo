@@ -20,7 +20,7 @@ from core.ledger import Ledger
 from core.pipeline import WritePipeline
 from core.throttle import Throttle
 
-DATA = Path(__file__).resolve().parents[2] / "data"
+DATA = Path(__file__).resolve().parents[1] / "data"  # mkt-automation/data（架构 §6；原 parents[2] 误指仓库外层）
 
 OLD = "https://old.reddit.com"
 

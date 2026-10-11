@@ -31,4 +31,12 @@ REGISTRY = {
         "actions": {"publish", "reply", "message", "search", "inbox"},
         "transports": {"cdp"},
     },
+    "github": {
+        # 安全语义按写原语取级（MCP 实跑门禁用）；读原语已在真实仓库实测
+        "status": "UNVERIFIED",
+        "note": "api 通道首发渠道；读原语 audit/search/inbox PROVEN（2026-10-12 实测）；"
+                "reply 走统一写路径，首跑需人工盯 + 复核公开可见；凭据走 MKT_GITHUB_TOKEN",
+        "actions": {"reply", "search", "inbox", "audit"},
+        "transports": {"api"},
+    },
 }

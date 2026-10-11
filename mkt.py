@@ -177,6 +177,30 @@ def cmd_linkedin(args):
     return 2
 
 
+def cmd_github(args):
+    from channels import github
+    if args.action == "audit":
+        github.audit(args.repo)
+        return 0
+    if args.action == "search":
+        github.search(args.query, limit=args.limit)
+        return 0
+    if args.action == "inbox":
+        github.inbox(args.repo)
+        return 0
+    if args.action == "reply":
+        text = Path(args.text_file).read_text(encoding="utf-8").strip() \
+            if args.text_file else args.text
+        rec = github.reply(args.repo, args.number, text, go=args.go,
+                           campaign=args.campaign, ledger=_ledger())
+        detail = rec.get("detail", "")
+        print(f"github reply -> {rec['result']}"
+              + (f"（{detail}）" if detail else "")
+              + (f"  evidence: {rec.get('evidence')}" if rec.get("evidence") else ""))
+        return 0 if rec["result"] in ("committed", "dry-run") else 1
+    return 2
+
+
 def build_parser():
     p = argparse.ArgumentParser(prog="mkt", description="自动化营销组件统一入口")
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -238,6 +262,15 @@ def build_parser():
     sp.add_argument("--note"); sp.add_argument("--note-file")
     sp.add_argument("--go", action="store_true"); sp.add_argument("--campaign")
     sp.set_defaults(fn=cmd_linkedin)
+
+    sp = sub.add_parser("github", help="GitHub 渠道（api 通道；读=PROVEN，写=UNVERIFIED）")
+    sp.add_argument("action", choices=["audit", "search", "inbox", "reply"])
+    sp.add_argument("--repo", help="owner/repo（audit/inbox/reply 目标，reply 配 --number）")
+    sp.add_argument("--query"); sp.add_argument("--limit", type=int, default=10)
+    sp.add_argument("--number", type=int, help="reply 目标 issue/PR 编号")
+    sp.add_argument("--text"); sp.add_argument("--text-file")
+    sp.add_argument("--go", action="store_true"); sp.add_argument("--campaign")
+    sp.set_defaults(fn=cmd_github)
     return p
 
 
@@ -251,6 +284,14 @@ def main():
     if getattr(args, "action", None) in ("dnc", "mark") and args.cmd == "contacts" \
             and not args.contact_id:
         raise SystemExit(f"contacts {args.action} 需要 --contact-id")
+    if getattr(args, "action", None) in ("audit", "inbox") and args.cmd == "github" \
+            and not args.repo:
+        raise SystemExit(f"github {args.action} 需要 --repo owner/repo")
+    if getattr(args, "action", None) == "search" and args.cmd == "github" and not args.query:
+        raise SystemExit("github search 需要 --query '关键词'")
+    if getattr(args, "action", None) == "reply" and args.cmd == "github" \
+            and not (args.repo and args.number and (args.text or args.text_file)):
+        raise SystemExit("github reply 需要 --repo owner/repo --number N --text '…'（或 --text-file）")
     return args.fn(args) or 0
 
 

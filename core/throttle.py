@@ -30,6 +30,11 @@ INTERVALS = {
     # LinkedIn：邀请 ~100/周（社区共识），预注册到周预算的一半以下
     ("linkedin", "message"): (60, 180, 10, 10),  # Tier B 半自动日 ≤10 连接
     ("linkedin", "reply"): (60, 180, 10, 20),
+    # GitHub：REST API 限额 5000 请求/时（认证）——API 不缺额度，预算防的是
+    # 对他人仓库的评论骚扰（社区红线：千人千面、回复要人写）
+    ("github", "reply"): (30, 90, 20, 50),
+    ("github", "publish"): (60, 120, 10, 10),   # release/discussion 发帖（预留）
+    ("github", "search"): (2, 5, None, 500),
 }
 FALLBACK = (60, 120, 10, 30)  # 未知渠道动作一律走保守缺省
 
@@ -50,6 +55,10 @@ OFFICIAL_LIMITS = {
     # LinkedIn（邀请=社区共识，InMail=官方）
     ("linkedin", "message", "free"): {"invites_weekly": "~100", "inmail_monthly": 0, "grade": "混合"},
     ("linkedin", "message", "sales-navigator-core"): {"invites_weekly": "~200", "inmail_monthly": 50, "grade": "混合"},
+    # GitHub（官方 REST API 文档；核心资源 5000 请求/时=认证，60/时=匿名）
+    ("github", "*", "authenticated"): {"requests_hour": 5000, "grade": "官方"},
+    ("github", "*", "anonymous"): {"requests_hour": 60, "grade": "官方"},
+    ("github", "search", "authenticated"): {"requests_minute": 30, "grade": "官方"},
 }
 
 

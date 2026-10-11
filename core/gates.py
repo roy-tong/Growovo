@@ -50,6 +50,9 @@ def check_target(channel, target):
     elif channel == "linkedin":
         if not t.startswith("https://www.linkedin.com"):
             raise GateError(f"LinkedIn 目标应为 profile URL: {t}")
+    elif channel == "github":
+        if not re.match(r"^issue:[\w.-]+/[\w.-]+#\d+$", t):
+            raise GateError(f"GitHub 目标应为 issue:owner/repo#N: {t}")
     return t
 
 

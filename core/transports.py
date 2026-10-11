@@ -9,10 +9,10 @@ RESERVE 通道：已设计、未实现的备用路径——"当一条路走不�
 TRANSPORTS = {
     # ---- ACTIVE ----
     "api": {
-        "desc": "官方/开放 HTTP API（OAuth）",
+        "desc": "官方/开放 HTTP API（OAuth/PAT）",
         "credentials": "token（仅环境变量）",
         "risk": "中性（限额内）",
-        "status": "接口预留（Reddit OAuth 二期）",
+        "status": "PROVEN 读原语（github audit/inbox/search 实测）；写=UNVERIFIED",
         "tier": "ACTIVE",
     },
     "browser-cdp": {
@@ -96,6 +96,7 @@ CHANNEL_TRANSPORTS = {
         "*": ["browser-cdp", "api", "semi-auto-ui"],
     },
     "linkedin": {"*": ["browser-cdp", "semi-auto-ui"]},  # 无个人 API；半自动即兜底
+    "github": {"*": ["api", "semi-auto-ui"]},  # api 即写读主通道；限额耗尽/无 token 时人工 web UI 兜底
     "desktop": {"*": ["os-input", "semi-auto-ui"]},
 }
 
