@@ -7,6 +7,7 @@ GitHub 渠道额外承载**项目经营管线**：audit 体检 → inbox 零响�
 
 > 定位一句话：agent 当参谋（出方案，产出可校验的数据工件）、内核当执行（守门禁，上限是内核属性）、人当闸门（未经人审的计划拒跑）。
 > 配套的调研与设计文档（现状盘点/架构/渠道风控调研等）存于本地工作区，不随本仓库分发；仓库内 `data/schemas.md` 自含全部数据契约。
+> 全链路位置：上游是 [research-to-publish](https://github.com/roy-tong/research-to-publish)（研究 → 文章 → 公众号/小红书交付包），其交付包与文章链接进本内核队列执行发布与互动；X 渠道 vendor 自已归档的 [x-ops-automation](https://github.com/roy-tong/x-ops-automation)。
 
 ## 合规与纪律（先读这个）
 
