@@ -51,11 +51,11 @@ TOOLS = [
     },
     {
         "name": "mkt_search",
-        "description": "渠道只读搜索（客群发现/讨论发现）。channel ∈ x|reddit|linkedin。只读。",
+        "description": "渠道只读搜索（客群发现/讨论发现）。channel ∈ x|reddit|linkedin|hn。只读。",
         "inputSchema": {
             "type": "object",
             "properties": {
-                "channel": {"type": "string", "enum": ["x", "reddit", "linkedin"]},
+                "channel": {"type": "string", "enum": ["x", "reddit", "linkedin", "hn"]},
                 "query": {"type": "string"},
                 "limit": {"type": "integer", "default": 10},
             },
@@ -138,6 +138,11 @@ def call_tool(name, args):
             rows = linkedin.search(args["query"], limit=args.get("limit", 10),
                                    out=DATA / "mcp-linkedin-search.json")
             return _text({"count": len(rows), "out": str(DATA / "mcp-linkedin-search.json")})
+        if ch == "hn":
+            from channels import hn
+            rows = hn.search(args["query"], limit=args.get("limit", 10),
+                             out=DATA / "mcp-hn-search.json")
+            return _text({"count": len(rows), "out": str(DATA / "mcp-hn-search.json")})
 
     if name == "mkt_ledger_query":
         led = Ledger(DATA / "ledger.jsonl")

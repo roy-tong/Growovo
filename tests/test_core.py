@@ -250,5 +250,49 @@ class TestEvidence(TmpDir):
         self.assertEqual(json.loads(out.read_text())["ok"], True)
 
 
+class TestHNChannel(TmpDir):
+    """HN 渠道离线单测：提交物校验/目标格式/稀缺预算/注册表口径（不碰网络与浏览器）。"""
+
+    def test_submission_validation(self):
+        from channels.hn import _validate_submission
+        _validate_submission("Show HN: Thing - demo", url="https://example.com")
+        _validate_submission("Ask HN: how do you x", text="body text")
+        with self.assertRaises(ValueError):   # url 与 text 必须二选一
+            _validate_submission("t", url="https://a.b", text="x")
+        with self.assertRaises(ValueError):   # 两者皆空
+            _validate_submission("t")
+        with self.assertRaises(ValueError):   # 标题为空
+            _validate_submission("", url="https://a.b")
+        with self.assertRaises(ValueError):   # 标题超 80（HN 指引）
+            _validate_submission("x" * 81, url="https://a.b")
+        with self.assertRaises(ValueError):   # url 不合法
+            _validate_submission("t", url="example.com")
+
+    def test_target_format(self):
+        self.assertEqual(check_target("hn", "item:12345"), "item:12345")
+        self.assertTrue(check_target(
+            "hn", "https://news.ycombinator.com/item?id=123").startswith("https://"))
+        with self.assertRaises(GateError):
+            check_target("hn", "@handle")
+
+    def test_publish_is_scarce(self):
+        th = Throttle(self.dir)
+        th.check_run("hn", "publish", 1)                      # 单次 1 条可跑
+        with self.assertRaises(ThrottleError):
+            th.check_run("hn", "publish", 2)                  # 单次上限 1：批量提交拒跑
+        th.daily_charge("hn", "publish")
+        self.assertFalse(th.daily_allows("hn", "publish", 1))  # 日 ≤1：当天第二帖拒跑
+
+    def test_registry_entry(self):
+        from channels import REGISTRY
+        info = REGISTRY["hn"]
+        self.assertEqual(info["status"], "UNVERIFIED")
+        self.assertEqual(info["transports"], {"cdp", "api"})
+        self.assertTrue(info["actions"] <= {"publish", "reply", "message",
+                                            "engage", "search", "inbox"})
+        self.assertNotIn("engage", info["actions"])           # 投票操纵红线：不实现
+        self.assertNotIn("message", info["actions"])          # HN 无 DM
+
+
 if __name__ == "__main__":
     unittest.main()

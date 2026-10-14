@@ -1,6 +1,6 @@
 # marketing-ops-automation
 
-**多平台全链路的自动化营销运营工具**：目标驱动（业务目标→plan→客群→波次→执行→复盘）、多渠道（X / Email / Reddit / LinkedIn / **GitHub**，可扩展）、**多通道**（API / browser-CDP / OS 键鼠模拟 / SMTP 等四类十种，含降级储备）、零凭据优先。
+**多平台全链路的自动化营销运营工具**：目标驱动（业务目标→plan→客群→波次→执行→复盘）、多渠道（X / Email / Reddit / LinkedIn / **GitHub** / **HN**，可扩展）、**多通道**（API / browser-CDP / OS 键鼠模拟 / SMTP 等四类十种，含降级储备）、零凭据优先。
 统一六原语（publish / reply / message / engage / search / inbox）、统一写路径事务管道（门禁→节流→回读校验→截图→dry-run 停点→发送→确认→账本）、统一账本。
 三种外壳共用本内核：**CLI（mkt.py）**／**MCP（mcp_server.py）**／**Skill（skills/marketing-ops + skills/github-project-ops）**。
 GitHub 渠道额外承载**项目经营管线**：audit 体检 → inbox 零响应巡检 → reply 社区响应（见 skills/github-project-ops）。
@@ -48,6 +48,9 @@ python3 mkt.py check              # 确认 CDP 会话与 X/Gmail 登录态
 | `mkt github inbox --repo owner/repo` | open issues/PR 清单 + 零回复标记（48h 首响巡检） | **PROVEN** |
 | `mkt github search --query "…"` | 仓库搜索（客群/对标发现） | **PROVEN** |
 | `mkt github reply --repo o/r --number N --text "…" [--go]` | issue/PR 评论（api 通道写路径首例；需 `MKT_GITHUB_TOKEN`） | **UNVERIFIED** |
+| `mkt hn search --query "…"` | HN 讨论/客群发现（Algolia 公共 API，匿名只读） | **PROVEN**（只读） |
+| `mkt hn publish --title "Show HN: …" --url … [--go]` | submit 表单提交（CDP；日≤1，标题≤80；Show HN 限自有项目） | **UNVERIFIED** |
+| `mkt hn reply --item item:N --text "…" [--go]` | 条目评论（首用=Show HN 首条作者评论，提交后 1h 内） | **UNVERIFIED** |
 
 等级含义：PROVEN=真实账号跑通；PORTED=模式已验证、本封装未整跑；UNVERIFIED=选择器未实测，首跑必须人工盯跑（首跑清单见 03 渠道文档 §5）。
 
@@ -101,10 +104,10 @@ RESERVE×6（通道储备库）：`webdriver`｜`rss-public`（只读）｜`esp-
 
 ```
 core/      ledger 账本 · gates 门禁 · throttle 节流 · pipeline 写路径事务 · evidence 留证 · cdp 会话 · transports 通道注册表 · planlint 计划校验/人审强制
-channels/  x/(vendor+adapter) · email_smtp · email_cdp · reddit · linkedin · github（api 通道首发）
+channels/  x/(vendor+adapter) · email_smtp · email_cdp · reddit · linkedin · github（api 通道首发） · hn（CDP 写 + Algolia 读）
 transports/  os_input（macOS 键鼠/AX 模拟，UNVERIFIED）
 skills/    marketing-ops（agent 操作协议）· github-project-ops（GitHub 项目经营协议+体检脚本）
-tests/     离线单测（41 项，含 449 事故回归与人审门禁）：python3 -m unittest discover tests -v
+tests/     离线单测（45 项，含 449 事故回归与人审门禁）：python3 -m unittest discover tests -v
 mcp_server.py  MCP 外壳（stdio JSON-RPC，零依赖）
 ```
 

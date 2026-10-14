@@ -27,7 +27,7 @@ CLI（`python3 mkt.py …`）或 MCP（mkt-server），本协议不发明新动�
 假设 → ICP（组织+persona）→ **单一 beachhead**（不铺多线）。写清假设的可证伪点。
 
 ### ③ 客群证据
-- 发现：`mkt.py x/reddit/linkedin search`（只读）+ 既有研究资产（leads 库/触达数据库）
+- 发现：`mkt.py x/reddit/linkedin/hn search`（只读）+ 既有研究资产（leads 库/触达数据库）
 - 资格：证据分级 A=公开自证 / B=强信号 / C=推断；**低于 B 不入队**
 - 公司账号必须富化到具体员工（部门+权责+persona）——走 [[b2b-account-mapping]] 协议
 - 入库 `data/contacts.jsonl`（hooks/title/verification 字段是触达弹药）
@@ -55,7 +55,7 @@ python3 mkt.py status                  # 账本
 - 内容由人审产出（写作走 [[warm-email-outreach]] / [[expert-review-outreach]]）；
   队列正文千人千面，占位符残留会被门禁直接拒绝
 - 写操作永远先 dry-run 看截图，再 --go
-- UNVERIFIED 渠道（reddit/linkedin）首跑必须用户在场
+- UNVERIFIED 渠道（reddit/linkedin/hn）首跑必须用户在场
 - 失败即停，不重试轰炸
 
 ### ⑦ 复盘
@@ -68,7 +68,7 @@ python3 mkt.py status                  # 账本
 - 上限是内核属性：计划写多大都会被日预算/单次上限拒绝
 - 回读校验不一致绝不发送（449 空正文事故固化）
 - 不做对抗：不绕验证码、不伪造指纹、不用代理池
-- LinkedIn 全自动默认锁死（半自动=终端人工确认）；Reddit 日 ≤3 帖
+- LinkedIn 全自动默认锁死（半自动=终端人工确认）；Reddit 日 ≤3 帖；HN 日 ≤1 帖（Show HN 限自有项目，提交后 1h 内发首条作者评论）
 
 ## 与其他 skill 的分工
 

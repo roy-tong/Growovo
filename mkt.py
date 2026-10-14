@@ -55,6 +55,7 @@ def cmd_check(args):
             ("Gmail", "https://mail.google.com", "accounts.google.com"),
             ("Reddit", "https://old.reddit.com", "login"),
             ("LinkedIn", "https://www.linkedin.com/feed/", "login"),
+            ("HN", "https://news.ycombinator.com/submitted", "login"),
         ]
         results = []
         for name, url, bad in checks:
@@ -201,13 +202,36 @@ def cmd_github(args):
     return 2
 
 
+def cmd_hn(args):
+    from channels import hn
+    if args.action == "search":
+        hn.search(args.query, limit=args.limit)
+        return 0
+    if args.action == "inbox":
+        hn.inbox()
+        return 0
+    text = Path(args.text_file).read_text(encoding="utf-8").strip() \
+        if args.text_file else (args.text or "")
+    if args.action == "publish":
+        rec = hn.publish(args.title, url=args.url, text=text or None,
+                         go=args.go, campaign=args.campaign, ledger=_ledger())
+    else:  # reply
+        rec = hn.reply(args.item, text, go=args.go, campaign=args.campaign,
+                       ledger=_ledger())
+    detail = rec.get("detail", "")
+    print(f"hn {args.action} -> {rec['result']}"
+          + (f"（{detail}）" if detail else "")
+          + (f"  evidence: {rec.get('evidence')}" if rec.get("evidence") else ""))
+    return 0 if rec["result"] in ("committed", "dry-run") else 1
+
+
 def build_parser():
     p = argparse.ArgumentParser(prog="mkt", description="自动化营销组件统一入口")
     sub = p.add_subparsers(dest="cmd", required=True)
 
     sp = sub.add_parser("status", help="账本聚合")
     sp.set_defaults(fn=cmd_status)
-    sp = sub.add_parser("check", help="CDP 会话检查（X/Gmail/Reddit/LinkedIn 登录态）")
+    sp = sub.add_parser("check", help="CDP 会话检查（X/Gmail/Reddit/LinkedIn/HN 登录态）")
     sp.set_defaults(fn=cmd_check)
     sp = sub.add_parser("pause", help="全局暂停总闸（一切写操作拒跑）")
     sp.add_argument("--on", action="store_true", help="暂停（可 --reason '原因'）")
@@ -271,6 +295,16 @@ def build_parser():
     sp.add_argument("--text"); sp.add_argument("--text-file")
     sp.add_argument("--go", action="store_true"); sp.add_argument("--campaign")
     sp.set_defaults(fn=cmd_github)
+
+    sp = sub.add_parser("hn", help="HN 渠道（CDP 写 + Algolia 读，UNVERIFIED）")
+    sp.add_argument("action", choices=["search", "publish", "reply", "inbox"])
+    sp.add_argument("--query"); sp.add_argument("--limit", type=int, default=10)
+    sp.add_argument("--title", help="publish 标题（≤80 字符；Show HN 前缀自有项目专用）")
+    sp.add_argument("--url", help="publish 链接帖 URL（与 --text 二选一）")
+    sp.add_argument("--item", help="reply 目标：item:N 或 news.ycombinator.com/item?id=N")
+    sp.add_argument("--text"); sp.add_argument("--text-file")
+    sp.add_argument("--go", action="store_true"); sp.add_argument("--campaign")
+    sp.set_defaults(fn=cmd_hn)
     return p
 
 
@@ -292,6 +326,14 @@ def main():
     if getattr(args, "action", None) == "reply" and args.cmd == "github" \
             and not (args.repo and args.number and (args.text or args.text_file)):
         raise SystemExit("github reply 需要 --repo owner/repo --number N --text '…'（或 --text-file）")
+    if getattr(args, "action", None) == "search" and args.cmd == "hn" and not args.query:
+        raise SystemExit("hn search 需要 --query '关键词'")
+    if getattr(args, "action", None) == "publish" and args.cmd == "hn" \
+            and not (args.title and (args.url or args.text or args.text_file)):
+        raise SystemExit("hn publish 需要 --title '…' 且 --url 与 --text/--text-file 二选一")
+    if getattr(args, "action", None) == "reply" and args.cmd == "hn" \
+            and not (args.item and (args.text or args.text_file)):
+        raise SystemExit("hn reply 需要 --item <url|item:N> --text '…'（或 --text-file）")
     return args.fn(args) or 0
 
 

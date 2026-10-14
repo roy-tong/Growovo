@@ -35,6 +35,11 @@ INTERVALS = {
     ("github", "reply"): (30, 90, 20, 50),
     ("github", "publish"): (60, 120, 10, 10),   # release/discussion 发帖（预留）
     ("github", "search"): (2, 5, None, 500),
+    # HN：无公开的 per-user 提交限额口径（过频提交的处置是 shadow 处理，社区共识）；
+    # 预算取文化纪律——Show HN 是低频发射动作，守帖（回评论）才是日更负担
+    ("hn", "publish"): (60, 120, 1, 1),         # 日 ≤1：HN 文化=稀缺发布，多投自毁
+    ("hn", "reply"): (60, 180, 20, 30),          # 守帖回评节奏 1-3 分钟，日 ≤30
+    ("hn", "search"): (2, 5, None, 500),         # Algolia 公共 API，匿名宽限
 }
 FALLBACK = (60, 120, 10, 30)  # 未知渠道动作一律走保守缺省
 

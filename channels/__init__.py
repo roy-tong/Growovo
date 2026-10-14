@@ -39,4 +39,13 @@ REGISTRY = {
         "actions": {"reply", "search", "inbox", "audit"},
         "transports": {"api"},
     },
+    "hn": {
+        # 安全语义按写原语取级；读原语 search 已于 2026-10-14 实测（Algolia 匿名只读）
+        "status": "UNVERIFIED",
+        "note": "发布走 CDP submit 表单（showhn-pack SOP），搜索走 Algolia 公共 API"
+                "（匿名只读，2026-10-14 实测）；publish 日≤1（Show HN 稀缺纪律），"
+                "标题 ≤80 字符；engage/message 不实现（无 DM、投票操纵红线同 Reddit）",
+        "actions": {"publish", "reply", "search", "inbox"},
+        "transports": {"cdp", "api"},
+    },
 }

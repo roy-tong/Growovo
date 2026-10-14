@@ -53,6 +53,9 @@ def check_target(channel, target):
     elif channel == "github":
         if not re.match(r"^issue:[\w.-]+/[\w.-]+#\d+$", t):
             raise GateError(f"GitHub 目标应为 issue:owner/repo#N: {t}")
+    elif channel == "hn":
+        if not (t.startswith("item:") or t.startswith("https://news.ycombinator.com")):
+            raise GateError(f"HN 目标应为 item:N 或 news.ycombinator.com URL: {t}")
     return t
 
 
