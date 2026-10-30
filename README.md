@@ -1,13 +1,20 @@
-# marketing-ops-automation
+# Growovo
 
-**多平台全链路的自动化营销运营工具**：目标驱动（业务目标→plan→客群→波次→执行→复盘）、多渠道（X / Email / Reddit / LinkedIn / **GitHub** / **HN**，可扩展）、**多通道**（API / browser-CDP / OS 键鼠模拟 / SMTP 等四类十种，含降级储备）、零凭据优先。
-统一六原语（publish / reply / message / engage / search / inbox）、统一写路径事务管道（门禁→节流→回读校验→截图→dry-run 停点→发送→确认→账本）、统一账本。
-三种外壳共用本内核：**CLI（mkt.py）**／**MCP（mcp_server.py）**／**Skill（skills/marketing-ops + skills/github-project-ops）**。
-GitHub 渠道额外承载**项目经营管线**：audit 体检 → inbox 零响应巡检 → reply 社区响应（见 skills/github-project-ops）。
+**Agent-native GTM Operator · From Product to Customers.**
 
-> 定位一句话：agent 当参谋（出方案，产出可校验的数据工件）、内核当执行（守门禁，上限是内核属性）、人当闸门（未经人审的计划拒跑）。
-> 配套的调研与设计文档（现状盘点/架构/渠道风控调研等）存于本地工作区，不随本仓库分发；仓库内 `data/schemas.md` 自含全部数据契约。
-> 全链路位置：上游是 [research-to-publish](https://github.com/roy-tong/research-to-publish)（研究 → 文章 → 公众号/小红书交付包），其交付包与文章链接进本内核队列执行发布与互动；X 渠道 vendor 自已归档的 [x-ops-automation](https://github.com/roy-tong/x-ops-automation)。
+> **定 → 造 → 跑**：输入一个已发布的产品，交付可验证的真实用户增长（注册、激活、付费），中间每一步带证据。
+
+**演进说明**：本仓库由 marketing-ops-automation 进化而来。原有执行内核完整保留、继续可用，并构成 Growovo 的 Growth Orchestrator 与治理层：
+
+- 统一六原语（publish / reply / message / engage / search / inbox）、统一写路径事务管道（门禁→节流→回读校验→截图→dry-run 停点→发送→确认→账本）、统一账本
+- 三种外壳共用本内核：**CLI（mkt.py）**／**MCP（mcp_server.py）**／**Skill（skills/marketing-ops + skills/github-project-ops）**
+- 多渠道（X / Email / Reddit / LinkedIn / **GitHub** / **HN**，可扩展）、**多通道**（API / browser-CDP / OS 键鼠模拟 / SMTP 等四类十种，含降级储备）、零凭据优先
+- GitHub 渠道承载**项目经营管线**：audit 体检 → inbox 零响应巡检 → reply 社区响应（见 skills/github-project-ops）
+
+在此之上，Growovo 将逐步构建：**定**（产品理解、ICP、定位、渠道策略）、**造**（增长资产工厂）、**量**（归因与实验）。证据契约复用 [askovo/SURE](https://github.com/roy-tong/askovo) 的 E0–E5 证据分级与 claim 分型。当前处于演进早期：`mkt` 命令、数据契约与全部文档保持可用，新能力按 P0 dogfood 节奏推进。
+
+> 内核纪律一句话（不变）：agent 当参谋（出方案，产出可校验的数据工件）、内核当执行（守门禁，上限是内核属性）、人当闸门（未经人审的计划拒跑）。
+> 仓库内 `data/schemas.md` 自含全部数据契约。上游是 [research-to-publish](https://github.com/roy-tong/research-to-publish)（研究 → 文章 → 公众号/小红书交付包），其交付包与文章链接进本内核队列执行发布与互动；X 渠道 vendor 自已归档的 [x-ops-automation](https://github.com/roy-tong/x-ops-automation)。
 
 ## 合规与纪律（先读这个）
 
