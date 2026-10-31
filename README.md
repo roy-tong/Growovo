@@ -83,6 +83,7 @@ python3 mkt.py check              # 确认 CDP 会话与 X/Gmail 登录态
 | `mkt hn search --query "…"` | HN 讨论/客群发现（Algolia 公共 API，匿名只读） | **PROVEN**（只读） |
 | `mkt hn publish --title "Show HN: …" --url … [--go]` | submit 表单提交（CDP；日≤1，标题≤80；Show HN 限自有项目） | **UNVERIFIED** |
 | `mkt hn reply --item item:N --text "…" [--go]` | 条目评论（首用=Show HN 首条作者评论，提交后 1h 内） | **UNVERIFIED** |
+| `python3 mkt.py memory …` | 只读运营记忆：从已核验回执提取重复模式（见文末） | — |
 
 等级含义：PROVEN=真实账号跑通；PORTED=模式已验证、本封装未整跑；UNVERIFIED=选择器未实测，首跑必须人工盯跑（首跑清单见 03 渠道文档 §5）。
 
@@ -178,13 +179,13 @@ X 渠道 vendor 引入 x-ops-automation（上游 github: roy-tong/x-ops-automati
 
 MIT（见 [LICENSE](LICENSE)）。`channels/x/vendor/` 引入自同作者仓库 x-ops-automation（MIT）。
 
-## Operations memory: learn from verified platform receipts
+## 运营记忆：从已核验的平台回执中学习
 
-Inspect recurring channel/action patterns without exposing contact details or automatically executing any past action:
+在不暴露联系人明细、也不自动重放任何历史动作的前提下，检视重复出现的渠道/动作模式：
 
 ```bash
 python3 mkt.py memory --campaign my-campaign
 python3 mkt.py memory --channel github --output data/operations-memory.json
 ```
 
-The summary reports confirmed platform operations, unknown/failing receipts and **human-review candidates**. It intentionally excludes targets and message bodies. A successful platform action is **not** evidence of customer activation, and a pattern is never permission to replay: new runs still require fresh authorization, current platform-policy checks and the standard execution gates. This is a read-only foundation for reusable playbooks, not semantic/visual UI learning. See [feature status](docs/feature-status.md).
+摘要报告已确认的平台操作、未知/失败回执与**人审候选**；有意排除目标对象与消息正文。平台动作成功**不**等于客户激活，模式也永远不是重放许可：新的执行仍需新的授权、当期平台政策检查与标准执行门禁。这是可复用 playbook 的只读基础，不是语义/视觉 UI 学习。见[能力进度与技术取舍](docs/feature-status.md)。
