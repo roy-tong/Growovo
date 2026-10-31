@@ -1,6 +1,11 @@
-# Growovo
+<p align="center">
+  <img src="docs/assets/logo.png" width="400" alt="Growovo">
+</p>
 
-**把重复运营工作交给 Agent，留下可核验的执行记录。**
+<p align="center"><strong>把重复运营工作交给 Agent，留下可核验的执行记录。</strong><br>
+<em>Execute authorized recurring operations with reviewable results.</em></p>
+
+<p align="center"><strong>简体中文</strong> · <a href="README.en.md">English</a></p>
 
 Growovo 面向维护产品社区、内容渠道和客户沟通的运营人员。输入工作目标、授权账号与任务清单，先预览和审核，再执行重复操作；每项动作记录成功、失败或待人工核实，支持暂停与后续处理。
 
