@@ -9,6 +9,8 @@
   mkt check                 CDP 会话与各渠道登录态检查
   mkt demo                  零网络零账号演示（lint→人审→写路径 dry-run→账本）
   mkt doctor [--selftest]   环境体检（--selftest 连跑全部离线单测）
+  mkt experiment …          实验引擎：预注册→观察→人判（机器不判因果）
+  mkt outcome …             效果归因：事件/计数台账 + 漏斗（口径非因果）
 
 示例:
   python3 mkt.py email message --queue data/queues/er-wave7.json        # dry-run
@@ -126,6 +128,84 @@ def cmd_demo(args):
 def cmd_doctor(args):
     from core.doctor import run_doctor
     return run_doctor(BASE, DATA, selftest=args.selftest)
+
+
+def cmd_experiment(args):
+    from core import experiments
+    if args.action in ("start", "obs", "conclude", "stop") and not args.id:
+        raise SystemExit(f"experiment {args.action} 需要 --id")
+    if args.action == "new":
+        if not (args.id and args.hypothesis and args.metric and args.rule
+                and args.start and args.end):
+            raise SystemExit("experiment new 需要 --id --hypothesis --metric --rule --start --end")
+        exp = experiments.new_experiment(
+            DATA, exp_id=args.id, hypothesis=args.hypothesis, metric=args.metric,
+            decision_rule=args.rule, start=args.start, end=args.end,
+            variant=args.variant or "", owner=args.owner or "",
+            field=args.field, agg=args.agg)
+        print(json.dumps(exp, ensure_ascii=False, indent=1))
+        return 0
+    if args.action == "start":
+        print(json.dumps(experiments.start_experiment(DATA, args.id), ensure_ascii=False, indent=1))
+        return 0
+    if args.action == "obs":
+        if not args.note:
+            raise SystemExit("experiment obs 需要 --note '观察说明'")
+        data = json.loads(args.data) if args.data else {}
+        exp = experiments.record_observation(
+            DATA, args.id, note=args.note, data=data,
+            evidence_ref=args.evidence_ref or "", approximated=args.approximated)
+        print(json.dumps({"exp_id": exp["exp_id"], "observations": len(exp["observations"]),
+                          "aggregate": experiments.aggregate(exp)}, ensure_ascii=False))
+        return 0
+    if args.action == "list":
+        exp_dir = DATA / "experiments"
+        rows = sorted(exp_dir.glob("*.json")) if exp_dir.is_dir() else []
+        if not rows:
+            print("（无实验）")
+        for path in rows:
+            exp = json.loads(path.read_text(encoding="utf-8"))
+            print(f"  {exp['exp_id']}  {exp['status']:8} 观察x{len(exp['observations'])}  "
+                  f"{(exp.get('conclusion') or {}).get('result', '—'):12} {exp['hypothesis'][:40]}")
+        return 0
+    if args.action == "conclude":
+        if not (args.result and args.by):
+            raise SystemExit("experiment conclude 需要 --result met|not_met|inconclusive --by '判定人'")
+        exp = experiments.conclude(DATA, args.id, result=args.result, decided_by=args.by)
+        print(json.dumps(exp["conclusion"], ensure_ascii=False, indent=1))
+        return 0
+    if args.action == "stop":
+        print(json.dumps(experiments.stop_experiment(DATA, args.id, reason=args.reason or ""),
+                         ensure_ascii=False, indent=1))
+        return 0
+    return 1
+
+
+def cmd_outcome(args):
+    from core.attribution import OutcomeLedger
+    ledger = OutcomeLedger(DATA)
+    if args.action == "event":
+        if not (args.subject and args.type):
+            raise SystemExit("outcome event 需要 --subject <主体> --type signal|signup|activation|paid")
+        rec = ledger.add_event(subject=args.subject, event_type=args.type,
+                               channel=args.channel or "", touch=args.touch or "",
+                               source_ref=args.source_ref or "", approximated=args.approximated)
+        print(json.dumps(rec, ensure_ascii=False))
+        return 0
+    if args.action == "count":
+        if not (args.metric and args.value is not None and args.window and args.source_ref):
+            raise SystemExit("outcome count 需要 --metric --value N --window --source-ref")
+        rec = ledger.add_count(metric=args.metric, value=args.value, window=args.window,
+                               source_ref=args.source_ref, approximated=True)
+        print(json.dumps(rec, ensure_ascii=False))
+        return 0
+    if args.action == "funnel":
+        print(json.dumps(ledger.funnel(), ensure_ascii=False, indent=1))
+        return 0
+    if args.action == "attribution":
+        print(json.dumps(ledger.attribution(), ensure_ascii=False, indent=1))
+        return 0
+    return 1
 
 
 def cmd_x(args):
@@ -322,6 +402,37 @@ def build_parser():
     sp.add_argument("--text"); sp.add_argument("--text-file")
     sp.add_argument("--go", action="store_true"); sp.add_argument("--campaign")
     sp.set_defaults(fn=cmd_hn)
+
+    sp = sub.add_parser("experiment", help="实验引擎：预注册→观察→人判（机器不判因果）")
+    sp.add_argument("action", choices=["new", "start", "obs", "list", "conclude", "stop"])
+    sp.add_argument("--id", help="实验 id（小写/数字/连字符）")
+    sp.add_argument("--hypothesis"); sp.add_argument("--metric")
+    sp.add_argument("--rule", help="预注册判定规则（启动前必填）")
+    sp.add_argument("--start"); sp.add_argument("--end")
+    sp.add_argument("--variant"); sp.add_argument("--owner")
+    sp.add_argument("--field", default="", help="默认取 metric 名")
+    sp.add_argument("--agg", default="count", choices=["count", "sum", "latest"])
+    sp.add_argument("--note", help="obs：观察说明（必填）")
+    sp.add_argument("--data", help="obs：JSON 数据，如 '{\"value\": 3}'")
+    sp.add_argument("--evidence-ref", default="")
+    sp.add_argument("--approximated", action="store_true", help="obs：无出处数据显式标近似")
+    sp.add_argument("--result", choices=["met", "not_met", "inconclusive"])
+    sp.add_argument("--by", help="conclude：判定人署名（必填）")
+    sp.add_argument("--reason", help="stop：原因")
+    sp.set_defaults(fn=cmd_experiment)
+
+    sp = sub.add_parser("outcome", help="效果归因：事件/计数台账 + 漏斗 + 记账口径（非因果）")
+    sp.add_argument("action", choices=["event", "count", "funnel", "attribution"])
+    sp.add_argument("--subject", help="event：主体标识（如访客 id / cohort 名）")
+    sp.add_argument("--type", choices=["signal", "signup", "activation", "paid"])
+    sp.add_argument("--channel"); sp.add_argument("--touch")
+    sp.add_argument("--source-ref", default="")
+    sp.add_argument("--approximated", action="store_true",
+                   help="event：signup 近似口径（activation/paid 禁止近似）")
+    sp.add_argument("--metric", help="count：指标名")
+    sp.add_argument("--value", type=int, help="count：非负整数")
+    sp.add_argument("--window", help="count：统计窗口")
+    sp.set_defaults(fn=cmd_outcome)
     return p
 
 

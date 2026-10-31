@@ -1,0 +1,152 @@
+#!/usr/bin/env python3
+"""实验引擎 —— 预注册的增长实验台账（Growovo「量」的第一块）。
+
+data/experiments/<exp_id>.json 每个实验一份：
+  {exp_id, hypothesis, metric, metric_spec, decision_rule,
+   window{start,end}, variant, owner, status, observations[], conclusion}
+
+纪律（与 askovo/SURE 证据契约对齐）：
+1. 判定规则必须在 running 之前预注册（decision_rule 非空才允许启动），
+   事后改规则等于没做实验；
+2. 机器只做确定性聚合（count/sum/latest），实验结论 met/not_met/inconclusive
+   由人判定并署名（decided_by），机器不产出因果声明；
+3. 每条 observation 可带 evidence_ref（指向账本/研究记录），无出处的数据
+   必须标注 approximated=true。
+
+状态机：planned → running → analyzed；任意状态可 stopped。
+"""
+from __future__ import annotations
+
+import json
+import re
+from datetime import datetime
+from pathlib import Path
+
+EXP_STATUSES = ("planned", "running", "analyzed", "stopped")
+AGGS = ("count", "sum", "latest")
+_ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]{1,40}$")
+
+
+class ExperimentError(ValueError):
+    pass
+
+
+def _exp_path(data_dir: Path, exp_id: str) -> Path:
+    return Path(data_dir) / "experiments" / f"{exp_id}.json"
+
+
+def load_experiment(data_dir: Path, exp_id: str) -> dict:
+    path = _exp_path(data_dir, exp_id)
+    if not path.is_file():
+        raise ExperimentError(f"experiment {exp_id!r} not found")
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _save(data_dir: Path, exp: dict) -> None:
+    path = _exp_path(data_dir, exp["exp_id"])
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(exp, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
+def new_experiment(data_dir: Path, *, exp_id: str, hypothesis: str, metric: str,
+                   decision_rule: str, start: str, end: str,
+                   variant: str = "", owner: str = "", field: str = "",
+                   agg: str = "count") -> dict:
+    if not _ID_RE.match(exp_id or ""):
+        raise ExperimentError("exp_id 只允许小写字母/数字/连字符（2–41 字符）")
+    for name, value in (("hypothesis", hypothesis), ("metric", metric),
+                        ("decision_rule", decision_rule), ("start", start), ("end", end)):
+        if not str(value or "").strip():
+            raise ExperimentError(f"{name} 不能为空（预注册纪律：规则先于启动）")
+    if agg not in AGGS:
+        raise ExperimentError(f"agg 只支持 {AGGS}")
+    if _exp_path(data_dir, exp_id).exists():
+        raise ExperimentError(f"experiment {exp_id!r} already exists")
+    exp = {
+        "exp_id": exp_id,
+        "hypothesis": hypothesis,
+        "metric": metric,
+        "metric_spec": {"field": field or metric, "agg": agg},
+        "decision_rule": decision_rule,
+        "window": {"start": start, "end": end},
+        "variant": variant,
+        "owner": owner,
+        "status": "planned",
+        "observations": [],
+        "conclusion": None,
+        "created": datetime.now().isoformat(timespec="seconds"),
+    }
+    _save(data_dir, exp)
+    return exp
+
+
+def start_experiment(data_dir: Path, exp_id: str) -> dict:
+    exp = load_experiment(data_dir, exp_id)
+    if exp["status"] != "planned":
+        raise ExperimentError(f"只有 planned 可启动，当前 {exp['status']}")
+    exp["status"] = "running"
+    exp["started_at"] = datetime.now().isoformat(timespec="seconds")
+    _save(data_dir, exp)
+    return exp
+
+
+def record_observation(data_dir: Path, exp_id: str, *, note: str,
+                       data: dict | None = None, evidence_ref: str = "",
+                       approximated: bool = False) -> dict:
+    exp = load_experiment(data_dir, exp_id)
+    if exp["status"] not in ("running", "planned", "analyzed"):
+        raise ExperimentError(f"{exp['status']} 状态不接受新观察")
+    if not str(note or "").strip():
+        raise ExperimentError("note 不能为空")
+    if not evidence_ref and not approximated:
+        raise ExperimentError("无 evidence_ref 的观察必须显式 approximated=true")
+    exp["observations"].append({
+        "ts": datetime.now().isoformat(timespec="seconds"),
+        "note": note,
+        "data": data or {},
+        "evidence_ref": evidence_ref,
+        "approximated": bool(approximated),
+    })
+    _save(data_dir, exp)
+    return exp
+
+
+def aggregate(exp: dict):
+    """确定性聚合观测值；metric_spec 决定字段与聚合方式。不解释、不外推。"""
+    field = exp["metric_spec"]["field"]
+    agg = exp["metric_spec"]["agg"]
+    values = [obs.get("data", {}).get(field) for obs in exp["observations"]]
+    values = [v for v in values if isinstance(v, (int, float)) and not isinstance(v, bool)]
+    if agg == "count":
+        return len(values)
+    if agg == "sum":
+        return sum(values) if values else None
+    return values[-1] if values else None
+
+
+def conclude(data_dir: Path, exp_id: str, *, result: str, decided_by: str,
+             evidence_refs=None) -> dict:
+    exp = load_experiment(data_dir, exp_id)
+    if result not in ("met", "not_met", "inconclusive"):
+        raise ExperimentError("result 只允许 met / not_met / inconclusive")
+    if not str(decided_by or "").strip():
+        raise ExperimentError("结论必须署名（decided_by）——机器不判定实验成败")
+    exp["conclusion"] = {
+        "result": result,
+        "decided_by": decided_by,
+        "decided_at": datetime.now().isoformat(timespec="seconds"),
+        "aggregate": aggregate(exp),
+        "evidence_refs": list(evidence_refs or []),
+        "note": "结论按预注册规则由人判定；聚合值不构成因果声明",
+    }
+    exp["status"] = "analyzed"
+    _save(data_dir, exp)
+    return exp
+
+
+def stop_experiment(data_dir: Path, exp_id: str, *, reason: str) -> dict:
+    exp = load_experiment(data_dir, exp_id)
+    exp["status"] = "stopped"
+    exp["stopped_reason"] = reason
+    _save(data_dir, exp)
+    return exp

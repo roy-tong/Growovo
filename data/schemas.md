@@ -77,3 +77,32 @@ result 终态：`committed` / `indeterminate`（人工裁决，禁自动重发�
 
 `data/demo/`：plans/queues/ledger 全套演示产物（零网络零账号，transport=demo-memory）。
 可整目录删除，不影响真实数据；重复跑只追加演示账本，终态恒为 dry-run/rejected/failed。
+
+## experiments/<exp_id>.json 实验（预注册纪律：规则先于启动）
+
+```json
+{
+  "exp_id": "p0-d14-gate", "hypothesis": "…", "metric": "manual_hours",
+  "metric_spec": {"field": "manual_hours", "agg": "sum|count|latest"},
+  "decision_rule": "判定规则（启动前必填，事后不改）",
+  "window": {"start": "2026-10-31", "end": "2026-11-14"},
+  "status": "planned|running|analyzed|stopped",
+  "observations": [{"ts", "note", "data", "evidence_ref", "approximated"}],
+  "conclusion": {"result": "met|not_met|inconclusive", "decided_by": "人（必填）", "aggregate"}
+}
+```
+
+- 强制：无 evidence_ref 的观察必须 `approximated=true`；conclusion 必须署名——机器只聚合，不判定
+- CLI：`mkt experiment new/start/obs/list/conclude/stop`
+
+## outcomes/events.jsonl 事件与计数（归因口径，非因果）
+
+```json
+{"kind": "event", "ts", "subject", "event_type": "signal|signup|activation|paid",
+ "channel", "touch", "source_ref", "approximated"}
+{"kind": "count", "ts", "metric", "value", "window", "source_ref", "approximated": true}
+```
+
+- 强制：activation/paid 禁止近似口径；计数必须带 source_ref 与 window；signup 近似主体在漏斗报告单列
+- 归因只输出 last_touch/first_touch 记账口径，因果结论需要 experiment，不能从时间先后推出
+- CLI：`mkt outcome event/count/funnel/attribution`
