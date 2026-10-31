@@ -1,29 +1,18 @@
 # Growovo
 
-**Agent-native GTM Operator · From Product to Customers.**
+**把重复运营工作交给 Agent，留下可核验的执行记录。**
 
-> **定 → 造 → 跑**：输入一个已发布的产品，交付可验证的真实用户增长（注册、激活、付费），中间每一步带证据。
+Growovo 面向维护产品社区、内容渠道和客户沟通的运营人员。输入工作目标、授权账号与任务清单，先预览和审核，再执行重复操作；每项动作记录成功、失败或待人工核实，支持暂停与后续处理。
 
-**演进说明**：本仓库由 marketing-ops-automation 进化而来。经过验证的原内核完整保留、继续可用，成为 Growovo 端到端引擎的**「跑」层与治理层**：
+产品由 **Operator Engine（操作内核）** 和 **Playbooks（业务工作流）** 组成。当前可用的 GitHub Inbox Playbook 把问题列表分流并生成回复队列；内容、邮件和增长活动复用同一执行内核。CLI、MCP、Skill 共用审批、预算、回读和账本。发送成功只代表操作完成，注册、付费等业务结果单独记录。
 
-- 统一六原语（publish / reply / message / engage / search / inbox）、统一写路径事务管道（门禁→节流→回读校验→截图→dry-run 停点→发送→确认→账本）、统一账本
-- 三种外壳共用本内核：**CLI（mkt.py）**／**MCP（mcp_server.py）**／**Skill（skills/growovo-gtm + skills/github-project-ops）**
-- 多渠道（X / Email / Reddit / LinkedIn / **GitHub** / **HN**，可扩展）、**多通道**（API / browser-CDP / OS 键鼠模拟 / SMTP 等四类十种，含降级储备）、零凭据优先
-- GitHub 渠道承载**项目经营管线**：audit 体检 → inbox 零响应巡检 → reply 社区响应（见 skills/github-project-ops）
+**先试一个结果：** `python3 mkt.py demo` 在本地完成计划校验、审批、dry-run 和账本演示，无需账号或网络。实际平台命令的验证等级见下表。[能力进度与技术取舍](docs/feature-status.md)。
 
-在此之上，Growovo 正在补齐端到端的另外两段：**定**（产品理解、ICP、定位、渠道策略）与**造**（增长资产工厂）；**跑**即下述内核，其内含**量**（实验与归因，`mkt experiment` / `mkt outcome`）。
+- **Askovo** 负责业务研究与验证，为任务提供依据。
+- **Growovo** 执行授权运营任务，记录操作结果。
+- **Verovo** 关联费用与业务结果，计算单任务经济性。
 
-四引擎对照（Agent 入口见 [skills/growovo-gtm](skills/growovo-gtm/SKILL.md)——入口是 GTM 目标，不是单个渠道动作）：
-
-| 引擎 | 职责 | 当前承载 |
-|---|---|---|
-| Positioning（定） | 产品理解、ICP、购买动机与竞争替代 | askovo 研究上游 + growovo-gtm ②③ 步 + [gtm-readiness](../gtm-readiness) 就绪体检 |
-| Asset（造） | 增长资产（页面/内容/演示/触达素材） | 内容协作 skill + 既有研究资产，素材进队列前过千人千面门禁 |
-| Campaign（跑） | 选渠道、执行授权动作、管理反馈 | 本内核（六原语/统一写路径/账本） |
-| Outcome（量） | 追踪激活/付费，评估实验 | `mkt experiment`（预注册）+ `mkt outcome`（漏斗/归因，口径非因果） |证据分级与 claim 分型沿用 [askovo/SURE](https://github.com/roy-tong/askovo) 契约，上下游关系见下。当前处于演进早期：`mkt` 命令、数据契约与全部文档保持可用，新能力按 P0 dogfood 节奏推进。
-
-> 内核纪律一句话（不变）：agent 当参谋（出方案，产出可校验的数据工件）、内核当执行（守门禁，上限是内核属性）、人当闸门（未经人审的计划拒跑）。
-> 仓库内 `data/schemas.md` 自含全部数据契约。**研究上游是 [askovo](https://github.com/roy-tong/askovo)**——研发前的需求研究引擎（七节点链、E0–E5 证据分级）：askovo 的研究判断进入 Growovo 的「定」，Growovo 的一手增长反馈以同一套证据分级回流。内容资产上游是 [research-to-publish](https://github.com/roy-tong/research-to-publish)（研究 → 文章 → 公众号/小红书交付包），其交付包与文章链接作为「造」侧资产进入本内核队列执行发布与互动；X 渠道 vendor 自已归档的 [x-ops-automation](https://github.com/roy-tong/x-ops-automation)。
+三者可独立使用。`mkt.py` 与 `growovo-gtm` 标识保持兼容，GTM 是首批应用场景。
 
 ## 合规与纪律（先读这个）
 

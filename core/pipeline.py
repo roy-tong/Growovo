@@ -65,6 +65,7 @@ class WritePipeline:
             rec.update(result="rejected", detail=str(exc))
             return self._finish(rec)
 
+        send_started = False
         try:
             compose(item)                    # COMPOSE
             fill(item)                       # FILL
@@ -84,11 +85,13 @@ class WritePipeline:
                 except Exception as exc:
                     rec.update(result="rejected", detail=f"日预算门禁: {exc}")
                     return self._finish(rec)
-            send(item)                       # SEND（异常→FAILED）
+            send_started = True
+            send(item)                       # Exceptions may occur after acceptance.
             ok = confirm(item)
             rec.update(result="committed" if ok else "indeterminate")
         except Exception as exc:
-            rec.update(result="failed", detail=str(exc)[:300])
+            rec.update(result="indeterminate" if send_started else "failed",
+                       detail=str(exc)[:300])
         return self._finish(rec)
 
     def _finish(self, rec):

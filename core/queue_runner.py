@@ -76,4 +76,7 @@ def run_queue(queue_path, *, data_dir=None, go=False, allow_unverified=False,
         rec.setdefault("ref", item.get("id", ""))
         results.append(rec)
         log(f"[{idx + 1}/{len(items)}] {item.get('id', '')} {target}: {rec.get('result')}")
+        if rec.get("result") in {"failed", "indeterminate", "rejected"}:
+            log("Queue paused: inspect the last result before resuming.")
+            break
     return results

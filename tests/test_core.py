@@ -249,7 +249,7 @@ class TestPipeline(TmpDir):
     def test_send_failure_recorded_not_committed(self):
         pipe, led, _ = make_pipeline(self.dir)
         rec, calls = run_fake(pipe, send_raises=True)
-        self.assertEqual(rec["result"], "failed")
+        self.assertEqual(rec["result"], "indeterminate")
         self.assertIn("send", calls)
         self.assertFalse(led.already(channel="email", target="a@b.c", campaign="w1"))
 

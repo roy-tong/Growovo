@@ -1,0 +1,8 @@
+# Growovo
+
+Execute authorized recurring operations with reviewable results.
+
+## Documentation
+- [Quickstart](https://github.com/roy-tong/Growovo#readme)
+- [Feature status](https://github.com/roy-tong/Growovo/blob/main/docs/feature-status.md)
+- [Agent Skill](https://github.com/roy-tong/Growovo/blob/main/skills/growovo-gtm/SKILL.md)
