@@ -72,7 +72,7 @@ def _save(data_dir: Path, exp: dict) -> None:
 def new_experiment(data_dir: Path, *, exp_id: str, hypothesis: str, metric: str,
                    decision_rule: str, start: str, end: str,
                    variant: str = "", owner: str = "", field: str = "",
-                   agg: str = "count") -> dict:
+                   agg: str = "count", campaign: str = "", source: str = "") -> dict:
     if not _ID_RE.match(exp_id or ""):
         raise ExperimentError("exp_id 只允许小写字母/数字/连字符（2–41 字符）")
     for name, value in (("hypothesis", hypothesis), ("metric", metric),
@@ -87,11 +87,13 @@ def new_experiment(data_dir: Path, *, exp_id: str, hypothesis: str, metric: str,
         "exp_id": exp_id,
         "hypothesis": hypothesis,
         "metric": metric,
-        "metric_spec": {"field": field or metric, "agg": agg},
+        "metric_spec": {"field": field or metric, "agg": agg,
+                        **({"source": source} if source else {})},
         "decision_rule": decision_rule,
         "window": {"start": start, "end": end},
         "variant": variant,
         "owner": owner,
+        "campaign": campaign,
         "status": "planned",
         "observations": [],
         "conclusion": None,
@@ -137,6 +139,53 @@ def record_observation(data_dir: Path, exp_id: str, *, note: str,
     })
     _save(data_dir, exp)
     return exp
+
+
+def observe_from_outcomes(data_dir: Path, exp_id: str) -> dict:
+    """从 outcome 事件台账自动生成一条观察值（记账自动化）。
+
+    metric_spec 约定：
+      {"source": "outcomes", "field": "signup", "agg": "count"|"sum"}
+        field ∈ signal|signup|activation|paid：count=去重主体数，sum=事件条数
+      {"source": "outcomes", "field": "signup_rate"}
+        <阶段>_rate = 该阶段去重主体 / signal 去重主体（比值口径，非因果）
+    campaign 过滤取实验自身的 campaign 字段；为空表示全部事件。
+    """
+    from .attribution import FUNNEL, OutcomeLedger
+
+    exp = load_experiment(data_dir, exp_id)
+    if exp["status"] != "running":
+        raise ExperimentError(f"{exp['status']} 状态不接受新观察（观察只在 running 期有效）")
+    spec = exp.get("metric_spec") or {}
+    if spec.get("source") != "outcomes":
+        raise ExperimentError(
+            "该实验的 metric_spec.source 不是 outcomes——用 --data 手工观察，"
+            "或新建实验时指定 --metric-field/--metric-source")
+    field = spec.get("field") or exp.get("metric")
+    campaign = exp.get("campaign") or ""
+    events = [r for r in OutcomeLedger(data_dir).records(campaign or None)
+              if r.get("kind") == "event"]
+
+    def subjects(stage):
+        return {r.get("subject") for r in events if r.get("event_type") == stage}
+
+    if field.endswith("_rate"):
+        base = field[:-5]
+        if base not in FUNNEL:
+            raise ExperimentError(f"无法解析比率指标 {field!r}（应为 <stage>_rate）")
+        denom = len(subjects("signal"))
+        value = round(len(subjects(base)) / denom, 4) if denom else None
+    elif field in FUNNEL:
+        value = len(subjects(field)) if spec.get("agg", "count") == "count" else \
+            sum(1 for r in events if r.get("event_type") == field)
+    else:
+        raise ExperimentError(f"field {field!r} 不是漏斗阶段，也不是 <stage>_rate")
+    if value is None:
+        raise ExperimentError("分母为 0（没有 signal 事件）——先补访问口径再观察")
+    return record_observation(
+        data_dir, exp_id,
+        note=f"自动聚合 outcome 事件（campaign={campaign or '全部'}；口径为比值/计数，非因果）",
+        data={field: value}, evidence_ref="outcomes/events.jsonl")
 
 
 def aggregate(exp: dict):

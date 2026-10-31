@@ -29,7 +29,7 @@ def set_pause(data_dir, on, reason=""):
 
 def report(data_dir, ledger, hours=24):
     """一页纸运营报告（mkt report）：近期活动/异常/暂停态/抑制名单。"""
-    from core.gates import load_suppress
+    from core.gates import load_suppressions
     since = (datetime.now() - timedelta(hours=hours)).isoformat(timespec="seconds")
     recs = [r for r in ledger.all() if r.get("ts", "") >= since]
     by = {}
@@ -55,6 +55,6 @@ def report(data_dir, ledger, hours=24):
             for r in attention[:20]
         ],
         "campaigns": dict(sorted(campaigns.items(), key=lambda kv: -kv[1])),
-        "suppress_list_size": len(load_suppress(Path(data_dir) / "suppress.txt")),
-        "note": "indeterminate 需人工裁决：平台后台核实后用 mkt ledger resolve 记回（未实现前直接改 ledger）",
+        "suppress_list_size": len(load_suppressions(data_dir)),
+        "note": "indeterminate 需人工裁决：平台后台核实后用 mkt ledger resolve <ref> 记回（原账本行不改）",
     }

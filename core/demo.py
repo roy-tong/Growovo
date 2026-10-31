@@ -88,8 +88,10 @@ def run_demo(base):
     plan["review"] = {"human_approved": True,
                       "approved_at": datetime.now().isoformat(timespec="seconds")}
     plan_file.write_text(json.dumps(plan, ensure_ascii=False, indent=1), encoding="utf-8")
+    from .approval import approve_plan
+    approve_plan(data, "demo-p0", by="demo-human", note="demo：模拟一次带署名的审批")
     enforce_approval(data, CAMPAIGN)  # 模拟人审通过后放行
-    print("      模拟人审（review.human_approved=true）→ 放行。真实使用中这一步只能由人改")
+    print("      模拟人审（mkt plan approve：署名 + 计划指纹 + 审批事件）→ 放行")
 
     # ── 3. 写路径事务（dry-run，send 永不触发）──────────────────
     ledger = Ledger(data / "ledger.jsonl")

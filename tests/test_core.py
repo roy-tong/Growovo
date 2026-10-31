@@ -14,7 +14,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from core.evidence import Evidence
-from core.gates import Gate, GateError, check_content, check_target, load_suppress
+from core.gates import (Gate, GateError, check_content, check_target,
+                        load_contact_suppressions, load_suppress, load_suppressions)
 from core.ledger import Ledger
 from core.pipeline import WritePipeline, standard_pipeline
 from core.throttle import Throttle, ThrottleError
@@ -123,6 +124,41 @@ class TestGates(TmpDir):
         p.write_text("# comment\n\nbad@x.io\n  spaced@y.io  \n", encoding="utf-8")
         self.assertEqual(load_suppress(p), {"bad@x.io", "spaced@y.io"})
         self.assertEqual(load_suppress(self.dir / "nope.txt"), set())
+
+    def test_contacts_dnc_is_a_real_suppression_source(self):
+        (self.dir / "contacts.jsonl").write_text(json.dumps({
+            "id": "c1", "platforms": {"email": "dnc@example.com", "x": "@blocked"},
+            "state": {"dnc": True},
+        }) + "\n" + json.dumps({
+            "id": "c2", "platforms": {"email": "ok@example.com"},
+            "state": {"dnc": False},
+        }) + "\n", encoding="utf-8")
+        (self.dir / "suppress.txt").write_text("file@example.com\n", encoding="utf-8")
+        self.assertEqual(load_contact_suppressions(self.dir), {"dnc@example.com", "@blocked"})
+        self.assertEqual(load_suppressions(self.dir),
+                         {"dnc@example.com", "@blocked", "file@example.com"})
+        gate = Gate(suppress=load_suppressions(self.dir))
+        with self.assertRaises(GateError):
+            gate.check(channel="email", action="message", target="dnc@example.com",
+                       campaign="c1", content="hello")
+        gate.check(channel="email", action="message", target="ok@example.com",
+                   campaign="c1", content="hello")
+
+    def test_indeterminate_blocks_auto_retry_until_resolved(self):
+        led = Ledger(self.dir / "ledger.jsonl")
+        led.append(channel="email", action="message", target="a@b.c",
+                   result="indeterminate", campaign="w1", ref="r1")
+        gate = Gate(led)
+        with self.assertRaises(GateError):
+            gate.check(channel="email", action="message", target="a@b.c",
+                       campaign="w1", content="hello")
+        led.resolve("r1", result="failed", by="roy", note="后台确认未发送")
+        gate.check(channel="email", action="message", target="a@b.c",
+                   campaign="w1", content="hello")
+
+    def test_hn_submit_target_is_valid_for_publish_pipeline(self):
+        self.assertEqual(check_target("hn", "hn:submit:https://example.com/p"),
+                         "hn:submit:https://example.com/p")
 
 
 class TestThrottle(TmpDir):
@@ -237,6 +273,23 @@ class TestPipeline(TmpDir):
         rec, _ = run_fake(pipe, expect="line one\n\nline two", readback="line one\n\n\nline two")
         self.assertEqual(rec["result"], "committed")   # 段落符归一化后等价
 
+    def test_exhausted_daily_budget_blocks_before_send(self):
+        pipe, _, th = make_pipeline(self.dir)
+        for _ in range(100):
+            th.daily_charge("email", "message")
+        rec, calls = run_fake(pipe)
+        self.assertEqual(rec["result"], "rejected")
+        self.assertIn("日预算门禁", rec["detail"])
+        self.assertNotIn("send", calls)
+        self.assertEqual(th.daily_used("email", "message"), 100)
+
+    def test_reserve_is_atomic_and_never_exceeds_cap(self):
+        th = Throttle(self.dir / "state")
+        th.reserve("reddit", "publish", 3)
+        with self.assertRaises(ThrottleError):
+            th.reserve("reddit", "publish", 1)
+        self.assertEqual(th.daily_used("reddit", "publish"), 3)
+
 
 class TestPipelineApproval(TmpDir):
     """实跑人审门禁进管道（此前只有 email 接线且查错目录，其余渠道全绕过）。"""
@@ -245,7 +298,12 @@ class TestPipelineApproval(TmpDir):
         plans = self.dir / "plans"
         plans.mkdir(parents=True, exist_ok=True)
         (plans / "p1.json").write_text(json.dumps({
-            "plan_id": "p1", "waves": [{"wave": 1, "queue": "data/queues/w1.json"}],
+            "plan_id": "p1", "goal": "验证渠道", "created": "2026-10-31",
+            "hypothesis": "目标用户会回复", "icp": {"beachhead": "开发者"},
+            "audience": {"spec": "测试目标"}, "waves": [{
+                "wave": 1, "channel": "email", "action": "message", "size": 1,
+                "content_policy": "千人千面", "queue": "data/queues/w1.json"}],
+            "success_criteria": {"metric": "reply_rate", "target": ">=5%", "stop": "退信>5%"},
             "review": {"human_approved": approved},
         }, ensure_ascii=False), encoding="utf-8")
 
@@ -281,6 +339,19 @@ class TestPipelineApproval(TmpDir):
         rec, _ = run_fake(pipe, campaign="w1")
         self.assertEqual(rec["result"], "committed")
         self.assertEqual(rec.get("approval"), "plan")
+
+    def test_invalid_legacy_plan_cannot_bypass_with_boolean(self):
+        plans = self.dir / "plans"
+        plans.mkdir(parents=True, exist_ok=True)
+        (plans / "bad.json").write_text(json.dumps({
+            "plan_id": "p1", "waves": [{"wave": 1, "queue": "data/queues/w1.json"}],
+            "review": {"human_approved": True},
+        }), encoding="utf-8")
+        led = Ledger(self.dir / "ledger.jsonl")
+        rec, calls = run_fake(standard_pipeline(self.dir, led), campaign="w1")
+        self.assertEqual(rec["result"], "rejected")
+        self.assertIn("计划校验未过", rec["detail"])
+        self.assertEqual(calls, [])
 
     def test_dry_run_not_gated_by_approval(self):
         """dry-run 无外部效果，不要求人审——审批只约束实跑。"""

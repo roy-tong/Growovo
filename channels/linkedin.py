@@ -53,18 +53,20 @@ def search(keywords, *, limit=10, out=None, log=log):
         page.close()
 
 
-def message(profile_url, note, *, go=False, adhoc=False, campaign=None, ledger=None, log=log):
+def message(profile_url, note, *, go=False, adhoc=False, campaign=None, ledger=None, log=log,
+            data_dir=None):
     """Tier B 半自动连接请求：填好 note → 截图 → 终端人工确认 → 发送。
 
     go=False（默认）：dry-run，停在确认前；go=True 且未设 MKT_LINKEDIN_AUTO 时
     仍需终端回车确认；全自动（无确认）必须 MKT_LINKEDIN_AUTO=1 且 go=True。
     """
-    ledger = ledger or Ledger(DATA / "ledger.jsonl")
-    throttle = Throttle(DATA / "state")
+    data = Path(data_dir or DATA)
+    ledger = ledger or Ledger(data / "ledger.jsonl")
+    throttle = Throttle(data / "state")
     if go and not throttle.daily_allows("linkedin", "message"):
         raise SystemExit("LinkedIn 日上限（≤10 连接）已到")
-    pipe = standard_pipeline(DATA, ledger, adhoc=adhoc)
-    ev = Evidence(DATA / "shots" / (campaign or "adhoc"))
+    pipe = standard_pipeline(data, ledger, adhoc=adhoc)
+    ev = Evidence(data / "shots" / (campaign or "adhoc"))
     auto = os.environ.get("MKT_LINKEDIN_AUTO", "") == "1" and go
     browser, page = cdp.connect()
     try:

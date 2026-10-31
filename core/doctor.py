@@ -16,7 +16,10 @@ from pathlib import Path
 KERNEL_MODULES = [
     "core.ledger", "core.gates", "core.throttle", "core.pipeline",
     "core.planlint", "core.safety", "core.contacts", "core.transports",
-    "core.demo", "channels",
+    "core.demo", "core.approval", "core.queue", "core.campaign",
+    "core.links", "core.outcome_io", "core.workspace", "core.onboarding",
+    "core.action_runner", "core.queue_runner", "core.collector",
+    "channels",
 ]
 
 

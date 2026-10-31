@@ -76,7 +76,8 @@ class OutcomeLedger:
     # ---- 写入 ----
     def add_event(self, *, subject: str, event_type: str, channel: str = "",
                   touch: str = "", source_ref: str = "", approximated: bool = False,
-                  verification: dict | None = None) -> dict:
+                  verification: dict | None = None, campaign: str = "",
+                  import_key: str | None = None, ts: str | None = None) -> dict:
         for name, value in (("subject", subject), ("event_type", event_type)):
             if not str(value or "").strip():
                 raise AttributionError(f"{name} 不能为空")
@@ -100,7 +101,7 @@ class OutcomeLedger:
                     f"{event_type} 必须带 verification(method,ref)——价值事件必须有核验状态")
         rec = {
             "kind": "event",
-            "ts": datetime.now().isoformat(timespec="seconds"),
+            "ts": ts or datetime.now().isoformat(timespec="seconds"),
             "subject": subject,
             "event_type": event_type,
             "channel": channel,
@@ -108,12 +109,17 @@ class OutcomeLedger:
             "source_ref": source_ref,
             "approximated": bool(approximated),
         }
+        if campaign:
+            rec["campaign"] = campaign
+        if import_key:
+            rec["import_key"] = import_key
         if verification is not None:
             rec["verification"] = verification
         return self._append(rec)
 
     def add_count(self, *, metric: str, value: int, window: str,
-                  source_ref: str, approximated: bool = True) -> dict:
+                  source_ref: str, approximated: bool = True, campaign: str = "",
+                  import_key: str | None = None, ts: str | None = None) -> dict:
         if not str(metric or "").strip() or not str(window or "").strip():
             raise AttributionError("metric/window 不能为空")
         if not str(source_ref or "").strip():
@@ -122,13 +128,17 @@ class OutcomeLedger:
             raise AttributionError("value 必须是非负整数")
         rec = {
             "kind": "count",
-            "ts": datetime.now().isoformat(timespec="seconds"),
+            "ts": ts or datetime.now().isoformat(timespec="seconds"),
             "metric": metric,
             "value": value,
             "window": window,
             "source_ref": source_ref,
             "approximated": bool(approximated),
         }
+        if campaign:
+            rec["campaign"] = campaign
+        if import_key:
+            rec["import_key"] = import_key
         return self._append(rec)
 
     def _append(self, rec: dict) -> dict:
@@ -138,23 +148,26 @@ class OutcomeLedger:
         return rec
 
     # ---- 读取 ----
-    def records(self):
+    def records(self, campaign=None):
         if not self.path.is_file():
             return []
         out = []
         with self.path.open(encoding="utf-8") as fh:
             for line in fh:
-                if line.strip():
-                    out.append(json.loads(line))
+                if not line.strip():
+                    continue
+                rec = json.loads(line)
+                if campaign is None or rec.get("campaign") == campaign:
+                    out.append(rec)
         return out
 
-    def funnel(self) -> dict:
+    def funnel(self, campaign=None) -> dict:
         """漏斗统计：主体先经 contacts 归一再去重；时序倒挂与缺核验价值事件单列披露。
 
         各阶段计数是独立观察值：相邻比值是「比值口径」不是转化因果，更不是
         渠道效果证明。计数快照单列，不与事件混算。"""
-        events = [r for r in self.records() if r.get("kind") == "event"]
-        counts = [r for r in self.records() if r.get("kind") == "count"]
+        events = [r for r in self.records(campaign) if r.get("kind") == "event"]
+        counts = [r for r in self.records(campaign) if r.get("kind") == "count"]
         by_stage = {stage: set() for stage in FUNNEL}      # canonical 主体
         raw_by_stage = {stage: set() for stage in FUNNEL}  # 原始主体串
         approx_subjects = set()
@@ -210,7 +223,7 @@ class OutcomeLedger:
             for s in subjects:
                 raw_per_canon.setdefault(self._canonical(s), set()).add(s)
         identity_merged = sorted(cid for cid, raws in raw_per_canon.items() if len(raws) > 1)
-        return {
+        out = {
             "funnel": stages,
             "identity": {
                 "source": "contacts.jsonl",
@@ -231,10 +244,13 @@ class OutcomeLedger:
             ],
             "note": "转化率是比值不是因果；阶段计数为独立观察值；近似口径与缺核验价值事件单列，不洗白",
         }
+        if campaign:
+            out["campaign"] = campaign
+        return out
 
-    def attribution(self) -> dict:
+    def attribution(self, campaign=None) -> dict:
         """last_touch / first_touch 两种记账口径；明确声明非因果。主体同样先归一。"""
-        events = [r for r in self.records() if r.get("kind") == "event"]
+        events = [r for r in self.records(campaign) if r.get("kind") == "event"]
         converted = {}
         for rec in events:
             if rec["event_type"] not in ("signup", "activation", "paid"):

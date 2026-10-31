@@ -58,11 +58,13 @@ def _comment_box(page):
     return page.locator(".commentarea textarea#form-content, .usertext-edit textarea").first
 
 
-def reply(thread_url, text, *, go=False, adhoc=False, campaign=None, ledger=None, log=log):
+def reply(thread_url, text, *, go=False, adhoc=False, campaign=None, ledger=None, log=log,
+          data_dir=None):
     """在指定帖子下评论（走统一写路径管道：回读不一致绝不发送）。"""
-    ledger = ledger or Ledger(DATA / "ledger.jsonl")
-    pipe = standard_pipeline(DATA, ledger, adhoc=adhoc)
-    ev = Evidence(DATA / "shots" / (campaign or "adhoc"))
+    data = Path(data_dir or DATA)
+    ledger = ledger or Ledger(data / "ledger.jsonl")
+    pipe = standard_pipeline(data, ledger, adhoc=adhoc)
+    ev = Evidence(data / "shots" / (campaign or "adhoc"))
     browser, page = cdp.connect()
     try:
         def _compose(item):
@@ -99,11 +101,13 @@ def reply(thread_url, text, *, go=False, adhoc=False, campaign=None, ledger=None
         page.close()
 
 
-def publish(subreddit, title, body, *, go=False, adhoc=False, campaign=None, ledger=None, log=log):
+def publish(subreddit, title, body, *, go=False, adhoc=False, campaign=None, ledger=None, log=log,
+            data_dir=None):
     """子版块发 text post（old.reddit submit 表单）。日 ≤3 由 throttle 硬约束。"""
-    ledger = ledger or Ledger(DATA / "ledger.jsonl")
-    pipe = standard_pipeline(DATA, ledger, adhoc=adhoc)
-    ev = Evidence(DATA / "shots" / (campaign or "adhoc"))
+    data = Path(data_dir or DATA)
+    ledger = ledger or Ledger(data / "ledger.jsonl")
+    pipe = standard_pipeline(data, ledger, adhoc=adhoc)
+    ev = Evidence(data / "shots" / (campaign or "adhoc"))
     browser, page = cdp.connect()
     try:
         def _compose(item):

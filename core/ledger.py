@@ -22,12 +22,15 @@ from datetime import datetime
 from pathlib import Path
 
 OK_RESULTS = ("committed",)
-NO_RETRY_CODES = frozenset({"no-dm", "bounced", "suppressed"})
+# indeterminate = 可能已发送但未能确认。自动重发会造成重复触达，必须先由人
+# 通过 ledger.resolve 覆盖为 committed/failed；不能在未知状态上再发一次。
+NO_RETRY_CODES = frozenset({"indeterminate", "no-dm", "bounced", "suppressed"})
 
 
 class Ledger:
     def __init__(self, path):
         self.path = Path(path)
+        self.resolutions_path = self.path.parent / "ledger_resolutions.jsonl"
 
     def append(self, *, channel, action, target, result, transport=None,
                campaign=None, evidence=None, ref=None, **extra):
@@ -48,7 +51,7 @@ class Ledger:
             f.write(json.dumps(rec, ensure_ascii=False) + "\n")
         return rec
 
-    def all(self):
+    def _raw(self):
         if not self.path.exists():
             return []
         out = []
@@ -61,6 +64,59 @@ class Ledger:
             except json.JSONDecodeError:
                 continue  # 坏行不炸账本，跳过并保持只读语义
         return out
+
+    def _resolutions(self):
+        """ref → 最新裁决（append-only 覆盖，不改原账本行）。"""
+        if not self.resolutions_path.exists():
+            return {}
+        out = {}
+        for line in self.resolutions_path.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            try:
+                rec = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if rec.get("ref"):
+                out[rec["ref"]] = rec
+        return out
+
+    def all(self):
+        """账本 + 人工裁决覆盖后的视图（原行不改）。"""
+        resolutions = self._resolutions()
+        out = []
+        for r in self._raw():
+            hit = resolutions.get(r.get("ref"))
+            if hit:
+                r = dict(r, result=hit.get("result", r.get("result")),
+                         resolved_by=hit.get("by", ""),
+                         resolved_at=hit.get("ts", ""),
+                         resolution_note=hit.get("note", ""))
+            out.append(r)
+        return out
+
+    def resolve(self, ref, *, result, by, note):
+        """人工裁决 indeterminate（平台后台核实后记回）。返回裁决记录。"""
+        if not str(ref or "").strip():
+            raise ValueError("ref 不能为空（要裁决哪一条账本记录）")
+        if result not in ("committed", "failed", "suppressed", "bounced", "no-dm"):
+            raise ValueError("裁决 result 只允许 committed/failed/suppressed/bounced/no-dm")
+        if not str(by or "").strip():
+            raise ValueError("裁决必须署名（--by）")
+        if not str(note or "").strip():
+            raise ValueError("裁决必须写依据（--note，如平台后台链接/截图路径）")
+        if not any(r.get("ref") == ref for r in self._raw()):
+            raise ValueError(f"账本里没有 ref={ref!r} 的记录")
+        rec = {"ts": datetime.now().isoformat(timespec="seconds"),
+               "ref": ref, "result": result, "by": by, "note": note}
+        self.resolutions_path.parent.mkdir(parents=True, exist_ok=True)
+        with self.resolutions_path.open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps(rec, ensure_ascii=False) + "\n")
+        return rec
+
+    def indeterminate(self):
+        return [r for r in self.all() if r.get("result") == "indeterminate"]
 
     def results(self, *, channel=None, campaign=None, action=None, target=None):
         return [

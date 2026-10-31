@@ -3,6 +3,7 @@
 
 来源：newoutreach 五门禁（449 空正文事故复盘）+ xdm.py 消息纪律。
 """
+import json
 import re
 from pathlib import Path
 
@@ -42,8 +43,8 @@ def check_target(channel, target):
         if not EMAIL_RE.match(t):
             raise GateError(f"email 格式不合法: {t}")
     elif channel == "x":
-        if not (t.startswith("@") or t.startswith("tweet:")):
-            raise GateError(f"X 目标应为 @handle 或 tweet:url: {t}")
+        if not (t.startswith("@") or t.startswith("tweet:") or t.startswith("http")):
+            raise GateError(f"X 目标应为 @handle、tweet:url 或推文 URL: {t}")
     elif channel == "reddit":
         if not (t.startswith("u/") or t.startswith("t3_") or t.startswith("http")):
             raise GateError(f"Reddit 目标应为 u/、t3_ 或 URL: {t}")
@@ -54,8 +55,9 @@ def check_target(channel, target):
         if not re.match(r"^issue:[\w.-]+/[\w.-]+#\d+$", t):
             raise GateError(f"GitHub 目标应为 issue:owner/repo#N: {t}")
     elif channel == "hn":
-        if not (t.startswith("item:") or t.startswith("https://news.ycombinator.com")):
-            raise GateError(f"HN 目标应为 item:N 或 news.ycombinator.com URL: {t}")
+        if not (t.startswith("item:") or t.startswith("hn:submit:")
+                or t.startswith("https://news.ycombinator.com")):
+            raise GateError(f"HN 目标应为 item:N、hn:submit:… 或 news.ycombinator.com URL: {t}")
     return t
 
 
@@ -66,6 +68,45 @@ def load_suppress(path):
     except FileNotFoundError:
         return set()
     return {l.strip() for l in lines if l.strip() and not l.strip().startswith("#")}
+
+
+def load_contact_suppressions(data_dir):
+    """从 contacts.jsonl 读取 DNC / bounced 身份，作为发送门禁的统一抑制源。
+
+    DNC 是联系人库的业务状态；发送门禁不能要求人工再抄一遍 suppress.txt。
+    这里把该联系人的全部平台身份都视为抑制目标；文件缺失/坏行按空处理，
+    真正的写操作仍会经过账本、暂停和审批门禁。
+    """
+    path = Path(data_dir) / "contacts.jsonl"
+    if not path.is_file():
+        return set()
+    out = set()
+    for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        try:
+            rec = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        state = rec.get("state") or {}
+        if not isinstance(state, dict):
+            continue
+        if not (state.get("dnc") or state.get("bounced")):
+            continue
+        platforms = rec.get("platforms") or {}
+        if isinstance(platforms, dict):
+            out.update(str(v).strip() for v in platforms.values() if str(v or "").strip())
+        for key in ("email", "handle", "target"):
+            if rec.get(key):
+                out.add(str(rec[key]).strip())
+    return out
+
+
+def load_suppressions(data_dir):
+    """发送门禁的唯一抑制集合：suppress.txt ∪ contacts 中 DNC/bounced 身份。"""
+    data = Path(data_dir)
+    return load_suppress(data / "suppress.txt") | load_contact_suppressions(data)
 
 
 class Gate:
@@ -81,7 +122,7 @@ class Gate:
             raise GateError(f"目标在抑制名单: {target}")
         if self.ledger is not None:
             if target in self.ledger.no_retry(channel):
-                raise GateError(f"目标在渠道不重试名单（no-dm/bounced/suppressed）")
+                raise GateError(f"目标在渠道不重试名单（indeterminate/no-dm/bounced/suppressed）")
             if dedupe and campaign:
                 if self.ledger.already(channel=channel, target=target, campaign=campaign):
                     raise GateError(f"同 campaign 已成功发过（防重发）")

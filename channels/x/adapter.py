@@ -54,9 +54,10 @@ def _vendor_targets(action, data):
     return out
 
 
-def _log_to_ledger(action, campaign, ledger, before_lines, log=None):
+def _log_to_ledger(action, campaign, ledger, before_lines, log=None, approval_mode=None):
     """把 vendor 运行结果回写全局账本（审计 + 跨渠道幂等视图）。"""
     wrote = 0
+    detail = "adhoc=true" if approval_mode == "adhoc" else ""
     if action == "message":
         # xdm 追加日志：xdm-log.jsonl（outreach 目录）；只记本次运行新增的行
         logf = VENDOR / "xdm-log.jsonl"
@@ -73,7 +74,8 @@ def _log_to_ledger(action, campaign, ledger, before_lines, log=None):
                     result = {"dry-run-draft": "dry-run", "sent": "committed"}.get(
                         d.get("result"), d.get("result", "?"))
                     ledger.append(channel="x", transport="cdp", action="message",
-                                  campaign=campaign, target="@" + d["handle"], result=result)
+                                  campaign=campaign, target="@" + d["handle"],
+                                  result=result, detail=detail)
                     wrote += 1
     else:
         pat = {"publish": "publish-*.json", "reply": "reply-*.json",
@@ -89,7 +91,22 @@ def _log_to_ledger(action, campaign, ledger, before_lines, log=None):
                 for target, res in _vendor_targets(action, data):
                     ledger.append(channel="x", transport="cdp", action=action,
                                   campaign=campaign, target=target, result=res,
-                                  evidence=str(f))
+                                  evidence=str(f), detail=detail)
+                    wrote += 1
+            elif action == "reply":
+                rec = data.get("record") if isinstance(data, dict) else {}
+                if isinstance(rec, dict):
+                    if rec.get("posted"):
+                        result = "committed"
+                    elif rec.get("dry_run"):
+                        result = "dry-run"
+                    elif rec.get("submitted"):
+                        result = "indeterminate"
+                    else:
+                        result = "failed"
+                    ledger.append(channel="x", transport="cdp", action=action,
+                                  campaign=campaign, target=rec.get("url") or "?",
+                                  result=result, evidence=str(f), detail=detail)
                     wrote += 1
             elif action == "engage":
                 recs = data.get("records", data if isinstance(data, list) else [])
@@ -98,7 +115,7 @@ def _log_to_ledger(action, campaign, ledger, before_lines, log=None):
                     ok = r.get("followed", r.get("liked", False))
                     ledger.append(channel="x", transport="cdp", action="engage",
                                   campaign=campaign, target=str(t),
-                                  result="committed" if ok else "failed")
+                                  result="committed" if ok else "failed", detail=detail)
                     wrote += 1
     if log and wrote:
         log(f"已回写全局账本 {wrote} 条")
@@ -114,7 +131,8 @@ def _xdm_log_lines():
     return len(logf.read_text(encoding="utf-8").splitlines())
 
 
-def run(action, extra_args, *, go=False, adhoc=False, campaign=None, ledger=None, log=print):
+def run(action, extra_args, *, go=False, adhoc=False, campaign=None, ledger=None, log=print,
+        data_dir=None):
     """执行 vendor 脚本并把结果记账。go=False 时写操作自动降级为 dry-run。
 
     go=True 的人审门禁与其他渠道同规：必须绑定已人审 plan（data/plans/），
@@ -132,16 +150,30 @@ def run(action, extra_args, *, go=False, adhoc=False, campaign=None, ledger=None
         extra_args = extra_args[1:]
 
     # 全局暂停闸（core.safety）：写操作一律拒跑；人审门禁（core.planlint）：实跑前强制
+    mode = None
+    data_root = Path(data_dir) if data_dir else VENDOR.parents[2] / "data"
     if is_write:
         from core.planlint import enforce_approval
         from core.safety import pause_file
-        DATA_ROOT = VENDOR.parents[2] / "data"   # channels/x/vendor → 仓库根/data
-        if pause_file(DATA_ROOT).exists():
+        if pause_file(data_root).exists():
             raise SystemExit("全局暂停中（mkt pause --off 恢复）——X 写操作拒跑")
+        from core.gates import load_suppressions
+        suppressed = load_suppressions(data_root)
+        for raw in extra_args:
+            value = str(raw).strip()
+            if value in suppressed or value.lstrip("@") in suppressed:
+                raise SystemExit(f"目标在抑制名单（DNC/bounced/suppressed）: {value}")
         if go:
-            mode = enforce_approval(DATA_ROOT, campaign or "", adhoc=adhoc)
+            mode = enforce_approval(data_root, campaign or "", adhoc=adhoc)
             if mode == "adhoc":
                 log("[x] adhoc 放行（无 plan 管辖，人工通道留痕）")
+            # vendor 进程自带节流；内核日预算再守一层。X vendor 的一次 action
+            # 可能包含多条记录，这里至少保证预算耗尽时不会启动新动作。
+            from core.throttle import Throttle, ThrottleError
+            try:
+                Throttle(data_root / "state").reserve("x", action, 1)
+            except ThrottleError as exc:
+                raise SystemExit(f"日预算门禁: {exc}")
 
     before_lines = {"xdm": _xdm_log_lines()}
     cmd = [sys.executable, str(VENDOR / script)] + [str(a) for a in extra_args]
@@ -154,7 +186,8 @@ def run(action, extra_args, *, go=False, adhoc=False, campaign=None, ledger=None
     proc = subprocess.run(cmd, cwd=str(VENDOR))
     if ledger is not None and proc.returncode == 0:
         try:
-            _log_to_ledger(action, campaign or "", ledger, before_lines, log=log)
+            _log_to_ledger(action, campaign or "", ledger, before_lines, log=log,
+                           approval_mode=mode)
         except Exception as exc:  # 记账失败不掩盖 vendor 结果
             log(f"账本回写失败（不影响本次执行）: {exc}", "WARN")
     return proc.returncode

@@ -76,11 +76,17 @@ class WritePipeline:
             if dry_run:
                 rec.update(result="dry-run", evidence=str(shot_path or ""))
                 return self._finish(rec)
+            # 发送前原子预留日预算：预算不足时绝不进入 send；并发进程也不会
+            # 在“检查后、发送前”同时越过日上限。
+            if self.throttle is not None:
+                try:
+                    self.throttle.reserve(channel, action, 1)
+                except Exception as exc:
+                    rec.update(result="rejected", detail=f"日预算门禁: {exc}")
+                    return self._finish(rec)
             send(item)                       # SEND（异常→FAILED）
             ok = confirm(item)
             rec.update(result="committed" if ok else "indeterminate")
-            if ok:
-                self.throttle.daily_charge(channel, action)
         except Exception as exc:
             rec.update(result="failed", detail=str(exc)[:300])
         return self._finish(rec)
@@ -105,12 +111,13 @@ def standard_pipeline(data_dir, ledger, *, adhoc=False):
     （此前 reddit/linkedin/github/hn 未接，email 接错目录，形同虚设）。
     adhoc 仅为 CLI 人工通道（--adhoc）；MCP 不传，agent 不得自我授权。
     """
-    from .gates import Gate
+    from .gates import Gate, load_suppressions
     from .planlint import enforce_approval
     from .safety import pause_file
     from .throttle import Throttle
     data_dir = Path(data_dir)
     return WritePipeline(
-        gate=Gate(ledger), ledger=ledger, throttle=Throttle(data_dir / "state"),
+        gate=Gate(ledger, suppress=load_suppressions(data_dir)),
+        ledger=ledger, throttle=Throttle(data_dir / "state"),
         pause_file=pause_file(data_dir),
         approval=lambda c: enforce_approval(data_dir, c, adhoc=adhoc))

@@ -11,6 +11,7 @@
 import json
 from pathlib import Path
 
+from .approval import ApprovalError, verify_approval
 from .throttle import INTERVALS
 
 REQUIRED_TOP = ["plan_id", "goal", "created", "hypothesis", "icp", "audience",
@@ -96,29 +97,45 @@ def _plan_governs(plan, campaign):
     return False
 
 
+def governing_plan(data_dir, campaign):
+    """返回管辖该 campaign 的计划及路径；无则 (None, None)。"""
+    plans_dir = Path(data_dir) / "plans"
+    if not plans_dir.exists() or not campaign:
+        return None, None
+    for f in sorted(plans_dir.glob("*.json")):
+        try:
+            plan = json.loads(f.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            continue
+        if _plan_governs(plan, campaign):
+            return plan, f
+    return None, None
+
+
 def enforce_approval(data_dir, campaign, adhoc=False):
     """执行前强制：--go 写操作必须绑定已人审 plan（05 产品方案 §2.4）。
 
-    - campaign 受某 plan 管辖：review.human_approved=false → 拒跑（人审是执行前置条件）
+    - campaign 受某 plan 管辖：校验审批（未批准/批准后被改/过期）→ 拒跑
     - 无任何 plan 管辖：默认同样拒跑；显式 adhoc=True 才放行（CLI --adhoc 人工通道，
       账本记 adhoc=true；MCP 不暴露该通道——agent 不得自我授权）
 
     返回放行方式："plan"（受管辖且已人审）或 "adhoc"（显式临时放行）。
     """
-    plans_dir = Path(data_dir) / "plans"
-    if plans_dir.exists() and campaign:
-        for f in plans_dir.glob("*.json"):
-            try:
-                plan = json.loads(f.read_text(encoding="utf-8"))
-            except json.JSONDecodeError:
-                continue
-            if not _plan_governs(plan, campaign):
-                continue
-            if not (plan.get("review") or {}).get("human_approved"):
-                raise PlanNotApproved(
-                    f"campaign '{campaign}' 属于计划 {plan.get('plan_id')}，"
-                    "review.human_approved=false，拒绝执行（人审是执行前置条件）")
-            return "plan"
+    plan, _ = governing_plan(data_dir, campaign)
+    if plan is not None:
+        # 人审不是“某个布尔字段为真”：计划本身必须先过 lint。否则一个缺必填
+        # 字段的旧计划只要写了 human_approved=true 就能绕过执行纪律。
+        errs = lint_plan(plan)
+        if errs:
+            raise PlanNotApproved(
+                f"campaign '{campaign}' 属于计划 {plan.get('plan_id')}，"
+                "计划校验未过：" + "；".join(errs[:5]))
+        try:
+            verify_approval(plan)
+        except ApprovalError as exc:
+            raise PlanNotApproved(
+                f"campaign '{campaign}' 属于计划 {plan.get('plan_id')}，{exc}")
+        return "plan"
     if not adhoc:
         raise PlanNotApproved(
             f"campaign '{campaign or '（未命名）'}' 无已人审 plan 管辖："

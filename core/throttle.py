@@ -6,8 +6,14 @@
 """
 import json
 import random
+from contextlib import contextmanager
 from datetime import date
 from pathlib import Path
+
+try:  # POSIX 锁；Windows 没有 fcntl 时退化为单进程检查（仍比无检查安全）。
+    import fcntl
+except ImportError:  # pragma: no cover
+    fcntl = None
 
 # (min_s, max_s, run_cap, daily_cap)；None = 不设
 # 预算口径 = 我们自己的运营预算，一律低于平台官方上限（OFFICIAL_LIMITS），只保守不放松
@@ -96,13 +102,36 @@ class Throttle:
     def _state_file(self):
         return self.state_dir / f"mkt-daily-{date.today().isoformat()}.json"
 
-    def daily_used(self, channel, action):
-        f = self._state_file()
+    def _read_state(self, f=None):
+        f = f or self._state_file()
         if not f.exists():
-            return 0
+            return {}
         try:
-            return int(json.loads(f.read_text(encoding="utf-8")).get(f"{channel}/{action}", 0))
+            value = json.loads(f.read_text(encoding="utf-8"))
+            return value if isinstance(value, dict) else {}
         except (json.JSONDecodeError, ValueError):
+            return {}
+
+    @contextmanager
+    def _locked(self):
+        """跨进程串行化预算状态；锁文件只用于互斥，不承载业务数据。"""
+        self.state_dir.mkdir(parents=True, exist_ok=True)
+        lock = self.state_dir / ".throttle.lock"
+        fh = lock.open("a+", encoding="utf-8")
+        try:
+            if fcntl is not None:
+                fcntl.flock(fh.fileno(), fcntl.LOCK_EX)
+            yield
+        finally:
+            if fcntl is not None:
+                fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
+            fh.close()
+
+    def daily_used(self, channel, action):
+        state = self._read_state()
+        try:
+            return int(state.get(f"{channel}/{action}", 0))
+        except (TypeError, ValueError):
             return 0
 
     def daily_allows(self, channel, action, n=1):
@@ -111,16 +140,33 @@ class Throttle:
             return True
         return self.daily_used(channel, action) + n <= daily_cap
 
-    def daily_charge(self, channel, action, n=1):
-        """记账（发送成功后调用；状态文件按日滚动，旧文件即历史）。"""
-        f = self._state_file()
-        self.state_dir.mkdir(parents=True, exist_ok=True)
-        state = {}
-        if f.exists():
-            try:
-                state = json.loads(f.read_text(encoding="utf-8"))
-            except json.JSONDecodeError:
-                state = {}
+    def reserve(self, channel, action, n=1):
+        """发送前原子预留额度；额度不足抛 ThrottleError。
+
+        预留在发送动作之前完成，因此并发队列也不会同时越过日上限。若后续
+        发送异常，额度保持已占用（保守：未知发送不能被当成没发）。
+        """
+        _, _, _, daily_cap = self.policy(channel, action)
+        if daily_cap is None:
+            return self.daily_used(channel, action)
         key = f"{channel}/{action}"
-        state[key] = int(state.get(key, 0)) + n
-        f.write_text(json.dumps(state, ensure_ascii=False, indent=1), encoding="utf-8")
+        with self._locked():
+            f = self._state_file()
+            state = self._read_state(f)
+            used = int(state.get(key, 0) or 0)
+            if used + n > daily_cap:
+                raise ThrottleError(
+                    f"{channel}/{action} 日预算已用 {used}/{daily_cap}，"
+                    f"不能再预留 {n} 次")
+            state[key] = used + n
+            f.write_text(json.dumps(state, ensure_ascii=False, indent=1), encoding="utf-8")
+            return state[key]
+
+    def daily_charge(self, channel, action, n=1):
+        """兼容旧调用：原子增加已用额度（发送成功后调用）。"""
+        key = f"{channel}/{action}"
+        with self._locked():
+            f = self._state_file()
+            state = self._read_state(f)
+            state[key] = int(state.get(key, 0) or 0) + n
+            f.write_text(json.dumps(state, ensure_ascii=False, indent=1), encoding="utf-8")

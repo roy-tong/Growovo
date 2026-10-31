@@ -18,7 +18,7 @@ from email.utils import formataddr
 from pathlib import Path
 
 from core.evidence import Evidence, log
-from core.gates import Gate, load_suppress
+from core.gates import Gate, load_suppressions
 from core.ledger import Ledger
 from core.pipeline import WritePipeline
 from core.throttle import Throttle
@@ -80,7 +80,7 @@ def send_queue(queue_file, *, go=False, only=None, campaign=None, ledger=None,
         raise SystemExit("日预算已满（email/message），明天再跑或调 campaign 配额")
 
     ch = SMTPChannel() if go else None
-    gate = Gate(ledger, suppress=load_suppress(data_dir / "suppress.txt"))
+    gate = Gate(ledger, suppress=load_suppressions(data_dir))
     from core.safety import pause_file
     from core.planlint import enforce_approval
     pipe = WritePipeline(gate=gate, ledger=ledger, throttle=throttle,
@@ -134,7 +134,7 @@ def send_queue(queue_file, *, go=False, only=None, campaign=None, ledger=None,
             results.append(rec)
             log(f"[{idx + 1}/{len(items)}] {target}: {rec['result']}"
                 + (f" ({rec.get('detail', '')})" if rec.get("detail") else ""))
-            if idx < len(items) - 1:
+            if go and idx < len(items) - 1:  # 人类节奏只约束真实发送；干跑要快
                 wait = throttle.interval("email", "message")
                 log(f"等待 {wait}s…")
                 time.sleep(wait)

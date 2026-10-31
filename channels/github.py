@@ -197,9 +197,16 @@ def inbox(slug, *, log=log):
         kind = "PR" if "pull_request" in it else "issue"
         zero = it.get("comments", 0) == 0
         age = _days_ago(it.get("created_at"))
-        rows.append({"n": it.get("number"), "kind": kind, "title": (it.get("title") or "")[:80],
-                     "created": (it.get("created_at") or "")[:10], "age_days": age,
-                     "zero_reply": zero, "url": it.get("html_url")})
+        rows.append({
+            "n": it.get("number"), "kind": kind,
+            "title": (it.get("title") or "")[:80],
+            "body": (it.get("body") or "")[:1200],
+            "author": (it.get("user") or {}).get("login", ""),
+            "labels": [str((lab or {}).get("name") or "") for lab in it.get("labels") or []],
+            "comments": it.get("comments", 0),
+            "created": (it.get("created_at") or "")[:10], "age_days": age,
+            "zero_reply": zero, "url": it.get("html_url"),
+        })
     rows.sort(key=lambda x: (not x["zero_reply"], x["age_days"] or 0), reverse=True)
     for r_ in rows:
         mark = "⚠ 零回复" if r_["zero_reply"] else "        "
@@ -211,15 +218,17 @@ def inbox(slug, *, log=log):
 
 # ---------------------------------------------------------------- 写原语（统一写路径）
 
-def reply(slug, number, text, *, go=False, adhoc=False, campaign=None, ledger=None, log=log):
+def reply(slug, number, text, *, go=False, adhoc=False, campaign=None, ledger=None, log=log,
+          data_dir=None):
     """在 issue/PR 下评论 —— api 通道的写路径首例。
 
     走统一管道：Gate（占位符/查重/禁字符）→ 节流（30-90s 人类节奏）→ 回读比对
     （协议层：构造体与 expect 一致）→ 留证（JSON 而非截图）→ POST → 201+html_url 即 committed。
     """
-    ledger = ledger or Ledger(DATA / "ledger.jsonl")
-    throttle = Throttle(DATA / "state")
-    ev = Evidence(DATA / "shots" / (campaign or "adhoc"))
+    data = Path(data_dir or DATA)
+    ledger = ledger or Ledger(data / "ledger.jsonl")
+    throttle = Throttle(data / "state")
+    ev = Evidence(data / "shots" / (campaign or "adhoc"))
     target = f"issue:{slug}#{number}"
     url = f"{API}/repos/{slug}/issues/{number}/comments"
     resp = {}
@@ -263,7 +272,7 @@ def reply(slug, number, text, *, go=False, adhoc=False, campaign=None, ledger=No
     if go:
         time.sleep(throttle.interval("github", "reply"))  # 人类节奏（与邮件/X 同族纪律）
 
-    pipe = standard_pipeline(DATA, ledger, adhoc=adhoc)
+    pipe = standard_pipeline(data, ledger, adhoc=adhoc)
     return pipe.run_one(
         {"id": target}, channel="github", action="reply",
         campaign=campaign or "", transport="api", expect=text, target=target,

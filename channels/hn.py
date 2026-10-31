@@ -101,16 +101,17 @@ def inbox(*, log=log):
 # ---------------------------------------------------------------- 写原语（统一写路径）
 
 def publish(title, url=None, text=None, *, go=False, adhoc=False, campaign=None,
-            ledger=None, log=log):
+            ledger=None, log=log, data_dir=None):
     """提交（Show HN / 链接帖 / 文本帖）—— news.ycombinator.com/submit 表单。
 
     走统一管道：Gate（标题 ≤80/占位符/禁字符）→ 节流 → 回读比对 → 截图 →
     dry-run 停点 → 提交 → 确认跳转 item 页。日 ≤1 由 throttle 硬约束。
     """
     _validate_submission(title, url, text)
-    ledger = ledger or Ledger(DATA / "ledger.jsonl")
-    pipe = standard_pipeline(DATA, ledger, adhoc=adhoc)
-    ev = Evidence(DATA / "shots" / (campaign or "adhoc"))
+    data = Path(data_dir or DATA)
+    ledger = ledger or Ledger(data / "ledger.jsonl")
+    pipe = standard_pipeline(data, ledger, adhoc=adhoc)
+    ev = Evidence(data / "shots" / (campaign or "adhoc"))
     target = f"hn:submit:{(url or 'text')[:60]}"
     browser, page = cdp.connect()
     try:
@@ -158,7 +159,8 @@ def publish(title, url=None, text=None, *, go=False, adhoc=False, campaign=None,
         page.close()
 
 
-def reply(item, text, *, go=False, adhoc=False, campaign=None, ledger=None, log=log):
+def reply(item, text, *, go=False, adhoc=False, campaign=None, ledger=None, log=log,
+          data_dir=None):
     """在条目下评论 —— item 为 news.ycombinator.com/item?id=N URL 或 item:N。
 
     首要用途：Show HN 提交后的首条作者评论（HN 文化：作者须说明背景+欢迎批评，
@@ -169,9 +171,10 @@ def reply(item, text, *, go=False, adhoc=False, campaign=None, ledger=None, log=
         item = f"{HN}/item?id={item[5:]}"
     if "news.ycombinator.com" not in item:
         raise ValueError(f"item 应为 news.ycombinator.com URL 或 item:N: {item}")
-    ledger = ledger or Ledger(DATA / "ledger.jsonl")
-    pipe = standard_pipeline(DATA, ledger, adhoc=adhoc)
-    ev = Evidence(DATA / "shots" / (campaign or "adhoc"))
+    data = Path(data_dir or DATA)
+    ledger = ledger or Ledger(data / "ledger.jsonl")
+    pipe = standard_pipeline(data, ledger, adhoc=adhoc)
+    ev = Evidence(data / "shots" / (campaign or "adhoc"))
     browser, page = cdp.connect()
     try:
         def _compose(i):

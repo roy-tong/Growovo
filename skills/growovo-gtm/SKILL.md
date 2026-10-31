@@ -48,15 +48,23 @@ CLI（`python3 mkt.py …`）或 MCP（mkt-server），本协议不发明新动�
 - 入库 `data/contacts.jsonl`（hooks/title/verification 字段是触达弹药，也是漏斗身份归一的基础）
 
 ### ④ 计划落盘（plan.json）
-按 `data/schemas.md` 的 plan schema 写 `data/plans/<plan_id>.json`：
+```bash
+mkt plan new --id <plan_id> --goal '…' --beachhead '…' --hypothesis '…' \
+  --channel email --wave-action message --size 10
+mkt plan lint --id <plan_id>
+```
 - 渠道优先级用**实测数据**（求评邮件 5.3% > GitHub 站内 > X 冷触达 1.5-2.4%），不平均用力
 - 每波：channel×action×size（≤内核日预算）×content_policy（千人千面）
 - 成功判据**预注册**（metric+target+stop）
 - `review.human_approved` 留 false——**人审不是礼节，是执行前置条件**
-- 自校验：`python3 -c "from core.planlint import load_plan,lint_plan; print(lint_plan(load_plan('<path>')))"`
 
-### ⑤ 人审门禁
-把 plan 呈给用户（波次/规模/内容方针/停止条件），获批后改 `human_approved: true`。
+### ⑤ 人审门禁（审批是事件，不是布尔值）
+```bash
+mkt plan approve <plan_id> --by <审批人> [--days 7]
+```
+把 plan 呈给用户（波次/规模/内容方针/停止条件），获批后用**署名审批**：内核写
+`data/approvals.jsonl` 事件 + 计划指纹 `plan_sha256`。批准后计划被改 → 指纹失配，
+实跑拒跑；过期同样拒跑。
 **--go 实跑必须绑定已人审 plan**：无 plan 管辖的 campaign 内核默认拒跑，仅 CLI
 人工通道 `--adhoc` 显式放行（账本记 adhoc=true）；MCP 不开放 adhoc——agent 不得
 自我授权。全局暂停（`mkt pause`）期间一切写操作拒跑。
@@ -65,9 +73,12 @@ CLI（`python3 mkt.py …`）或 MCP（mkt-server），本协议不发明新动�
 ```bash
 cd <仓库>
 ./launch.command                       # 首次：启动 CDP 会话
+mkt queue build --campaign <campaign> --channel email --wave-action message \
+  --template assets/outreach.md --targets data/targets.csv   # 模板+CSV 生成队列
+mkt queue lint data/queues/<campaign>.json                   # 编辑期门禁
+mkt review <campaign>                                        # 逐条预检 + 留证
 python3 mkt.py email message --queue data/queues/<campaign>.json          # dry-run
 python3 mkt.py email message --queue data/queues/<campaign>.json --go     # 实跑（须已人审 plan）
-python3 mkt.py status                  # 账本
 ```
 - 内容由人审产出（写作走 [[warm-email-outreach]] / [[expert-review-outreach]]）；
   队列正文千人千面，占位符残留会被门禁直接拒绝
@@ -75,12 +86,23 @@ python3 mkt.py status                  # 账本
 - UNVERIFIED 渠道（reddit/linkedin/hn）首跑必须用户在场
 - 失败即停，不重试轰炸
 
-### ⑦ 复盘（量引擎）
-`mkt.py status` + 账本查询 → 回复率/退信/committed 计数；增长结果记入
-`mkt outcome`（activation/paid 必须带 source_ref 与核验状态，漏斗主体经
-contacts 归一）；渠道有效性判断走 `mkt experiment`（判据预注册，机器只聚合
-不判定）。对照预注册判据：达标→加深该渠道；不达标→回 ② 修假设。
-**账本对不上平台实际状态 = 停该渠道查账。**
+### ⑦ 复盘（量引擎 + 记账自动化）
+```bash
+mkt collect serve --port 8787                     # 本地 collector：/t/<link> 点击归因 + /events webhook
+mkt collect import --source plausible --csv plausible.csv
+mkt collect import --source posthog --csv posthog.csv --event-map user_signed_up=signup
+mkt outcome sync --campaign <campaign>            # 账本 → 触达计数快照（幂等）
+mkt link create --campaign <campaign> --channel hn --url <落地页>
+mkt outcome import data/events.csv --campaign <campaign>   # CSV 导入（幂等）
+mkt experiment obs --id <exp> --from-outcomes      # 事件 → 观察值（不再手抄）
+mkt campaign report <campaign>                     # 一页纸：计划/执行/结果/下一步
+```
+- 账本 committed 是「发出去了」，不是「转化了」；事件与触达分栏，不合成转化率
+- activation/paid 必须带 source_ref 与核验状态，漏斗主体经 contacts 归一
+- 渠道有效性判断走 `mkt experiment`（判据预注册，机器只聚合不判定）
+- `mkt ledger resolve <ref>` 处置 indeterminate（署名 + 依据，原账本行不改）
+- 对照预注册判据：达标→加深该渠道；不达标→回 ② 修假设
+- **账本对不上平台实际状态 = 停该渠道查账。**
 
 ## 红线（内核已硬编码，agent 也不得绕过）
 
