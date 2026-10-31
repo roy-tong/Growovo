@@ -30,6 +30,8 @@
 
 ```bash
 pip install -r requirements.txt   # 仅 playwright；CDP 走系统 Chrome，无需下载浏览器
+python3 mkt.py demo               # 零网络零账号，30 秒过内核四步：lint→人审→写路径→账本
+python3 mkt.py doctor             # 环境体检（--selftest 连跑全部离线单测）
 ./launch.command                  # 双击亦可：首次复制登录 profile，启动 CDP 9222
 python3 mkt.py check              # 确认 CDP 会话与 X/Gmail 登录态
 ```
@@ -40,6 +42,8 @@ python3 mkt.py check              # 确认 CDP 会话与 X/Gmail 登录态
 |---|---|---|
 | `python3 mkt.py status` | 全局账本聚合 | — |
 | `python3 mkt.py check` | CDP 会话检查（X/Gmail/Reddit/LinkedIn） | — |
+| `python3 mkt.py demo` | 零网络零账号演示（计划校验→人审闸门→写路径 dry-run→账本，沙盒可删） | — |
+| `python3 mkt.py doctor [--selftest]` | 环境体检：内核导入/数据契约/凭据/CDP/暂停态 | — |
 | `python3 mkt.py report [--hours 24]` | 一页纸运营报告（异常/暂停态/抑制名单） | — |
 | `python3 mkt.py pause --on '原因' / --off` | **全局暂停总闸**（一切写操作拒跑且留痕） | — |
 | `python3 mkt.py contacts add/find/dnc/mark/import` | 线索库操作（幂等去重/DNC 隐藏/er-batch 导入） | — |
@@ -110,11 +114,11 @@ RESERVE×6（通道储备库）：`webdriver`｜`rss-public`（只读）｜`esp-
 ## 结构
 
 ```
-core/      ledger 账本 · gates 门禁 · throttle 节流 · pipeline 写路径事务 · evidence 留证 · cdp 会话 · transports 通道注册表 · planlint 计划校验/人审强制
+core/      ledger 账本 · gates 门禁 · throttle 节流 · pipeline 写路径事务 · evidence 留证 · cdp 会话 · transports 通道注册表 · planlint 计划校验/人审强制 · demo 零账号演示 · doctor 环境体检
 channels/  x/(vendor+adapter) · email_smtp · email_cdp · reddit · linkedin · github（api 通道首发） · hn（CDP 写 + Algolia 读）
 transports/  os_input（macOS 键鼠/AX 模拟，UNVERIFIED）
 skills/    marketing-ops（agent 操作协议）· github-project-ops（GitHub 项目经营协议+体检脚本）
-tests/     离线单测（45 项，含 449 事故回归与人审门禁）：python3 -m unittest discover tests -v
+tests/     离线单测（52 项，含 449 事故回归、人审门禁、demo 闭环与 doctor 分级）：python3 -m unittest discover tests -v
 mcp_server.py  MCP 外壳（stdio JSON-RPC，零依赖）
 ```
 

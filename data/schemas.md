@@ -72,3 +72,8 @@ result 终态：`committed` / `indeterminate`（人工裁决，禁自动重发�
 ## state/ 日预算状态
 
 `mkt-daily-YYYY-MM-DD.json`：`{"<channel>/<action>": n}`，按日滚动，旧文件即历史。
+
+## demo/ 演示沙盒（mkt demo 生成）
+
+`data/demo/`：plans/queues/ledger 全套演示产物（零网络零账号，transport=demo-memory）。
+可整目录删除，不影响真实数据；重复跑只追加演示账本，终态恒为 dry-run/rejected/failed。

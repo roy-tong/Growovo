@@ -7,6 +7,8 @@
 统一语义：**写操作默认 dry-run，--go 才实跑**（比 x-ops 更强的安全缺省）。
   mkt status                账本聚合（channel/campaign/result）
   mkt check                 CDP 会话与各渠道登录态检查
+  mkt demo                  零网络零账号演示（lint→人审→写路径 dry-run→账本）
+  mkt doctor [--selftest]   环境体检（--selftest 连跑全部离线单测）
 
 示例:
   python3 mkt.py email message --queue data/queues/er-wave7.json        # dry-run
@@ -114,6 +116,16 @@ def cmd_contacts(args):
     elif args.action == "import":
         print(json.dumps(c.import_legacy(args.file), ensure_ascii=False))
     return 0
+
+
+def cmd_demo(args):
+    from core.demo import run_demo
+    return run_demo(BASE)
+
+
+def cmd_doctor(args):
+    from core.doctor import run_doctor
+    return run_doctor(BASE, DATA, selftest=args.selftest)
 
 
 def cmd_x(args):
@@ -241,6 +253,11 @@ def build_parser():
     sp = sub.add_parser("report", help="一页纸运营报告（近 24h 账本/异常/暂停态）")
     sp.add_argument("--hours", type=int, default=24)
     sp.set_defaults(fn=cmd_report)
+    sp = sub.add_parser("demo", help="零网络零账号演示：计划校验→人审闸门→写路径 dry-run→账本")
+    sp.set_defaults(fn=cmd_demo)
+    sp = sub.add_parser("doctor", help="环境体检：内核/数据/凭据/CDP/暂停态（--selftest 连跑单测）")
+    sp.add_argument("--selftest", action="store_true", help="附带跑全部离线单测")
+    sp.set_defaults(fn=cmd_doctor)
     sp = sub.add_parser("contacts", help="线索库：add/find/dnc/mark/import")
     sp.add_argument("action", choices=["add", "find", "dnc", "mark", "import"])
     sp.add_argument("--json", help="add/mark 的 JSON 字段")
