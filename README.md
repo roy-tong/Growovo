@@ -6,6 +6,8 @@ Growovo 面向维护产品社区、内容渠道和客户沟通的运营人员。
 
 产品由 **Operator Engine（操作内核）** 和 **Playbooks（业务工作流）** 组成。当前可用的 GitHub Inbox Playbook 把问题列表分流并生成回复队列；内容、邮件和增长活动复用同一执行内核。CLI、MCP、Skill 共用审批、预算、回读和账本。发送成功只代表操作完成，注册、付费等业务结果单独记录。
 
+[![tests](https://github.com/roy-tong/Growovo/actions/workflows/tests.yml/badge.svg)](https://github.com/roy-tong/Growovo/actions/workflows/tests.yml)
+
 **先试一个结果：** `python3 mkt.py demo` 在本地完成计划校验、审批、dry-run 和账本演示，无需账号或网络。实际平台命令的验证等级见下表。[能力进度与技术取舍](docs/feature-status.md)。
 
 - **Askovo** 负责业务研究与验证，为任务提供依据。
@@ -160,7 +162,7 @@ core/      ledger 账本（含人工裁决覆盖）· gates 门禁（含 DNC 合
 channels/  x/(vendor+adapter) · email_smtp · email_cdp · reddit · linkedin · github（api 通道首发） · hn（CDP 写 + Algolia 读）
 transports/  os_input（macOS 键鼠/AX 模拟，UNVERIFIED）
 skills/    growovo-gtm（GTM 操作协议）· github-project-ops（GitHub 项目经营协议+体检脚本）
-tests/     离线单测（117 项，含 449 事故回归、全渠道人审门禁/adhoc 放行、审批指纹与过期、预算原子预留、DNC/indeterminate 阻断、队列编辑期门禁、CSV 导入幂等、账本裁决覆盖、collector 跳转/事件鉴权、MCP stdout 洁净、GitHub Inbox Playbook 分流/草稿队列、漏斗身份归一与时序披露、价值事件核验、实验冻结与预注册防篡改、demo 闭环与 doctor 分级）：python3 -m unittest discover tests -v
+tests/     离线单测（118 项，含 449 事故回归、全渠道人审门禁/adhoc 放行、审批指纹与过期、预算原子预留、DNC/indeterminate 阻断、队列编辑期门禁、CSV 导入幂等、账本裁决覆盖、collector 跳转/事件鉴权、MCP stdout 洁净、GitHub Inbox Playbook 分流/草稿队列、漏斗身份归一与时序披露、价值事件核验、实验冻结与预注册防篡改、demo 闭环与 doctor 分级）：python3 -m unittest discover tests -v
 mcp_server.py  MCP 外壳（stdio JSON-RPC，零依赖）
 ```
 
