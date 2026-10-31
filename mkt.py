@@ -671,6 +671,23 @@ def cmd_hn(args):
     return 0 if rec["result"] in ("committed", "dry-run") else 1
 
 
+def cmd_memory(args):
+    """Read-only, privacy-safe patterns from execution receipts (never auto-replay)."""
+    from core.operations_memory import summarize
+    result = summarize(_ledger().all(), campaign=args.campaign,
+                       channel=args.channel, minimum_confirmed=args.minimum_confirmed)
+    serialized = json.dumps(result, ensure_ascii=False, indent=2) + "\n"
+    if args.output:
+        output = Path(args.output)
+        output.parent.mkdir(parents=True, exist_ok=True)
+        if output.exists() and not args.force:
+            print(f"输出已存在: {output}（加 --force 才覆盖）")
+            return 1
+        output.write_text(serialized, encoding="utf-8")
+    print(serialized, end="")
+    return 0
+
+
 def cmd_playbook(args):
     from core import playbooks
     if args.name != "github-inbox":
@@ -951,6 +968,15 @@ def build_parser():
     sp.add_argument("--adhoc", action="store_true",
                        help="实跑无 plan 管辖时的显式放行（账本记 adhoc=true）")
     sp.set_defaults(fn=cmd_github)
+
+    sp = sub.add_parser("memory", help="从真实操作回执沉淀匿名化运营经验（只读，不自动重放）")
+    sp.add_argument("--campaign", help="只分析指定 campaign")
+    sp.add_argument("--channel", help="只分析指定平台")
+    sp.add_argument("--minimum-confirmed", type=int, default=3,
+                    help="推荐人工复盘的最低已确认操作数量")
+    sp.add_argument("--output", help="可选：导出不含个人目标信息的 JSON")
+    sp.add_argument("--force", action="store_true", help="允许覆盖已有导出")
+    sp.set_defaults(fn=cmd_memory)
 
     sp = sub.add_parser("playbook", help="Playbook：把日常运营拆成分流→草稿→队列→审批执行")
     sp.add_argument("name", choices=["github-inbox"])

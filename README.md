@@ -172,3 +172,14 @@ X 渠道 vendor 引入 x-ops-automation（上游 github: roy-tong/x-ops-automati
 ## License
 
 MIT（见 [LICENSE](LICENSE)）。`channels/x/vendor/` 引入自同作者仓库 x-ops-automation（MIT）。
+
+## Operations memory: learn from verified platform receipts
+
+Inspect recurring channel/action patterns without exposing contact details or automatically executing any past action:
+
+```bash
+python3 mkt.py memory --campaign my-campaign
+python3 mkt.py memory --channel github --output data/operations-memory.json
+```
+
+The summary reports confirmed platform operations, unknown/failing receipts and **human-review candidates**. It intentionally excludes targets and message bodies. A successful platform action is **not** evidence of customer activation, and a pattern is never permission to replay: new runs still require fresh authorization, current platform-policy checks and the standard execution gates. This is a read-only foundation for reusable playbooks, not semantic/visual UI learning. See [feature status](docs/feature-status.md).
