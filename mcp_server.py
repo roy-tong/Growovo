@@ -32,6 +32,18 @@ PROTOCOL_VERSION = "2024-11-05"
 
 TOOLS = [
     {
+        "name": "mkt_memory",
+        "description": "只读运营经验：从真实操作回执汇总 channel/action 模式，不暴露目标或内容，不允许自动重放。",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "campaign": {"type": "string"},
+                "channel": {"type": "string"},
+                "minimum_confirmed": {"type": "integer", "default": 3},
+            },
+        },
+    },
+    {
         "name": "mkt_status",
         "description": "全局账本聚合：按 channel/campaign/result 计数。只读。",
         "inputSchema": {"type": "object", "properties": {}},
@@ -161,6 +173,15 @@ def _err(msg):
 
 
 def _call_tool(name, args):
+    if name == "mkt_memory":
+        from core.operations_memory import summarize
+        return _text(summarize(
+            Ledger(DATA / "ledger.jsonl").all(),
+            campaign=args.get("campaign"),
+            channel=args.get("channel"),
+            minimum_confirmed=args.get("minimum_confirmed", 3),
+        ))
+
     if name == "mkt_status":
         return _text(Ledger(DATA / "ledger.jsonl").summary())
 

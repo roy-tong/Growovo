@@ -12,4 +12,6 @@ Reviewed 2026-10-31 against the repository implementation. Available means local
 
 Build: business playbooks, authorization, policy, result verification and execution ledger. Reuse: existing Playwright/CDP and platform APIs. No new browser framework is required for queue reliability. Stagehand and Midscene remain optional recovery candidates; no fork is needed for receipt-only memory.
 
+The read-only `mkt_memory` MCP tool exposes anonymized receipt patterns to Agents; it never grants replay rights.
+
 Recovery: send/confirmation exceptions are `indeterminate`, so a timeout cannot authorize a resend. A queue stops on failed, rejected or unknown results. Check platform state and use `ledger resolve` with an evidence note before retrying an unknown result. Process termination during a send still needs external inspection; exactly-once delivery is not guaranteed.

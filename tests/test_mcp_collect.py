@@ -35,6 +35,26 @@ class TestMCPTools(unittest.TestCase):
         search = next(t for t in mcp_server.TOOLS if t["name"] == "mkt_search")
         self.assertIn("github", search["inputSchema"]["properties"]["channel"]["enum"])
 
+    def test_memory_mcp_reads_receipts_without_targets(self):
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory() as d:
+            data = Path(d)
+            (data / "ledger.jsonl").write_text(json.dumps({
+                "channel": "github", "action": "reply",
+                "campaign": "research", "result": "committed",
+                "target": "issue:secret/repo#2",
+            }) + "\n", encoding="utf-8")
+            with patch.object(mcp_server, "DATA", data):
+                response = mcp_server.handle({
+                    "jsonrpc": "2.0", "id": 8, "method": "tools/call",
+                    "params": {"name": "mkt_memory", "arguments": {"campaign": "research"}},
+                })
+            self.assertFalse(response["result"].get("isError", False))
+            payload = json.loads(response["result"]["content"][0]["text"])
+            self.assertEqual(1, payload["patterns"][0]["confirmed_operations"])
+            self.assertFalse(payload["patterns"][0]["automatic_replay_allowed"])
+            self.assertNotIn("secret/repo", str(payload))
+
     def test_tool_stdout_is_clean(self):
         import contextlib
         import io
