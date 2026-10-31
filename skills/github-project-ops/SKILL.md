@@ -96,6 +96,6 @@ description: 经营 GitHub 项目的完整操作系统（开源与闭源通用�
 - 完整调研报告与 164 条案例库在 `projects/待归类/开源项目库/`（六页签宽表 + 方法论全景报告），需要更多案例细节时可读 `deliverables/如何做好GitHub开源项目-方法论全景.md`、`deliverables/平民爆款开源项目解剖-20261015.md` 与 `数据/merged-*.json`。
 - 本 skill 不覆盖企业 OSPO 合规（CLA/法务流程）——那是 TODO Group 指南的领地；也不覆盖「如何给别人的项目贡献代码」。
 
-## 5. 管线化执行（mkt-automation）
+## 5. 管线化执行（Growovo）
 
-GitHub 经营已并入 `projects/自动化营销组件/`（mkt-automation 仓库）：体检采数、零回复巡检、issue 评论走 `mkt github audit|inbox|reply`（评论默认 dry-run，过门禁/节流/留证/账本）。批量整改/发布/响应动作应写成 plan.json 过人审后执行。完整管线（雷达→体检→规划→人审→执行→响应→复盘）见该项目 08 文档。本 skill 的仓库内发行副本：`mkt-automation/skills/github-project-ops/`（改正本后需同步）。
+GitHub 经营已并入 Growovo（本仓库，原 mkt-automation/marketing-ops-automation）：体检采数、零回复巡检、issue 评论走 `mkt github audit|inbox|reply`（评论默认 dry-run，过门禁/节流/留证/账本）。批量整改/发布/响应动作应写成 plan.json 过人审后执行。本 skill 的正本在 `~/.agents/skills/github-project-ops/`，仓库内发行副本：`skills/github-project-ops/`（改正本后需同步）。

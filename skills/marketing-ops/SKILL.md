@@ -77,4 +77,4 @@ python3 mkt.py status                  # 账本
 | 方案/执行/复盘（本协议） | marketing-ops |
 | 外联邮件写作 | warm-email-outreach（求评类 → expert-review-outreach） |
 | 公司账号找人/换人 | b2b-account-mapping |
-| 客群需求研究（读侧深研究） | user-demand-research |
+| 客群需求研究（读侧深研究，研发前上游） | askovo |

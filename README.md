@@ -4,17 +4,17 @@
 
 > **定 → 造 → 跑**：输入一个已发布的产品，交付可验证的真实用户增长（注册、激活、付费），中间每一步带证据。
 
-**演进说明**：本仓库由 marketing-ops-automation 进化而来。原有执行内核完整保留、继续可用，并构成 Growovo 的 Growth Orchestrator 与治理层：
+**演进说明**：本仓库由 marketing-ops-automation 进化而来。经过验证的原内核完整保留、继续可用，成为 Growovo 端到端引擎的**「跑」层与治理层**：
 
 - 统一六原语（publish / reply / message / engage / search / inbox）、统一写路径事务管道（门禁→节流→回读校验→截图→dry-run 停点→发送→确认→账本）、统一账本
 - 三种外壳共用本内核：**CLI（mkt.py）**／**MCP（mcp_server.py）**／**Skill（skills/marketing-ops + skills/github-project-ops）**
 - 多渠道（X / Email / Reddit / LinkedIn / **GitHub** / **HN**，可扩展）、**多通道**（API / browser-CDP / OS 键鼠模拟 / SMTP 等四类十种，含降级储备）、零凭据优先
 - GitHub 渠道承载**项目经营管线**：audit 体检 → inbox 零响应巡检 → reply 社区响应（见 skills/github-project-ops）
 
-在此之上，Growovo 将逐步构建：**定**（产品理解、ICP、定位、渠道策略）、**造**（增长资产工厂）、**量**（归因与实验）。证据契约复用 [askovo/SURE](https://github.com/roy-tong/askovo) 的 E0–E5 证据分级与 claim 分型。当前处于演进早期：`mkt` 命令、数据契约与全部文档保持可用，新能力按 P0 dogfood 节奏推进。
+在此之上，Growovo 正在补齐端到端的另外两段：**定**（产品理解、ICP、定位、渠道策略）与**造**（增长资产工厂）；**跑**即下述内核，其内含**量**（实验与归因，`mkt experiment` / `mkt outcome`）。证据分级与 claim 分型沿用 [askovo/SURE](https://github.com/roy-tong/askovo) 契约，上下游关系见下。当前处于演进早期：`mkt` 命令、数据契约与全部文档保持可用，新能力按 P0 dogfood 节奏推进。
 
 > 内核纪律一句话（不变）：agent 当参谋（出方案，产出可校验的数据工件）、内核当执行（守门禁，上限是内核属性）、人当闸门（未经人审的计划拒跑）。
-> 仓库内 `data/schemas.md` 自含全部数据契约。上游是 [research-to-publish](https://github.com/roy-tong/research-to-publish)（研究 → 文章 → 公众号/小红书交付包），其交付包与文章链接进本内核队列执行发布与互动；X 渠道 vendor 自已归档的 [x-ops-automation](https://github.com/roy-tong/x-ops-automation)。
+> 仓库内 `data/schemas.md` 自含全部数据契约。**研究上游是 [askovo](https://github.com/roy-tong/askovo)**——研发前的需求研究引擎（七节点链、E0–E5 证据分级）：askovo 的研究判断进入 Growovo 的「定」，Growovo 的一手增长反馈以同一套证据分级回流。内容资产上游是 [research-to-publish](https://github.com/roy-tong/research-to-publish)（研究 → 文章 → 公众号/小红书交付包），其交付包与文章链接作为「造」侧资产进入本内核队列执行发布与互动；X 渠道 vendor 自已归档的 [x-ops-automation](https://github.com/roy-tong/x-ops-automation)。
 
 ## 合规与纪律（先读这个）
 
@@ -80,7 +80,7 @@ python3 -c "from core.planlint import load_plan, lint_plan; print(lint_plan(load
 ## MCP 服务（mcp_server.py，stdio，零依赖）
 
 ```json
-{"mkt": {"command": "python3", "args": ["/绝对路径/marketing-ops-automation/mcp_server.py"]}}
+{"mkt": {"command": "python3", "args": ["/绝对路径/Growovo/mcp_server.py"]}}
 ```
 
 6 个工具：`mkt_status` / `mkt_channels` / `mkt_plan_lint` / `mkt_search` / `mkt_ledger_query`（只读）+ `mkt_run_queue`（写，默认 dry-run；UNVERIFIED 渠道拒实跑；未经人审的 plan 拒跑）。只暴露队列粒度写操作——没有绕过留痕的路径。
