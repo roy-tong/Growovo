@@ -114,8 +114,11 @@ def _xdm_log_lines():
     return len(logf.read_text(encoding="utf-8").splitlines())
 
 
-def run(action, extra_args, *, go=False, campaign=None, ledger=None, log=print):
-    """执行 vendor 脚本并把结果记账。go=False 时写操作自动降级为 dry-run。"""
+def run(action, extra_args, *, go=False, adhoc=False, campaign=None, ledger=None, log=print):
+    """执行 vendor 脚本并把结果记账。go=False 时写操作自动降级为 dry-run。
+
+    go=True 的人审门禁与其他渠道同规：必须绑定已人审 plan（data/plans/），
+    无 plan 管辖需显式 adhoc=True（CLI --adhoc 人工通道）。"""
     if action not in ACTIONS:
         raise SystemExit(f"X 渠道不支持动作: {action}（支持: {sorted(ACTIONS)}）")
     script, is_write = ACTIONS[action]
@@ -128,12 +131,17 @@ def run(action, extra_args, *, go=False, campaign=None, ledger=None, log=print):
             raise SystemExit("engage 需要子动作: follow <@a @b> | like <url...>")
         extra_args = extra_args[1:]
 
-    # 全局暂停闸（core.safety）：写操作一律拒跑
+    # 全局暂停闸（core.safety）：写操作一律拒跑；人审门禁（core.planlint）：实跑前强制
     if is_write:
+        from core.planlint import enforce_approval
         from core.safety import pause_file
         DATA_ROOT = VENDOR.parents[2] / "data"   # channels/x/vendor → mkt-automation/data
         if pause_file(DATA_ROOT).exists():
             raise SystemExit("全局暂停中（mkt pause --off 恢复）——X 写操作拒跑")
+        if go:
+            mode = enforce_approval(DATA_ROOT, campaign or "", adhoc=adhoc)
+            if mode == "adhoc":
+                log("[x] adhoc 放行（无 plan 管辖，人工通道留痕）")
 
     before_lines = {"xdm": _xdm_log_lines()}
     cmd = [sys.executable, str(VENDOR / script)] + [str(a) for a in extra_args]

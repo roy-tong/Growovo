@@ -16,6 +16,7 @@
 """
 import re
 from datetime import datetime
+from pathlib import Path
 
 
 def _norm(s):
@@ -24,11 +25,13 @@ def _norm(s):
 
 
 class WritePipeline:
-    def __init__(self, *, gate, ledger, throttle, pause_file=None):
+    def __init__(self, *, gate, ledger, throttle, pause_file=None, approval=None):
         self.gate = gate
         self.ledger = ledger
         self.throttle = throttle
         self.pause_file = pause_file  # core.safety.pause_file(data_dir)；存在即一切写操作拒跑
+        self.approval = approval      # callable(campaign) -> "plan"|"adhoc"（planlint.enforce_approval）；
+                                      # 实跑（非 dry-run）时强制，抛 PlanNotApproved 即整条拒跑
 
     def run_one(self, item, *, channel, action, campaign, transport,
                 expect, target, compose, fill, readback, send, confirm,
@@ -37,7 +40,7 @@ class WritePipeline:
 
         expect   期望进入编辑器/邮件正文的文本（回读比对基准）
         target   渠道目标（@handle / email / url / tweet:url…）
-        Gate 拒绝 / 全局暂停 返回 result="rejected"（正常逐条结果，不抛异常）。
+        Gate 拒绝 / 全局暂停 / 人审门禁（实跑） 返回 result="rejected"（正常逐条结果，不抛异常）。
         """
         rec = {
             "id": item.get("id", ""),
@@ -48,6 +51,13 @@ class WritePipeline:
         if self.pause_file is not None and self.pause_file.exists():
             rec.update(result="rejected", detail="全局暂停中（mkt pause --off 恢复）")
             return self._finish(rec)
+        if self.approval is not None and not dry_run:
+            try:
+                mode = self.approval(campaign)
+                rec["approval"] = mode
+            except Exception as exc:  # PlanNotApproved：实跑未绑定已人审 plan
+                rec.update(result="rejected", detail=f"人审门禁: {exc}")
+                return self._finish(rec)
         try:
             self.gate.check(channel=channel, action=action, target=target,
                             campaign=campaign, content=expect, max_len=max_len)
@@ -77,9 +87,30 @@ class WritePipeline:
 
     def _finish(self, rec):
         rec["finished_at"] = datetime.now().isoformat(timespec="seconds")
+        detail = rec.get("detail", "")
+        if rec.get("approval") == "adhoc":
+            detail = (detail + "; " if detail else "") + "adhoc=true"
         self.ledger.append(
             channel=rec["channel"], action=rec["action"], target=rec["target"],
             result=rec["result"], transport=rec["transport"], campaign=rec["campaign"],
-            evidence=rec.get("evidence"), ref=rec.get("id"), detail=rec.get("detail", ""),
+            evidence=rec.get("evidence"), ref=rec.get("id"), detail=detail,
         )
         return rec
+
+
+def standard_pipeline(data_dir, ledger, *, adhoc=False):
+    """渠道写原语的标准管道：Gate + Throttle + 全局暂停闸 + 人审门禁（实跑强制）。
+
+    所有渠道写路径一律从这里构造——审批/暂停不再依赖各渠道自行接线
+    （此前 reddit/linkedin/github/hn 未接，email 接错目录，形同虚设）。
+    adhoc 仅为 CLI 人工通道（--adhoc）；MCP 不传，agent 不得自我授权。
+    """
+    from .gates import Gate
+    from .planlint import enforce_approval
+    from .safety import pause_file
+    from .throttle import Throttle
+    data_dir = Path(data_dir)
+    return WritePipeline(
+        gate=Gate(ledger), ledger=ledger, throttle=Throttle(data_dir / "state"),
+        pause_file=pause_file(data_dir),
+        approval=lambda c: enforce_approval(data_dir, c, adhoc=adhoc))

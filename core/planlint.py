@@ -3,7 +3,8 @@
 
 两级：
   lint_plan(plan)    生成后校验：schema/能力矩阵/上限/预注册。不过 = 不进执行
-  enforce_approval   执行前强制：data/plans/ 存在同 campaign 的 plan 且未经人审 = 拒跑
+  enforce_approval   执行前强制：--go 写操作必须绑定已人审 plan；
+                     无 plan 管辖默认拒跑，人工通道 adhoc=True 才放行（账本记 adhoc=true）
 
 上限是内核属性不是计划属性：plan 里的 size 超过 Throttle 日预算 → lint 直接拒。
 """
@@ -95,18 +96,32 @@ def _plan_governs(plan, campaign):
     return False
 
 
-def enforce_approval(data_dir, campaign):
-    """执行前强制：该 campaign 有 plan 但未经人审 → 拒跑。无 plan 的 adhoc 队列放行。"""
+def enforce_approval(data_dir, campaign, adhoc=False):
+    """执行前强制：--go 写操作必须绑定已人审 plan（05 产品方案 §2.4）。
+
+    - campaign 受某 plan 管辖：review.human_approved=false → 拒跑（人审是执行前置条件）
+    - 无任何 plan 管辖：默认同样拒跑；显式 adhoc=True 才放行（CLI --adhoc 人工通道，
+      账本记 adhoc=true；MCP 不暴露该通道——agent 不得自我授权）
+
+    返回放行方式："plan"（受管辖且已人审）或 "adhoc"（显式临时放行）。
+    """
     plans_dir = Path(data_dir) / "plans"
-    if not plans_dir.exists() or not campaign:
-        return
-    for f in plans_dir.glob("*.json"):
-        try:
-            plan = json.loads(f.read_text(encoding="utf-8"))
-        except json.JSONDecodeError:
-            continue
-        if _plan_governs(plan, campaign) and \
-                not (plan.get("review") or {}).get("human_approved"):
-            raise PlanNotApproved(
-                f"campaign '{campaign}' 属于计划 {plan.get('plan_id')}，"
-                "review.human_approved=false，拒绝执行（人审是执行前置条件）")
+    if plans_dir.exists() and campaign:
+        for f in plans_dir.glob("*.json"):
+            try:
+                plan = json.loads(f.read_text(encoding="utf-8"))
+            except json.JSONDecodeError:
+                continue
+            if not _plan_governs(plan, campaign):
+                continue
+            if not (plan.get("review") or {}).get("human_approved"):
+                raise PlanNotApproved(
+                    f"campaign '{campaign}' 属于计划 {plan.get('plan_id')}，"
+                    "review.human_approved=false，拒绝执行（人审是执行前置条件）")
+            return "plan"
+    if not adhoc:
+        raise PlanNotApproved(
+            f"campaign '{campaign or '（未命名）'}' 无已人审 plan 管辖："
+            "--go 实跑必须绑定已人审 plan，或人工通道显式 --adhoc 放行"
+            "（账本将记 adhoc=true）")
+    return "adhoc"

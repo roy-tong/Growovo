@@ -22,10 +22,8 @@ from pathlib import Path
 
 from core import cdp
 from core.evidence import Evidence, log
-from core.gates import Gate
 from core.ledger import Ledger
-from core.pipeline import WritePipeline
-from core.throttle import Throttle
+from core.pipeline import standard_pipeline
 
 DATA = Path(__file__).resolve().parents[1] / "data"
 HN = "https://news.ycombinator.com"
@@ -102,7 +100,7 @@ def inbox(*, log=log):
 
 # ---------------------------------------------------------------- 写原语（统一写路径）
 
-def publish(title, url=None, text=None, *, go=False, campaign=None,
+def publish(title, url=None, text=None, *, go=False, adhoc=False, campaign=None,
             ledger=None, log=log):
     """提交（Show HN / 链接帖 / 文本帖）—— news.ycombinator.com/submit 表单。
 
@@ -111,8 +109,7 @@ def publish(title, url=None, text=None, *, go=False, campaign=None,
     """
     _validate_submission(title, url, text)
     ledger = ledger or Ledger(DATA / "ledger.jsonl")
-    pipe = WritePipeline(gate=Gate(ledger), ledger=ledger,
-                         throttle=Throttle(DATA / "state"))
+    pipe = standard_pipeline(DATA, ledger, adhoc=adhoc)
     ev = Evidence(DATA / "shots" / (campaign or "adhoc"))
     target = f"hn:submit:{(url or 'text')[:60]}"
     browser, page = cdp.connect()
@@ -161,7 +158,7 @@ def publish(title, url=None, text=None, *, go=False, campaign=None,
         page.close()
 
 
-def reply(item, text, *, go=False, campaign=None, ledger=None, log=log):
+def reply(item, text, *, go=False, adhoc=False, campaign=None, ledger=None, log=log):
     """在条目下评论 —— item 为 news.ycombinator.com/item?id=N URL 或 item:N。
 
     首要用途：Show HN 提交后的首条作者评论（HN 文化：作者须说明背景+欢迎批评，
@@ -173,8 +170,7 @@ def reply(item, text, *, go=False, campaign=None, ledger=None, log=log):
     if "news.ycombinator.com" not in item:
         raise ValueError(f"item 应为 news.ycombinator.com URL 或 item:N: {item}")
     ledger = ledger or Ledger(DATA / "ledger.jsonl")
-    pipe = WritePipeline(gate=Gate(ledger), ledger=ledger,
-                         throttle=Throttle(DATA / "state"))
+    pipe = standard_pipeline(DATA, ledger, adhoc=adhoc)
     ev = Evidence(DATA / "shots" / (campaign or "adhoc"))
     browser, page = cdp.connect()
     try:

@@ -9,7 +9,8 @@ ZCode 等 MCP 客户端连接）。配法（客户端 mcp 配置）：
   - 只暴露队列粒度的写操作（mkt_run_queue）——没有绕过留痕的细粒度"发一条"
   - 写操作默认 dry-run；go=true 需显式传
   - UNVERIFIED 渠道（reddit/linkedin）拒绝实跑，除非 allow_unverified=true
-  - campaign 属于某个 plan 且未经人审 → 拒跑（core.planlint.enforce_approval）
+  - 实跑必须绑定已人审 plan（enforce_approval）；无 plan 的 adhoc 放行**只在 CLI
+    人工通道（--adhoc）开放**，MCP 不暴露——agent 不得自我授权绕过人审
   - 凭据只在服务端进程环境变量，不经工具参数往返
 """
 import json
@@ -79,7 +80,7 @@ TOOLS = [
         "name": "mkt_run_queue",
         "description": "执行一个队列（当前支持 email SMTP 通道；其他渠道请用 CLI）。"
                        "默认 dry-run；go=true 实跑；UNVERIFIED 渠道实跑需 allow_unverified=true；"
-                       "campaign 属于未经人审的计划时拒跑。",
+                       "实跑必须绑定已人审 plan（无 plan 的 adhoc 仅 CLI 人工通道，MCP 不开放）。",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -168,7 +169,7 @@ def call_tool(name, args):
             from core.safety import is_paused
             if is_paused(DATA):
                 return _err("全局暂停中（mkt pause）——拒绝实跑")
-            enforce_approval(DATA, campaign)  # PlanNotApproved 直接报给调用方
+            enforce_approval(DATA, campaign)  # 严格模式：无 plan 管辖同样拒（adhoc 仅 CLI）
         from channels.email_smtp import send_queue
         res = send_queue(qpath, go=go, data_dir=DATA)
         return _text({

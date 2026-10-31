@@ -23,9 +23,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from core.evidence import Evidence, log
-from core.gates import Gate
 from core.ledger import Ledger
-from core.pipeline import WritePipeline
+from core.pipeline import standard_pipeline
 from core.throttle import Throttle
 
 DATA = Path(__file__).resolve().parents[1] / "data"
@@ -212,7 +211,7 @@ def inbox(slug, *, log=log):
 
 # ---------------------------------------------------------------- 写原语（统一写路径）
 
-def reply(slug, number, text, *, go=False, campaign=None, ledger=None, log=log):
+def reply(slug, number, text, *, go=False, adhoc=False, campaign=None, ledger=None, log=log):
     """在 issue/PR 下评论 —— api 通道的写路径首例。
 
     走统一管道：Gate（占位符/查重/禁字符）→ 节流（30-90s 人类节奏）→ 回读比对
@@ -264,7 +263,7 @@ def reply(slug, number, text, *, go=False, campaign=None, ledger=None, log=log):
     if go:
         time.sleep(throttle.interval("github", "reply"))  # 人类节奏（与邮件/X 同族纪律）
 
-    pipe = WritePipeline(gate=Gate(ledger), ledger=ledger, throttle=throttle)
+    pipe = standard_pipeline(DATA, ledger, adhoc=adhoc)
     return pipe.run_one(
         {"id": target}, channel="github", action="reply",
         campaign=campaign or "", transport="api", expect=text, target=target,

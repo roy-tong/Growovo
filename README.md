@@ -7,11 +7,20 @@
 **演进说明**：本仓库由 marketing-ops-automation 进化而来。经过验证的原内核完整保留、继续可用，成为 Growovo 端到端引擎的**「跑」层与治理层**：
 
 - 统一六原语（publish / reply / message / engage / search / inbox）、统一写路径事务管道（门禁→节流→回读校验→截图→dry-run 停点→发送→确认→账本）、统一账本
-- 三种外壳共用本内核：**CLI（mkt.py）**／**MCP（mcp_server.py）**／**Skill（skills/marketing-ops + skills/github-project-ops）**
+- 三种外壳共用本内核：**CLI（mkt.py）**／**MCP（mcp_server.py）**／**Skill（skills/growovo-gtm + skills/github-project-ops）**
 - 多渠道（X / Email / Reddit / LinkedIn / **GitHub** / **HN**，可扩展）、**多通道**（API / browser-CDP / OS 键鼠模拟 / SMTP 等四类十种，含降级储备）、零凭据优先
 - GitHub 渠道承载**项目经营管线**：audit 体检 → inbox 零响应巡检 → reply 社区响应（见 skills/github-project-ops）
 
-在此之上，Growovo 正在补齐端到端的另外两段：**定**（产品理解、ICP、定位、渠道策略）与**造**（增长资产工厂）；**跑**即下述内核，其内含**量**（实验与归因，`mkt experiment` / `mkt outcome`）。证据分级与 claim 分型沿用 [askovo/SURE](https://github.com/roy-tong/askovo) 契约，上下游关系见下。当前处于演进早期：`mkt` 命令、数据契约与全部文档保持可用，新能力按 P0 dogfood 节奏推进。
+在此之上，Growovo 正在补齐端到端的另外两段：**定**（产品理解、ICP、定位、渠道策略）与**造**（增长资产工厂）；**跑**即下述内核，其内含**量**（实验与归因，`mkt experiment` / `mkt outcome`）。
+
+四引擎对照（Agent 入口见 [skills/growovo-gtm](skills/growovo-gtm/SKILL.md)——入口是 GTM 目标，不是单个渠道动作）：
+
+| 引擎 | 职责 | 当前承载 |
+|---|---|---|
+| Positioning（定） | 产品理解、ICP、购买动机与竞争替代 | askovo 研究上游 + growovo-gtm ②③ 步 + [gtm-readiness](../gtm-readiness) 就绪体检 |
+| Asset（造） | 增长资产（页面/内容/演示/触达素材） | 内容协作 skill + 既有研究资产，素材进队列前过千人千面门禁 |
+| Campaign（跑） | 选渠道、执行授权动作、管理反馈 | 本内核（六原语/统一写路径/账本） |
+| Outcome（量） | 追踪激活/付费，评估实验 | `mkt experiment`（预注册）+ `mkt outcome`（漏斗/归因，口径非因果） |证据分级与 claim 分型沿用 [askovo/SURE](https://github.com/roy-tong/askovo) 契约，上下游关系见下。当前处于演进早期：`mkt` 命令、数据契约与全部文档保持可用，新能力按 P0 dogfood 节奏推进。
 
 > 内核纪律一句话（不变）：agent 当参谋（出方案，产出可校验的数据工件）、内核当执行（守门禁，上限是内核属性）、人当闸门（未经人审的计划拒跑）。
 > 仓库内 `data/schemas.md` 自含全部数据契约。**研究上游是 [askovo](https://github.com/roy-tong/askovo)**——研发前的需求研究引擎（七节点链、E0–E5 证据分级）：askovo 的研究判断进入 Growovo 的「定」，Growovo 的一手增长反馈以同一套证据分级回流。内容资产上游是 [research-to-publish](https://github.com/roy-tong/research-to-publish)（研究 → 文章 → 公众号/小红书交付包），其交付包与文章链接作为「造」侧资产进入本内核队列执行发布与互动；X 渠道 vendor 自已归档的 [x-ops-automation](https://github.com/roy-tong/x-ops-automation)。
@@ -20,7 +29,7 @@
 
 - 仅用于**本人拥有/运营的账号**；不碰他人账号、不做代运营自动化
 - CDP 通道零凭据：不保存任何密码/token/Cookie；SMTP 凭据只走环境变量
-- **一切写操作默认 dry-run，`--go` 才实跑**
+- **一切写操作默认 dry-run，`--go` 才实跑**；实跑必须绑定**已人审 plan**——无 plan 管辖默认拒跑，仅 CLI 人工通道 `--adhoc` 显式放行（账本记 adhoc=true；MCP 不开放）
 - 失败即停（不重试轰炸）；回读校验不一致绝不发送（449 空正文事故的固化）
 - 人类节奏：随机间隔 + 单次硬上限 + 日预算（core/throttle.py 的表）
 - 不群发：千人千面内容为前提；占位符残留会被门禁直接拒绝
@@ -71,7 +80,7 @@ python3 mkt.py check              # 确认 CDP 会话与 X/Gmail 登录态
 # 1. agent/人 按 data/schemas.md 的 plan schema 写 data/plans/<plan_id>.json
 # 2. 校验（schema/能力矩阵/size≤内核日预算/判据预注册）
 python3 -c "from core.planlint import load_plan, lint_plan; print(lint_plan(load_plan('data/plans/x.json')))"
-# 3. 人审通过后置 review.human_approved=true —— 否则 send_queue 与 MCP 都拒跑该 campaign
+# 3. 人审通过后置 review.human_approved=true —— 否则实跑被拒；无 plan 管辖的 campaign 默认同样拒跑（CLI --adhoc 显式放行，MCP 不开放）
 # 4. 生成 data/queues/<campaign>.json 并执行（见上表）
 ```
 
@@ -83,11 +92,11 @@ python3 -c "from core.planlint import load_plan, lint_plan; print(lint_plan(load
 {"mkt": {"command": "python3", "args": ["/绝对路径/Growovo/mcp_server.py"]}}
 ```
 
-6 个工具：`mkt_status` / `mkt_channels` / `mkt_plan_lint` / `mkt_search` / `mkt_ledger_query`（只读）+ `mkt_run_queue`（写，默认 dry-run；UNVERIFIED 渠道拒实跑；未经人审的 plan 拒跑）。只暴露队列粒度写操作——没有绕过留痕的路径。
+6 个工具：`mkt_status` / `mkt_channels` / `mkt_plan_lint` / `mkt_search` / `mkt_ledger_query`（只读）+ `mkt_run_queue`（写，默认 dry-run；UNVERIFIED 渠道拒实跑；实跑必须绑定已人审 plan，adhoc 仅 CLI 人工通道、MCP 不开放）。只暴露队列粒度写操作——没有绕过留痕的路径。
 
 ## Skill（skills/）
 
-- `skills/marketing-ops/SKILL.md`：agent 操作协议，目标→plan→客群→人审→执行→复盘七步。装入 `~/.agents/skills/` 即可在 ZCode 等宿主触发（内容协作走 warm-email-outreach / expert-review-outreach / b2b-account-mapping）。
+- `skills/growovo-gtm/SKILL.md`：**GTM 操作协议**——入口是增长目标（注册/激活/付费）而非单个渠道动作，按四引擎（定位→资产→投放→结果）拆解为七步：目标→plan→客群→人审→执行→复盘。装入 `~/.agents/skills/` 即可在 ZCode 等宿主触发（内容协作走 warm-email-outreach / expert-review-outreach / b2b-account-mapping）。
 - `skills/github-project-ops/`：**GitHub 项目经营协议**（开源与闭源通用）——定位诊断（四象限+七阶段）→ 仓库体检清单 → 增长 playbook → 闭源经营模式库；含独立体检脚本 `scripts/repo_audit.py`（零依赖发行版）。与 CLI 的关系：skill 是协议与判断，`mkt github *` 是采数与执行。
 
 ## 通道层（core/transports.py）
@@ -114,11 +123,11 @@ RESERVE×6（通道储备库）：`webdriver`｜`rss-public`（只读）｜`esp-
 ## 结构
 
 ```
-core/      ledger 账本 · gates 门禁 · throttle 节流 · pipeline 写路径事务 · evidence 留证 · cdp 会话 · transports 通道注册表 · planlint 计划校验/人审强制 · demo 零账号演示 · doctor 环境体检
+core/      ledger 账本 · gates 门禁 · throttle 节流 · pipeline 写路径事务（人审/暂停收口）· evidence 留证 · cdp 会话 · transports 通道注册表 · planlint 计划校验/人审强制 · experiments 预注册实验 · attribution 事件/漏斗/归因 · demo 零账号演示 · doctor 环境体检
 channels/  x/(vendor+adapter) · email_smtp · email_cdp · reddit · linkedin · github（api 通道首发） · hn（CDP 写 + Algolia 读）
 transports/  os_input（macOS 键鼠/AX 模拟，UNVERIFIED）
-skills/    marketing-ops（agent 操作协议）· github-project-ops（GitHub 项目经营协议+体检脚本）
-tests/     离线单测（52 项，含 449 事故回归、人审门禁、demo 闭环与 doctor 分级）：python3 -m unittest discover tests -v
+skills/    growovo-gtm（GTM 操作协议）· github-project-ops（GitHub 项目经营协议+体检脚本）
+tests/     离线单测（71 项，含 449 事故回归、全渠道人审门禁/adhoc 放行、漏斗身份归一与时序披露、价值事件核验、实验冻结与预注册防篡改、demo 闭环与 doctor 分级）：python3 -m unittest discover tests -v
 mcp_server.py  MCP 外壳（stdio JSON-RPC，零依赖）
 ```
 

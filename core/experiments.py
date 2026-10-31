@@ -11,12 +11,16 @@ data/experiments/<exp_id>.json 每个实验一份：
 2. 机器只做确定性聚合（count/sum/latest），实验结论 met/not_met/inconclusive
    由人判定并署名（decided_by），机器不产出因果声明；
 3. 每条 observation 可带 evidence_ref（指向账本/研究记录），无出处的数据
-   必须标注 approximated=true。
+   必须标注 approximated=true；
+4. 观察只在 running 状态接受（启动前/判定后追加 = 破坏预注册纪律，拒）；
+   启动时对预注册字段存 sha256 指纹，观察/判定前校验未被改动（防手改文件
+   事后凑数）；启动/停止记入 change_log。
 
 状态机：planned → running → analyzed；任意状态可 stopped。
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 from datetime import datetime
@@ -24,6 +28,7 @@ from pathlib import Path
 
 EXP_STATUSES = ("planned", "running", "analyzed", "stopped")
 AGGS = ("count", "sum", "latest")
+PREREG_FIELDS = ("hypothesis", "metric", "metric_spec", "decision_rule", "window", "variant")
 _ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]{1,40}$")
 
 
@@ -40,6 +45,22 @@ def load_experiment(data_dir: Path, exp_id: str) -> dict:
     if not path.is_file():
         raise ExperimentError(f"experiment {exp_id!r} not found")
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _prereg_hash(exp: dict) -> str:
+    payload = json.dumps({k: exp.get(k) for k in PREREG_FIELDS},
+                         ensure_ascii=False, sort_keys=True)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _check_prereg(exp: dict) -> None:
+    """启动后预注册字段不得改动；旧实验（无指纹）跳过校验以保持兼容。"""
+    stored = exp.get("prereg_sha256")
+    if stored and stored != _prereg_hash(exp):
+        raise ExperimentError(
+            "预注册字段与启动时指纹不一致（hypothesis/metric/metric_spec/"
+            "decision_rule/window/variant 被改动）——预注册纪律被破坏，拒绝继续。"
+            "如确需变更，停止本实验并新建。")
 
 
 def _save(data_dir: Path, exp: dict) -> None:
@@ -86,6 +107,10 @@ def start_experiment(data_dir: Path, exp_id: str) -> dict:
         raise ExperimentError(f"只有 planned 可启动，当前 {exp['status']}")
     exp["status"] = "running"
     exp["started_at"] = datetime.now().isoformat(timespec="seconds")
+    exp["prereg_sha256"] = _prereg_hash(exp)  # 冻结预注册字段指纹
+    exp.setdefault("change_log", []).append(
+        {"ts": exp["started_at"], "action": "start",
+         "note": f"预注册指纹 {exp['prereg_sha256'][:12]}…"})
     _save(data_dir, exp)
     return exp
 
@@ -94,8 +119,11 @@ def record_observation(data_dir: Path, exp_id: str, *, note: str,
                        data: dict | None = None, evidence_ref: str = "",
                        approximated: bool = False) -> dict:
     exp = load_experiment(data_dir, exp_id)
-    if exp["status"] not in ("running", "planned", "analyzed"):
-        raise ExperimentError(f"{exp['status']} 状态不接受新观察")
+    if exp["status"] != "running":
+        raise ExperimentError(
+            f"{exp['status']} 状态不接受新观察——观察只在 running 期有效"
+            "（启动前没有可观察对象，判定后追加 = 事后凑数）")
+    _check_prereg(exp)
     if not str(note or "").strip():
         raise ExperimentError("note 不能为空")
     if not evidence_ref and not approximated:
@@ -127,10 +155,15 @@ def aggregate(exp: dict):
 def conclude(data_dir: Path, exp_id: str, *, result: str, decided_by: str,
              evidence_refs=None) -> dict:
     exp = load_experiment(data_dir, exp_id)
+    if exp["status"] not in ("running", "analyzed"):
+        raise ExperimentError(f"{exp['status']} 状态不能判定（running 后由人判定）")
     if result not in ("met", "not_met", "inconclusive"):
         raise ExperimentError("result 只允许 met / not_met / inconclusive")
     if not str(decided_by or "").strip():
         raise ExperimentError("结论必须署名（decided_by）——机器不判定实验成败")
+    _check_prereg(exp)
+    if exp["status"] == "analyzed" and exp.get("conclusion"):
+        raise ExperimentError("已有结论——改判应新建实验或先停止（保留原判定历史）")
     exp["conclusion"] = {
         "result": result,
         "decided_by": decided_by,
@@ -146,6 +179,10 @@ def conclude(data_dir: Path, exp_id: str, *, result: str, decided_by: str,
 
 def stop_experiment(data_dir: Path, exp_id: str, *, reason: str) -> dict:
     exp = load_experiment(data_dir, exp_id)
+    if exp["status"] != "stopped":
+        exp.setdefault("change_log", []).append(
+            {"ts": datetime.now().isoformat(timespec="seconds"),
+             "action": "stop", "reason": reason})
     exp["status"] = "stopped"
     exp["stopped_reason"] = reason
     _save(data_dir, exp)

@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
-"""mkt —— 自动化营销组件统一入口（架构文档 §1）。
+"""mkt —— Growovo 执行内核统一入口（架构文档 §1）。
 
 用法:
-  mkt <channel> <action> [参数] [--go] [--campaign <id>] [--only <target>]
+  mkt <channel> <action> [参数] [--go] [--campaign <id>] [--only <target>] [--adhoc]
 
-统一语义：**写操作默认 dry-run，--go 才实跑**（比 x-ops 更强的安全缺省）。
+统一语义：**写操作默认 dry-run，--go 才实跑**；实跑必须绑定已人审 plan
+（data/plans/*.json 的 review.human_approved=true），无 plan 管辖的临时发送需
+显式 **--adhoc** 放行（账本记 adhoc=true；MCP 不开放该通道）。
   mkt status                账本聚合（channel/campaign/result）
   mkt check                 CDP 会话与各渠道登录态检查
   mkt demo                  零网络零账号演示（lint→人审→写路径 dry-run→账本）
@@ -187,9 +189,16 @@ def cmd_outcome(args):
     if args.action == "event":
         if not (args.subject and args.type):
             raise SystemExit("outcome event 需要 --subject <主体> --type signal|signup|activation|paid")
+        if args.type in ("activation", "paid") and not (args.verify_method and args.verify_ref):
+            raise SystemExit(f"outcome event {args.type} 需要 --verify-method 与 --verify-ref"
+                             "（价值事件必须带核验状态）")
+        verification = None
+        if args.verify_method and args.verify_ref:
+            verification = {"method": args.verify_method, "ref": args.verify_ref}
         rec = ledger.add_event(subject=args.subject, event_type=args.type,
                                channel=args.channel or "", touch=args.touch or "",
-                               source_ref=args.source_ref or "", approximated=args.approximated)
+                               source_ref=args.source_ref or "", approximated=args.approximated,
+                               verification=verification)
         print(json.dumps(rec, ensure_ascii=False))
         return 0
     if args.action == "count":
@@ -215,8 +224,8 @@ def cmd_x(args):
         extra += ["--file", args.file]
     if getattr(args, "thread", False):
         extra += ["--thread"]
-    return x_run(args.action, extra, go=args.go, campaign=args.campaign,
-                ledger=_ledger())
+    return x_run(args.action, extra, go=args.go, adhoc=args.adhoc,
+                campaign=args.campaign, ledger=_ledger())
 
 
 def cmd_email(args):
@@ -230,7 +239,8 @@ def cmd_email(args):
         return 0
     # 写动作统一走 SMTP 队列（publish/reply/message 同一管道，campaign 区分）
     from channels.email_smtp import send_queue
-    res = send_queue(args.queue, go=args.go, only=args.only, campaign=args.campaign,
+    res = send_queue(args.queue, go=args.go, adhoc=args.adhoc, only=args.only,
+                     campaign=args.campaign, data_dir=DATA,
                      ledger=_ledger(), throttle=_throttle())
     failed = sum(1 for r in res if r["result"] in ("failed", "rejected"))
     return 1 if failed else 0
@@ -244,13 +254,13 @@ def cmd_reddit(args):
     if args.action == "reply":
         text = Path(args.text_file).read_text(encoding="utf-8").strip() \
             if args.text_file else args.text
-        rec = reddit.reply(args.url, text, go=args.go, campaign=args.campaign,
-                           ledger=_ledger())
+        rec = reddit.reply(args.url, text, go=args.go, adhoc=args.adhoc,
+                           campaign=args.campaign, ledger=_ledger())
         return 0 if rec["result"] in ("committed", "dry-run") else 1
     if args.action == "publish":
         body = Path(args.body_file).read_text(encoding="utf-8").strip() \
             if args.body_file else (args.body or "")
-        rec = reddit.publish(args.sub, args.title, body, go=args.go,
+        rec = reddit.publish(args.sub, args.title, body, go=args.go, adhoc=args.adhoc,
                              campaign=args.campaign, ledger=_ledger())
         return 0 if rec["result"] in ("committed", "dry-run") else 1
     return 2
@@ -264,8 +274,8 @@ def cmd_linkedin(args):
     if args.action == "message":
         note = Path(args.note_file).read_text(encoding="utf-8").strip() \
             if args.note_file else args.note
-        rec = linkedin.message(args.url, note, go=args.go, campaign=args.campaign,
-                               ledger=_ledger())
+        rec = linkedin.message(args.url, note, go=args.go, adhoc=args.adhoc,
+                               campaign=args.campaign, ledger=_ledger())
         return 0 if rec["result"] in ("committed", "dry-run") else 1
     return 2
 
@@ -284,7 +294,7 @@ def cmd_github(args):
     if args.action == "reply":
         text = Path(args.text_file).read_text(encoding="utf-8").strip() \
             if args.text_file else args.text
-        rec = github.reply(args.repo, args.number, text, go=args.go,
+        rec = github.reply(args.repo, args.number, text, go=args.go, adhoc=args.adhoc,
                            campaign=args.campaign, ledger=_ledger())
         detail = rec.get("detail", "")
         print(f"github reply -> {rec['result']}"
@@ -306,10 +316,11 @@ def cmd_hn(args):
         if args.text_file else (args.text or "")
     if args.action == "publish":
         rec = hn.publish(args.title, url=args.url, text=text or None,
-                         go=args.go, campaign=args.campaign, ledger=_ledger())
+                         go=args.go, adhoc=args.adhoc, campaign=args.campaign,
+                         ledger=_ledger())
     else:  # reply
-        rec = hn.reply(args.item, text, go=args.go, campaign=args.campaign,
-                       ledger=_ledger())
+        rec = hn.reply(args.item, text, go=args.go, adhoc=args.adhoc,
+                       campaign=args.campaign, ledger=_ledger())
     detail = rec.get("detail", "")
     print(f"hn {args.action} -> {rec['result']}"
           + (f"（{detail}）" if detail else "")
@@ -318,7 +329,7 @@ def cmd_hn(args):
 
 
 def build_parser():
-    p = argparse.ArgumentParser(prog="mkt", description="自动化营销组件统一入口")
+    p = argparse.ArgumentParser(prog="mkt", description="Growovo 执行内核统一入口")
     sub = p.add_subparsers(dest="cmd", required=True)
 
     sp = sub.add_parser("status", help="账本聚合")
@@ -355,6 +366,8 @@ def build_parser():
     sp.add_argument("--thread", action="store_true")
     sp.add_argument("--go", action="store_true")
     sp.add_argument("--campaign")
+    sp.add_argument("--adhoc", action="store_true",
+                       help="实跑无 plan 管辖时的显式放行（账本记 adhoc=true）")
     sp.set_defaults(fn=cmd_x)
 
     sp = sub.add_parser("email", help="Email 渠道（SMTP 写 + CDP 读，PORTED）")
@@ -363,6 +376,8 @@ def build_parser():
     sp.add_argument("--only", help="只处理指定 id/target")
     sp.add_argument("--go", action="store_true")
     sp.add_argument("--campaign")
+    sp.add_argument("--adhoc", action="store_true",
+                       help="实跑无 plan 管辖时的显式放行（账本记 adhoc=true）")
     sp.set_defaults(fn=cmd_email)
 
     sp = sub.add_parser("reddit", help="Reddit 渠道（UNVERIFIED）")
@@ -373,6 +388,8 @@ def build_parser():
     sp.add_argument("--sub"); sp.add_argument("--title")
     sp.add_argument("--body"); sp.add_argument("--body-file")
     sp.add_argument("--go", action="store_true"); sp.add_argument("--campaign")
+    sp.add_argument("--adhoc", action="store_true",
+                       help="实跑无 plan 管辖时的显式放行（账本记 adhoc=true）")
     sp.set_defaults(fn=cmd_reddit)
 
     sp = sub.add_parser("linkedin", help="LinkedIn 渠道（UNVERIFIED，半自动）")
@@ -382,6 +399,8 @@ def build_parser():
     sp.add_argument("--url", help="目标 profile URL")
     sp.add_argument("--note"); sp.add_argument("--note-file")
     sp.add_argument("--go", action="store_true"); sp.add_argument("--campaign")
+    sp.add_argument("--adhoc", action="store_true",
+                       help="实跑无 plan 管辖时的显式放行（账本记 adhoc=true）")
     sp.set_defaults(fn=cmd_linkedin)
 
     sp = sub.add_parser("github", help="GitHub 渠道（api 通道；读=PROVEN，写=UNVERIFIED）")
@@ -391,6 +410,8 @@ def build_parser():
     sp.add_argument("--number", type=int, help="reply 目标 issue/PR 编号")
     sp.add_argument("--text"); sp.add_argument("--text-file")
     sp.add_argument("--go", action="store_true"); sp.add_argument("--campaign")
+    sp.add_argument("--adhoc", action="store_true",
+                       help="实跑无 plan 管辖时的显式放行（账本记 adhoc=true）")
     sp.set_defaults(fn=cmd_github)
 
     sp = sub.add_parser("hn", help="HN 渠道（CDP 写 + Algolia 读，UNVERIFIED）")
@@ -401,6 +422,8 @@ def build_parser():
     sp.add_argument("--item", help="reply 目标：item:N 或 news.ycombinator.com/item?id=N")
     sp.add_argument("--text"); sp.add_argument("--text-file")
     sp.add_argument("--go", action="store_true"); sp.add_argument("--campaign")
+    sp.add_argument("--adhoc", action="store_true",
+                       help="实跑无 plan 管辖时的显式放行（账本记 adhoc=true）")
     sp.set_defaults(fn=cmd_hn)
 
     sp = sub.add_parser("experiment", help="实验引擎：预注册→观察→人判（机器不判因果）")
@@ -429,6 +452,10 @@ def build_parser():
     sp.add_argument("--source-ref", default="")
     sp.add_argument("--approximated", action="store_true",
                    help="event：signup 近似口径（activation/paid 禁止近似）")
+    sp.add_argument("--verify-method", default="",
+                   help="event：核验方式（activation/paid 必填，如 payment-processor/产品后台）")
+    sp.add_argument("--verify-ref", default="",
+                   help="event：核验依据（activation/paid 必填，如订单号/后台记录 id）")
     sp.add_argument("--metric", help="count：指标名")
     sp.add_argument("--value", type=int, help="count：非负整数")
     sp.add_argument("--window", help="count：统计窗口")

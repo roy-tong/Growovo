@@ -100,13 +100,27 @@ class TestEnforceApproval(unittest.TestCase):
         with self.assertRaises(PlanNotApproved):
             enforce_approval(self.dir, "am-trial20-w1")   # 命中 wave queue 文件名
 
-    def test_approved_passes(self):
+    def test_approved_passes_as_plan_mode(self):
         self._write(True)
-        enforce_approval(self.dir, "am-trial20-w1")       # 不抛
+        self.assertEqual("plan", enforce_approval(self.dir, "am-trial20-w1"))
 
-    def test_adhoc_campaign_without_plan_passes(self):
+    def test_no_plan_refuses_by_default_and_passes_with_explicit_adhoc(self):
+        """实跑默认必须绑定已人审 plan；adhoc 是唯一显式放行通道（账本记 adhoc=true）。"""
         self._write(False)
-        enforce_approval(self.dir, "random-adhoc")        # 无 plan 管辖，放行
+        with self.assertRaises(PlanNotApproved):
+            enforce_approval(self.dir, "random-adhoc")    # 无 plan 管辖：默认拒
+        self.assertEqual("adhoc", enforce_approval(self.dir, "random-adhoc", adhoc=True))
+        # 空 campaign 同样拒（实跑必须留 campaign 名）
+        with self.assertRaises(PlanNotApproved):
+            enforce_approval(self.dir, "", adhoc=False)
+
+    def test_governed_campaign_ignores_adhoc_flag(self):
+        """受 plan 管辖时 adhoc 旗标不构成绕行：未审一律拒，已审走 plan 模式。"""
+        self._write(False)
+        with self.assertRaises(PlanNotApproved):
+            enforce_approval(self.dir, "am-trial20-w1", adhoc=True)
+        self._write(True)
+        self.assertEqual("plan", enforce_approval(self.dir, "am-trial20-w1", adhoc=True))
 
 
 class TestTransports(unittest.TestCase):

@@ -16,7 +16,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from core.evidence import Evidence
 from core.gates import Gate, GateError, check_content, check_target, load_suppress
 from core.ledger import Ledger
-from core.pipeline import WritePipeline
+from core.pipeline import WritePipeline, standard_pipeline
 from core.throttle import Throttle, ThrottleError
 
 
@@ -236,6 +236,68 @@ class TestPipeline(TmpDir):
         pipe, _, _ = make_pipeline(self.dir)
         rec, _ = run_fake(pipe, expect="line one\n\nline two", readback="line one\n\n\nline two")
         self.assertEqual(rec["result"], "committed")   # 段落符归一化后等价
+
+
+class TestPipelineApproval(TmpDir):
+    """实跑人审门禁进管道（此前只有 email 接线且查错目录，其余渠道全绕过）。"""
+
+    def _plan(self, approved):
+        plans = self.dir / "plans"
+        plans.mkdir(parents=True, exist_ok=True)
+        (plans / "p1.json").write_text(json.dumps({
+            "plan_id": "p1", "waves": [{"wave": 1, "queue": "data/queues/w1.json"}],
+            "review": {"human_approved": approved},
+        }, ensure_ascii=False), encoding="utf-8")
+
+    def test_real_run_rejects_unapproved_plan_before_any_callback(self):
+        self._plan(False)
+        led = Ledger(self.dir / "ledger.jsonl")
+        pipe = standard_pipeline(self.dir, led)
+        rec, calls = run_fake(pipe, campaign="w1")     # 实跑（dry_run=False）
+        self.assertEqual(rec["result"], "rejected")
+        self.assertIn("人审门禁", rec["detail"])
+        self.assertEqual(calls, [])                     # 审批在 gate 之前，回调全未触碰
+
+    def test_real_run_rejects_no_plan_by_default_adhoc_passes_with_flag(self):
+        led = Ledger(self.dir / "ledger.jsonl")
+        pipe = standard_pipeline(self.dir, led)         # 无 plans/ 目录
+        rec, calls = run_fake(pipe, campaign="w1")
+        self.assertEqual(rec["result"], "rejected")
+        self.assertIn("人审门禁", rec["detail"])
+        self.assertEqual(calls, [])
+        pipe2 = standard_pipeline(self.dir, led, adhoc=True)
+        rec2, _ = run_fake(pipe2, campaign="w1")
+        self.assertEqual(rec2["result"], "committed")
+        self.assertEqual(rec2.get("approval"), "adhoc")
+        # 账本留痕：detail 带 adhoc=true
+        rows = led.results(campaign="w1")
+        self.assertTrue(any(r.get("result") == "committed" and "adhoc=true" in (r.get("detail") or "")
+                            for r in rows))
+
+    def test_approved_plan_real_run_committed_with_plan_mode(self):
+        self._plan(True)
+        led = Ledger(self.dir / "ledger.jsonl")
+        pipe = standard_pipeline(self.dir, led)
+        rec, _ = run_fake(pipe, campaign="w1")
+        self.assertEqual(rec["result"], "committed")
+        self.assertEqual(rec.get("approval"), "plan")
+
+    def test_dry_run_not_gated_by_approval(self):
+        """dry-run 无外部效果，不要求人审——审批只约束实跑。"""
+        led = Ledger(self.dir / "ledger.jsonl")
+        pipe = standard_pipeline(self.dir, led)
+        rec, _ = run_fake(pipe, campaign="w1", dry_run=True)
+        self.assertEqual(rec["result"], "dry-run")
+
+    def test_pause_blocks_real_and_dry_runs_via_standard_pipeline(self):
+        led = Ledger(self.dir / "ledger.jsonl")
+        (self.dir / "state").mkdir(parents=True, exist_ok=True)
+        (self.dir / "state" / "PAUSED").write_text("test\n", encoding="utf-8")
+        pipe = standard_pipeline(self.dir, led)
+        rec, calls = run_fake(pipe, campaign="w1")
+        self.assertEqual(rec["result"], "rejected")
+        self.assertIn("全局暂停", rec["detail"])
+        self.assertEqual(calls, [])
 
 
 class TestEvidence(TmpDir):

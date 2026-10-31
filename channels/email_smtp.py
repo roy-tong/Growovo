@@ -23,7 +23,7 @@ from core.ledger import Ledger
 from core.pipeline import WritePipeline
 from core.throttle import Throttle
 
-DATA = Path(__file__).resolve().parents[2] / "data"
+DATA = Path(__file__).resolve().parents[1] / "data"  # mkt-automation/data（原 parents[2] 误指仓库外层，人审/暂停闸查空目录）
 
 
 def load_queue(path):
@@ -60,9 +60,10 @@ class SMTPChannel:
 
 
 def send_queue(queue_file, *, go=False, only=None, campaign=None, ledger=None,
-               throttle=None, data_dir=None, log=log):
+               throttle=None, data_dir=None, adhoc=False, log=log):
     """跑一个邮件队列。go=False 全程 dry-run（不建 SMTP 连接、不碰网络）。
-    campaign 缺省取队列文件的 campaign 字段（其次文件名）。"""
+    campaign 缺省取队列文件的 campaign 字段（其次文件名）。
+    go=True 必须绑定已人审 plan；无 plan 管辖需 adhoc=True（CLI --adhoc，账本记 adhoc=true）。"""
     data_dir = Path(data_dir or DATA)
     ledger = ledger or Ledger(data_dir / "ledger.jsonl")
     throttle = throttle or Throttle(data_dir / "state")
@@ -70,7 +71,7 @@ def send_queue(queue_file, *, go=False, only=None, campaign=None, ledger=None,
     campaign = campaign or qcampaign
     if go:
         from core.planlint import enforce_approval
-        enforce_approval(data_dir, campaign)  # 有 plan 且未经人审 → 拒跑
+        enforce_approval(data_dir, campaign, adhoc=adhoc)  # fail-fast；逐条记账由管道 approval 复核
     if only:
         items = [i for i in items if i.get("id") == only or i.get("target") == only]
 
@@ -81,8 +82,10 @@ def send_queue(queue_file, *, go=False, only=None, campaign=None, ledger=None,
     ch = SMTPChannel() if go else None
     gate = Gate(ledger, suppress=load_suppress(data_dir / "suppress.txt"))
     from core.safety import pause_file
+    from core.planlint import enforce_approval
     pipe = WritePipeline(gate=gate, ledger=ledger, throttle=throttle,
-                         pause_file=pause_file(data_dir))
+                         pause_file=pause_file(data_dir),
+                         approval=lambda c: enforce_approval(data_dir, c, adhoc=adhoc))
     ev = Evidence(data_dir / "shots" / campaign)
 
     log(f"email 队列 {campaign}: {len(items)} 条（{'实跑' if go else 'dry-run'}）")
