@@ -12,7 +12,7 @@ from pathlib import Path
 from core import cdp
 from core.evidence import log
 
-DATA = Path(__file__).resolve().parents[1] / "data"  # mkt-automation/data（原 parents[2] 误指仓库外层）
+DATA = Path(__file__).resolve().parents[1] / "data"  # 仓库根/data（原 parents[2] 误指仓库外层）
 
 DEFAULT_QUERY = "to:me newer_than:7d -from:me"
 BOUNCE_QUERY = "from:mailer-daemon OR from:postmaster newer_than:7d"

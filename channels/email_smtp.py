@@ -23,7 +23,7 @@ from core.ledger import Ledger
 from core.pipeline import WritePipeline
 from core.throttle import Throttle
 
-DATA = Path(__file__).resolve().parents[1] / "data"  # mkt-automation/data（原 parents[2] 误指仓库外层，人审/暂停闸查空目录）
+DATA = Path(__file__).resolve().parents[1] / "data"  # 仓库根/data（原 parents[2] 误指仓库外层，人审/暂停闸查空目录）
 
 
 def load_queue(path):

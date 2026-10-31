@@ -18,7 +18,7 @@ from core.evidence import Evidence, log
 from core.ledger import Ledger
 from core.pipeline import standard_pipeline
 
-DATA = Path(__file__).resolve().parents[1] / "data"  # mkt-automation/data（架构 §6；原 parents[2] 误指仓库外层）
+DATA = Path(__file__).resolve().parents[1] / "data"  # 仓库根/data（架构 §6；原 parents[2] 误指仓库外层）
 
 OLD = "https://old.reddit.com"
 

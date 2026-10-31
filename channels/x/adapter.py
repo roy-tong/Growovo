@@ -135,7 +135,7 @@ def run(action, extra_args, *, go=False, adhoc=False, campaign=None, ledger=None
     if is_write:
         from core.planlint import enforce_approval
         from core.safety import pause_file
-        DATA_ROOT = VENDOR.parents[2] / "data"   # channels/x/vendor → mkt-automation/data
+        DATA_ROOT = VENDOR.parents[2] / "data"   # channels/x/vendor → 仓库根/data
         if pause_file(DATA_ROOT).exists():
             raise SystemExit("全局暂停中（mkt pause --off 恢复）——X 写操作拒跑")
         if go:

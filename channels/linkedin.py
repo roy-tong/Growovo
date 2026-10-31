@@ -20,7 +20,7 @@ from core.ledger import Ledger
 from core.pipeline import standard_pipeline
 from core.throttle import Throttle
 
-DATA = Path(__file__).resolve().parents[1] / "data"  # mkt-automation/data（原 parents[2] 误指仓库外层）
+DATA = Path(__file__).resolve().parents[1] / "data"  # 仓库根/data（原 parents[2] 误指仓库外层）
 
 
 def search(keywords, *, limit=10, out=None, log=log):
