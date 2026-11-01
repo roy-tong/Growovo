@@ -44,6 +44,23 @@ TOOLS = [
         },
     },
     {
+        "name": "mkt_scorecard",
+        "description": "只读运营记分卡：执行回执的成功/未知/失败与业务结果计数；比率是描述口径，不是渠道效果。",
+        "inputSchema": {
+            "type": "object",
+            "properties": {"campaign": {"type": "string"}, "since": {"type": "string"}},
+        },
+    },
+    {
+        "name": "mkt_optimize",
+        "description": "只读优化建议：按记分卡与回执模式提出下一步；requires_human=true，不自动改预算或重放。",
+        "inputSchema": {
+            "type": "object",
+            "properties": {"campaign": {"type": "string"}, "channel": {"type": "string"},
+                           "minimum_confirmed": {"type": "integer", "default": 3}},
+        },
+    },
+    {
         "name": "mkt_workflow",
         "description": "只读工作流视图：列表/详情/结构校验/运行记录；审批与重放只在 CLI 人工通道。",
         "inputSchema": {
@@ -193,6 +210,19 @@ def _call_tool(name, args):
             channel=args.get("channel"),
             minimum_confirmed=args.get("minimum_confirmed", 3),
         ))
+
+    if name == "mkt_scorecard":
+        from core import scorecard
+        return _text(scorecard.build(DATA, campaign=args.get("campaign"), since=args.get("since")))
+
+    if name == "mkt_optimize":
+        from core import optimization, scorecard
+        from core.operations_memory import summarize
+        card = scorecard.build(DATA, campaign=args.get("campaign"))
+        memory = summarize(Ledger(DATA / "ledger.jsonl").all(), campaign=args.get("campaign"),
+                           channel=args.get("channel"),
+                           minimum_confirmed=args.get("minimum_confirmed", 3))
+        return _text(optimization.propose(card, memory=memory))
 
     if name == "mkt_workflow":
         from core import workflows

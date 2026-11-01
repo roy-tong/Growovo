@@ -85,6 +85,9 @@ python3 mkt.py check              # 确认 CDP 会话与 X/Gmail 登录态
 | `mkt hn reply --item item:N --text "…" [--go]` | 条目评论（首用=Show HN 首条作者评论，提交后 1h 内） | **UNVERIFIED** |
 | `python3 mkt.py memory …` | 只读运营记忆：从已核验回执提取重复模式（见文末） | — |
 | `python3 mkt.py workflow …` | 可复用配方：learn / approve / replay（默认 dry-run）/ runs / reconcile | — |
+| `python3 mkt.py scorecard` | 记分卡：确认/未知/失败/证据率与业务结果计数（只读） | — |
+| `python3 mkt.py optimize` | 优化建议（requires_human，不自动执行） | — |
+| `python3 mkt.py schedule …` | 持久化排期：add / tick / status / resume | — |
 
 等级含义：PROVEN=真实账号跑通；PORTED=模式已验证、本封装未整跑；UNVERIFIED=选择器未实测，首跑必须人工盯跑（首跑清单见 03 渠道文档 §5）。
 
@@ -165,7 +168,7 @@ RESERVE×6（通道储备库）：`webdriver`｜`rss-public`（只读）｜`esp-
 ## 结构
 
 ```
-core/      ledger 账本（含人工裁决覆盖）· gates 门禁（含 DNC 合并）· throttle 原子日预算 · pipeline 写路径事务 · evidence 留证 · cdp 会话 · transports 通道注册表 · planlint 计划校验 · approval 审批事件/计划指纹 · queue 编辑期门禁 · campaign 视图/人审预览/下一步 · links 追踪链接 · outcome_io CSV 导入与账本聚合 · collector 本地 webhook/跳转 · action_runner 单条动作 · queue_runner 全渠道队列 · playbooks GitHub Inbox 分流/草稿队列 · workflows 配方学习/审批/重放 · locators 定位器阶梯 · workspace 多产品隔离 · experiments 预注册实验 · attribution 事件/漏斗/归因 · demo 零账号演示 · doctor 环境体检
+core/      ledger 账本（含人工裁决覆盖）· gates 门禁（含 DNC 合并）· throttle 原子日预算 · pipeline 写路径事务 · evidence 留证 · cdp 会话 · transports 通道注册表 · planlint 计划校验 · approval 审批事件/计划指纹 · queue 编辑期门禁 · campaign 视图/人审预览/下一步 · links 追踪链接 · outcome_io CSV 导入与账本聚合 · collector 本地 webhook/跳转 · action_runner 单条动作 · queue_runner 全渠道队列 · playbooks GitHub Inbox 分流/草稿队列 · workflows 配方学习/审批/重放 · locators 定位器阶梯 · scorecard 记分卡 · optimization 优化建议 · scheduler 持久化排期 · workspace 多产品隔离 · experiments 预注册实验 · attribution 事件/漏斗/归因 · demo 零账号演示 · doctor 环境体检
 channels/  x/(vendor+adapter) · email_smtp · email_cdp · reddit · linkedin · github（api 通道首发） · hn（CDP 写 + Algolia 读）
 transports/  os_input（macOS 键鼠/AX 模拟，UNVERIFIED）
 skills/    growovo-gtm（GTM 操作协议）· github-project-ops（GitHub 项目经营协议+体检脚本）
@@ -194,6 +197,22 @@ python3 mkt.py workflow reconcile --run <id> --outcome not_sent --note "已核�
 ```
 
 页面变化时按 `css → placeholder → label → role → text` 逐级恢复；视觉恢复需要操作者提供 provider，没有就停在 `visual_unavailable`，不猜点击位置。写入仍走统一门禁：`action` 步骤复用 `action_runner`，`commit` 点击检查暂停与日预算并写账本。详见[工作流](docs/workflows.md)。
+
+## 运营记分卡、排期与优化建议
+
+执行之后要看得见结果，也要能停下来。`scorecard` 把账本与业务事件分开统计：确认率、未知率、失败数与证据覆盖率，不把「发出去了」算成转化。
+
+```bash
+python3 mkt.py scorecard --campaign my-campaign
+python3 mkt.py optimize --campaign my-campaign          # 人工决策建议，不自动执行
+python3 mkt.py schedule add --id daily --queue data/queues/q1.json --interval 1440
+python3 mkt.py schedule tick                            # 由 cron/launchd 或人手动触发
+python3 mkt.py schedule resume --id daily --note "已核对未知回执"
+```
+
+- 排期只跑「到点的一波」；全局暂停、未知结果、失败队列都会让它停下并标 `needs_review`；
+- 进程中断后的 `running` 波次不会被自动重跑；
+- `optimize` 的比较是描述性的：高确认率不等于渠道效果，建议全部 `requires_human: true`。
 
 ## 运营记忆：从已核验的平台回执中学习
 

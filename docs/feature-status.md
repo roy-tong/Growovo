@@ -5,9 +5,9 @@ Reviewed 2026-11-01 against the repository implementation. Available means local
 | Feature | Scope | Status |
 |---|---|---|
 | G01–G04 | Task/plan, capability registry and account checks | Available for existing channels; planning remains Agent-assisted |
-| G05, G08–G13 | API/browser execution, playbooks, gates, state, readback, queue and approval | Available with per-channel PROVEN/PORTED/UNVERIFIED limits. `mkt workflow` replays a versioned, fingerprint-approved recipe; `action` steps still go through `action_runner`, and `commit` clicks check pause, daily budget and write the ledger |
+| G05, G08–G13 | API/browser execution, playbooks, gates, state, readback, queue and approval | Available with per-channel PROVEN/PORTED/UNVERIFIED limits. `mkt workflow` replays a versioned, fingerprint-approved recipe; `action` steps still go through `action_runner`; `commit` clicks check pause, daily budget and write the ledger. `mkt schedule` runs due queue waves from a persisted state file, skips while paused, and marks an interrupted or unknown wave `needs_review` instead of retrying |
 | G06–G07 | Semantic and visual recovery | Semantic ladder (`css → placeholder → label → role → text`) shipped in `core/locators.py` and used by workflow replay. Visual recovery is an operator-supplied provider hook; with none configured the run stops as `visual_unavailable`. Stagehand/Midscene are not bundled |
-| G14–G15 | Operations memory and optimization | `mkt memory` summarizes receipts; `mkt workflow learn` turns an observed trace into a draft workflow (ladder-ordered locators, no auto-approval); optimization remains planned |
+| G14–G15 | Operations memory and optimization | `mkt memory` summarizes receipts; `mkt workflow learn` turns an observed trace into a draft workflow; `mkt scorecard` reports committed/unknown/failed/evidence rates plus business-outcome counts; `mkt optimize` proposes next moves with `requires_human: true` and `automatic_apply: false` |
 | G16 | Third-party playbook marketplace | Deferred |
 
 Build: business playbooks, authorization, policy, result verification and execution ledger. Reuse: existing Playwright/CDP and platform APIs. No new browser framework is required for queue reliability. Stagehand and Midscene remain optional recovery candidates; no fork is needed for receipt-only memory.

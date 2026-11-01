@@ -85,6 +85,9 @@ python3 mkt.py check              # verify the CDP session and X/Gmail login sta
 | `mkt hn reply --item item:N --text "…" [--go]` | Item comment (first use = the author's first comment on a Show HN, within 1h of submitting) | **UNVERIFIED** |
 | `python3 mkt.py memory …` | Read-only operations memory from verified receipts (see the last section) | — |
 | `python3 mkt.py workflow …` | Reusable recipes: learn / approve / replay (dry-run by default) / runs / reconcile | — |
+| `python3 mkt.py scorecard` | Receipt and outcome scorecard (read-only) | — |
+| `python3 mkt.py optimize` | Optimization proposals (requires_human, never auto-applied) | — |
+| `python3 mkt.py schedule …` | Persisted waves: add / tick / status / resume | — |
 
 Level meanings: PROVEN = verified on a real account; PORTED = the pattern is verified, this wrapper has not been run end-to-end; UNVERIFIED = selectors untested in practice — the first run must be supervised (first-run checklist in channel doc 03 §5).
 
@@ -165,7 +168,7 @@ Each channel × action declares a preferred transport plus a fallback chain; **f
 ## Repository layout
 
 ```
-core/      ledger (with human adjudication overrides) · gates (incl. DNC merge) · throttle atomic daily budgets · pipeline write-path transactions · evidence · cdp session · transports registry · planlint plan validation · approval events/plan fingerprints · queue edit-time gates · campaign view/review preview/next step · links tracking links · outcome_io CSV import & ledger aggregation · collector local webhook/redirect · action_runner single actions · queue_runner all-channel queues · playbooks GitHub Inbox triage/draft queues · workflows recipe learning/approval/replay · locators locator ladder · workspace multi-product isolation · experiments preregistration · attribution events/funnels/attribution · demo zero-account demo · doctor environment check
+core/      ledger (with human adjudication overrides) · gates (incl. DNC merge) · throttle atomic daily budgets · pipeline write-path transactions · evidence · cdp session · transports registry · planlint plan validation · approval events/plan fingerprints · queue edit-time gates · campaign view/review preview/next step · links tracking links · outcome_io CSV import & ledger aggregation · collector local webhook/redirect · action_runner single actions · queue_runner all-channel queues · playbooks GitHub Inbox triage/draft queues · workflows recipe learning/approval/replay · locators locator ladder · scorecard · optimization proposals · scheduler persisted waves · workspace multi-product isolation · experiments preregistration · attribution events/funnels/attribution · demo zero-account demo · doctor environment check
 channels/  x/(vendor+adapter) · email_smtp · email_cdp · reddit · linkedin · github (first api-channel release) · hn (CDP write + Algolia read)
 transports/  os_input (macOS keyboard/mouse/AX simulation, UNVERIFIED)
 skills/    growovo-gtm (GTM operations protocol) · github-project-ops (GitHub project operations protocol + audit script)
@@ -194,6 +197,22 @@ python3 mkt.py workflow reconcile --run <id> --outcome not_sent --note "checked 
 ```
 
 When the page changes, recovery walks `css → placeholder → label → role → text`; visual recovery needs an operator-supplied provider and otherwise stops as `visual_unavailable` instead of guessing a click target. Writes keep the standard gates: `action` steps call `action_runner`, `commit` clicks check pause and the daily budget and write the ledger. See [workflows](docs/workflows.md).
+
+## Scorecard, schedule and optimization proposals
+
+Execution needs visible results and a way to stop. `scorecard` keeps ledger receipts and business events separate: committed rate, unknown rate, failures and evidence coverage. Sending is not conversion.
+
+```bash
+python3 mkt.py scorecard --campaign my-campaign
+python3 mkt.py optimize --campaign my-campaign          # human decisions only, never auto-applied
+python3 mkt.py schedule add --id daily --queue data/queues/q1.json --interval 1440
+python3 mkt.py schedule tick                            # called by cron/launchd or a human
+python3 mkt.py schedule resume --id daily --note "unknown receipts checked"
+```
+
+- A schedule runs at most one due wave per tick; global pause, unknown results and failed queues stop it as `needs_review`;
+- an interrupted `running` wave is never retried automatically;
+- `optimize` comparisons are descriptive: a higher committed rate is not channel effectiveness, and every proposal is `requires_human: true`.
 
 ## Operations memory: learn from verified platform receipts
 

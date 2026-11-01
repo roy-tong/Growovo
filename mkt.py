@@ -13,6 +13,9 @@
   mkt doctor [--selftest]   环境体检（--selftest 连跑全部离线单测）
   mkt experiment …          实验引擎：预注册→观察→人判（机器不判因果）
   mkt workflow …            可复用工作流：learn/approve/replay/runs/reconcile（版本化 + 指纹 + 运行日志）
+  mkt scorecard             运营记分卡：回执与业务结果的描述性口径
+  mkt optimize              优化建议（需人工决定，不自动改预算或重放）
+  mkt schedule …            持久化排期：add/list/tick/status/resume
   mkt outcome …             效果归因：事件/计数台账 + 漏斗（口径非因果）
 
 示例:
@@ -689,6 +692,68 @@ def cmd_memory(args):
     return 0
 
 
+def cmd_scorecard(args):
+    from core import scorecard
+    payload = scorecard.build(Path(DATA), campaign=args.campaign, since=args.since)
+    if args.json:
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
+    else:
+        rendered = scorecard.markdown(payload)
+        print(rendered)
+        if args.output:
+            out = Path(args.output)
+            out.parent.mkdir(parents=True, exist_ok=True)
+            out.write_text(rendered, encoding="utf-8")
+    return 0
+
+
+def cmd_optimize(args):
+    from core import optimization, scorecard
+    from core.operations_memory import summarize
+    card = scorecard.build(Path(DATA), campaign=args.campaign, since=args.since)
+    memory = summarize(_ledger().all(), campaign=args.campaign,
+                       channel=args.channel, minimum_confirmed=args.minimum_confirmed)
+    payload = optimization.propose(card, memory=memory)
+    if args.json:
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
+    else:
+        rendered = optimization.markdown(payload)
+        print(rendered)
+        if args.output:
+            out = Path(args.output)
+            out.parent.mkdir(parents=True, exist_ok=True)
+            out.write_text(rendered, encoding="utf-8")
+    return 0
+
+
+def cmd_schedule(args):
+    from core import scheduler
+    data = Path(DATA)
+    if args.action == "add":
+        schedule = scheduler.add(
+            data, schedule_id=args.id, queues=args.queue or [],
+            interval_minutes=args.interval, go=args.go, max_waves=args.max_waves)
+        print(json.dumps(schedule, ensure_ascii=False, indent=2))
+        return 0
+    if args.action == "list":
+        print(json.dumps(scheduler.list_schedules(data), ensure_ascii=False, indent=2))
+        return 0
+    if args.action == "tick":
+        result = scheduler.tick(data)
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+        return 0 if not any(item.get("outcome") == "needs_review" for item in result["ran"]) else 3
+    if args.action == "status":
+        print(json.dumps(scheduler.list_schedules(data), ensure_ascii=False, indent=2))
+        return 0
+    if args.action == "resume":
+        if not (args.id and args.note):
+            raise SystemExit("schedule resume 需要 --id 与 --note")
+        schedule = scheduler.resume(data, args.id, note=args.note, by=args.by)
+        print(json.dumps(schedule, ensure_ascii=False, indent=2))
+        return 0
+    raise SystemExit(f"未知 schedule 动作: {args.action}")
+
+
 def cmd_workflow(args):
     """Versioned, approved, replayable operation recipes (no implicit sends)."""
     from core import workflows
@@ -1063,6 +1128,28 @@ def build_parser():
     sp.add_argument("--adhoc", action="store_true",
                        help="实跑无 plan 管辖时的显式放行（账本记 adhoc=true）")
     sp.set_defaults(fn=cmd_github)
+
+    sp = sub.add_parser("scorecard", help="运营记分卡：执行回执与业务结果的描述性口径")
+    sp.add_argument("--campaign"); sp.add_argument("--since", help="起始时间 ISO 前缀")
+    sp.add_argument("--output", help="可选：导出 Markdown")
+    sp.add_argument("--json", action="store_true")
+    sp.set_defaults(fn=cmd_scorecard)
+
+    sp = sub.add_parser("optimize", help="按记分卡与运营记忆给出人工决策建议（不自动执行）")
+    sp.add_argument("--campaign"); sp.add_argument("--channel")
+    sp.add_argument("--since"); sp.add_argument("--minimum-confirmed", type=int, default=3)
+    sp.add_argument("--output", help="可选：导出 Markdown")
+    sp.add_argument("--json", action="store_true")
+    sp.set_defaults(fn=cmd_optimize)
+
+    sp = sub.add_parser("schedule", help="持久化队列排期：到点跑一波，暂停/崩溃即停")
+    sp.add_argument("action", choices=["add", "list", "tick", "status", "resume"])
+    sp.add_argument("--id"); sp.add_argument("--queue", action="append")
+    sp.add_argument("--interval", type=int, default=1440, help="分钟，默认 1440")
+    sp.add_argument("--max-waves", type=int)
+    sp.add_argument("--go", action="store_true", help="排期波次实跑（默认 dry-run）")
+    sp.add_argument("--note"); sp.add_argument("--by", default="operator")
+    sp.set_defaults(fn=cmd_schedule)
 
     sp = sub.add_parser("workflow", help="可复用工作流：学习/审批/重放（版本化 + 指纹 + 运行日志）")
     sp.add_argument("action", choices=["list", "show", "lint", "learn", "approve", "replay", "runs", "reconcile"])
