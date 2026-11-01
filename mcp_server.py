@@ -409,7 +409,7 @@ def handle(msg):
         return {"jsonrpc": "2.0", "id": mid, "result": {
             "protocolVersion": PROTOCOL_VERSION,
             "capabilities": {"tools": {}},
-            "serverInfo": {"name": "mkt-server", "version": "0.1.0"},
+            "serverInfo": {"name": "mkt-server", "version": "0.2.0"},
         }}
     if method == "ping":
         return {"jsonrpc": "2.0", "id": mid, "result": {}}
