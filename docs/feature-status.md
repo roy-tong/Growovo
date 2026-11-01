@@ -10,7 +10,7 @@ Reviewed 2026-11-01 against the repository implementation. Available means local
 | G14–G15 | Operations memory and optimization | `mkt memory` summarizes receipts; `mkt workflow learn` turns an observed trace into a draft workflow; `mkt scorecard` reports committed/unknown/failed/evidence rates plus business-outcome counts; `mkt optimize` proposes next moves with `requires_human: true` and `automatic_apply: false` |
 | G16 | Third-party playbook marketplace | Deferred |
 
-Build: business playbooks, authorization, policy, result verification and execution ledger. Reuse: existing Playwright/CDP and platform APIs. No new browser framework is required for queue reliability. Stagehand and Midscene remain optional recovery candidates; no fork is needed for receipt-only memory.
+Build: business playbooks, authorization, policy, result verification and execution ledger. Reuse: existing Playwright/CDP and platform APIs. No new browser framework is required for queue reliability. Stagehand and Midscene remain optional, operator-supplied visual providers behind `core/locators`; no fork is bundled. Receipt-only memory still needs no fork.
 
 The read-only `mkt_memory` MCP tool exposes anonymized receipt patterns to Agents; it never grants replay rights. `mkt_workflow` is read-only too: list/show/lint/runs. Approval and replay stay in the human CLI path.
 
