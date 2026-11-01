@@ -12,6 +12,7 @@
   mkt demo                  零网络零账号演示（lint→人审→写路径 dry-run→账本）
   mkt doctor [--selftest]   环境体检（--selftest 连跑全部离线单测）
   mkt experiment …          实验引擎：预注册→观察→人判（机器不判因果）
+  mkt workflow …            可复用工作流：learn/approve/replay/runs/reconcile（版本化 + 指纹 + 运行日志）
   mkt outcome …             效果归因：事件/计数台账 + 漏斗（口径非因果）
 
 示例:
@@ -688,6 +689,100 @@ def cmd_memory(args):
     return 0
 
 
+def cmd_workflow(args):
+    """Versioned, approved, replayable operation recipes (no implicit sends)."""
+    from core import workflows
+    from core.action_runner import run_action
+    data = Path(DATA)
+    action = args.action
+    if action == "list":
+        rows = workflows.list_workflows(data)
+        print(json.dumps([
+            {"id": row["workflow"]["id"], "version": row["workflow"].get("version"),
+             "channel": row["workflow"].get("channel"), "action": row["workflow"].get("action"),
+             "approval": row["approval"]}
+            for row in rows
+        ], ensure_ascii=False, indent=2))
+        return 0
+    if action == "show":
+        workflow = workflows.find_workflow(data, args.workflow_id)
+        print(json.dumps({"workflow": workflow, "approval": workflows.approval(data, workflow),
+                          "errors": workflows.lint(workflow)}, ensure_ascii=False, indent=2))
+        return 0
+    if action == "lint":
+        workflow = workflows.find_workflow(data, args.workflow_id)
+        errors = workflows.lint(workflow)
+        print(json.dumps({"workflow_id": workflow["id"], "errors": errors,
+                          "status": "pass" if not errors else "fail"}, ensure_ascii=False, indent=2))
+        return 0 if not errors else 1
+    if action == "learn":
+        if not args.trace:
+            raise SystemExit("workflow learn 需要 --trace trace.json")
+        trace = json.loads(Path(args.trace).read_text(encoding="utf-8"))
+        workflow = workflows.learn_from_trace(trace, workflow_id=args.workflow_id, name=args.name)
+        path = workflows.save_workflow(data, workflow)
+        print(json.dumps({"status": "learned", "path": str(path), "workflow_id": workflow["id"],
+                          "steps": len(workflow["steps"]),
+                          "approval": workflows.approval(data, workflow)}, ensure_ascii=False, indent=2))
+        return 0
+    if action == "approve":
+        workflow = workflows.find_workflow(data, args.workflow_id)
+        result = workflows.approve(data, workflow, by=args.by, days=args.days, note=args.note or "")
+        print(json.dumps({"status": "approved", "workflow_id": workflow["id"],
+                          "path": result["path"], "approval": result["approval"]},
+                         ensure_ascii=False, indent=2))
+        return 0
+    if action == "replay":
+        workflow = workflows.find_workflow(data, args.workflow_id)
+        values = {}
+        for pair in args.var or []:
+            key, sep, value = str(pair).partition("=")
+            if not sep or not key:
+                raise SystemExit(f"--var 需要 key=value，收到 {pair!r}")
+            values[key] = value
+        needs_page = any(str(step.get("kind")) in ("open", "fill", "click", "press", "read")
+                         for step in workflow.get("steps") or [])
+        page = browser = None
+        if needs_page:
+            if not args.cdp_url:
+                raise SystemExit("该 workflow 含 UI 步骤，需要 --cdp-url http://127.0.0.1:9222")
+            from core import cdp
+            browser, page = cdp.connect(args.cdp_url)
+        def _executor(**kwargs):
+            return run_action(data_dir=str(data), log=print, **kwargs)
+        try:
+            result = workflows.replay(data, workflow, page=page, executor=_executor,
+                                      go=args.go, campaign=args.campaign or "",
+                                      values=values, log=print)
+        finally:
+            if page is not None:
+                try:
+                    page.close()
+                finally:
+                    if browser is not None:
+                        browser.close()
+        print(json.dumps({key: value for key, value in result.items() if key != "run"},
+                         ensure_ascii=False, indent=2))
+        return 0 if result["status"] in ("completed", "dry-run") else 3
+    if action == "runs":
+        rows = workflows.list_runs(data, args.workflow_id)
+        print(json.dumps([
+            {"run_id": row.get("run_id"), "workflow_id": row.get("workflow_id"),
+             "status": row.get("status"), "stop_reason": row.get("stop_reason"),
+             "steps": len(row.get("steps") or []), "started_at": row.get("started_at")}
+            for row in rows
+        ], ensure_ascii=False, indent=2))
+        return 0
+    if action == "reconcile":
+        if not (args.run and args.outcome and args.note):
+            raise SystemExit("workflow reconcile 需要 --run <id> --outcome sent|not_sent --note '…'")
+        run = workflows.reconcile(data, args.run, outcome=args.outcome, note=args.note, by=args.by)
+        print(json.dumps({"run_id": run["run_id"], "status": run["status"],
+                          "reconciliations": run.get("reconciliations")}, ensure_ascii=False, indent=2))
+        return 0
+    raise SystemExit(f"未知 workflow 动作: {action}")
+
+
 def cmd_playbook(args):
     from core import playbooks
     if args.name != "github-inbox":
@@ -968,6 +1063,22 @@ def build_parser():
     sp.add_argument("--adhoc", action="store_true",
                        help="实跑无 plan 管辖时的显式放行（账本记 adhoc=true）")
     sp.set_defaults(fn=cmd_github)
+
+    sp = sub.add_parser("workflow", help="可复用工作流：学习/审批/重放（版本化 + 指纹 + 运行日志）")
+    sp.add_argument("action", choices=["list", "show", "lint", "learn", "approve", "replay", "runs", "reconcile"])
+    sp.add_argument("workflow_id", nargs="?")
+    sp.add_argument("--trace", help="observe 轨迹 JSON（learn 用）")
+    sp.add_argument("--name", help="workflow 名称（learn 用）")
+    sp.add_argument("--by", default="operator", help="审批/裁决人")
+    sp.add_argument("--days", type=int, default=30, help="审批有效期（默认 30 天）")
+    sp.add_argument("--note", help="审批/裁决说明")
+    sp.add_argument("--cdp-url", help="UI 步骤使用的调试浏览器地址")
+    sp.add_argument("--campaign", help="重放归属 campaign")
+    sp.add_argument("--go", action="store_true", help="实跑（默认 dry-run，只解析定位器）")
+    sp.add_argument("--var", action="append", help="模板变量 key=value，可重复")
+    sp.add_argument("--run", help="运行 id（reconcile 用）")
+    sp.add_argument("--outcome", choices=["sent", "not_sent"], help="裁决结果")
+    sp.set_defaults(fn=cmd_workflow)
 
     sp = sub.add_parser("memory", help="从真实操作回执沉淀匿名化运营经验（只读，不自动重放）")
     sp.add_argument("--campaign", help="只分析指定 campaign")

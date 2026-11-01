@@ -44,6 +44,18 @@ TOOLS = [
         },
     },
     {
+        "name": "mkt_workflow",
+        "description": "只读工作流视图：列表/详情/结构校验/运行记录；审批与重放只在 CLI 人工通道。",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "action": {"enum": ["list", "show", "lint", "status"]},
+                "workflow_id": {"type": "string"},
+            },
+            "required": ["action"],
+        },
+    },
+    {
         "name": "mkt_status",
         "description": "全局账本聚合：按 channel/campaign/result 计数。只读。",
         "inputSchema": {"type": "object", "properties": {}},
@@ -181,6 +193,35 @@ def _call_tool(name, args):
             channel=args.get("channel"),
             minimum_confirmed=args.get("minimum_confirmed", 3),
         ))
+
+    if name == "mkt_workflow":
+        from core import workflows
+        action = str(args.get("action") or "").strip()
+        workflow_id = args.get("workflow_id")
+        if action == "list":
+            return _text([
+                {"id": row["workflow"]["id"], "version": row["workflow"].get("version"),
+                 "channel": row["workflow"].get("channel"), "action": row["workflow"].get("action"),
+                 "approval": row["approval"]}
+                for row in workflows.list_workflows(DATA)
+            ])
+        if action in ("show", "lint"):
+            if not workflow_id:
+                raise ValueError(f"mkt_workflow {action} requires workflow_id")
+            workflow = workflows.find_workflow(DATA, workflow_id)
+            errors = workflows.lint(workflow)
+            if action == "lint":
+                return _text({"workflow_id": workflow_id, "errors": errors,
+                              "status": "pass" if not errors else "fail"})
+            return _text({"workflow": workflow, "approval": workflows.approval(DATA, workflow),
+                          "errors": errors})
+        if action == "status":
+            return _text({"runs": [
+                {"run_id": run.get("run_id"), "workflow_id": run.get("workflow_id"),
+                 "status": run.get("status"), "stop_reason": run.get("stop_reason")}
+                for run in workflows.list_runs(DATA, workflow_id)
+            ]})
+        raise ValueError("unknown workflow action")
 
     if name == "mkt_status":
         return _text(Ledger(DATA / "ledger.jsonl").summary())

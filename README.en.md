@@ -84,6 +84,7 @@ python3 mkt.py check              # verify the CDP session and X/Gmail login sta
 | `mkt hn publish --title "Show HN: …" --url … [--go]` | Submit form submission (CDP; ≤1/day, title ≤80 chars; Show HN only for your own projects) | **UNVERIFIED** |
 | `mkt hn reply --item item:N --text "…" [--go]` | Item comment (first use = the author's first comment on a Show HN, within 1h of submitting) | **UNVERIFIED** |
 | `python3 mkt.py memory …` | Read-only operations memory from verified receipts (see the last section) | — |
+| `python3 mkt.py workflow …` | Reusable recipes: learn / approve / replay (dry-run by default) / runs / reconcile | — |
 
 Level meanings: PROVEN = verified on a real account; PORTED = the pattern is verified, this wrapper has not been run end-to-end; UNVERIFIED = selectors untested in practice — the first run must be supervised (first-run checklist in channel doc 03 §5).
 
@@ -164,7 +165,7 @@ Each channel × action declares a preferred transport plus a fallback chain; **f
 ## Repository layout
 
 ```
-core/      ledger (with human adjudication overrides) · gates (incl. DNC merge) · throttle atomic daily budgets · pipeline write-path transactions · evidence · cdp session · transports registry · planlint plan validation · approval events/plan fingerprints · queue edit-time gates · campaign view/review preview/next step · links tracking links · outcome_io CSV import & ledger aggregation · collector local webhook/redirect · action_runner single actions · queue_runner all-channel queues · playbooks GitHub Inbox triage/draft queues · workspace multi-product isolation · experiments preregistration · attribution events/funnels/attribution · demo zero-account demo · doctor environment check
+core/      ledger (with human adjudication overrides) · gates (incl. DNC merge) · throttle atomic daily budgets · pipeline write-path transactions · evidence · cdp session · transports registry · planlint plan validation · approval events/plan fingerprints · queue edit-time gates · campaign view/review preview/next step · links tracking links · outcome_io CSV import & ledger aggregation · collector local webhook/redirect · action_runner single actions · queue_runner all-channel queues · playbooks GitHub Inbox triage/draft queues · workflows recipe learning/approval/replay · locators locator ladder · workspace multi-product isolation · experiments preregistration · attribution events/funnels/attribution · demo zero-account demo · doctor environment check
 channels/  x/(vendor+adapter) · email_smtp · email_cdp · reddit · linkedin · github (first api-channel release) · hn (CDP write + Algolia read)
 transports/  os_input (macOS keyboard/mouse/AX simulation, UNVERIFIED)
 skills/    growovo-gtm (GTM operations protocol) · github-project-ops (GitHub project operations protocol + audit script)
@@ -179,6 +180,21 @@ The X channel vendors in x-ops-automation (upstream github: roy-tong/x-ops-autom
 
 MIT (see [LICENSE](LICENSE)). `channels/x/vendor/` is vendored from the same author's repo x-ops-automation (MIT).
 
+## Reusable workflows: learn once, replay carefully
+
+The same class of task should not need a fresh model exploration of the page every time. `workflow` freezes steps, a locator ladder and readback conditions into a fingerprint-approved recipe; `--go` requires that approval, and every run is journalled step by step:
+
+```bash
+python3 mkt.py workflow learn hn-reply --trace trace.json      # one observed run → draft (never auto-approved)
+python3 mkt.py workflow approve hn-reply --by "operator" --days 30
+python3 mkt.py workflow replay hn-reply --var item=123 --var text="…"          # dry-run: resolve locators only
+python3 mkt.py workflow replay hn-reply --cdp-url http://127.0.0.1:9222 … --go  # execute
+python3 mkt.py workflow runs
+python3 mkt.py workflow reconcile --run <id> --outcome not_sent --note "checked the platform" --by "operator"
+```
+
+When the page changes, recovery walks `css → placeholder → label → role → text`; visual recovery needs an operator-supplied provider and otherwise stops as `visual_unavailable` instead of guessing a click target. Writes keep the standard gates: `action` steps call `action_runner`, `commit` clicks check pause and the daily budget and write the ledger. See [workflows](docs/workflows.md).
+
 ## Operations memory: learn from verified platform receipts
 
 Inspect recurring channel/action patterns without exposing contact details or automatically replaying any past action:
@@ -188,4 +204,4 @@ python3 mkt.py memory --campaign my-campaign
 python3 mkt.py memory --channel github --output data/operations-memory.json
 ```
 
-The summary reports confirmed platform operations, unknown/failing receipts, and **human-review candidates**. It intentionally excludes targets and message bodies. A successful platform action is **not** evidence of customer activation, and a pattern is never permission to replay: new runs still require fresh authorization, current platform-policy checks, and the standard execution gates. This is a read-only foundation for reusable playbooks, not semantic/visual UI learning. See [feature status](docs/feature-status.md).
+The summary reports confirmed platform operations, unknown/failing receipts, and **human-review candidates**. It intentionally excludes targets and message bodies. A successful platform action is **not** evidence of customer activation, and a pattern is never permission to replay: new runs still require fresh authorization, current platform-policy checks, and the standard execution gates. This is the read-only input to workflow learning: it shows patterns and risks, while an approved `mkt workflow` recipe performs the replay. See [feature status](docs/feature-status.md).

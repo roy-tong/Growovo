@@ -84,6 +84,7 @@ python3 mkt.py check              # 确认 CDP 会话与 X/Gmail 登录态
 | `mkt hn publish --title "Show HN: …" --url … [--go]` | submit 表单提交（CDP；日≤1，标题≤80；Show HN 限自有项目） | **UNVERIFIED** |
 | `mkt hn reply --item item:N --text "…" [--go]` | 条目评论（首用=Show HN 首条作者评论，提交后 1h 内） | **UNVERIFIED** |
 | `python3 mkt.py memory …` | 只读运营记忆：从已核验回执提取重复模式（见文末） | — |
+| `python3 mkt.py workflow …` | 可复用配方：learn / approve / replay（默认 dry-run）/ runs / reconcile | — |
 
 等级含义：PROVEN=真实账号跑通；PORTED=模式已验证、本封装未整跑；UNVERIFIED=选择器未实测，首跑必须人工盯跑（首跑清单见 03 渠道文档 §5）。
 
@@ -164,7 +165,7 @@ RESERVE×6（通道储备库）：`webdriver`｜`rss-public`（只读）｜`esp-
 ## 结构
 
 ```
-core/      ledger 账本（含人工裁决覆盖）· gates 门禁（含 DNC 合并）· throttle 原子日预算 · pipeline 写路径事务 · evidence 留证 · cdp 会话 · transports 通道注册表 · planlint 计划校验 · approval 审批事件/计划指纹 · queue 编辑期门禁 · campaign 视图/人审预览/下一步 · links 追踪链接 · outcome_io CSV 导入与账本聚合 · collector 本地 webhook/跳转 · action_runner 单条动作 · queue_runner 全渠道队列 · playbooks GitHub Inbox 分流/草稿队列 · workspace 多产品隔离 · experiments 预注册实验 · attribution 事件/漏斗/归因 · demo 零账号演示 · doctor 环境体检
+core/      ledger 账本（含人工裁决覆盖）· gates 门禁（含 DNC 合并）· throttle 原子日预算 · pipeline 写路径事务 · evidence 留证 · cdp 会话 · transports 通道注册表 · planlint 计划校验 · approval 审批事件/计划指纹 · queue 编辑期门禁 · campaign 视图/人审预览/下一步 · links 追踪链接 · outcome_io CSV 导入与账本聚合 · collector 本地 webhook/跳转 · action_runner 单条动作 · queue_runner 全渠道队列 · playbooks GitHub Inbox 分流/草稿队列 · workflows 配方学习/审批/重放 · locators 定位器阶梯 · workspace 多产品隔离 · experiments 预注册实验 · attribution 事件/漏斗/归因 · demo 零账号演示 · doctor 环境体检
 channels/  x/(vendor+adapter) · email_smtp · email_cdp · reddit · linkedin · github（api 通道首发） · hn（CDP 写 + Algolia 读）
 transports/  os_input（macOS 键鼠/AX 模拟，UNVERIFIED）
 skills/    growovo-gtm（GTM 操作协议）· github-project-ops（GitHub 项目经营协议+体检脚本）
@@ -179,6 +180,21 @@ X 渠道 vendor 引入 x-ops-automation（上游 github: roy-tong/x-ops-automati
 
 MIT（见 [LICENSE](LICENSE)）。`channels/x/vendor/` 引入自同作者仓库 x-ops-automation（MIT）。
 
+## 可复用工作流：一次学习，稳定重放
+
+同一类操作不必每次让模型重新探索页面。`workflow` 把步骤、定位器阶梯与回读条件固化成带指纹的配方；批准后才可 `--go`，每次运行都有逐步日志：
+
+```bash
+python3 mkt.py workflow learn hn-reply --trace trace.json      # 观察一次 → 草稿（不自动批准）
+python3 mkt.py workflow approve hn-reply --by "operator" --days 30
+python3 mkt.py workflow replay hn-reply --var item=123 --var text="…"          # dry-run：只解析定位器
+python3 mkt.py workflow replay hn-reply --cdp-url http://127.0.0.1:9222 … --go  # 实跑
+python3 mkt.py workflow runs
+python3 mkt.py workflow reconcile --run <id> --outcome not_sent --note "已核对平台后台" --by "operator"
+```
+
+页面变化时按 `css → placeholder → label → role → text` 逐级恢复；视觉恢复需要操作者提供 provider，没有就停在 `visual_unavailable`，不猜点击位置。写入仍走统一门禁：`action` 步骤复用 `action_runner`，`commit` 点击检查暂停与日预算并写账本。详见[工作流](docs/workflows.md)。
+
 ## 运营记忆：从已核验的平台回执中学习
 
 在不暴露联系人明细、也不自动重放任何历史动作的前提下，检视重复出现的渠道/动作模式：
@@ -188,4 +204,4 @@ python3 mkt.py memory --campaign my-campaign
 python3 mkt.py memory --channel github --output data/operations-memory.json
 ```
 
-摘要报告已确认的平台操作、未知/失败回执与**人审候选**；有意排除目标对象与消息正文。平台动作成功**不**等于客户激活，模式也永远不是重放许可：新的执行仍需新的授权、当期平台政策检查与标准执行门禁。这是可复用 playbook 的只读基础，不是语义/视觉 UI 学习。见[能力进度与技术取舍](docs/feature-status.md)。
+摘要报告已确认的平台操作、未知/失败回执与**人审候选**；有意排除目标对象与消息正文。平台动作成功**不**等于客户激活，模式也永远不是重放许可：新的执行仍需新的授权、当期平台政策检查与标准执行门禁。这是工作流学习的只读输入：它给出模式与风险，真正可重放的配方在批准后由 `mkt workflow` 执行。见[能力进度与技术取舍](docs/feature-status.md)。
