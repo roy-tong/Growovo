@@ -22,3 +22,7 @@ A legitimate Growovo case must contain:
 ## Third-party cases
 
 External cases use an opt-in case-note mechanism: after a free task or an engagement, clients voluntarily authorize publication; deliverables (audit reports, fix records, data) come before narrative. The first external case will appear here once authorized.
+
+## How to verify these cases
+
+All three are self-dogfood: the vendor is also the client, which makes them easy to write and hard to trust. [How to verify](verify.md) lists what you can check yourself (commits, stars, URLs, tests), what you have to take on faith (minutes ledgers, internal decisions), and why the star count needs its own paragraph. **Read that page before the cases.**
