@@ -13,7 +13,7 @@
 | Dimension | Number |
 |---|---|
 | Outreach volume | ~1,200 emails (including one 449-empty-body incident batch), ~900 X actions |
-| Supply-side output | 110+ tool audits, 45+ verified bugs, upstream merges (14 at report publication; cumulative count lives in [GitHub search](https://github.com/search?q=author%3Aroy-tong+type%3Apr+is%3Amerged) rather than a hand-edited number), 5 external contributors, 1 CI adoption, 1 standard adoption |
+| Supply-side output | 110+ tool audits, 45+ verified bugs, upstream merges (**reported per date**: 14 at report publication @2026-09-09; 23 per the claims index @2026-10-11. A [GitHub search](https://github.com/search?q=author%3Aroy-tong+type%3Apr+is%3Amerged) counts every merged PR on the account, not audit fixes, so it is not the same measure), 5 external contributors, 1 CI adoption, 1 standard adoption |
 | Stars | 92 purchased baseline stars (permanently excluded from attribution) → 220 (API, 2026-11-02); ~16 natural stars over the whole period, of which **only 2 are attributable, both from the delivery chain**. Note the star/fork ratio of 22.0, outside the usual 5–20 band (audit, 2026-11-02): quoting this star count requires that caveat |
 | Business results | 0 qualified buyer conversations, 0 paid, 0 repeat |
 
