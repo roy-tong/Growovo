@@ -1,6 +1,6 @@
 # Growovo: implementation status
 
-Reviewed 2026-11-01 against the repository implementation. Available means local implementation, not production validation on every platform.
+Reviewed 2026-11-02 against the repository implementation. Available means local implementation, not production validation on every platform.
 
 | Feature | Scope | Status |
 |---|---|---|
@@ -9,6 +9,9 @@ Reviewed 2026-11-01 against the repository implementation. Available means local
 | G06–G07 | Semantic and visual recovery | Semantic ladder (`css → placeholder → label → role → text`) shipped in `core/locators.py` and used by workflow replay. Visual recovery is an operator-supplied provider hook; with none configured the run stops as `visual_unavailable`. Stagehand/Midscene are not bundled |
 | G14–G15 | Operations memory and optimization | `mkt memory` summarizes receipts; `mkt workflow learn` turns an observed trace into a draft workflow; `mkt scorecard` reports committed/unknown/failed/evidence rates plus business-outcome counts; `mkt optimize` proposes next moves with `requires_human: true` and `automatic_apply: false` |
 | G16 | Third-party playbook marketplace | Deferred |
+| P0 measurement | Task-outcome record and GitHub expert task benchmark | `core/task_outcome.py` records platform action result, task outcome and business outcome as three independent layers, with decision basis, alternatives, risk class, verification evidence and escalation reasons; records append to `data/outcomes/records.jsonl`. `scripts/github_benchmark.py` evaluates a labelled keyword/rule baseline over 33 fixture cases (21 dev, 12 holdout, fixture v2) and reports per-field accuracy, category/action confusion matrices and a harmful-action rate; `--fail-on-harmful` makes the benchmark a gate (exit 1) instead of only a report. `core/action_runner.record_ledger_outcome` now writes a task-outcome record after every real `--go` action (committed -> sent/unknown, indeterminate -> unknown + escalation, failed -> failed/unresolved); dry-runs write nothing. The baseline is a baseline, not an expert triage capability |
+
+The P0 measurement records are local evidence, not platform ground truth: `task_outcome` rejects contradictory claims but does not verify the referenced evidence, and the GitHub benchmark is a synthetic fixture scored by a deterministic baseline. The ledger hook records what the action runner already did; it does not verify delivery and does not authorize a write. The benchmark's holdout was rebuilt in fixture v2 and was not used to tune the dev rules, but it is still synthetic and keyword-scored, so it measures failure modes, not expert triage capability.
 
 Build: business playbooks, authorization, policy, result verification and execution ledger. Reuse: existing Playwright/CDP and platform APIs. No new browser framework is required for queue reliability. Stagehand and Midscene remain optional, operator-supplied visual providers behind `core/locators`; no fork is bundled. Receipt-only memory still needs no fork.
 

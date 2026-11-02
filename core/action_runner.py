@@ -77,7 +77,7 @@ def _x_last_record(ledger, campaign, action, fallback):
     return fallback
 
 
-def run_action(*, channel, action, data_dir=None, campaign="", go=False,
+def _dispatch_action(*, channel, action, data_dir=None, campaign="", go=False,
                allow_unverified=False, target=None, text=None, title=None, url=None,
                subreddit=None, number=None, extra=None, log=print):
     """执行单条写动作，返回账本记录 dict。"""
@@ -172,3 +172,75 @@ def run_action(*, channel, action, data_dir=None, campaign="", go=False,
         raise ActionError("email 只支持队列执行（mkt email message --queue …）")
 
     raise ActionError(f"{channel}/{action} 未接入统一动作执行器")
+
+
+# --------------------------------------------------------------------------- #
+# task-outcome recording: a ledger result is an action fact, never task success
+# --------------------------------------------------------------------------- #
+
+_OUTCOME_MAP = {
+    "committed": ("sent", "unknown", ""),
+    "failed": ("failed", "unresolved", ""),
+    "indeterminate": ("unknown", "unknown",
+                      "platform result is unknown; reconcile before any retry"),
+    "suppressed": ("failed", "unresolved", ""),
+    "bounced": ("failed", "unresolved", ""),
+    "no-dm": ("failed", "unresolved", ""),
+}
+
+
+def record_ledger_outcome(data_dir, record, *, log=print):
+    """Append a task-outcome record derived from one ledger record.
+
+    A ``committed`` send becomes ``action_result=sent`` and
+    ``task_outcome=unknown``: the platform accepted an action, not a task.
+    ``indeterminate`` becomes ``action_result=unknown`` with an escalation
+    reason, which is exactly the state that forbids retrying.
+    """
+    if not isinstance(record, dict):
+        raise ActionError("ledger record must be an object")
+    result = str(record.get("result") or "").strip().lower()
+    if result not in _OUTCOME_MAP:
+        return None
+    action_result, task_outcome, escalation = _OUTCOME_MAP[result]
+    from . import task_outcome as contract
+
+    channel = str(record.get("channel") or "")
+    action = str(record.get("action") or "")
+    target = str(record.get("target") or "")
+    payload = contract.build_record(
+        task_id="%s:%s:%s" % (channel or "?", action or "?", target or record.get("ts") or "?"),
+        channel=channel,
+        ts=str(record.get("ts") or "") or None,
+        action_taken="%s/%s" % (channel or "?", action or "?"),
+        action_result=action_result,
+        task_outcome=task_outcome,
+        business_outcome="inconclusive",
+        decision_basis="action_runner ledger result; a platform action is not task completion",
+        escalation_reason=escalation,
+        metadata={
+            "ledger_result": result,
+            "campaign": str(record.get("campaign") or ""),
+            "target": target,
+            "transport": str(record.get("transport") or ""),
+        },
+    )
+    contract.append_outcome(data_dir, payload)
+    return payload
+
+
+def run_action(**kwargs):
+    """Execute one write action, then record its task outcome.
+
+    The dispatch path is unchanged. Recording is best-effort: a send that
+    already happened must not be reported as failed because a local JSONL write
+    failed, so the error is logged and the ledger record is returned unchanged.
+    """
+    record = _dispatch_action(**kwargs)
+    if kwargs.get("go") and isinstance(record, dict):
+        data = Path(kwargs.get("data_dir") or resolve())
+        try:
+            record_ledger_outcome(data, record, log=kwargs.get("log") or print)
+        except Exception as exc:  # recording must not mask the action result
+            (kwargs.get("log") or print)(f"[outcome] task outcome not recorded: {exc}")
+    return record

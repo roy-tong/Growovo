@@ -121,6 +121,25 @@ result 终态：`committed` / `indeterminate`（人工裁决，禁自动重发�
 - `import`：CSV 列名兼容 `subject/email`、`event_type/type`、`ts/timestamp`、`source_ref/ref`、`campaign/utm_campaign` 等；逐行校验、`import_key` 幂等、可 `--dry-run`
 - `sync`：把账本按渠道聚合成 `touches_committed` / `touches_dry_run` 计数快照（触达数不是漏斗事件，不占 signal 槽位）
 
+## outcomes/records.jsonl 任务结果与判断质量（三层分离，append-only）
+
+```json
+{"schema_version": "1.0", "kind": "growovo.task_outcome", "ts", "task_id", "channel",
+ "action_taken", "action_result": "sent|acked|failed|unknown",
+ "task_outcome": "resolved|partial|unresolved|unknown|needs_human",
+ "business_outcome": "observed|none|inconclusive",
+ "decision_basis", "alternatives_considered": ["…"],
+ "risk_class": "low|medium|high|irreversible",
+ "verification_method", "evidence_refs": ["…"],
+ "outcome_evidence_refs": ["…"], "escalation_reason"}
+```
+
+- 三层互不推导：平台 `sent` 不是任务完成，任务完成不是商业转化；`business_outcome=observed` 必须有自己的 `outcome_evidence_refs`，不能借任务结果充当业务证据
+- 强制：`resolved`/`partial` 必须有 `verification_method` + 至少一个 `evidence_refs`；`action_result=unknown` 与 `task_outcome=needs_human` 必须有 `escalation_reason`；`unknown` 不得声称 resolved/partial（先人工核对平台，禁止自动重试）；`failed` 不得记 resolved；`observed` 必须有独立结果证据
+- 写入：`core.task_outcome.append_outcome(data_dir, record)` → `<data>/outcomes/records.jsonl`，写前校验，坏记录不落盘；`read_records` 按追加顺序读回
+- 自动记录：`core.action_runner.record_ledger_outcome` 在真实 `--go` 动作后按账本结果追加（`committed`→`sent`+`unknown`，`indeterminate`→`unknown`+升级原因，`failed`→`failed`+`unresolved`；dry-run 不写），记录失败只记日志、不改写动作结果
+- 基准：`scripts/github_benchmark.py` 只评估离线 fixture（`tests/fixtures/github_benchmark/cases.jsonl`，fixture v2：33 例，21 dev / 12 holdout）上的 keyword/rule baseline，`--split dev|holdout|all`；输出字段准确率、category/action 混淆矩阵与安全/滥用类的有害动作率。`--fail-on-harmful` 在敏感用例仍会被公开动作时以退出码 1 阻断，可用作自动写路径的门。baseline 分数是下限与失败地图，不是分流能力证明；不含网络或模型调用
+
 ## approvals.jsonl 审批事件（人审可复核）
 
 ```json

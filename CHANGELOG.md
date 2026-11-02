@@ -1,5 +1,42 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- **Task-outcome record** (`core/task_outcome.py`): a canonical JSONL record that
+  keeps the platform action result (`sent`/`acked`/`failed`/`unknown`), task outcome
+  (`resolved`/`partial`/`unresolved`/`unknown`/`needs_human`) and business outcome
+  (`observed`/`none`/`inconclusive`) as three independent layers. A record carries the
+  action taken, decision basis, alternatives considered, risk class, verification
+  method plus evidence refs, and an escalation reason where a human must take over.
+  Validation rejects contradictions such as a successful action plus a resolved task
+  without verification evidence, an unknown result without escalation, or an observed
+  business outcome without its own evidence. `append_outcome` writes to
+  `<data>/outcomes/records.jsonl`, the existing `outcomes/` workspace subdirectory.
+- **GitHub expert task benchmark** (`tests/fixtures/github_benchmark/cases.jsonl`,
+  `scripts/github_benchmark.py`): 33 realistic issue/PR cases across ten categories,
+  split into 21 dev and 12 holdout cases (fixture v2). The four cases that exposed
+  the unsafe baseline were moved to dev and the holdout was rebuilt; the
+  deterministic baseline now recognises supply-chain impersonation, SSRF,
+  cross-user data exposure, signature bypass, stalking and retaliation language.
+  `--fail-on-harmful` exits 1 when a sensitive case would still receive a public
+  or closing action, so the benchmark can gate an automated write path instead of
+  only producing a report.
+- **Ledger-to-outcome recording** (`core/action_runner.record_ledger_outcome`):
+  every real `--go` action now appends a `task_outcome` record derived from its
+  ledger result. `committed` becomes `sent` + `unknown`, `indeterminate` becomes
+  `unknown` + escalation reason, `failed` becomes `failed` + `unresolved`; a
+  dry-run writes nothing. Recording is best-effort and never rewrites the send
+  result.
+
+### Validation
+
+- New tests cover record validation, append-only JSONL, fixture schema and split
+  coverage, deterministic baseline output, the harmful-action gate, and the
+  ledger-to-outcome mapping. 186 tests pass and `python3 mkt.py demo` still runs
+  offline.
+
 ## 0.2.0 — 2026-11-01
 
 ### Added
