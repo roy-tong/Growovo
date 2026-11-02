@@ -144,6 +144,14 @@ Real runs of write operations always require a human-approved plan; UNVERIFIED c
 - `skills/growovo-gtm/SKILL.md`: the **GTM operations protocol** — the entry point is a growth goal (signup/activation/revenue), not a single channel action. It decomposes work via four engines (positioning → assets → distribution → outcomes) into seven steps: goal → plan → audience → review → execute → retrospect. Install into `~/.agents/skills/` to make it triggerable in hosts such as ZCode (content collaboration via warm-email-outreach / expert-review-outreach / b2b-account-mapping).
 - `skills/github-project-ops/`: the **GitHub project operations protocol** (open and closed source alike) — positioning diagnosis (four quadrants + seven stages) → repo audit checklist → growth playbook → closed-source playbook library; includes the standalone audit script `scripts/repo_audit.py` (zero-dependency distribution). Relationship to the CLI: the skill is protocol and judgment; `mkt github *` is data collection and execution.
 
+## Cases (docs/cases/)
+
+The first wave of cases comes from the ovo family itself; every case separates "platform actions" from "business outcomes" and never rewrites status for marketing:
+
+- [Askovo](docs/cases/askovo.en.md): first dogfood client (P0, in progress) — define/build/run done in 275 operator minutes / 5 human minutes, D14 gate 2026-11-14
+- [Verovo](docs/cases/verovo.en.md): the precedent case — one full GTM cycle mapped from price paid to defaults; every Growovo rule has a receipt
+- [Growovo](docs/cases/growovo.en.md): bootstrap — rename, bilingual README, dogfood loop; every self-operations action through its own pipeline
+
 ## Transport layer (core/transports.py)
 
 ACTIVE×4: `api` (OAuth, Reddit phase 2) | `browser-cdp` (PROVEN) | `os-input` (macOS keyboard/mouse/AX simulation, UNVERIFIED, transports/os_input.py) | `protocol` (SMTP/IMAP, PROVEN).

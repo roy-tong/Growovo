@@ -144,6 +144,14 @@ mkt campaign report askovo-p0-w1
 - `skills/growovo-gtm/SKILL.md`：**GTM 操作协议**——入口是增长目标（注册/激活/付费）而非单个渠道动作，按四引擎（定位→资产→投放→结果）拆解为七步：目标→plan→客群→人审→执行→复盘。装入 `~/.agents/skills/` 即可在 ZCode 等宿主触发（内容协作走 warm-email-outreach / expert-review-outreach / b2b-account-mapping）。
 - `skills/github-project-ops/`：**GitHub 项目经营协议**（开源与闭源通用）——定位诊断（四象限+七阶段）→ 仓库体检清单 → 增长 playbook → 闭源经营模式库；含独立体检脚本 `scripts/repo_audit.py`（零依赖发行版）。与 CLI 的关系：skill 是协议与判断，`mkt github *` 是采数与执行。
 
+## 案例（docs/cases/）
+
+第一波案例来自 ovo 家族自身，每个案例都区分「平台动作」与「业务结果」，不为获客改写状态：
+
+- [Askovo](docs/cases/askovo.md)：首位 dogfood 客户（P0，进行中）——operator 275 分钟 / human 5 分钟跑完定造跑，D14 门禁 2026-11-14
+- [Verovo](docs/cases/verovo.md)：前置案例——一轮完整 GTM 的代价→默认值映射；Growovo 每条纪律都有出处
+- [Growovo](docs/cases/growovo.md)：自举——改名、双语 README、dogfood 回路，每次自我运营走自己的管道
+
 ## 通道层（core/transports.py）
 
 ACTIVE×4：`api`（OAuth，Reddit 二期）｜`browser-cdp`（PROVEN）｜`os-input`（macOS 键鼠/AX 模拟，UNVERIFIED，transports/os_input.py）｜`protocol`（SMTP/IMAP，PROVEN）。
