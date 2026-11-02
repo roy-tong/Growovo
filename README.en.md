@@ -36,10 +36,18 @@ Each can be used independently. The `mkt.py` and `growovo-gtm` identifiers are k
 
 ## Install and quickstart
 
+**Get a result first, install later.** After cloning, nothing is required — no dependencies, no account:
+
+```bash
+git clone https://github.com/roy-tong/Growovo.git && cd Growovo
+python3 mkt.py demo               # zero network, zero accounts; ~2s through the 4 core steps: lint → review → write path → ledger
+```
+
+For real channels (X / Gmail / GitHub writes), install the runtime and initialise a workspace:
+
 ```bash
 pip install -r requirements.txt   # playwright only; CDP drives system Chrome, no browser download
 python3 mkt.py init               # create directories + report credential gaps + print next steps
-python3 mkt.py demo               # zero network, zero accounts; 30s through the 4 core steps: lint → review → write path → ledger
 python3 mkt.py doctor             # environment check (--selftest runs all offline unit tests)
 ./launch.command                  # double-click works too: first run copies the login profile, starts CDP on 9222
 python3 mkt.py check              # verify the CDP session and X/Gmail login state

@@ -36,10 +36,18 @@ Growovo 面向维护产品社区、内容渠道和客户沟通的运营人员。
 
 ## 安装与启动
 
+**先拿一个结果，再装环境。** 克隆后不需要任何依赖、任何账号：
+
+```bash
+git clone https://github.com/roy-tong/Growovo.git && cd Growovo
+python3 mkt.py demo               # 零网络零账号，约 2 秒过内核四步：lint→人审→写路径→账本
+```
+
+要连真实渠道（X / Gmail / GitHub 写）再装运行时，并初始化工作区：
+
 ```bash
 pip install -r requirements.txt   # 仅 playwright；CDP 走系统 Chrome，无需下载浏览器
 python3 mkt.py init               # 建目录 + 报凭据缺口 + 打印下一步
-python3 mkt.py demo               # 零网络零账号，30 秒过内核四步：lint→人审→写路径→账本
 python3 mkt.py doctor             # 环境体检（--selftest 连跑全部离线单测）
 ./launch.command                  # 双击亦可：首次复制登录 profile，启动 CDP 9222
 python3 mkt.py check              # 确认 CDP 会话与 X/Gmail 登录态
