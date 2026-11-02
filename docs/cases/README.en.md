@@ -4,9 +4,9 @@
 
 | Case | Role | Status | One line |
 |---|---|---|---|
-| [Askovo](askovo.en.md) | First dogfood client (P0) | 🟡 In progress, D14 gate 2026-11-14 | Define/build/run done in 275 operator minutes / 5 human minutes; value events zero, gates first |
-| [Verovo](verovo.en.md) | Precedent case: one full GTM cycle mapped from price paid → defaults | 🟢 Retrospective complete, new phase executing | ~1,200 emails and ~900 X actions bought 4 kill lines; every Growovo rule has a receipt |
-| [Growovo](growovo.en.md) | Bootstrap | 🟡 Early | Rename, bilingual README, 186 tests, dogfood loop — every self-operations action through its own pipeline |
+| [Askovo](askovo.en.md) | First dogfood client (P0) | 🟡 In progress, D14 gate 2026-11-14 | 2 of 3 channels executed (blog re-verified live 11-02; the logged URL was wrong); verdict template frozen; measurement path and Show HN outstanding |
+| [Verovo](verovo.en.md) | Precedent case: one full GTM cycle mapped from price paid → defaults | 🟢 Retrospective complete, launch week executing | ~1,200 emails and ~900 X actions bought 4 kill lines; launch pack M1–M8 ready, freeze 11/06 |
+| [Growovo](growovo.en.md) | Bootstrap | 🟡 Early | Rename, bilingual README, 186 tests, contributor entry points, comparison page — every self-operations action through its own pipeline, minutes on record |
 
 ## Case template
 

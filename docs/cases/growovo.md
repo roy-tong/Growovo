@@ -19,6 +19,18 @@
 | 任务结果三层记录（平台动作 / 任务结果 / 业务结果独立分层，矛盾即拒收） | [ea194e1](https://github.com/roy-tong/Growovo/commit/ea194e1)，`core/task_outcome.py` |
 | GitHub 专家任务基准（33 例，21 dev / 12 holdout；`--fail-on-harmful` 让基准可以当门禁用） | `scripts/github_benchmark.py` + `tests/fixtures/github_benchmark/` |
 | Skill 协议发布 | `skills/growovo-gtm`（GTM 操作协议）、`skills/github-project-ops`（GitHub 项目经营协议） |
+| 贡献者入口与治理最小集（CONTRIBUTING / SECURITY / issue 表单 / PR 不变量 checklist） | [1c8f98c](https://github.com/roy-tong/Growovo/commit/1c8f98c)；Code of Conduct 按 toys 阶段刻意暂缓，理由见整改记录 |
+| 对比页：vs 手写脚本 / vs 通用自动化 / vs 浏览器 agent，含「Growovo 在哪输」 | [c31e3bc](https://github.com/roy-tong/Growovo/commit/c31e3bc)，[docs/compare.md](../compare.md) |
+| 三仓仓库体检（真实 API，含本仓） | `data/audits/*-20261102.md`，`mkt github audit` 可复跑 |
+
+## 分钟台账（operator / human 分开记）
+
+| 日期 | 动作 | operator | human | 证据 |
+|---|---|---:|---:|---|
+| 2026-11-02 | 三仓体检 | 35 | 0 | `data/audits/` |
+| 2026-11-02 | 贡献者入口与治理最小集 | 55 | 0 | `1c8f98c` |
+| 2026-11-02 | 对比页 | 30 | 0 | `c31e3bc` |
+| **合计** | | **120** | **0** | 与工作区运营台账逐条对应 |
 
 ## Dogfood 回路：客户端的教训回流成产品能力
 

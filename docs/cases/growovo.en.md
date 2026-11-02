@@ -19,6 +19,18 @@ The easiest place for a tool repo to fake it is "never using itself". Growovo's 
 | Task-outcome records (platform action / task outcome / business outcome as three independent layers; contradictions rejected) | [ea194e1](https://github.com/roy-tong/Growovo/commit/ea194e1), `core/task_outcome.py` |
 | GitHub expert-task benchmark (33 cases, 21 dev / 12 holdout; `--fail-on-harmful` turns the benchmark into a gate) | `scripts/github_benchmark.py` + `tests/fixtures/github_benchmark/` |
 | Skill protocols published | `skills/growovo-gtm` (GTM operating protocol), `skills/github-project-ops` (GitHub project operations) |
+| Contributor entry points and minimum governance (CONTRIBUTING / SECURITY / issue forms / PR invariant checklist) | [1c8f98c](https://github.com/roy-tong/Growovo/commit/1c8f98c); Code of Conduct deliberately deferred at toys stage — rationale in the remediation note |
+| Comparison page: vs a hand-written script / vs general automation / vs a browser agent, including where Growovo loses | [c31e3bc](https://github.com/roy-tong/Growovo/commit/c31e3bc), [docs/compare.md](../compare.md) |
+| Repository audits on all three repos (real API, this repo included) | `data/audits/*-20261102.md`; reproducible with `mkt github audit` |
+
+## Minutes ledger (operator and human recorded separately)
+
+| Date | Action | operator | human | Evidence |
+|---|---|---:|---:|---|
+| 2026-11-02 | Three-repo audit | 35 | 0 | `data/audits/` |
+| 2026-11-02 | Contributor entry points and minimum governance | 55 | 0 | `1c8f98c` |
+| 2026-11-02 | Comparison page | 30 | 0 | `c31e3bc` |
+| **Total** | | **120** | **0** | line-by-line with the workspace operations ledger |
 
 ## The dogfood loop: client lessons flow back into the product
 

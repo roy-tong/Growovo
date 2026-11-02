@@ -13,8 +13,8 @@
 | Dimension | Number |
 |---|---|
 | Outreach volume | ~1,200 emails (including one 449-empty-body incident batch), ~900 X actions |
-| Supply-side output | 110+ tool audits, 45+ verified bugs, ~30 upstream merges, 5 external contributors, 1 CI adoption, 1 standard adoption |
-| Stars | 92 purchased baseline stars (permanently excluded from attribution) → 220 (API, 2026-11-02); ~16 natural stars over the whole period, of which **only 2 are attributable, both from the delivery chain** |
+| Supply-side output | 110+ tool audits, 45+ verified bugs, upstream merges (14 at report publication; cumulative count lives in [GitHub search](https://github.com/search?q=author%3Aroy-tong+type%3Apr+is%3Amerged) rather than a hand-edited number), 5 external contributors, 1 CI adoption, 1 standard adoption |
+| Stars | 92 purchased baseline stars (permanently excluded from attribution) → 220 (API, 2026-11-02); ~16 natural stars over the whole period, of which **only 2 are attributable, both from the delivery chain**. Note the star/fork ratio of 22.0, outside the usual 5–20 band (audit, 2026-11-02): quoting this star count requires that caveat |
 | Business results | 0 qualified buyer conversations, 0 paid, 0 repeat |
 
 ## Channel verdicts, with controls
@@ -51,6 +51,17 @@ This is not "we learned from failure" rhetoric — it is a line-by-line price→
 ## Current phase (×10 aggressive targets, preregistered)
 
 Since 2026-10-31, Verovo instantiates the ovo family growth methodology in its own execution master: targets up an order of magnitude (stars ≥2,200, ≥20 paying customers, ≥$25,000, deadline 2026-12-31), launch week 11/09–13, **mid-check 11/14: if the launch doesn't happen or adds <300 stars → year-end targets drop one tier**, trigger data on record. The master opens with an honesty preamble: at current measured coefficients (delivery chain ~1–3 stars/week, two cold rounds at 0 conversion), ×10 is not reachable in 9 weeks; the plausibly reachable path (launch pulse × scaled distribution × free-task funnel) is unverified for this project — if it doesn't run, downgrade per the rules; no forcing, no silent target edits.
+
+## Launch-week ledger (from 2026-11-02; operator and human separate)
+
+| Date | Action | operator | human | Evidence |
+|---|---|---:|---:|---|
+| 2026-11-02 | Launch pack M1–M7 (OG image, HN, PH, newsletter, dev.to, case cards, demo plan) | 103 | 0 | workspace `verovo/campaign/`, material states in `04-落地台账.csv` |
+| 2026-11-02 | Pre-flight outbound link check (6 links, all 200) | 8 | 0 | curl |
+| 2026-11-02 | M8 domestic drafts ×3 (billing-bug explainer / reconciliation how-to / free entry) | 40 | 0 | workspace `verovo/campaign/M8-domestic.md` |
+| **Total** | | **151** | **0** | — |
+
+**Platform action ≠ business outcome**: everything above is material production and pre-flight. **Nothing has been published.** What remains is human action (PH/HN posting, WeChat paste), not operator time.
 
 ## Status and evidence level
 
