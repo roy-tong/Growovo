@@ -232,3 +232,10 @@ python3 mkt.py memory --channel github --output data/operations-memory.json
 ```
 
 摘要报告已确认的平台操作、未知/失败回执与**人审候选**；有意排除目标对象与消息正文。平台动作成功**不**等于客户激活，模式也永远不是重放许可：新的执行仍需新的授权、当期平台政策检查与标准执行门禁。这是工作流学习的只读输入：它给出模式与风险，真正可重放的配方在批准后由 `mkt workflow` 执行。见[能力进度与技术取舍](docs/feature-status.md)。
+
+## 参与
+
+- 改动前先读 [CONTRIBUTING.md](CONTRIBUTING.md)：里面是**不能破坏的执行不变量**（人审、dry-run、暂停、预算、抑制名单、回读校验、未知结果不重试）与 AI 贡献政策。
+- 安全问题走 [SECURITY.md](SECURITY.md) 的私密通道，不要开公开 issue。
+- issue/PR 首次响应目标 48 小时内；能力边界与验证等级以 [docs/feature-status.md](docs/feature-status.md) 为准。
+- 案例（含失败与判死）在 [docs/cases/](docs/cases/README.md)，不删改状态。

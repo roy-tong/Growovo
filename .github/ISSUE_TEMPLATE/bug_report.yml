@@ -1,0 +1,66 @@
+name: Bug report
+description: Something did not do what the docs say it does
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not include tokens, cookies, session data, or real customer content. Redact before pasting.
+        Security issues go through SECURITY.md, not here.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: The actual behaviour, including the exact command.
+      placeholder: |
+        $ python3 mkt.py ...
+        <output>
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+      description: Quote the README or docs line you were relying on, if there is one.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Minimal reproduction
+      description: Smallest steps that reproduce it. If it needs an account or network, say so — an offline repro is much faster to fix.
+      placeholder: |
+        1. ...
+        2. ...
+    validations:
+      required: true
+  - type: dropdown
+    id: mode
+    attributes:
+      label: Which mode
+      options:
+        - "dry-run (no writes)"
+        - "`--go` against my own account"
+        - "`mkt demo` / offline only"
+        - "MCP tool"
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version / commit
+      description: "Output of `python3 mkt.py --version`, or the commit you are on."
+    validations:
+      required: true
+  - type: input
+    id: env
+    attributes:
+      label: Environment
+      description: OS, Python version, and whether the CDP profile / SMTP credentials were involved.
+    validations:
+      required: true
+  - type: textarea
+    id: ledger
+    attributes:
+      label: Ledger lines (if a write was involved)
+      description: Paste the relevant redacted rows from the ledger, or say "no write happened".

@@ -1,0 +1,53 @@
+name: Feature request
+description: A capability you need for a real recurring operation
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Growovo has a narrow scope: authorized recurring operations with reviewable results.
+        Requests that make an operation faster but less reviewable are usually declined — say why the trade-off is worth it.
+  - type: textarea
+    id: problem
+    attributes:
+      label: The operation you actually run
+      description: Not "it would be nice if" — describe the recurring task, how often, on which channel, and what you do today instead.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you want it to do
+      description: Behaviour, not implementation. Include what should happen on failure, on an unknown result, and when the budget is exhausted.
+    validations:
+      required: true
+  - type: dropdown
+    id: invariant
+    attributes:
+      label: Does this touch an invariant?
+      multiple: true
+      options:
+        - approval / plan requirement
+        - dry-run default
+        - pause / budget / quota
+        - suppression / DNC
+        - read-back verification
+        - indeterminate handling
+        - ledger shape
+        - none of the above
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: What you tried already
+      description: Existing commands, scripts, or another tool — and why it was not enough.
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched existing issues and docs/feature-status.md
+          required: true
+        - label: This is not a request to send unsolicited bulk messages or to bypass platform limits
+          required: true

@@ -232,3 +232,10 @@ python3 mkt.py memory --channel github --output data/operations-memory.json
 ```
 
 The summary reports confirmed platform operations, unknown/failing receipts, and **human-review candidates**. It intentionally excludes targets and message bodies. A successful platform action is **not** evidence of customer activation, and a pattern is never permission to replay: new runs still require fresh authorization, current platform-policy checks, and the standard execution gates. This is the read-only input to workflow learning: it shows patterns and risks, while an approved `mkt workflow` recipe performs the replay. See [feature status](docs/feature-status.md).
+
+## Contributing
+
+- Read [CONTRIBUTING.md](CONTRIBUTING.md) first: it lists the **invariants a change must not break** (approval, dry-run, pause, budget, suppression, read-back, no auto-retry of unknown results) and the AI-contribution policy.
+- Security issues go through the private channel in [SECURITY.md](SECURITY.md) — not a public issue.
+- First response target is 48 hours for issues and PRs; capability boundaries and verification levels live in [docs/feature-status.md](docs/feature-status.md).
+- Cases (including failures and dead ends) are in [docs/cases/](docs/cases/README.en.md); states are not rewritten.
