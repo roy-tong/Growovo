@@ -40,7 +40,7 @@ Growovo 面向维护产品社区、内容渠道和客户沟通的运营人员。
 
 ```bash
 git clone https://github.com/roy-tong/Growovo.git && cd Growovo
-python3 mkt.py demo               # 零网络零账号，约 2 秒过内核四步：lint→人审→写路径→账本
+python3 mkt.py demo               # 零网络零账号，不到 1 秒过内核四步：lint→人审→写路径→账本
 ```
 
 要连真实渠道（X / Gmail / GitHub 写）再装运行时，并初始化工作区：

@@ -40,7 +40,7 @@ Each can be used independently. The `mkt.py` and `growovo-gtm` identifiers are k
 
 ```bash
 git clone https://github.com/roy-tong/Growovo.git && cd Growovo
-python3 mkt.py demo               # zero network, zero accounts; ~2s through the 4 core steps: lint → review → write path → ledger
+python3 mkt.py demo               # zero network, zero accounts; under a second through the 4 core steps: lint → review → write path → ledger
 ```
 
 For real channels (X / Gmail / GitHub writes), install the runtime and initialise a workspace:
