@@ -1,0 +1,49 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "growovo"
+version = "0.3.0"
+description = "Agent-native GTM operator kernel: reviewed playbooks, authorized accounts, quotas and verifiable operation records."
+readme = "README.md"
+requires-python = ">=3.9"
+license = { file = "LICENSE" }
+authors = [{ name = "Roy Tong" }]
+keywords = ["gtm", "growth", "marketing-automation", "mcp", "one-person-company", "agent"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Environment :: Console",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.9",
+  "Programming Language :: Python :: 3.11",
+  "Topic :: Office/Business",
+]
+# playwright is imported lazily and only needed for the CDP channel; the
+# offline CLI (status/demo/doctor/workflow/…) runs without it, but a normal
+# install should be able to drive a browser without extra steps.
+dependencies = ["playwright>=1.40"]
+
+[project.scripts]
+mkt = "mkt:main"
+growovo-mcp = "mcp_server:main"
+
+[project.urls]
+Homepage = "https://github.com/roy-tong/Growovo"
+Changelog = "https://github.com/roy-tong/Growovo/blob/main/CHANGELOG.md"
+
+[tool.setuptools]
+# Flat layout: the CLI and MCP entry live at the repository root, the kernel
+# under core/, the channels under channels/. Absolute imports (`from core
+# import ...`) keep working after installation because the packages land at
+# the site-packages root.
+py-modules = ["mkt", "mcp_server"]
+packages = ["core", "channels", "channels.x"]
+include-package-data = false
+
+[tool.setuptools.package-data]
+# Vendored x-ops-automation scripts are executed as files (never imported),
+# so they ship as package data next to the adapter that calls them.
+"channels.x" = ["vendor/*.py", "vendor/*.sh", "vendor/*.md"]
