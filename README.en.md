@@ -15,6 +15,8 @@ The product consists of an **Operator Engine** (the execution core) and **Playbo
 
 **Try one result now:** `python3 mkt.py demo` runs plan validation, approval, dry-run, and a ledger demo locally — no accounts or network required. Verification levels for live platform commands are in the table below. See [feature status & trade-offs](docs/feature-status.md).
 
+> Why not write your own script, or use a general automation platform? [How Growovo compares](docs/compare.md) says where it loses and where it wins, and maps every claim to a file you can check.
+
 - **Askovo** handles business research and validation, supplying the rationale for tasks.
 - **Growovo** executes authorized operations tasks and records the results.
 - **Verovo** links costs to business outcomes and computes per-task economics.
