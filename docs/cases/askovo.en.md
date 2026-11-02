@@ -33,7 +33,7 @@ Five assets passed the my-voice style bar in one pass: landing page, Show HN pos
 | Channel | Action | Result |
 |---|---|---|
 | GitHub README | Problem hook + one-line install (verified in a clean venv: 2.1.0 installs, demo passes) | ✅ Live ([a6055ad](https://github.com/roy-tong/askovo/commit/a6055ad)) |
-| English blog | Long-form comparison "Askovo vs your research stack", pushed | 🟡 URL still 404, Pages build under verification (probed daily) |
+| English blog | Long-form comparison "Askovo vs your research stack", pushed | ✅ Live at <https://roy-tong.github.io/notes/askovo-vs-your-research-stack-en/> (200 on 2026-11-02; the URL logged on 10-31 had the wrong path and case, corrected and recorded as a lesson) |
 | Show HN | Post + first comment drafted and ready | ⏸ Requires the account owner to paste (~60 seconds); Growovo does not post on behalf of anyone |
 
 **Measure (D11–13, pending)**: the GitHub-traffic approximation is preregistered; D14 = 2026-11-14.

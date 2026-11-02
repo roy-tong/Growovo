@@ -33,7 +33,7 @@
 | 渠道 | 动作 | 结果 |
 |---|---|---|
 | GitHub README | 问题钩子 + 一行安装（干净 venv 实测装上 2.1.0、demo 通过） | ✅ 已上线（[a6055ad](https://github.com/roy-tong/askovo/commit/a6055ad)） |
-| 英文博客 | 对比长文《Askovo vs your research stack》已推送 | 🟡 URL 仍 404，Pages 构建验证中（每日探测） |
+| 英文博客 | 对比长文《Askovo vs your research stack》已推送 | ✅ 已上线 <https://roy-tong.github.io/notes/askovo-vs-your-research-stack-en/>（11-02 复核 200；10-31 台账记的 URL 路径与大小写均误，已更正并记入教训） |
 | Show HN | 帖 + 首评备好待发 | ⏸ 需账号持有者人工粘贴（约 60 秒），Growovo 不代发 |
 
 **量（D11–13，待执行）**：GitHub 流量近似口径已预注册；D14 = 2026-11-14。
