@@ -97,6 +97,7 @@ python3 mkt.py check              # verify the CDP session and X/Gmail login sta
 | `python3 mkt.py workflow …` | Reusable recipes: learn / approve / replay (dry-run by default) / runs / reconcile | — |
 | `python3 mkt.py scorecard` | Receipt and outcome scorecard (read-only) | — |
 | `python3 mkt.py optimize` | Optimization proposals (requires_human, never auto-applied) | — |
+| `python3 mkt.py gtm diagnose --facts <json>` | **GTM diagnosis**: product facts pack → platform priorities + cold-start checklist + scale gates (every recommendation carries an evidence label; schema in core/gtm.py; risk notes in docs/risk/) | — |
 | `python3 mkt.py schedule …` | Persisted waves: add / tick / status / resume | — |
 
 Level meanings: PROVEN = verified on a real account; PORTED = the pattern is verified, this wrapper has not been run end-to-end; UNVERIFIED = selectors untested in practice — the first run must be supervised (first-run checklist in channel doc 03 §5).

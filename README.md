@@ -97,6 +97,7 @@ python3 mkt.py check              # 确认 CDP 会话与 X/Gmail 登录态
 | `python3 mkt.py workflow …` | 可复用配方：learn / approve / replay（默认 dry-run）/ runs / reconcile | — |
 | `python3 mkt.py scorecard` | 记分卡：确认/未知/失败/证据率与业务结果计数（只读） | — |
 | `python3 mkt.py optimize` | 优化建议（requires_human，不自动执行） | — |
+| `python3 mkt.py gtm diagnose --facts <json>` | **GTM 诊断**：产品事实包→平台优先级+冷启动+放量判据（每条推荐挂证据标签；schema 见 core/gtm.py；风控口径见 docs/risk/） | — |
 | `python3 mkt.py schedule …` | 持久化排期：add / tick / status / resume | — |
 
 等级含义：PROVEN=真实账号跑通；PORTED=模式已验证、本封装未整跑；UNVERIFIED=选择器未实测，首跑必须人工盯跑（首跑清单见 03 渠道文档 §5）。

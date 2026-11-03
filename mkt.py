@@ -14,6 +14,7 @@
   mkt experiment …          实验引擎：预注册→观察→人判（机器不判因果）
   mkt workflow …            可复用工作流：learn/approve/replay/runs/reconcile（版本化 + 指纹 + 运行日志）
   mkt scorecard             运营记分卡：回执与业务结果的描述性口径
+  mkt gtm diagnose --facts … GTM 诊断：产品事实包→平台优先级+冷启动+放量判据（证据标签强制）
   mkt optimize              优化建议（需人工决定，不自动改预算或重放）
   mkt schedule …            持久化排期：add/list/tick/status/resume
   mkt outcome …             效果归因：事件/计数台账 + 漏斗（口径非因果）
@@ -726,6 +727,25 @@ def cmd_optimize(args):
     return 0
 
 
+def cmd_gtm(args):
+    from core import gtm
+    if getattr(args, "gtm_cmd", None) != "diagnose":
+        print("用法: mkt gtm diagnose --facts data/gtm/<id>-facts.json", file=sys.stderr)
+        return 2
+    facts = json.loads(Path(args.facts).read_text(encoding="utf-8"))
+    payload = gtm.diagnose(facts)
+    if args.json:
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
+    else:
+        rendered = gtm.markdown(payload)
+        print(rendered)
+        if args.output:
+            out = Path(args.output)
+            out.parent.mkdir(parents=True, exist_ok=True)
+            out.write_text(rendered, encoding="utf-8")
+    return 0
+
+
 def cmd_schedule(args):
     from core import scheduler
     data = Path(DATA)
@@ -1134,6 +1154,14 @@ def build_parser():
     sp.add_argument("--output", help="可选：导出 Markdown")
     sp.add_argument("--json", action="store_true")
     sp.set_defaults(fn=cmd_scorecard)
+
+    sp = sub.add_parser("gtm", help="GTM 策略：diagnose 产品事实包→平台优先级报告（每条推荐挂证据标签）")
+    gsub = sp.add_subparsers(dest="gtm_cmd")
+    dg = gsub.add_parser("diagnose", help="GTM 诊断：事实包→平台优先级+冷启动+放量判据")
+    dg.add_argument("--facts", required=True, help="产品事实包 JSON（schema 见 core/gtm.py 模块文档）")
+    dg.add_argument("--output", help="可选：导出 Markdown")
+    dg.add_argument("--json", action="store_true")
+    sp.set_defaults(fn=cmd_gtm)
 
     sp = sub.add_parser("optimize", help="按记分卡与运营记忆给出人工决策建议（不自动执行）")
     sp.add_argument("--campaign"); sp.add_argument("--channel")
