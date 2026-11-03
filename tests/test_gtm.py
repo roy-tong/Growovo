@@ -110,7 +110,10 @@ class GtmDiagnoseTests(unittest.TestCase):
         facts["product"]["product_type"] = "hardware"
         facts["owned_assets"] = {"platforms": []}
         payload = gtm.diagnose(facts)
-        self.assertTrue(all(p["priority"] == "—" for p in payload["platforms"]))
+        # gamers 人群无 tag 交集；但 hardware 类型合理命中众筹平台（P2 弱匹配）
+        by_id = {p["id"]: p for p in payload["platforms"]}
+        self.assertFalse(any(p["priority"] == "P0" for p in payload["platforms"]))
+        self.assertEqual(by_id["kickstarter"]["priority"], "P2")
         self.assertTrue(any("没有平台够到 P0" in u for u in payload["unresolved"]))
 
     def test_registry_motion_labels_valid(self):
