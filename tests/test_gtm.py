@@ -113,6 +113,29 @@ class GtmDiagnoseTests(unittest.TestCase):
         self.assertTrue(all(p["priority"] == "—" for p in payload["platforms"]))
         self.assertTrue(any("没有平台够到 P0" in u for u in payload["unresolved"]))
 
+    def test_registry_motion_labels_valid(self):
+        for platform in gtm.PLATFORMS:
+            for motion in platform["motions"]:
+                self.assertIn(motion["label"], gtm.LABELS, platform["id"])
+                self.assertTrue(motion["evidence"], f"{platform['id']}: {motion['motion']}")
+        self.assertIn("self_research", gtm.LABELS)
+
+    def test_consumer_app_matches_xiaohongshu(self):
+        facts = _facts()
+        facts["product"] = {"name": "demo-app", "what": "健康习惯 App", "url": "https://example.com",
+                            "stage": "launched", "product_type": "consumer-app"}
+        facts["icp"] = [
+            {"hypothesis": "年轻用户在意健康记录", "tags": ["consumers", "indie-makers"],
+             "evidence_label": "hypothesis", "evidence": "无（首轮判据收集）"},
+        ]
+        facts["owned_assets"] = {"platforms": ["xiaohongshu"]}
+        payload = gtm.diagnose(facts)
+        by_id = {p["id"]: p for p in payload["platforms"]}
+        self.assertEqual(by_id["xiaohongshu"]["priority"], "P0")
+        # B2B 导流死路必须出现在判死清单里
+        killed = {m["motion"] for m in by_id["xiaohongshu"]["killed_motions"]}
+        self.assertTrue(any("导流" in m for m in killed))
+
     def test_deterministic_output(self):
         first = gtm.markdown(gtm.diagnose(_facts()))
         second = gtm.markdown(gtm.diagnose(_facts()))
