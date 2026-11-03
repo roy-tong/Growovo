@@ -404,6 +404,62 @@ PLATFORMS: List[Dict[str, Any]] = [
         "scale_gate": "复盘帖稳定有同行互动 → 月更制度化",
         "risk": "低（举报+人工管理；文化红线重于规则红线）",
     },
+    {
+        "id": "kickstarter",
+        "name": "Kickstarter（众筹）",
+        "icp_tags": ["consumers", "designers"],
+        "product_types": ["hardware", "creative"],
+        "channel_status": "UNVERIFIED",
+        "motions": [
+            {"motion": "prelaunch 邮件列表 2–3 个月 + 首 48h 冲 30% 目标", "label": "external_baseline",
+             "evidence": "老手基准：列表单独 24h 冲 ~30% 才算准备好；早期速度换算法排名与 25–50% 站内流量（手册 kickstarter.md §2/§4，二手基准已标注）"},
+            {"motion": "无列表裸发众筹", "label": "hypothesis",
+             "evidence": "all-or-nothing 机制下首周冷启动≈死（手册 §5 判断）",
+             "killed": True},
+            {"motion": "纯软件/SaaS 上众筹", "label": "hypothesis",
+             "evidence": "品类不匹配，成功率低（手册 §10 判断，未对照验证）",
+             "killed": True},
+        ],
+        "cold_start": {
+            "checklist": [
+                "提前 2–3 个月建列表（落地页+社群）",
+                "90 秒视频：为什么存在+实物+团队",
+                "邮件序列照成熟模板：欢迎→问题→幕后→社证→倒数",
+            ],
+            "expected": "首 48h 冲 30% 目标 → 算法接力；中段死水期是常态 [外部基准·二手]",
+        },
+        "scale_gate": "上线 48h 达 30% → 才谈媒体放大与追加档位",
+        "risk": "中（审核前置+假认领检测；Indiegogo 灵活 funding 可接力）",
+    },
+    {
+        "id": "instagram",
+        "name": "Instagram",
+        "icp_tags": ["consumers", "designers"],
+        "product_types": ["consumer-app", "product"],
+        "channel_status": "UNVERIFIED",
+        "motions": [
+            {"motion": "Reels 视觉钩子：前 3 秒定生死，分享率为北极星", "label": "external_baseline",
+             "evidence": "官方口径：Reels 三大信号=观看时长/点赞触达/分享触达（Mosseri 2025-01，手册 instagram.md §2）"},
+            {"motion": "经官方 Graph API/官方合作工具发布与排期", "label": "external_baseline",
+             "evidence": "自动化合规四级分层的 T1/T2 白名单（docs/risk/automation-compliance.md）"},
+            {"motion": "连接第三方自动化/机器人工具", "label": "external_baseline",
+             "evidence": "Meta 主动封号（含 AI 执法误伤案例，UBOS 报道，手册 §3/§8）",
+             "killed": True},
+            {"motion": "devtool/B2B 在 Instagram 做增长", "label": "hypothesis",
+             "evidence": "人群错配（手册 §10 判断）",
+             "killed": True},
+        ],
+        "cold_start": {
+            "checklist": [
+                "Business/Creator 账号（拿 Insights）",
+                "3–5 条 Reels 测一个视觉钩子（使用前后对比）",
+                "付费合作必须打官方 Paid partnership 标签",
+            ],
+            "expected": "2–6 周看信号趋势；分享/DM 是转化前信号（官方口径）[外部基准]",
+        },
+        "scale_gate": "分享率稳定 + DM 咨询出现 → 同格式批量变体",
+        "risk": "高（第三方工具封号高压；官方 API 合规路径明确）",
+    },
 ]
 
 REQUIRED_FACTS = ("product", "icp", "goals", "value_events", "constraints", "owned_assets")
