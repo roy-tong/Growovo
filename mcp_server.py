@@ -82,6 +82,14 @@ TOOLS = [
             "required": ["product", "goal", "task"]},
     },
     {
+        "name": "mkt_gtm_design",
+        "description": "只读 GTM 设计：把增长任务拆成对象×目标×机制×渠道，做约束检查并给出结果契约；不执行、不发送、不预测。",
+        "inputSchema": {"type": "object", "properties": {
+            "task": {"type": "string"}, "object": {"type": "string"}, "objective": {"type": "string"},
+            "constraints": {"type": "object"}, "proposal": {"type": "object"}},
+            "required": ["task"]},
+    },
+    {
         "name": "mkt_capabilities",
         "description": "只读 GTM 能力注册表：18 能力域、40 岗位族及其职责/KPI/SOP/交付物/审批映射。",
         "inputSchema": {"type": "object", "properties": {
@@ -471,6 +479,19 @@ def _call_tool(name, args):
         errors = orchestration.lint_orchestration(plan)
         plan["validation"] = {"ok": not errors, "errors": errors}
         plan["rendered_markdown"] = orchestration.render_markdown(plan)
+        return _text(plan)
+
+    if name == "mkt_gtm_design":
+        from core import gtm_design
+        plan = gtm_design.design(
+            args["task"],
+            object_id=args.get("object") or None,
+            objective_id=args.get("objective") or None,
+            constraints=args.get("constraints"),
+            proposal=args.get("proposal"),
+        )
+        problems = gtm_design.lint(plan)
+        plan["validation"] = {"ok": not problems, "problems": problems}
         return _text(plan)
 
     if name == "mkt_capabilities":
@@ -887,7 +908,7 @@ def handle(msg):
         return {"jsonrpc": "2.0", "id": mid, "result": {
             "protocolVersion": PROTOCOL_VERSION,
             "capabilities": {"tools": {}},
-            "serverInfo": {"name": "mkt-server", "version": "0.9.0"},
+            "serverInfo": {"name": "mkt-server", "version": "0.10.0"},
         }}
     if method == "ping":
         return {"jsonrpc": "2.0", "id": mid, "result": {}}

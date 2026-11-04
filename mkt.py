@@ -24,6 +24,8 @@
   mkt workflow …            可复用工作流：learn/approve/replay/runs/reconcile（版本化 + 指纹 + 运行日志）
   mkt scorecard             运营记分卡：回执与业务结果的描述性口径
   mkt gtm diagnose --facts … GTM 诊断：产品事实包→平台优先级+冷启动+放量判据（证据标签强制）
+  mkt gtm design "…"      GTM 设计：对象×目标×机制×渠道 + 结果契约（只设计，不执行）
+  mkt gtm handoff <json>  设计 → 候选岗位编排 + 目标契约映射（可选 --product）
   mkt optimize              优化建议（需人工决定，不自动改预算或重放）
   mkt schedule …            持久化排期：add/list/tick/status/resume
   mkt outcome …             效果归因：事件/计数台账 + 漏斗（口径非因果）
@@ -647,8 +649,16 @@ def cmd_policy(args):
     if args.action == "enable":
         actions = [x.strip() for x in args.actions.split(",") if x.strip()] or None
         accounts = [x.strip() for x in args.accounts.split(",") if x.strip()] or None
-        return _emit(execution_policy.authorize(DATA, by=args.by, actions=actions,
-                                                accounts=accounts, days=args.days))
+        days = None if args.days == 0 else args.days
+        if days is None:
+            print("警告：--days 0 表示常驻授权不过期；仅在你有明确理由时使用。", file=sys.stderr)
+        try:
+            policy = execution_policy.authorize(DATA, by=args.by, actions=actions,
+                                                accounts=accounts, days=days)
+        except ValueError as exc:
+            print(f"授权失败：{exc}", file=sys.stderr)
+            return 2
+        return _emit(policy)
     if args.action == "disable":
         return _emit(execution_policy.revoke(DATA, by=args.by))
     if args.action == "list-actions":
@@ -658,7 +668,10 @@ def cmd_policy(args):
         _emit({"allowed": allowed, "channel": args.channel, "action": args.action_name,
                "account": args.account})
         return 0 if allowed else 2
-    return _emit(execution_policy.get_policy(DATA))
+    policy = execution_policy.get_policy(DATA)
+    if isinstance(policy, dict) and not policy.get("expires_at"):
+        policy = dict(policy, warning="该常驻授权没有有效期；建议用 --days 重新启用，或显式接受长期授权")
+    return _emit(policy)
 
 
 @_business_command
@@ -1759,22 +1772,103 @@ def cmd_optimize(args):
 
 
 def cmd_gtm(args):
-    from core import gtm
-    if getattr(args, "gtm_cmd", None) != "diagnose":
-        print("用法: mkt gtm diagnose --facts data/gtm/<id>-facts.json", file=sys.stderr)
-        return 2
-    facts = json.loads(Path(args.facts).read_text(encoding="utf-8"))
-    payload = gtm.diagnose(facts)
-    if args.json:
-        print(json.dumps(payload, ensure_ascii=False, indent=2))
-    else:
-        rendered = gtm.markdown(payload)
-        print(rendered)
-        if args.output:
-            out = Path(args.output)
-            out.parent.mkdir(parents=True, exist_ok=True)
-            out.write_text(rendered, encoding="utf-8")
-    return 0
+    cmd = getattr(args, "gtm_cmd", None)
+    if cmd == "diagnose":
+        from core import gtm
+        facts = json.loads(Path(args.facts).read_text(encoding="utf-8"))
+        payload = gtm.diagnose(facts)
+        if args.json:
+            print(json.dumps(payload, ensure_ascii=False, indent=2))
+        else:
+            rendered = gtm.markdown(payload)
+            print(rendered)
+            if args.output:
+                out = Path(args.output)
+                out.parent.mkdir(parents=True, exist_ok=True)
+                out.write_text(rendered, encoding="utf-8")
+        return 0
+    from core import gtm_design
+    if cmd == "taxonomy":
+        payload = {
+            "schema": gtm_design.SCHEMA,
+            "objects": [{"id": key, "label": value["label"],
+                         "motions": value["motions"]} for key, value in gtm_design.OBJECTS.items()],
+            "objectives": [{"id": key, "label": value["label"],
+                            "not_success": value["not_success"]}
+                           for key, value in gtm_design.OBJECTIVES.items()],
+            "motions": [{"id": key, "label": value["label"],
+                         "objects": value["objects"], "objectives": value["objectives"],
+                         "requires": value["requires"]}
+                        for key, value in gtm_design.MOTIONS.items()],
+            "requirements": gtm_design.REQUIREMENTS,
+        }
+        if args.json:
+            print(json.dumps(payload, ensure_ascii=False, indent=1))
+        else:
+            print("对象：" + "、".join(f"{row['label']}({row['id']})" for row in payload["objects"]))
+            print("目标：" + "、".join(f"{row['label']}({row['id']})" for row in payload["objectives"]))
+            print("机制：" + "、".join(f"{row['label']}({row['id']})" for row in payload["motions"]))
+        return 0
+    if cmd == "lint":
+        payload = gtm_design.load_json_arg(args.file)
+        problems = gtm_design.lint(payload)
+        if args.json:
+            print(json.dumps({"ok": not problems, "problems": problems},
+                             ensure_ascii=False, indent=1))
+        else:
+            print("设计自洽。" if not problems else "发现问题：\n" + "\n".join(f"- {p}" for p in problems))
+        return 0 if not problems else 1
+    if cmd == "design":
+        try:
+            constraints = gtm_design.load_json_arg(args.constraints) if args.constraints else {}
+            proposal = gtm_design.load_json_arg(args.proposal) if args.proposal else {}
+            payload = gtm_design.design(
+                args.task,
+                object_id=args.object or None,
+                objective_id=args.objective or None,
+                constraints=constraints,
+                proposal=proposal or None,
+            )
+        except (OSError, ValueError) as exc:
+            print(f"设计失败：{exc}", file=sys.stderr)
+            return 2
+        if args.save:
+            saved = Path(args.save)
+            saved.parent.mkdir(parents=True, exist_ok=True)
+            saved.write_text(json.dumps(payload, ensure_ascii=False, indent=1) + "\n",
+                             encoding="utf-8")
+        if args.json:
+            print(json.dumps(payload, ensure_ascii=False, indent=1))
+        else:
+            rendered = gtm_design.render(payload)
+            print(rendered)
+            if args.out:
+                out = Path(args.out)
+                out.parent.mkdir(parents=True, exist_ok=True)
+                out.write_text(rendered, encoding="utf-8")
+        return 0
+    if cmd == "handoff":
+        try:
+            design = gtm_design.load_json_arg(args.design)
+            product = gtm_design.load_json_arg(args.product) if args.product else None
+            payload = gtm_design.handoff(design, product=product)
+        except (OSError, ValueError) as exc:
+            print(f"交接失败：{exc}", file=sys.stderr)
+            return 2
+        if args.json:
+            print(json.dumps(payload, ensure_ascii=False, indent=1))
+        else:
+            rendered = gtm_design.render_handoff(payload)
+            print(rendered)
+            if args.out:
+                out = Path(args.out)
+                out.parent.mkdir(parents=True, exist_ok=True)
+                out.write_text(rendered, encoding="utf-8")
+        return 0
+    print("用法: mkt gtm diagnose --facts <facts.json> | "
+          "mkt gtm design \"<任务>\" [--object …] [--objective …] | mkt gtm lint <file> | "
+          "mkt gtm taxonomy", file=sys.stderr)
+    return 2
 
 
 def cmd_goal(args):
@@ -2473,7 +2567,8 @@ def build_parser():
     a = psub.add_parser("enable"); a.add_argument("--by", required=True)
     a.add_argument("--actions", default="", help="可选：channel:action 逗号列表；默认内置日常动作")
     a.add_argument("--accounts", default="", help="可选：授权账号逗号列表")
-    a.add_argument("--days", type=int, default=None, help="可选：授权有效天数")
+    a.add_argument("--days", type=int, default=30,
+                   help="授权有效天数（默认 30；0 表示不过期，需显式声明）")
     a = psub.add_parser("disable"); a.add_argument("--by", required=True)
     a = psub.add_parser("check"); a.add_argument("--channel", required=True); a.add_argument("--action-name", required=True)
     a.add_argument("--account", default="")
@@ -2810,11 +2905,33 @@ def build_parser():
     sp.add_argument("--json", action="store_true")
     sp.set_defaults(fn=cmd_scorecard)
 
-    sp = sub.add_parser("gtm", help="GTM 策略：diagnose 产品事实包→平台优先级报告（每条推荐挂证据标签）")
+    sp = sub.add_parser("gtm", help="GTM 策略：diagnose 事实包→平台优先级；design 对象×目标×机制×渠道")
     gsub = sp.add_subparsers(dest="gtm_cmd")
     dg = gsub.add_parser("diagnose", help="GTM 诊断：事实包→平台优先级+冷启动+放量判据")
     dg.add_argument("--facts", required=True, help="产品事实包 JSON（schema 见 core/gtm.py 模块文档）")
     dg.add_argument("--output", help="可选：导出 Markdown")
+    dg.add_argument("--json", action="store_true")
+    dg = gsub.add_parser("design", help="GTM 设计：对象/目标/机制/渠道 + 结果契约（不执行）")
+    dg.add_argument("task", help="增长任务原话，例如「增长一个小红书摄影账号」")
+    dg.add_argument("--object", default="", help="显式对象：software_saas/content_account/hardware/oss_project/service/b2b")
+    dg.add_argument("--objective", default="",
+                    help="显式目标：awareness/acquisition/activation/revenue/retention/contribution")
+    dg.add_argument("--constraints", default="",
+                    help="约束 JSON 文件或内联 JSON：budget/region/authorized_channels/assets/data_sources")
+    dg.add_argument("--proposal", default="",
+                    help="Agent 候选 JSON：{objective, motions:[{id,why}], channels:[…]}")
+    dg.add_argument("--json", action="store_true")
+    dg.add_argument("--out", default="", help="可选：保存 Markdown")
+    dg.add_argument("--save", default="", help="可选：保存设计 JSON，供 handoff 使用")
+    dg = gsub.add_parser("lint", help="校验一份 GTM 设计 JSON 是否自洽")
+    dg.add_argument("file")
+    dg.add_argument("--json", action="store_true")
+    dg = gsub.add_parser("handoff", help="GTM 交接：设计 → 候选岗位编排 + 目标契约映射")
+    dg.add_argument("design", help="gtm design --save 生成的 JSON")
+    dg.add_argument("--product", default="", help="产品事实包 JSON；不提供则只返回契约与命令")
+    dg.add_argument("--json", action="store_true")
+    dg.add_argument("--out", default="", help="可选：保存 Markdown")
+    dg = gsub.add_parser("taxonomy", help="列出对象/目标/机制词表")
     dg.add_argument("--json", action="store_true")
     sp.set_defaults(fn=cmd_gtm)
 

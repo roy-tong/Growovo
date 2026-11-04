@@ -104,7 +104,8 @@ class TestGTMOSMCP(unittest.TestCase):
 
     def test_read_only_tool_surface(self):
         names = {t["name"] for t in mcp_server.TOOLS}
-        self.assertTrue({"mkt_orchestrate", "mkt_capabilities", "mkt_templates", "mkt_work_order", "mkt_metric_measure"} <= names)
+        self.assertTrue({"mkt_orchestrate", "mkt_gtm_design", "mkt_capabilities", "mkt_templates",
+                         "mkt_work_order", "mkt_metric_measure"} <= names)
         self.assertNotIn("mkt_work_create", names)
         self.assertNotIn("mkt_deliverable_review", names)
 
@@ -123,6 +124,15 @@ class TestGTMOSMCP(unittest.TestCase):
             })
             self.assertEqual("insufficient_denominator", result["status"])
             self.assertEqual([], self.call("mkt_work_order", {"action": "next"})["next"])
+            design = self.call("mkt_gtm_design", {
+                "task": "增长一个小红书摄影账号，目标是目标粉丝",
+                "constraints": {"authorized_channels": ["xiaohongshu"], "assets": ["content"],
+                                "data_sources": ["platform_insights"]},
+            })
+            self.assertEqual("content_account", design["object"]["id"])
+            self.assertEqual("content_led", design["selected_motion"])
+            self.assertTrue(design["validation"]["ok"])
+            self.assertEqual([], design["validation"]["problems"])
 
 
 if __name__ == "__main__":
