@@ -1,14 +1,14 @@
 # Growovo: implementation status
 
-Reviewed 2026-11-04 against the local integration branch. **Available means local implementation and local tests, not production validation on every platform or proof of business outcomes.** Many changes in this branch are not yet committed.
+Reviewed 2026-11-04. **Released baseline: v0.5.0.** Available means local implementation and local tests, not production validation on every platform or proof of business outcomes.
 
 ## Verification snapshot
 
-- `python3 -m unittest discover -s tests`: **402 tests pass**.
+- `python3 -m unittest discover -s tests`: **431 tests pass**.
 - `python3 mkt.py demo`: plan validation, human approval, write pipeline and ledger pass.
 - Real CLI checks also cover email queue approval and dry-run, X reply queue contract, manual work sheets, campaign isolation, opportunity discovery, value artifacts, journeys, account lifecycle and pricing experiments. No real account sends in tests.
 
-## Current capabilities
+## Released baseline capabilities (through v0.5.0)
 
 | Area | Local implementation | Verification and remaining boundary |
 |---|---|---|
@@ -40,10 +40,20 @@ Reviewed 2026-11-04 against the local integration branch. **Available means loca
 | Follow-up | `core/followups.py` + `mkt followup` | Optional campaign field supports scoped projections. Due follow-ups stay ahead of new actions; local records never send |
 | Measurement | `core/task_outcome.py` + GitHub benchmark | 33 synthetic keyword-baseline fixtures remain a failure-mode benchmark, not expert triage proof. `action_runner.record_ledger_outcome` records outcomes but does not independently verify delivery |
 
+## v0.5.0 depth additions
+
+| Review item | Runnable depth added | Verification and remaining boundary |
+|---|---|---|
+| G1 Signal Interpretation | `core/signal_interpretation.py` validates host-Agent structure for source, subject, problem vs technical discussion, tool seeking, traceable alternative dissatisfaction, contact eligibility, commercial evidence, deterministic dedup and risks. `mkt signal-interpret` and `mkt_signal_interpretation` are read-only. `opportunity.discover` accepts `semantic_candidates` and only consumes qualified rows | Adversarial tests cover technical discussion, false/self-declared purchase intent, uncontactable subjects, missing alternative reasons and independent-source dedup. Legacy raw signals remain `unverified_signal`; tool seeking and `purchase_intent` never auto-upgrade to observed commercial intent |
+| G2 value delivery chain | `core/value_delivery.py` implements research → solution → reproduction → asset → authorized delivery → user readback → completed. `mkt value-chain run` executes only an argv bound to an explicit command fingerprint, with `shell=False`, and records real exit code/output/timestamps/source_ref | Missing/failed reproduction cannot produce a verified asset. Unauthorized commands are not executed. Delivery only records an authorized external receipt; this module never sends. Sent/exposure is not use; completion requires a post-delivery, same-subject, sourced and verified value event |
+| G3 Journey depth | `core/journey.py` now sorts by parsed real time, rejects late prior-stage backfill, distinguishes first/repeated activation, normalizes email identities and explicit `identity_map`, and separately exposes ordered multi-touch relationships. CLI/MCP accept identity mapping | Out-of-order, repeated activation, approximate, unknown and unverified events remain disclosed. Missing prior stages stay missing. Last event/channel receives no causal credit |
+| G4 experience re-review | `core/experience.py` requires rights basis + confirmer + confirmation time + rights record, plus signed review time/record/source domains. `mkt exp assess` exposes eligibility, `review_grade`, rights details, review records and domains | `rights_cleared=True` or `human_reviewed=True` alone never qualifies. `internal_self_report` is experiment-only; formal strategy/generalization requires `traceable_review`. Legacy records remain readable but do not inherit eligibility |
+
 ## External validation still required
 
 - Full platform deep-research DoD is not complete. Registry size and document count cannot substitute for current official rules, practitioner methods, failure cases and platform-specific execution validation.
 - Real account, proxy and authorized live-write tests are outside CI. They require separate authorization, platform/action/transport checks and readback evidence.
-- The current opportunity and journey modules are deterministic reasoning aids, not proof of demand, causal growth, market size or revenue.
+- Signal interpretation, opportunity and journey modules are deterministic reasoning aids, not proof that host semantics are true, demand exists, growth is causal, or revenue will follow.
+- Local value-chain fixtures prove the state machine and real subprocess accounting only. External delivery receipts, user completion and production reliability still need authorized real-world verification.
 - Experience counts and freshness are build-time facts and must be regenerated with the pipeline and status page. Previous counts such as 108/117 were snapshots, not permanent facts.
 - Synthetic demos and local fixtures do not prove external business results, paid demand, production reliability or exact-once delivery.

@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime, time, timezone
+import unicodedata
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 STAGES = ("discovery", "engagement", "trial", "activation", "retention", "payment")
@@ -132,15 +133,30 @@ def _window(time_window: Any) -> Tuple[datetime, datetime, Dict[str, Any], bool]
     return start_dt, end_dt, {"start": start, "end": end}, aware
 
 
-def _subjects(subject: Any) -> Optional[set[str]]:
+def normalize_identity(value: Any, identity_map: Any = None) -> str:
+    """归一显式身份；邮箱大小写/Unicode 宽度可安全归一，其余合并需 identity_map。"""
+    raw = unicodedata.normalize("NFKC", str(value or "").strip())
+    if not raw:
+        return ""
+    normalized = raw.casefold() if "@" in raw and not any(ch.isspace() for ch in raw) else raw
+    mappings = identity_map if isinstance(identity_map, dict) else {}
+    for alias, canonical in mappings.items():
+        alias_raw = unicodedata.normalize("NFKC", str(alias).strip())
+        alias_norm = alias_raw.casefold() if "@" in alias_raw and not any(ch.isspace() for ch in alias_raw) else alias_raw
+        if normalized == alias_norm:
+            return unicodedata.normalize("NFKC", str(canonical).strip())
+    return normalized
+
+
+def _subjects(subject: Any, identity_map: Any = None) -> Optional[set[str]]:
     if subject is None:
         return None
     values = [subject] if isinstance(subject, (str, int, float)) else list(subject)
-    return {str(value).strip() for value in values if str(value).strip()}
+    return {identity for identity in (normalize_identity(value, identity_map) for value in values) if identity}
 
 
 def filter_events(events: Iterable[Dict[str, Any]], *, campaign: str,
-                  subject: Any = None, time_window: Any) -> List[Dict[str, Any]]:
+                  subject: Any = None, time_window: Any, identity_map: Any = None) -> List[Dict[str, Any]]:
     """统一范围过滤，保留原记录及输入顺序，不做阶段或真伪升级。
 
     ``campaign`` 必须显式提供；``subject`` 可为单主体、主体列表或 None（本轮全体）。
@@ -151,7 +167,7 @@ def filter_events(events: Iterable[Dict[str, Any]], *, campaign: str,
     if not campaign:
         raise ValueError("campaign 不能为空：禁止把跨 campaign 历史混成本轮进展")
     start, end, _, aware = _window(time_window)
-    subjects = _subjects(subject)
+    subjects = _subjects(subject, identity_map)
     selected: List[Dict[str, Any]] = []
     if isinstance(events, dict) and isinstance(events.get("events"), (list, tuple)):
         iterable = events["events"]
@@ -164,7 +180,7 @@ def filter_events(events: Iterable[Dict[str, Any]], *, campaign: str,
             continue
         if _campaign(event) != campaign:
             continue
-        event_subject = _subject(event)
+        event_subject = normalize_identity(_subject(event), identity_map)
         if subjects is not None and event_subject not in subjects:
             continue
         try:
@@ -212,11 +228,11 @@ def _exclusion_reason(stage: str, event: Dict[str, Any]) -> str:
 
 
 def _issue_in_scope(issue: Dict[str, Any], campaign: str, subjects: Optional[set[str]],
-                    start: datetime, end: datetime, aware: bool) -> bool:
+                    start: datetime, end: datetime, aware: bool, identity_map: Any = None) -> bool:
     issue_campaign = _campaign(issue)
     if issue_campaign and issue_campaign != campaign:
         return False
-    issue_subject = _subject(issue)
+    issue_subject = normalize_identity(_subject(issue), identity_map)
     if subjects is not None and issue_subject and issue_subject not in subjects:
         return False
     raw_ts = _timestamp(issue)
@@ -232,7 +248,7 @@ def _issue_in_scope(issue: Dict[str, Any], campaign: str, subjects: Optional[set
 
 def _product_issues(selected: List[Dict[str, Any]], supplied: Iterable[Dict[str, Any]],
                     campaign: str, subjects: Optional[set[str]], start: datetime,
-                    end: datetime, aware: bool) -> List[Dict[str, Any]]:
+                    end: datetime, aware: bool, identity_map: Any = None) -> List[Dict[str, Any]]:
     rows: List[Dict[str, Any]] = []
     raw_rows: List[Tuple[Dict[str, Any], str]] = []
     for index, event in enumerate(selected, 1):
@@ -246,7 +262,7 @@ def _product_issues(selected: List[Dict[str, Any]], supplied: Iterable[Dict[str,
         status = str(issue.get("status") or "open").strip().lower()
         if status in ("resolved", "closed", "fixed", "done") or issue.get("resolved") is True:
             continue
-        if _issue_in_scope(issue, campaign, subjects, start, end, aware):
+        if _issue_in_scope(issue, campaign, subjects, start, end, aware, identity_map):
             raw_rows.append((issue, str(_first(issue, "id", "issue_id", "source_ref", "ref")
                                       or f"issue-{index}")))
     seen = set()
@@ -264,7 +280,7 @@ def _product_issues(selected: List[Dict[str, Any]], supplied: Iterable[Dict[str,
                            or "本轮存在明确产品问题"),
             "severity": severity, "source_ref": _source_ref(issue),
             "campaign": _campaign(issue) or campaign,
-            "subject": _subject(issue), "pause_acquisition": pause,
+            "subject": normalize_identity(_subject(issue), identity_map), "pause_acquisition": pause,
             "scope_note": "未带 campaign 的显式 product_issues 按调用方提供的本轮全局问题处理",
         })
     rows.sort(key=lambda row: row["ref"])
@@ -314,20 +330,96 @@ def _breakpoint_recommendation(breakpoint: Optional[Dict[str, Any]],
     return _recommendation(code, label, area, reason, step, refs)
 
 
+def _sequence_records(records: List[Dict[str, Any]], quality: Dict[str, List[Dict[str, Any]]]
+                      ) -> Dict[str, Dict[str, Any]]:
+    """按真实时间而非输入顺序校验阶段，返回每个主体的首次激活与异常引用。"""
+    meta: Dict[str, Dict[str, Any]] = {}
+    subjects = sorted({record["subject"] for record in records if record["subject"]})
+    for sub in subjects:
+        own = sorted((record for record in records if record["subject"] == sub),
+                     key=lambda record: (record["parsed_ts"], record["input_index"]))
+        current = ""
+        first_activation = ""
+        info: Dict[str, Any] = {
+            "first_activation_event_ref": None, "first_activation_ts": None,
+            "out_of_order_event_refs": [], "repeated_activation_event_refs": [],
+        }
+        for record in own:
+            if not record["confirmed"]:
+                continue
+            stage = record["stage"]
+            if stage == "activation" and first_activation:
+                record["confirmed"] = False
+                record["exclusion_reason"] = "重复 activation：首次激活已记录，不能重置旅程或冒充重复使用"
+                info["repeated_activation_event_refs"].append(record["event_ref"])
+                quality["repeated_activation"].append({
+                    "event_ref": record["event_ref"], "subject": sub, "ts": record["ts"],
+                    "first_activation_event_ref": first_activation,
+                    "reason": record["exclusion_reason"],
+                })
+                continue
+            if current and STAGES.index(stage) < STAGES.index(current):
+                record["confirmed"] = False
+                record["exclusion_reason"] = f"真实时间早于当前已确认阶段 {current}：不回填前序阶段、不倒退旅程"
+                info["out_of_order_event_refs"].append(record["event_ref"])
+                quality["out_of_order"].append({
+                    "event_ref": record["event_ref"], "subject": sub, "stage": stage,
+                    "current_stage": current, "ts": record["ts"],
+                    "reason": record["exclusion_reason"],
+                })
+                continue
+            if stage == "activation":
+                first_activation = record["event_ref"]
+                info["first_activation_event_ref"] = first_activation
+                info["first_activation_ts"] = record["ts"]
+            current = stage
+        meta[sub] = info
+    return meta
+
+
+def _touchpoint_rows(records: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """多触点只披露共现与顺序，不采用 last-touch，也不分配因果功劳。"""
+    rows: List[Dict[str, Any]] = []
+    for sub in sorted({record["subject"] for record in records if record["subject"]}):
+        own = sorted((record for record in records if record["subject"] == sub),
+                     key=lambda record: (record["parsed_ts"], record["input_index"]))
+        if len(own) < 2:
+            continue
+        touches = []
+        for record in own:
+            raw = record["raw"]
+            touches.append({
+                "event_ref": record["event_ref"], "stage": record["stage"], "ts": record["ts"],
+                "channel": str(_first(raw, "channel", "platform", "touchpoint", "source") or "unknown"),
+                "source_ref": record["source_ref"], "confirmed": record["confirmed"],
+            })
+        rows.append({
+            "subject": sub, "touchpoints": touches,
+            "channels": sorted({touch["channel"] for touch in touches}),
+            "relationship": "ordered_multi_touch_observation",
+            "causal_credit": "unassigned", "last_touch_is_cause": False,
+        })
+    return rows
+
+
 def diagnose(events: Iterable[Dict[str, Any]], *, campaign: str, subject: Any = None,
-             time_window: Any, product_issues: Iterable[Dict[str, Any]] = ()) -> Dict[str, Any]:
+             time_window: Any, product_issues: Iterable[Dict[str, Any]] = (),
+             identity_map: Any = None) -> Dict[str, Any]:
     """返回本轮漏斗、逐主体轨迹、断点和有优先级的修复建议。
 
-    断点按每个主体的最远离谱阶段计算，后续阶段已发生时不补造前序断点。
+    断点按真实时间排序后的有效阶段计算；晚到的前序事件只披露 out_of_order，
+    不补造前序阶段，也不让 last event 倒退旅程。首次 activation 与后续重复激活分开。
     明确产品问题始终优先于人群/内容/承接/报价建议；高危激活阻断建议暂停获客。
     """
     campaign = str(campaign or "").strip()
     start, end, window, aware = _window(time_window)
-    subjects_filter = _subjects(subject)
-    selected = filter_events(events, campaign=campaign, subject=subject, time_window=time_window)
+    subjects_filter = _subjects(subject, identity_map)
+    selected = filter_events(events, campaign=campaign, subject=subject,
+                             time_window=time_window, identity_map=identity_map)
     quality: Dict[str, List[Dict[str, Any]]] = {
         "approximated": [], "unverified_value_events": [],
-        "missing_subjects": [], "unknown_events": [],
+        "missing_subjects": [], "unknown_events": [], "out_of_order": [],
+        "repeated_activation": [], "identity_aliases": [],
     }
     records: List[Dict[str, Any]] = []
     raw_stage_counts = {stage: 0 for stage in STAGES}
@@ -345,19 +437,27 @@ def diagnose(events: Iterable[Dict[str, Any]], *, campaign: str, subject: Any = 
             })
             continue
         raw_stage_counts[stage] += 1
-        sub = _subject(event)
+        raw_sub = _subject(event)
+        sub = normalize_identity(raw_sub, identity_map)
+        if sub and raw_sub != sub:
+            quality["identity_aliases"].append({
+                "event_ref": ref, "raw_subject": raw_sub, "canonical_subject": sub,
+                "basis": "explicit identity_map 或确定性邮箱归一",
+            })
         if sub and not _approximated(event):
             observed_subjects[stage].add(sub)
         reason = _exclusion_reason(stage, event)
         record = {
-            "event_ref": ref, "stage": stage, "subject": sub,
-            "ts": _timestamp(event), "source_ref": _source_ref(event),
+            "event_ref": ref, "stage": stage, "subject": sub, "raw_subject": raw_sub,
+            "ts": _timestamp(event),
+            "parsed_ts": _parse_datetime(_timestamp(event), wall_time=not aware),
+            "input_index": index, "source_ref": _source_ref(event),
             "approximated": _approximated(event), "confirmed": not reason,
             "exclusion_reason": reason, "raw": event,
         }
         records.append(record)
         if not reason:
-            confirmed_subjects[stage].add(sub)
+            pass
         elif _approximated(event):
             quality["approximated"].append({k: record[k] for k in
                                              ("event_ref", "stage", "subject", "ts", "source_ref")} |
@@ -371,6 +471,11 @@ def diagnose(events: Iterable[Dict[str, Any]], *, campaign: str, subject: Any = 
         if (_false(event.get("audience_match")) or _false(event.get("icp_match"))
                 or str(event.get("fit") or "").strip().lower() in ("wrong_audience", "audience_mismatch")):
             wrong_audience = True
+
+    sequence_meta = _sequence_records(records, quality)
+    for record in records:
+        if record["confirmed"]:
+            confirmed_subjects[record["stage"]].add(record["subject"])
 
     funnel = []
     for stage in STAGES:
@@ -388,7 +493,8 @@ def diagnose(events: Iterable[Dict[str, Any]], *, campaign: str, subject: Any = 
     traces: List[Dict[str, Any]] = []
     breakpoints_by_stage: Dict[Tuple[str, str], Dict[str, Any]] = {}
     for sub in all_subjects:
-        own = [record for record in records if record["subject"] == sub]
+        own = sorted((record for record in records if record["subject"] == sub),
+                     key=lambda record: (record["parsed_ts"], record["input_index"]))
         confirmed = [record for record in own if record["confirmed"]]
         reached = [stage for stage in STAGES if any(record["stage"] == stage for record in confirmed)]
         current = reached[-1] if reached else None
@@ -403,6 +509,7 @@ def diagnose(events: Iterable[Dict[str, Any]], *, campaign: str, subject: Any = 
                                     if current else [],
             "progress_event_refs": [record["event_ref"] for record in current_records],
             "excluded_event_refs": [record["event_ref"] for record in own if not record["confirmed"]],
+            **sequence_meta.get(sub, {}),
         }
         traces.append(trace)
         if current and next_stage:
@@ -425,7 +532,8 @@ def diagnose(events: Iterable[Dict[str, Any]], *, campaign: str, subject: Any = 
         primary = sorted(breakpoints, key=lambda item: (-len(item["subjects"]),
                                                         STAGES.index(item["from_stage"])))[0]
 
-    issues = _product_issues(selected, product_issues, campaign, subjects_filter, start, end, aware)
+    issues = _product_issues(selected, product_issues, campaign, subjects_filter,
+                             start, end, aware, identity_map)
     confirmed_count = sum(1 for record in records if record["confirmed"])
     insufficient = confirmed_count == 0
     # 全部主体都到付费时 primary 为空，但这不是“无数据”。
@@ -463,6 +571,11 @@ def diagnose(events: Iterable[Dict[str, Any]], *, campaign: str, subject: Any = 
                   "confirmed_events": confirmed_count},
         "funnel": funnel, "subject_journeys": traces, "breakpoints": breakpoints,
         "primary_breakpoint": primary,
+        "multi_touch_relationships": _touchpoint_rows(records),
+        "attribution": {
+            "model": "none", "last_event_is_cause": False,
+            "note": "多触点仅按真实时间并列披露；last event 不是因果，最后渠道与共现关系也不分配因果功劳。",
+        },
         "product_issues": issues,
         "acquisition": {
             "should_pause": any(issue["pause_acquisition"] for issue in issues),
@@ -473,7 +586,8 @@ def diagnose(events: Iterable[Dict[str, Any]], *, campaign: str, subject: Any = 
         "priority_recommendation": recommendations[0],
         "recommendations": recommendations, "quality": quality,
         "boundary": ("所有阶段使用同一 campaign、subject、time_window；历史 campaign 不补本轮进展。"
-                     "近似与未核验价值事件只披露不确认；漏斗是描述性记账，不证明因果、购买意愿或渠道效果。"),
+                     "近似、未核验、乱序和重复激活事件只披露不确认；缺失前序保持 missing/unknown。"
+                     "多触点只描述顺序，last event 不是因果；漏斗不证明购买意愿或渠道效果。"),
     }
 
 

@@ -69,6 +69,9 @@ class OpportunityTests(unittest.TestCase):
         self.assertEqual("not_observed", result["candidates"][0]["commercial_intent"]["status"])
         signal["commercial_evidence"]["source_ref"] = "interview/42#price"
         result = opportunity.discover(_facts(), {"repeated_questions": [signal]})
+        self.assertEqual("not_observed", result["candidates"][0]["commercial_intent"]["status"])
+        signal["commercial_evidence"]["kind"] = "budget_confirmed"
+        result = opportunity.discover(_facts(), {"repeated_questions": [signal]})
         self.assertEqual("observed", result["candidates"][0]["commercial_intent"]["status"])
 
     def test_product_issue_precedes_asset_generation_and_acquisition(self):

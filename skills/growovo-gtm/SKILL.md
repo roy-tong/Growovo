@@ -18,10 +18,10 @@ CLI（`python3 mkt.py …`）或 MCP（mkt-server），本协议不发明新动�
 
 | 引擎 | 职责 | 当前承载 |
 |---|---|---|
-| Positioning 定位（定） | 理解产品、定位 ICP、购买动机与竞争替代 | 研究上游 [askovo](https://github.com/roy-tong/askovo) + `mkt opportunity`（需求匹配/候选动作，不把抱怨当购买意愿） |
-| Asset 资产（造） | 生成可直接使用的教程、样例、测试、模板、对比与真实案例 | `mkt artifact lint/render` + 内容协作 skill；必须有直接用户价值、复现步骤和边界，不只是像人写 |
+| Positioning 定位（定） | 理解产品、定位 ICP、购买动机与竞争替代 | 研究上游 [askovo](https://github.com/roy-tong/askovo) + `mkt signal-interpret`（先审宿主语义候选）+ `mkt opportunity`（只接收 qualified 语义候选；旧信号保持 unverified） |
+| Asset 资产（造） | 生成并交付可直接使用的教程、样例、测试、模板、对比与真实案例 | `mkt artifact lint/render` + `mkt value-chain run`（真实本地复现→资产→授权交付→用户读回）；不以发送代替使用 |
 | Campaign 投放（跑） | 选 Platform×Motion×Vertical、执行授权动作、管理反馈 | `mkt playbook-model compose` + `mkt execute`（统一审批/队列/人工单/读回） |
-| Outcome 结果（量） | 追踪真实使用、激活/留存/付费与断点 | `mkt journey`（同范围六阶段）+ `mkt result`（同范围三层投影）+ 可选学习实验 |
+| Outcome 结果（量） | 追踪真实使用、激活/留存/付费与断点 | `mkt journey`（真实时序/身份归一/首次激活/多触点非因果）+ `mkt result`（同范围三层投影）+ 可选学习实验 |
 | **Follow-up 跟进（守）** | **发完之后把人跟到底：对象台账、到期提醒、三次原则、判定弃或续** | `mkt followup`（台账/三次原则/到期）+ `mkt intent`（可配置学习实验）+ `mkt billing`（动作/结果/订阅/混合报价实验） |
 
 对增长结果负责的是五引擎整体；单渠道动作只是「跑」层的原语。
@@ -50,6 +50,13 @@ CLI（`python3 mkt.py …`）或 MCP（mkt-server），本协议不发明新动�
 **两条硬纪律（写在代码里）**：
 - 复盘报告的每条结论必须同时有「数字 + 出处 + 因果机制 + 可执行动作」，缺一项 `Claim.validate()` 直接抛错；
 - 比率只能从人工钉定的口径文件算，机器不替你选哪个数——它是供证据的，不是做裁决的。
+
+**G1–G4 纵深纪律（同样由代码门禁承载）**：
+
+1. **原帖不是需求。** 宿主 Agent 先给结构化语义候选：原始 `source_ref`、主体 ID/角色、`problem` 或 `technical_discussion`、工具寻求证据、当前替代及不满足原因、接触资格。先跑 `mkt signal-interpret --candidates candidates.json --json`，只有 `qualified` 可进入 `mkt opportunity` 的 `semantic_candidates`。技术讨论不是需求；工具寻求、关键词和 self-declared `purchase_intent` 都不是已观察商业意图；不可接触对象不得入可执行机会。
+2. **资产必须走到用户读回。** `mkt value-chain run --file chain.json --json` 依次跑研究→方案→本地复现→资产→授权交付→用户完成。复现只接受 argv（不是 shell 字符串），授权必须含 `authorized_by/authorized_at/command_sha256`；指纹可用 `core.value_delivery.command_fingerprint(argv, cwd=...)` 生成。没有真实 exit code/output/source_ref 或退出码不符就不能标 verified。交付授权绑定 asset+subject；本命令不发送平台消息，外部 sent/delivered 回执也不是使用。只有交付后、同主体、带 source_ref 与 verification 的真实完成事件才到 `completed`。
+3. **Journey 不按输入数组或最后事件编故事。** 保留真实时间顺序与 unknown/unverified；晚到前序事件记 out_of_order，不补造阶段。邮箱做确定性归一，其他身份合并必须显式 `--identity-map`；首次 activation 与重复激活/retained_use 分开。多触点只并列披露，不分配 last-touch 因果。
+4. **经验旧布尔值不是策略资格。** `mkt exp assess --file record.json --purpose strategy` 会检查权利依据、确认人、确认时间、权利记录，以及 reviewer/reviewed_at/record_ref/source_domains。`internal_self_report` 只能进限定实验；正式策略/普遍化需要 `traceable_review`，旧数据继续可读但默认不合资格。
 
 **口径文件长这样**（`--facts` / `--retro-facts`）：
 ```json

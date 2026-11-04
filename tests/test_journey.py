@@ -188,6 +188,72 @@ class JourneyTests(unittest.TestCase):
                 "start": "2026-11-01T00:00:00+08:00", "end": "2026-11-07",
             })
 
+    def test_out_of_order_event_does_not_backfill_or_rewind_journey(self):
+        events = [
+            _value("activation", id="activation-first", ts="2026-11-04T10:00:00+08:00"),
+            _event("signup", id="late-trial", ts="2026-11-05T10:00:00+08:00"),
+        ]
+        result = _diagnose(events)
+        trace = result["subject_journeys"][0]
+        self.assertEqual("activation", trace["current_stage"])
+        self.assertEqual(["activation"], trace["reached_stages"])
+        self.assertIn("trial", trace["missing_prior_stages"])
+        self.assertEqual(["late-trial"], trace["out_of_order_event_refs"])
+        self.assertEqual("late-trial", result["quality"]["out_of_order"][0]["event_ref"])
+        self.assertEqual(0, result["funnel"][2]["subjects"])
+
+    def test_real_timestamp_order_not_input_order_controls_sequence(self):
+        events = [
+            _value("activation", id="activation", ts="2026-11-04T10:00:00+08:00"),
+            _event("signup", id="trial", ts="2026-11-03T10:00:00+08:00"),
+        ]
+        result = _diagnose(events)
+        self.assertEqual([], result["quality"]["out_of_order"])
+        self.assertEqual(["trial", "activation"], result["subject_journeys"][0]["reached_stages"])
+
+    def test_identity_normalization_and_explicit_alias_map_merge_only_known_subject(self):
+        events = [
+            _event("signal", id="discover", subject="User@Example.com", ts="2026-11-01T10:00:00+08:00"),
+            _value("activation", id="activate", subject="employee-42", ts="2026-11-03T10:00:00+08:00"),
+            _value("paid", id="other-user", subject="other@example.com", ts="2026-11-04T10:00:00+08:00"),
+        ]
+        result = journey.diagnose(events, campaign="c1", subject="USER@example.com", time_window=WINDOW,
+                                  identity_map={"employee-42": "user@example.com"})
+        self.assertEqual(1, len(result["subject_journeys"]))
+        trace = result["subject_journeys"][0]
+        self.assertEqual("user@example.com", trace["subject"])
+        self.assertEqual("activation", trace["current_stage"])
+        self.assertEqual(2, len(result["quality"]["identity_aliases"]))
+        self.assertEqual(0, result["funnel"][-1]["subjects"])
+
+    def test_first_activation_is_distinct_from_repeat_activation_and_repeat_use(self):
+        events = [
+            _event("signup", id="trial", ts="2026-11-01T10:00:00+08:00"),
+            _value("activation", id="first-activation", ts="2026-11-02T10:00:00+08:00"),
+            _value("retained_use", id="repeat-use", ts="2026-11-03T10:00:00+08:00"),
+            _value("activation", id="second-activation", ts="2026-11-04T10:00:00+08:00"),
+        ]
+        result = _diagnose(events)
+        trace = result["subject_journeys"][0]
+        self.assertEqual("retention", trace["current_stage"])
+        self.assertEqual("first-activation", trace["first_activation_event_ref"])
+        self.assertEqual(["second-activation"], trace["repeated_activation_event_refs"])
+        self.assertEqual(1, result["funnel"][3]["subjects"])
+        self.assertEqual("second-activation", result["quality"]["repeated_activation"][0]["event_ref"])
+
+    def test_multi_touch_is_disclosed_without_last_event_causal_credit(self):
+        events = [
+            _event("signal", id="touch-reddit", channel="reddit", ts="2026-11-01T10:00:00+08:00"),
+            _event("reply", id="touch-email", channel="email", ts="2026-11-02T10:00:00+08:00"),
+        ]
+        result = _diagnose(events)
+        relation = result["multi_touch_relationships"][0]
+        self.assertEqual(["email", "reddit"], relation["channels"])
+        self.assertEqual("unassigned", relation["causal_credit"])
+        self.assertFalse(relation["last_touch_is_cause"])
+        self.assertFalse(result["attribution"]["last_event_is_cause"])
+        self.assertIn("不是因果", result["attribution"]["note"])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -429,6 +429,11 @@ def _retro_markdown(a, claims, data, root):
 
 def cmd_exp(args):
     from core import experience
+    if args.action == "assess":
+        row = json.loads(Path(args.file).read_text(encoding="utf-8"))
+        payload = experience.assess_eligibility(row, purpose=args.purpose, on=args.on or None)
+        print(json.dumps(payload, ensure_ascii=False, indent=1))
+        return 0 if payload["eligible"] else 2
     if args.action == "show":
         print(experience.render(args.platform))
     elif args.action == "coverage":
@@ -552,6 +557,40 @@ def cmd_opportunity(args):
     return 0
 
 
+def cmd_signal_interpretation(args):
+    from core import signal_interpretation
+    candidates = json.loads(Path(args.candidates).read_text(encoding="utf-8"))
+    payload = signal_interpretation.interpret_many(candidates)
+    if args.json:
+        print(json.dumps(payload, ensure_ascii=False, indent=1))
+    else:
+        summary = payload["summary"]
+        print("Signal Interpretation（只读）："
+              f"qualified={summary['qualified']} needs_review={summary['needs_review']} "
+              f"rejected={summary['rejected']} duplicates={summary['duplicates']}")
+        for row in payload["candidates"]:
+            print(f"- {row['id']}: {row['status']}；commercial={row['commercial_intent']['status']}；"
+                  + ("；".join(row["issues"]) if row["issues"] else "结构与证据字段齐全，仍需现实验证"))
+    return 0
+
+
+def cmd_value_chain(args):
+    from core import value_delivery
+    spec = json.loads(Path(args.file).read_text(encoding="utf-8"))
+    payload = value_delivery.run_chain(spec)
+    if args.json:
+        print(json.dumps(payload, ensure_ascii=False, indent=1))
+    else:
+        print(f"价值交付链：state={payload['state']} complete={payload['complete']}")
+        reproduction = payload.get("reproduction") or {}
+        if reproduction:
+            print(f"复现：verified={reproduction['verified']} exit_code={reproduction['exit_code']} "
+                  f"source_ref={reproduction['source_ref']}")
+        for error in payload.get("errors") or []:
+            print(f"- {error}")
+    return 0 if payload["complete"] else 2
+
+
 def cmd_artifact(args):
     from core import value_artifact
     artifact = json.loads(Path(args.file).read_text(encoding="utf-8"))
@@ -610,9 +649,11 @@ def cmd_journey(args):
     if not args.since or not args.until:
         print("journey 需要 --since 与 --until，禁止用无界历史代替本轮进展", file=sys.stderr)
         return 2
+    identity_map = json.loads(Path(args.identity_map).read_text(encoding="utf-8")) if args.identity_map else None
     payload = journey.diagnose(events, campaign=args.campaign,
                                subject=args.subject or None,
-                               time_window={"start": args.since, "end": args.until})
+                               time_window={"start": args.since, "end": args.until},
+                               identity_map=identity_map)
     if args.json:
         print(json.dumps(payload, ensure_ascii=False, indent=1))
     else:
@@ -1811,6 +1852,10 @@ def build_parser():
     a = esub.add_parser("show", help="看某个平台的经验"); a.add_argument("platform")
     a = esub.add_parser("coverage", help="哪些平台已有经验")
     a = esub.add_parser("stale", help="哪些平台的经验该重采了")
+    a = esub.add_parser("assess", help="只读资格复核：权利依据/确认人/时间/复核记录/来源域")
+    a.add_argument("--file", required=True, help="单条经验 JSON")
+    a.add_argument("--purpose", choices=["strategy", "experiment", "generalization"], default="strategy")
+    a.add_argument("--on", default="", help="资格评估日期 YYYY-MM-DD")
     sp.set_defaults(fn=cmd_exp)
 
     sp = sub.add_parser("voice", help="平台语气：怎么说话、开头怎么写、会不会像广告")
@@ -1832,11 +1877,22 @@ def build_parser():
     sp.add_argument("--json", action="store_true")
     sp.set_defaults(fn=cmd_result)
 
-    sp = sub.add_parser("opportunity", help="需求发现：产品事实×真实信号→候选动作")
+    sp = sub.add_parser("signal-interpret", help="只读语义候选校验：来源/主体/问题/替代/接触资格/商业分轨/去重")
+    sp.add_argument("--candidates", required=True, help="宿主 Agent 结构化语义候选 JSON")
+    sp.add_argument("--json", action="store_true")
+    sp.set_defaults(fn=cmd_signal_interpretation)
+
+    sp = sub.add_parser("opportunity", help="需求发现：语义候选经校验后×产品事实；旧信号只作未验证匹配")
     sp.add_argument("--facts", required=True, help="产品事实 JSON")
-    sp.add_argument("--signals", required=True, help="信号 JSON")
+    sp.add_argument("--signals", required=True, help="semantic_candidates 或旧五类信号 JSON")
     sp.add_argument("--json", action="store_true")
     sp.set_defaults(fn=cmd_opportunity)
+
+    sp = sub.add_parser("value-chain", help="本地价值交付链：研究→方案→授权复现→资产→授权交付→用户读回")
+    sp.add_argument("action", choices=["run"], help="只运行绑定命令指纹的本地复现；不发送平台消息")
+    sp.add_argument("--file", required=True, help="完整链 JSON（含命令级与交付级授权）")
+    sp.add_argument("--json", action="store_true")
+    sp.set_defaults(fn=cmd_value_chain)
 
     sp = sub.add_parser("artifact", help="价值资产：校验或渲染教程/样例/测试/模板/对比/案例")
     sp.add_argument("action", choices=["lint", "render"])
@@ -1862,6 +1918,7 @@ def build_parser():
     sp.add_argument("--events", required=True, help="事件 JSON 或 JSONL")
     sp.add_argument("--campaign", required=True)
     sp.add_argument("--subject", default="")
+    sp.add_argument("--identity-map", default="", help="可选身份别名→规范主体 JSON；不猜测合并身份")
     sp.add_argument("--since", required=True); sp.add_argument("--until", required=True)
     sp.add_argument("--json", action="store_true")
     sp.set_defaults(fn=cmd_journey)

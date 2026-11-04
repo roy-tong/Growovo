@@ -225,22 +225,29 @@ def _refs(signal: Dict[str, Any]) -> List[str]:
 
 
 def _commercial(signal: Dict[str, Any]) -> Dict[str, Any]:
+    interpreted = signal.get("interpreted_commercial")
+    if isinstance(interpreted, dict):
+        # Signal Interpretation 已经把工具寻求、自报意图和可观察商业证据分轨。
+        return {
+            "status": str(interpreted.get("status") or "not_observed"),
+            "evidence_refs": list(interpreted.get("evidence_refs") or []),
+            "note": str(interpreted.get("note") or "商业意图由语义解释层独立校验，不由需求匹配升级。"),
+        }
     evidence = signal.get("commercial_evidence")
     observed = False
     refs: List[str] = []
     if isinstance(evidence, dict):
         kind = _norm(evidence.get("kind") or evidence.get("type"))
-        eligible = kind in ("purchase_intent", "willingness_to_pay", "price_anchor", "paid", "payment")
+        # purchase_intent（包括 self-declared）不是独立商业观察；快捷布尔值同样无效。
+        eligible = kind in ("willingness_to_pay", "price_anchor", "paid", "payment",
+                            "budget_confirmed", "procurement_started")
         refs = _refs(evidence)
-        observed = bool(eligible and _bool(evidence.get("observed")) and refs)
-    # 快捷字段也必须有自己的来源，抱怨文本里的“想买”不会被扫描升级。
-    if not observed and _bool(signal.get("purchase_intent")) and _refs(signal):
-        observed = True
-        refs = _refs(signal)
+        observed = bool(eligible and evidence.get("observed") is True and refs
+                        and not _bool(evidence.get("self_declared")))
     return {
         "status": "observed" if observed else "not_observed",
-        "evidence_refs": refs,
-        "note": "求助、抱怨、竞品不满和重复提问都不是购买意愿；只有带来源的明确商业证据才单列标记。",
+        "evidence_refs": refs if observed else [],
+        "note": "求助、工具寻求、竞品不满和 self-declared purchase_intent 都不是购买意愿的已观察证据。",
     }
 
 
@@ -341,9 +348,21 @@ def _cost_risk_validation(action: str, signal: Dict[str, Any],
 
 
 def discover(product_facts: Dict[str, Any], signals: Any) -> Dict[str, Any]:
-    """返回稳定排序的机会候选；空输入返回空候选而非编造机会。"""
+    """返回稳定排序的机会候选；空输入返回空候选而非编造机会。
+
+    推荐输入 ``{"semantic_candidates": [...]}``：先经 Signal Interpretation
+    校验、去重，再只把 qualified 候选送入产品匹配。旧的五类信号输入仍可用于
+    描述性匹配，但会明确标为 unverified_signal，不被当成已确认需求。
+    """
     facts = product_facts if isinstance(product_facts, dict) else {}
     product = _product_entries(facts)
+    interpretation = None
+    if isinstance(signals, dict) and "semantic_candidates" in signals:
+        from . import signal_interpretation
+        interpretation = signal_interpretation.interpret_many(signals)
+        qualified = [row["opportunity_signal"] for row in interpretation["candidates"]
+                     if row["status"] == "qualified" and row.get("opportunity_signal")]
+        signals = {"signals": qualified}
     signal_items, warnings = _signal_items(signals)
     candidates: List[Dict[str, Any]] = []
     for index, (kind, signal) in enumerate(signal_items, 1):
@@ -392,6 +411,9 @@ def discover(product_facts: Dict[str, Any], signals: Any) -> Dict[str, Any]:
             "audience": signal.get("audience") or signal.get("segment") or "",
             "demand_match": match, "explanation": explanation,
             "evidence": {"refs": refs, "source_status": "traceable" if refs else "missing",
+                         "demand_status": ("host_interpreted_candidate" if signal.get("interpretation_id")
+                                           else "unverified_signal"),
+                         "interpretation_id": signal.get("interpretation_id"),
                          "occurrences": signal.get("occurrences", signal.get("count", 1)),
                          "note": "出现次数只描述样本内频次，不证明市场普遍性或商业需求"},
             "commercial_intent": _commercial(signal),
@@ -403,7 +425,7 @@ def discover(product_facts: Dict[str, Any], signals: Any) -> Dict[str, Any]:
     candidates.sort(key=lambda c: (0 if c["product_issue"] else 1,
                                    action_rank[c["next_action"]["code"]],
                                    -c["demand_match"]["score"], c["id"]))
-    return {
+    result = {
         "schema_version": "1.0", "kind": "growovo.opportunity_discovery",
         "candidates": candidates,
         "summary": {
@@ -413,8 +435,15 @@ def discover(product_facts: Dict[str, Any], signals: Any) -> Dict[str, Any]:
         },
         "warnings": warnings,
         "boundary": ("候选是待验证判断，不是购买、市场规模或因果结论；匹配分不代表需求强度。"
+                     "原始信号只得到 unverified_signal；语义候选须经 Signal Interpretation。"
                      "产品阻断优先于获客；曝光和发送不能作为价值验证。"),
     }
+    if interpretation is not None:
+        result["signal_interpretation"] = interpretation
+        result["summary"]["semantic_input"] = interpretation["summary"]["input"]
+        result["summary"]["semantic_rejected"] = interpretation["summary"]["rejected"]
+        result["summary"]["semantic_needs_review"] = interpretation["summary"]["needs_review"]
+    return result
 
 
 # 主线程可按动作语义选用 discover 或 analyze，行为完全一致。

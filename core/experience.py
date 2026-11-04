@@ -78,6 +78,13 @@ INACTIVE_STATES = {"expired", "stale", "retracted", "superseded", "invalid", "ar
 _TRACKING_PARAMS = {"utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content", "gclid", "fbclid"}
 
 
+def _first(data: Dict[str, Any], *keys: str) -> Any:
+    for key in keys:
+        if key in data and data[key] not in (None, ""):
+            return data[key]
+    return None
+
+
 def normalize_knowledge_type(value: Any) -> str:
     """Return the canonical track name, or an empty string for unknown types."""
     key = str(value or "").strip().lower()
@@ -106,16 +113,43 @@ def canonicalize_url(value: Any) -> str:
         return ""
 
 
-def _rights_ok(row: Dict[str, Any]) -> bool:
-    if row.get("rights_cleared") is True:
-        return True
+def _rights_review(row: Dict[str, Any], today: date) -> Dict[str, Any]:
+    """权利布尔值只是旧自报；正式资格需要依据、确认人、时间和审查记录。"""
     value = row.get("rights", row.get("rights_status"))
-    if isinstance(value, dict):
-        value = value.get("status") or value.get("license")
-    # A boolean is only a claim, not a rights basis. Require a named basis.
-    if not isinstance(value, str):
-        return False
-    return value.strip().lower().replace("-", "_") in RIGHTS_CLEARED
+    detail = value if isinstance(value, dict) else {}
+    status = (_first(detail, "status", "license") if detail else value)
+    if not status:
+        status = row.get("rights_status")
+    status = str(status or "").strip().lower().replace("-", "_")
+    basis = str(_first(detail, "basis", "rights_basis") or row.get("rights_basis") or status).strip()
+    confirmed_by = str(_first(detail, "confirmed_by", "reviewer") or row.get("rights_confirmed_by") or "").strip()
+    confirmed_at = _first(detail, "confirmed_at", "reviewed_at") or row.get("rights_confirmed_at")
+    evidence_ref = str(_first(detail, "evidence_ref", "record_ref", "review_ref")
+                       or row.get("rights_evidence_ref") or "").strip()
+    issues: List[str] = []
+    if status not in RIGHTS_CLEARED or not basis:
+        issues.append("没有明确可用的权利依据")
+    if not confirmed_by:
+        issues.append("权利依据缺少确认人 rights_confirmed_by")
+    confirmed_date = _as_date(confirmed_at)
+    if not confirmed_at or confirmed_date is None:
+        issues.append("权利依据缺少有效确认时间 rights_confirmed_at")
+    elif confirmed_date > today:
+        issues.append("权利确认时间在未来")
+    if not evidence_ref:
+        issues.append("权利依据缺少可追溯记录 rights_evidence_ref")
+    grade = "traceable_review" if not issues else ("internal_self_report" if status in RIGHTS_CLEARED else "unreviewed")
+    return {
+        "ok": not issues, "grade": grade, "status": status or "unknown", "basis": basis,
+        "confirmed_by": confirmed_by, "confirmed_at": confirmed_at,
+        "evidence_ref": evidence_ref, "issues": issues,
+        "legacy_flag_ignored": row.get("rights_cleared") is True,
+    }
+
+
+def _rights_ok(row: Dict[str, Any]) -> bool:
+    # 兼容旧内部调用；没有确认时间上下文时按今天审查，布尔值仍不放行。
+    return _rights_review(row, date.today())["ok"]
 
 
 def _relevance_score(row: Dict[str, Any]) -> float:
@@ -134,14 +168,91 @@ def _relevance_score(row: Dict[str, Any]) -> float:
     return labels.get(str(value or "").strip().lower(), 0.0)
 
 
+def _domain(value: Any) -> str:
+    raw = str(value or "").strip().lower()
+    if not raw:
+        return ""
+    if "://" in raw:
+        return str(urlsplit(raw).hostname or "").rstrip(".")
+    return raw.split("/", 1)[0].split(":", 1)[0].rstrip(".")
+
+
+def _evidence_domains(row: Dict[str, Any], canonical: str) -> List[str]:
+    values = [canonical] + _independent_sources(row, canonical)
+    return sorted({domain for domain in (_domain(value) for value in values) if domain})
+
+
+def _human_review(row: Dict[str, Any], today: date, canonical: str) -> Dict[str, Any]:
+    raw_records: List[Dict[str, Any]] = []
+    for value in (row.get("human_review"), row.get("review_record")):
+        if isinstance(value, dict):
+            raw_records.append(value)
+    records = row.get("review_records")
+    if isinstance(records, (list, tuple)):
+        raw_records.extend(value for value in records if isinstance(value, dict))
+    expected_domains = _evidence_domains(row, canonical)
+    assessments: List[Dict[str, Any]] = []
+    for index, review in enumerate(raw_records, 1):
+        reviewer = str(review.get("reviewer") or review.get("confirmed_by") or "").strip()
+        reviewed_at = review.get("reviewed_at") or review.get("confirmed_at")
+        record_ref = str(review.get("record_ref") or review.get("review_ref")
+                         or review.get("evidence_ref") or "").strip()
+        review_type = str(review.get("review_type") or review.get("kind") or "traceable").strip().lower()
+        domains = sorted({domain for domain in (_domain(value) for value in
+                         (review.get("source_domains") or row.get("source_domains") or [])) if domain})
+        issues: List[str] = []
+        if str(review.get("status") or "").strip().lower() not in ("approved", "reviewed", "passed"):
+            issues.append("复核记录 status 不是 approved/reviewed/passed")
+        if not reviewer:
+            issues.append("复核记录缺少 reviewer")
+        reviewed_date = _as_date(reviewed_at)
+        if not reviewed_at or reviewed_date is None:
+            issues.append("复核记录缺少有效 reviewed_at")
+        elif reviewed_date > today:
+            issues.append("复核时间在未来")
+        if not record_ref:
+            issues.append("复核记录缺少 record_ref")
+        if not domains:
+            issues.append("复核记录缺少 source_domains")
+        missing_domains = [domain for domain in expected_domains if domain not in domains]
+        if missing_domains:
+            issues.append("复核记录未覆盖来源域: " + ", ".join(missing_domains))
+        if review_type in ("self_report", "internal_self_report", "internal"):
+            issues.append("内部自报不是可追溯审查")
+        assessments.append({
+            "id": str(review.get("id") or f"review-{index}"), "reviewer": reviewer,
+            "reviewed_at": reviewed_at, "record_ref": record_ref,
+            "source_domains": domains, "issues": issues, "traceable": not issues,
+        })
+    if row.get("human_reviewed") is False:
+        for assessment in assessments:
+            assessment["traceable"] = False
+            assessment["issues"] = list(dict.fromkeys(assessment["issues"] + ["human_reviewed=false 与复核记录冲突"]))
+    traceable = [item for item in assessments if item["traceable"]]
+    internal = [item for item in assessments
+                if str(item.get("reviewer") or "").strip() and item.get("reviewed_at")]
+    if traceable:
+        grade = "traceable_review"
+    elif internal:
+        grade = "internal_self_report"
+    else:
+        grade = "unreviewed"
+    issues: List[str] = []
+    if not assessments:
+        issues.append("只有 human_reviewed 布尔值或没有复核记录；需要署名、时间、record_ref 和来源域")
+    elif not traceable:
+        # 选信息最完整的一条解释缺口；其余记录仍全部披露。
+        best = sorted(assessments, key=lambda item: len(item["issues"]))[0]
+        issues.extend(best["issues"] or ["复核记录不可追溯"])
+    return {"grade": grade, "records": assessments, "issues": issues,
+            "source_domains": expected_domains,
+            "legacy_flag_ignored": row.get("human_reviewed") is True}
+
+
 def _human_reviewed(row: Dict[str, Any]) -> bool:
-    if row.get("human_reviewed") is True:
-        return True
-    review = row.get("human_review")
-    if isinstance(review, dict):
-        return (str(review.get("status", "")).lower() in ("approved", "reviewed", "passed")
-                and bool(str(review.get("reviewer") or "").strip()))
-    return False
+    # 旧 helper 保持存在，但也必须满足正式可追溯审查。
+    canonical = canonicalize_url(row.get("canonical_url"))
+    return _human_review(row, date.today(), canonical)["grade"] == "traceable_review"
 
 
 def _asr_used(row: Dict[str, Any]) -> bool:
@@ -278,12 +389,18 @@ def assess_eligibility(row: Dict[str, Any], *, purpose: str = "strategy",
     canonical = canonicalize_url(row.get("canonical_url"))
     if not canonical:
         reasons.append("缺少有效 canonical_url")
-    if not _rights_ok(row):
-        reasons.append("没有明确可用的权利依据")
+    rights_review = _rights_review(row, today)
+    reasons.extend(rights_review["issues"])
     if _relevance_score(row) < 0.5:
         reasons.append("相关性不足或尚未复核")
-    if not _human_reviewed(row):
-        reasons.append("尚未人工复核")
+    human_review = _human_review(row, today, canonical)
+    if purpose in ("strategy", "generalization"):
+        if human_review["grade"] != "traceable_review":
+            reasons.extend(human_review["issues"])
+            if human_review["grade"] == "internal_self_report":
+                reasons.append("内部自报只能生成限定实验，正式策略需要可追溯审查")
+    elif human_review["grade"] not in ("traceable_review", "internal_self_report"):
+        reasons.extend(human_review["issues"])
     # Transcript-like content cannot silently masquerade as human-written text.
     origin = str(row.get("origin") or row.get("source_type") or "").lower()
     if ("asr" in origin or "transcript" in origin) and "asr" not in row and "is_asr" not in row:
@@ -378,7 +495,12 @@ def assess_eligibility(row: Dict[str, Any], *, purpose: str = "strategy",
         "independent_sources": sources,
         "asr": _asr_used(row),
         "generalizable": generalizable,
-        "experiment_only": kind == SINGLE_EXPERT or (kind == SHORT_TERM_TACTIC and support < MIN_SUPPORT),
+        "rights_review": rights_review,
+        "review_grade": human_review["grade"],
+        "review_records": human_review["records"],
+        "source_domains": human_review["source_domains"],
+        "experiment_only": (kind == SINGLE_EXPERT or (kind == SHORT_TERM_TACTIC and support < MIN_SUPPORT)
+                            or human_review["grade"] == "internal_self_report"),
     }
 
 

@@ -1,5 +1,56 @@
 # Changelog
 
+## 0.5.0 - 2026-11-04
+
+This release deepens the growth loop from structured operations to evidence-bound
+demand interpretation, real local value delivery, temporal journey accounting,
+traceable experience review and release hardening. Synthetic adversarial tests
+are not external business validation.
+
+### Added
+
+- **Signal Interpretation** (`core/signal_interpretation.py`,
+  `mkt signal-interpret`, `mkt_signal_interpretation`): validate host-Agent
+  semantic candidates for source, subject, problem vs technical discussion,
+  tool seeking, alternative dissatisfaction, contact eligibility and commercial
+  evidence, with deterministic deduplication and risk disclosure.
+  `opportunity.discover` accepts `semantic_candidates` and consumes only
+  qualified rows; legacy raw signals remain `unverified_signal`.
+- **Value delivery chain** (`core/value_delivery.py`, `mkt value-chain run`):
+  research → solution → real local reproduction → asset → authorized delivery →
+  user readback → completed. Reproduction uses argv with `shell=False` and a
+  command/cwd fingerprint authorization; real exit code, output and source refs
+  are recorded. Unauthorized commands never execute; failed reproduction cannot
+  produce a verified asset; sent/exposure is not user completion.
+- **Journey temporal and identity depth**: parsed event time ordering,
+  out-of-order disclosure without backfill, email normalization plus explicit
+  identity mapping, first vs repeated activation, and separate ordered
+  multi-touch relationships. No last-touch causal attribution.
+- **Traceable experience review** (`mkt exp assess`): formal strategy requires a
+  rights basis, confirmer, confirmation time and record, plus reviewer, review
+  time, review record and source domains. Boolean-only `rights_cleared` /
+  `human_reviewed` no longer qualifies; internal self-report is experiment-only.
+- **Read-only MCP surfaces** for Signal Interpretation and the new claim
+  boundary.
+- **Release guard and CODEOWNERS**: tags must descend from `main` and match the
+  package version before the release workflow can publish.
+
+### Changed
+
+- Opportunity Discovery now distinguishes host-interpreted candidates from
+  legacy signals; self-declared purchase intent and tool seeking never upgrade
+  to observed commercial intent.
+- Journey and experience status expose explicit review grade, timing and source
+  provenance instead of treating declarations as proof.
+
+### Verification
+
+- `python3 -m unittest discover -s tests`: **431 tests pass** on Python 3.9 and
+  3.11.
+- `python3 mkt.py demo`: pass.
+- `git diff --check`: pass.
+- No real account sends or external business validation.
+
 ## 0.4.0 - 2026-11-04
 
 This release turns the execution kernel into a complete GTM/User Growth loop:

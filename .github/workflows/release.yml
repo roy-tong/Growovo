@@ -9,7 +9,27 @@ permissions:
   contents: write
 
 jobs:
+  release-guard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Require tag on main and matching package version
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          git fetch origin main:refs/remotes/origin/main
+          TARGET="$(git rev-list -n 1 "$TAG")"
+          git merge-base --is-ancestor "$TARGET" origin/main
+          VER="$(python3 -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")"
+          test "$TAG" = "v$VER"
+          echo "release guard: $TAG -> $TARGET on origin/main, version $VER"
+
   release:
+    needs: release-guard
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

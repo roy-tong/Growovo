@@ -18,9 +18,18 @@ def record(kind):
         "action": "按限定场景复现",
         "knowledge_type": kind,
         "canonical_url": "https://www.reddit.com/rules?utm_source=test#section",
-        "rights": "official_terms",
+        "rights": {
+            "status": "official_terms", "basis": "平台条款允许本限定场景引用",
+            "confirmed_by": "rights-reviewer", "confirmed_at": "2026-11-03T10:00:00+08:00",
+            "evidence_ref": "reviews/rights/record-1",
+        },
         "relevance": "high",
         "human_reviewed": True,
+        "human_review": {
+            "status": "approved", "reviewer": "strategy-reviewer",
+            "reviewed_at": "2026-11-03T11:00:00+08:00", "record_ref": "reviews/strategy/record-1",
+            "source_domains": ["www.reddit.com", "a.example", "b.example"],
+        },
         "asr": False,
         "published": "2026-11-01",
         "support": 1,
@@ -149,6 +158,57 @@ class EligibilityTests(unittest.TestCase):
         self.assertEqual(experience.as_prompt_lines("xiaohongshu"), [])
         # Legacy display remains available for human review.
         self.assertTrue(experience.graded("xiaohongshu")["rule"])
+
+    def test_legacy_boolean_flags_cannot_restore_formal_eligibility(self):
+        row = reproducible()
+        row["rights"] = "licensed"
+        row["rights_cleared"] = True
+        row["human_reviewed"] = True
+        row.pop("human_review")
+        detail = experience.assess_eligibility(row, on=ON)
+        self.assertFalse(detail["eligible"])
+        self.assertEqual("unreviewed", detail["review_grade"])
+        self.assertEqual("internal_self_report", detail["rights_review"]["grade"])
+        self.assertTrue(any("确认人" in reason for reason in detail["reasons"]))
+        self.assertTrue(any("复核记录" in reason for reason in detail["reasons"]))
+
+    def test_internal_self_report_is_graded_and_experiment_only(self):
+        row = official()
+        row["human_review"] = {
+            "status": "approved", "reviewer": "internal-author",
+            "reviewed_at": "2026-11-03T12:00:00+08:00",
+            "source_domains": ["www.reddit.com"],
+        }
+        strategy = experience.assess_eligibility(row, on=ON)
+        self.assertFalse(strategy["eligible"])
+        self.assertEqual("internal_self_report", strategy["review_grade"])
+        self.assertTrue(strategy["experiment_only"])
+        self.assertTrue(experience.eligible(row, purpose="experiment", on=ON))
+
+    def test_traceable_review_requires_time_record_and_all_source_domains(self):
+        row = reproducible()
+        base = dict(row["human_review"])
+        for changes in (
+            {"reviewer": ""}, {"reviewed_at": ""}, {"record_ref": ""},
+            {"reviewed_at": "2026-11-05T00:00:00+08:00"},
+            {"source_domains": ["www.reddit.com", "a.example"]},
+        ):
+            changed = dict(row, human_review=dict(base, **changes))
+            detail = experience.assess_eligibility(changed, on=ON)
+            self.assertFalse(detail["eligible"], changes)
+            self.assertNotEqual("traceable_review", detail["review_grade"])
+
+    def test_review_records_are_returned_and_legacy_raw_data_stays_ineligible(self):
+        row = official()
+        record = row.pop("human_review")
+        row["review_records"] = [record]
+        detail = experience.assess_eligibility(row, on=ON)
+        self.assertTrue(detail["eligible"])
+        self.assertEqual("traceable_review", detail["review_grade"])
+        self.assertEqual("reviews/strategy/record-1", detail["review_records"][0]["record_ref"])
+        self.assertEqual(["www.reddit.com"], detail["source_domains"])
+        legacy = {"rights_cleared": True, "human_reviewed": True}
+        self.assertFalse(experience.eligible(legacy, on=ON))
 
 
 class HarvestSafetyTests(unittest.TestCase):

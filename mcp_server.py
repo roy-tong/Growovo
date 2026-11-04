@@ -271,8 +271,15 @@ TOOLS = [
         "inputSchema": {"type": "object", "properties": {}},
     },
     {
+        "name": "mkt_signal_interpretation",
+        "description": "只读校验宿主结构化语义候选；技术讨论、自报购买意图和不可接触对象不进入可执行机会。",
+        "inputSchema": {"type": "object", "properties": {
+            "candidates": {"type": ["object", "array"]}},
+            "required": ["candidates"]},
+    },
+    {
         "name": "mkt_opportunity",
-        "description": "只读需求发现：产品事实×真实信号，返回需求匹配、候选解释与下一动作；不证明购买意愿。",
+        "description": "只读需求发现：semantic_candidates 先过语义校验再匹配产品事实；不证明购买意愿。",
         "inputSchema": {"type": "object", "properties": {
             "facts": {"type": "object"}, "signals": {"type": ["object", "array"]}},
             "required": ["facts", "signals"]},
@@ -290,7 +297,7 @@ TOOLS = [
         "inputSchema": {"type": "object", "properties": {
             "events": {"type": "array", "items": {"type": "object"}},
             "campaign": {"type": "string"}, "subject": {"type": "string"},
-            "time_window": {"type": "object"}},
+            "time_window": {"type": "object"}, "identity_map": {"type": "object"}},
             "required": ["events", "campaign", "time_window"]},
     },
 ]
@@ -582,6 +589,10 @@ def _call_tool(name, args):
         return _text({"eligible": rows, "freshness": experience.freshness(args["platform"]),
                       "rendered": experience.render(args["platform"])})
 
+    if name == "mkt_signal_interpretation":
+        from core import signal_interpretation
+        return _text(signal_interpretation.interpret_many(args["candidates"]))
+
     if name == "mkt_opportunity":
         from core import opportunity
         return _text(opportunity.discover(args["facts"], args["signals"]))
@@ -597,7 +608,8 @@ def _call_tool(name, args):
         from core import journey
         return _text(journey.diagnose(
             args["events"], campaign=args["campaign"],
-            subject=args.get("subject") or None, time_window=args["time_window"]))
+            subject=args.get("subject") or None, time_window=args["time_window"],
+            identity_map=args.get("identity_map")))
 
     if name == "mkt_playbooks":
         from core import playbooks
