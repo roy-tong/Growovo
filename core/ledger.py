@@ -33,28 +33,42 @@ class LedgerCorruptError(RuntimeError):
     重跑队列即重复发送。读侧显式报错，发送门禁按 fail-closed 拒绝。"""
 
 
+class LedgerLockError(RuntimeError):
+    """账本文件锁不可用：并发安全是账本可靠性的前置条件，
+    锁获取失败不得静默降级为无锁写入（review 2026-11-04 复核）。"""
+
+
 def _append_line(path: Path, line: str) -> None:
     """O_APPEND + flock + 单次 write：与 event_store 同一追加纪律，
-    多进程（MCP + CLI）并发追加不撕裂、不交错。"""
+    多进程（MCP + CLI）并发追加不撕裂、不交错。锁不可用时 fail closed。"""
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = line.encode("utf-8")
     fd = os.open(str(path), os.O_CREAT | os.O_APPEND | os.O_WRONLY, 0o644)
+    locked = False
     try:
         try:
             import fcntl
             fcntl.flock(fd, fcntl.LOCK_EX)
-        except (ImportError, OSError):
-            pass
+            locked = True
+        except ImportError as exc:
+            raise LedgerLockError(
+                "平台缺少 fcntl（%s）；无法保证 %s 的并发追加安全，拒绝无锁写入。"
+                % (exc, path)) from exc
+        except OSError as exc:
+            raise LedgerLockError(
+                "获取账本文件锁失败（%s：%s）；拒绝无锁写入 %s。"
+                % (path, exc, path)) from exc
         written = os.write(fd, payload)
         if written != len(payload):  # 极端短写也按失败处理，不留半行
             raise OSError("short write to %s (%d/%d bytes)"
                           % (path, written, len(payload)))
     finally:
-        try:
-            import fcntl
-            fcntl.flock(fd, fcntl.LOCK_UN)
-        except (ImportError, OSError):
-            pass
+        if locked:
+            try:
+                import fcntl
+                fcntl.flock(fd, fcntl.LOCK_UN)
+            except OSError:
+                pass
         os.close(fd)
 
 

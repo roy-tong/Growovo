@@ -16,7 +16,7 @@ import unittest
 from pathlib import Path
 
 from core.gates import Gate
-from core.ledger import Ledger, LedgerCorruptError
+from core.ledger import Ledger, LedgerCorruptError, LedgerLockError
 
 REPO = Path(__file__).resolve().parents[1]
 
@@ -54,6 +54,17 @@ class LedgerIntegrity(unittest.TestCase):
             '{"ref": "r1", "result": "comm', encoding="utf-8")
         with self.assertRaises(LedgerCorruptError):
             Ledger(self.path).all()
+
+    def test_lock_failure_fails_closed_no_silent_unlocked_write(self):
+        """锁获取失败不得静默降级为无锁写入（复核 2026-11-04）。"""
+        import fcntl
+        from unittest.mock import patch
+        with patch.object(fcntl, "flock", side_effect=OSError("lock unavailable")):
+            with self.assertRaises(LedgerLockError):
+                Ledger(self.path).append(channel="x", action="publish",
+                                         target="t:1", result="committed")
+        content = self.path.read_text(encoding="utf-8") if self.path.exists() else ""
+        self.assertEqual("", content, "锁失败路径不得留下任何写入")
 
     def test_concurrent_append_never_interleaves(self):
         """两个进程并发追加，最终每行都必须是完整 JSON（无撕裂/交错）。"""
