@@ -78,7 +78,7 @@ def propose(scorecard: Dict[str, Any], *, memory: Dict[str, Any] | None = None) 
                           "rate": best["committed_rate"], "attempted": best["attempted"]},
                  "worst": {"channel": worst["channel"], "action": worst["action"],
                            "rate": worst["committed_rate"], "attempted": worst["attempted"]}},
-                "下一波把少量预算移向高确认率渠道，同时保留对照与预注册指标",
+                "可把高确认率渠道作为下一项学习实验候选，保留对照与可选观察指标，不自动移预算",
                 kind="experiment",
             ))
 

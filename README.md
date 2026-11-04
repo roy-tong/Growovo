@@ -7,9 +7,9 @@
 
 <p align="center"><strong>简体中文</strong> · <a href="README.en.md">English</a></p>
 
-Growovo 面向维护产品社区、内容渠道和客户沟通的运营人员。输入工作目标、授权账号与任务清单，先预览和审核，再执行重复操作；每项动作记录成功、失败或待人工核实，支持暂停与后续处理。
+Growovo 面向**独立开发者与一人公司**，提供 GTM/User Growth 的需求发现、价值内容、授权执行和真实结果回流。输入产品事实、目标用户与授权边界，先识别值得服务的需求，再生成可复现的价值资产和增长动作；每个动作记录成功、失败或待人工核实，不把发送、曝光或 Star 当成业务结果。
 
-产品由 **Operator Engine（操作内核）** 和 **Playbooks（业务工作流）** 组成。当前可用的 GitHub Inbox Playbook 把问题列表分流并生成回复队列；内容、邮件和增长活动复用同一执行内核。CLI、MCP、Skill 共用审批、预算、回读和账本。发送成功只代表操作完成，注册、付费等业务结果单独记录。
+产品由 **Demand / Execution / Learning 三层能力**与 **Operator Engine + Playbooks** 组成：Opportunity Discovery 判断需求与产品匹配，Value Artifact 提供教程、样例、测试、模板和真实案例，Journey 诊断真实使用断点；GitHub Inbox 只是其中一个 Playbook，而不是产品总定义。CLI、MCP、Skill 共用审批、预算、回读和账本。发送成功只代表操作完成，激活、持续使用和付费分别核验。
 
 [![tests](https://github.com/roy-tong/Growovo/actions/workflows/tests.yml/badge.svg)](https://github.com/roy-tong/Growovo/actions/workflows/tests.yml)
 
@@ -25,14 +25,14 @@ Growovo 面向维护产品社区、内容渠道和客户沟通的运营人员。
 
 ## 合规与纪律（先读这个）
 
-- 仅用于**本人拥有/运营的账号**；不碰他人账号、不做代运营自动化
+- 仅用于**本人拥有或明确授权运营的账号**；无授权不碰他人账号，账号归属、权限和人工接管全程留痕
 - CDP 通道零凭据：不保存任何密码/token/Cookie；SMTP 凭据只走环境变量
 - **一切写操作默认 dry-run，`--go` 才实跑**；实跑必须绑定**已人审 plan**——无 plan 管辖默认拒跑，仅 CLI 人工通道 `--adhoc` 显式放行（账本记 adhoc=true；MCP 不开放）
 - 日预算在发送前原子预留；`indeterminate`（未知结果）不可自动重发，必须人工 `ledger resolve`；contacts 的 DNC/bounced 身份与 `suppress.txt` 合并为同一发送抑制源
 - 失败即停（不重试轰炸）；回读校验不一致绝不发送（449 空正文事故的固化）
 - 人类节奏：随机间隔 + 单次硬上限 + 日预算（core/throttle.py 的表）
 - 不群发：千人千面内容为前提；占位符残留会被门禁直接拒绝
-- 不做对抗：不绕验证码、不伪造指纹、不用代理池
+- 不做对抗：不绕验证码、不伪造指纹、不用代理池绕过平台限制；代理仅可在合法网络需求明确、账号授权一致时绑定使用，且不能提高配额或绕封禁
 
 ## 安装与启动
 
@@ -77,6 +77,23 @@ python3 mkt.py check              # 确认 CDP 会话与 X/Gmail 登录态
 | `mkt experiment obs --id X --from-outcomes` | 实验观察从事件台账自动聚合（不再手抄） | — |
 | `python3 mkt.py pause --on '原因' / --off` | **全局暂停总闸**（一切写操作拒跑且留痕） | — |
 | `python3 mkt.py contacts add/find/dnc/mark/import` | 线索库操作（幂等去重/DNC 隐藏/er-batch 导入） | — |
+| `mkt followup add/due/touch/stats/close` | **跟进台账**：说过话的人单独记；首触 + 第 3/14/45 天，最多三次跟进，无实质回应自动判弃；`mkt next` 会把到期的跟进顶到最前面 | — |
+| `mkt intent start/log/show/verdict` | **意图信号学习实验**：可配置周期与可选观察目标，保留样本不足与安全异常，输出学习观察而非渠道生死判决 | — |
+| `mkt strategy build/cadence` | **策略与落地**：只给一个主渠道 + 一个发射点 + 最多三条「不做」（带复盘数字）；冷启动五阶段判据；放大的前提是信号不是量；随后生成四周动作表，每条带验收物 | — |
+| `mkt execute --strategy-file --targets --campaign` | **执行桥**：有写通道的平台出计划+队列（过 lint 才写盘）；没有写通道的平台出**人工作业单**，不假装能自动；计划/队列/作业单不等于已执行 | — |
+| `mkt opportunity --facts <json> --signals <json>` | **需求发现**：产品事实×真实信号→需求匹配、候选解释与下一动作；产品问题优先于获客，不把抱怨当购买意愿 | — |
+| `mkt artifact lint/render --file <json>` | **价值资产**：校验/渲染教程、样例、可复现测试、模板、对比与真实案例；必须有直接价值、复现步骤与边界 | — |
+| `mkt journey --events <json> --campaign C --since D1 --until D2` | **用户旅程**：同范围诊断发现→互动→试用→激活→持续使用→付费的断点，历史 campaign 不补本轮 | — |
+| `mkt evaluate compare/evolution/external` | **能力/竞争/进化评估**：同条件逐项对照、外部未见任务契约与版本回归，不输出综合优胜分 | — |
+| `mkt playbook compose --platform P --motion M --vertical V` | **三维 Playbook**：平台规则×增长方法×行业承接组合，不为每个平台×行业复制一套流程 | — |
+| `mkt account add/list/check/warm/eligible/takeover` | **授权账号资产**：归属/授权证据、养号生命周期、健康度、冷却与人工接管；无登录或发送 | — |
+| `mkt network bind/list/export` | **代理引用**：只存环境变量名与账号绑定，不读凭据、不提高配额、不绕封禁 | — |
+| `mkt exp show/coverage/stale` | **用户经验与资格**：官方规则、可复现方法、单篇资深经验、短期技巧、自有实测分轨管理；策略只取合资格经验，过期/未审/无关/无 URL 不进入执行 | — |
+| `mkt voice show/draft/lint <平台>` | **平台语气**：37 个平台各自的语气、句式、三条开头、禁忌与黑话；`lint` 查出会被当成广告的句子 | — |
+| `mkt result` / `mkt revise` | **结果与回流**：按 campaign/subject/time_window 统一过滤动作/任务/业务结果，真实 OutcomeLedger 与动态价值事件可核验；候选解释与已验证机制分开，不做自动渠道生死判决 | — |
+| `mkt progress daily/weekly` | **进度**：日报问「今天有什么该动没动」，周报问「这周比上周好还是差」；没有动作就写停摆，不编数字 | — |
+| `mkt retro scan/analyze/report` | **复盘引擎**：扫本地日志→带出处的事实→渠道账→业务结论。比率只从人工钉定的 `--facts` 算，机器不替你选口径；每条结论必须带数字、出处、因果机制和可执行动作，缺一项拒绝出报告 | — |
+| `mkt billing --actions N --outcomes M` | **报价实验**：保留按动作/按结果，也支持显式订阅/混合实验与接受度记录；接受报价不等于付款 | — |
 | `mkt x publish/reply/message/engage/search/inbox …` | X 全动作（vendor x-ops-automation） | **PROVEN** |
 | `mkt email message --queue data/queues/w1.json [--go]` | SMTP 发信队列 | **PORTED** |
 | `mkt email inbox` / `mkt email bounces` | CDP 只读扫 Gmail / 退信 | **PORTED**（模式 PROVEN） |
@@ -109,7 +126,7 @@ python3 mkt.py check              # 确认 CDP 会话与 X/Gmail 登录态
 mkt plan new --id askovo-p0 --goal '拿到 20 个激活' --beachhead '独立 UX 研究者' \
   --hypothesis '证据分级是购买动机' --channel email --wave-action message --size 10
 
-# 2. 校验（schema/能力矩阵/size≤内核日预算/判据预注册）
+# 2. 校验（schema/能力矩阵/size≤内核日预算）
 mkt plan lint --id askovo-p0
 
 # 3. 人审：必须署名；写审批事件 + 计划指纹（批准后再改计划会被指纹识别并拒跑）
@@ -159,7 +176,7 @@ mkt campaign report askovo-p0-w1
 
 第一波案例来自 ovo 家族自身，每个案例都区分「平台动作」与「业务结果」，不为获客改写状态：
 
-- [Askovo](docs/cases/askovo.md)：首位 dogfood 客户（P0，进行中）——operator 275 分钟 / human 5 分钟跑完定造跑，D14 门禁 2026-11-14
+- [Askovo](docs/cases/askovo.md)：首位 dogfood 客户——operator 275 分钟 / human 5 分钟跑完定造跑；2026-11-03 起不设判决日，按迭代节奏推进
 - [Verovo](docs/cases/verovo.md)：前置案例——一轮完整 GTM 的代价→默认值映射；Growovo 每条纪律都有出处
 - [Growovo](docs/cases/growovo.md)：自举——改名、双语 README、dogfood 回路，每次自我运营走自己的管道
 
@@ -187,11 +204,11 @@ RESERVE×6（通道储备库）：`webdriver`｜`rss-public`（只读）｜`esp-
 ## 结构
 
 ```
-core/      ledger 账本（含人工裁决覆盖）· gates 门禁（含 DNC 合并）· throttle 原子日预算 · pipeline 写路径事务 · evidence 留证 · cdp 会话 · transports 通道注册表 · planlint 计划校验 · approval 审批事件/计划指纹 · queue 编辑期门禁 · campaign 视图/人审预览/下一步 · links 追踪链接 · outcome_io CSV 导入与账本聚合 · collector 本地 webhook/跳转 · action_runner 单条动作 · queue_runner 全渠道队列 · playbooks GitHub Inbox 分流/草稿队列 · workflows 配方学习/审批/重放 · locators 定位器阶梯 · scorecard 记分卡 · optimization 优化建议 · scheduler 持久化排期 · workspace 多产品隔离 · experiments 预注册实验 · attribution 事件/漏斗/归因 · demo 零账号演示 · doctor 环境体检
+core/      ledger 账本（含人工裁决覆盖）· gates 门禁（含 DNC 合并）· throttle 原子日预算 · pipeline 写路径事务 · evidence 留证 · cdp 会话 · transports 通道注册表 · planlint 计划校验 · approval 执行级审批（计划+队列+账号+工作区指纹）· queue 编辑期门禁 · campaign 视图/人审预览/下一步 · followups 跟进台账 · intent 可配置学习实验 · logscan 日志扫描 · retro 渠道账/冲突/规则 · narrative 四件套叙述 · platforms 平台单一数据源（37 个）· voice 平台语气画像（37 个）· experience 五类经验资格（当前 129 条原始记录，不自动合资格）· strategy 主渠道/冷启动/放大 · cadence 四周动作表 · execute 策略→计划队列 · result 同范围三层结果 · revise 参数回流 · progress 日报周报 · opportunity 需求发现 · value_artifact 价值资产 · journey 用户旅程 · playbook_model 三维组合 · accounts 授权账号生命周期 · network 代理引用 · billing 报价实验 · links 追踪链接 · outcome_io CSV 导入与账本聚合 · collector 本地 webhook/跳转 · action_runner 单条动作 · queue_runner 全渠道队列 · playbooks GitHub Inbox 分流/草稿队列 · workflows 配方学习/审批/重放 · locators 定位器阶梯 · scorecard 记分卡 · optimization 优化建议 · scheduler 持久化排期 · workspace 多产品隔离 · experiments 可选学习实验 · attribution 事件/漏斗/归因 · demo 零账号演示 · doctor 环境体检
 channels/  x/(vendor+adapter) · email_smtp · email_cdp · reddit · linkedin · github（api 通道首发） · hn（CDP 写 + Algolia 读）
 transports/  os_input（macOS 键鼠/AX 模拟，UNVERIFIED）
 skills/    growovo-gtm（GTM 操作协议）· github-project-ops（GitHub 项目经营协议+体检脚本）
-tests/     离线单测（118 项，含 449 事故回归、全渠道人审门禁/adhoc 放行、审批指纹与过期、预算原子预留、DNC/indeterminate 阻断、队列编辑期门禁、CSV 导入幂等、账本裁决覆盖、collector 跳转/事件鉴权、MCP stdout 洁净、GitHub Inbox Playbook 分流/草稿队列、漏斗身份归一与时序披露、价值事件核验、实验冻结与预注册防篡改、demo 闭环与 doctor 分级）：python3 -m unittest discover tests -v
+tests/     离线单测（402 项，含 449 事故回归、全渠道人审门禁/adhoc 放行、执行级审批指纹/队列篡改/账号与工作区绑定、预算原子预留、DNC/indeterminate 阻断、真实 CLI 端到端、37 平台策略/节奏/人工单契约、需求发现/价值资产/用户旅程、账号与报价实验、demo 闭环与 doctor 分级）：python3 -m unittest discover -s tests
 mcp_server.py  MCP 外壳（stdio JSON-RPC，零依赖）
 ```
 

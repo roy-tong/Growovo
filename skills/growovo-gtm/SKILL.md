@@ -1,6 +1,6 @@
 ---
 name: growovo-gtm
-description: Growovo GTM 操作协议——以增长目标（真实注册/激活/付费）为入口的 Agent-native GTM 操作员。输入"把这个产品推向目标客户"，按四引擎（定位→资产→投放→结果）拆解为"立场确认→目标拆解→客群证据→计划 plan.json→人审门禁→执行（mkt CLI/MCP，dry-run 优先）→账本复盘"完整周期，并以预注册实验与归因台账评估渠道有效性。用于 GTM 运营、增长闭环、获客执行、营销自动化、触达方案、客群寻找、外联波次执行、渠道复盘。触发词：GTM、增长闭环、把这个产品推向用户、获客、激活转化、付费转化、launch 推广、营销自动化、触达方案、找目标客群、外联执行、growth campaign、mkt。
+description: Growovo GTM/User Growth 操作协议——面向独立开发者与一人公司，以真实需求、价值资产、授权执行和用户旅程为入口的 Agent-native 增长操作员。输入"把这个产品推向目标客户"，按"复盘→策略→落地→风控→执行→进度→结果→优化"八步闭环推进，并以同范围结果、候选实验和真实使用反馈修订策略。用于 GTM 运营、需求发现、价值内容、增长执行、营销自动化、触达方案、客群寻找、外联执行、用户旅程与渠道复盘。触发词：GTM、增长闭环、把这个产品推向用户、获客、激活转化、付费转化、launch 推广、营销自动化、触达方案、找目标客群、外联执行、growth campaign、mkt。
 ---
 
 # Growovo GTM 操作协议（growovo-gtm）
@@ -18,12 +18,47 @@ CLI（`python3 mkt.py …`）或 MCP（mkt-server），本协议不发明新动�
 
 | 引擎 | 职责 | 当前承载 |
 |---|---|---|
-| Positioning 定位（定） | 理解产品、定位 ICP、购买动机与竞争替代 | 研究上游 [askovo](https://github.com/roy-tong/askovo) 的研究判断 + 本协议 ②③ 步 + `gtm-readiness` 就绪体检 |
-| Asset 资产（造） | 生成适配目标渠道的页面/内容/演示/触达素材 | 内容协作 skill（warm-email-outreach 等）+ 既有研究资产；素材进队列前过千人千面门禁 |
-| Campaign 投放（跑） | 选渠道、执行授权动作、管理反馈 | 本协议 ④⑤⑥ 步 + `mkt` 内核（六原语/统一写路径/账本） |
-| Outcome 结果（量） | 追踪激活/付费/留存，评估实验 | `mkt experiment`（预注册实验）+ `mkt outcome`（事件/漏斗/归因台账，口径非因果） |
+| Positioning 定位（定） | 理解产品、定位 ICP、购买动机与竞争替代 | 研究上游 [askovo](https://github.com/roy-tong/askovo) + `mkt opportunity`（需求匹配/候选动作，不把抱怨当购买意愿） |
+| Asset 资产（造） | 生成可直接使用的教程、样例、测试、模板、对比与真实案例 | `mkt artifact lint/render` + 内容协作 skill；必须有直接用户价值、复现步骤和边界，不只是像人写 |
+| Campaign 投放（跑） | 选 Platform×Motion×Vertical、执行授权动作、管理反馈 | `mkt playbook compose` + `mkt execute`（统一审批/队列/人工单/读回） |
+| Outcome 结果（量） | 追踪真实使用、激活/留存/付费与断点 | `mkt journey`（同范围六阶段）+ `mkt result`（同范围三层投影）+ 可选学习实验 |
+| **Follow-up 跟进（守）** | **发完之后把人跟到底：对象台账、到期提醒、三次原则、判定弃或续** | `mkt followup`（台账/三次原则/到期）+ `mkt intent`（可配置学习实验）+ `mkt billing`（动作/结果/订阅/混合报价实验） |
 
-对增长结果负责的是四引擎整体；单渠道动作只是「跑」层的原语。
+对增长结果负责的是五引擎整体；单渠道动作只是「跑」层的原语。
+
+**为什么多了「守」这一层**：客户语料里最一致的卡点不是"不知道去哪发"，而是**发一次就没声音**。
+有效动作是「找对的人 + 有用的话 + 持续跟」。所以任何一次投放结束，都必须落到跟进台账：
+没有 `mkt followup add` 的触达，等于没做。
+
+
+## 八步闭环（内核已实现，不是文档清单）
+
+每个环节都有对应命令与 MCP 工具；**平台清单只有一份**（`core/platforms.py`，37 个），
+诊断/策略/执行/日志扫描共用，不会各说各话。
+
+| 步 | 要回答的问题 | 命令 | MCP |
+|---|---|---|---|
+| 〇 复盘 | 哪做得好、哪做得不好、为什么、改什么 | `mkt retro scan --path <目录>` → `analyze` → `report --facts <口径>` | `mkt_retro_scan` / `mkt_retro_analyze` |
+| ① 策略 | 打哪条、怎么冷启动、什么时候放大 | `mkt strategy build --facts f.json --retro-facts r.json` | `mkt_strategy` |
+| ② 落地 | 账号、每天做什么、什么算做完 | `mkt strategy cadence --facts f.json --start 2026-11-04` | `mkt_cadence` |
+| ③ 风控 | 平台怎么查 AI、我们改什么 | 含在策略输出的「平台会怎么查我们」 | `mkt_strategy` |
+| ④ 执行 | 真发出去 | `mkt execute --strategy-file --targets --campaign`（有写通道出队列；没有的出人工单） | — |
+| ⑤ 进度 | 今天该动什么、这周比上周好不好 | `mkt progress daily/weekly` | `mkt_progress` |
+| ⑥ 结果 | 同范围三层各自多少 | `mkt result --campaign C --since D1 --until D2` | `mkt_result` |
+| ⑦ 回流 | 改哪个参数、从多少到多少 | `mkt revise --params '{}'` | `mkt_revise` |
+
+**两条硬纪律（写在代码里）**：
+- 复盘报告的每条结论必须同时有「数字 + 出处 + 因果机制 + 可执行动作」，缺一项 `Claim.validate()` 直接抛错；
+- 比率只能从人工钉定的口径文件算，机器不替你选哪个数——它是供证据的，不是做裁决的。
+
+**口径文件长这样**（`--facts` / `--retro-facts`）：
+```json
+{"github": {"动作": 77, "回应": 4, "结果": 30},
+ "email_1to1": {"动作": 209, "回应": 11, "结果": 1},
+ "email_batch": {"动作": 991, "回应": 0, "结果": 0}}
+```
+子渠道要拆开：同一个平台里打法不同、效率差一个量级的，合在一起算会把有效打法埋掉。
+
 
 ## 何时使用
 
@@ -55,7 +90,7 @@ mkt plan lint --id <plan_id>
 ```
 - 渠道优先级用**实测数据**（求评邮件 5.3% > GitHub 站内 > X 冷触达 1.5-2.4%），不平均用力
 - 每波：channel×action×size（≤内核日预算）×content_policy（千人千面）
-- 成功判据**预注册**（metric+target+stop）
+- 观察指标是可选学习对象；只有显式受控实验才预注册假设/指标/时间窗，不设产品生死门
 - `review.human_approved` 留 false——**人审不是礼节，是执行前置条件**
 
 ### ⑤ 人审门禁（审批是事件，不是布尔值）
@@ -63,8 +98,8 @@ mkt plan lint --id <plan_id>
 mkt plan approve <plan_id> --by <审批人> [--days 7]
 ```
 把 plan 呈给用户（波次/规模/内容方针/停止条件），获批后用**署名审批**：内核写
-`data/approvals.jsonl` 事件 + 计划指纹 `plan_sha256`。批准后计划被改 → 指纹失配，
-实跑拒跑；过期同样拒跑。
+`data/approvals.jsonl` 事件 + 执行指纹 `plan_sha256`。指纹绑定计划、规范化队列、目标、正文、动作、平台、账号和工作区；批准后任何一项被改 → 指纹失配，
+实跑拒跑；过期、撤销或错账号/工作区同样拒跑。
 **--go 实跑必须绑定已人审 plan**：无 plan 管辖的 campaign 内核默认拒跑，仅 CLI
 人工通道 `--adhoc` 显式放行（账本记 adhoc=true）；MCP 不开放 adhoc——agent 不得
 自我授权。全局暂停（`mkt pause`）期间一切写操作拒跑。
@@ -95,22 +130,39 @@ mkt outcome sync --campaign <campaign>            # 账本 → 触达计数快�
 mkt link create --campaign <campaign> --channel hn --url <落地页>
 mkt outcome import data/events.csv --campaign <campaign>   # CSV 导入（幂等）
 mkt experiment obs --id <exp> --from-outcomes      # 事件 → 观察值（不再手抄）
+
+# 跟进（发完之后的主线）
+mkt next                                            # 到期的跟进会排在一切新动作之前
+mkt followup add --platform reddit --target u/xxx --source <讨论链接>
+mkt followup due                                    # 今天该跟谁
+mkt followup touch <id> --result asked --note '问了流式场景'   # replied/asked/used/declined/no_reply
+mkt followup stats                                  # 45 天后仍在对话的人 = 唯一硬指标
+
+# 可配置意图学习实验
+mkt intent start reddit-q4 --subs r/SideProject,r/IndieDev --weeks 4
+mkt intent log reddit-q4 --sent 20 --deleted 1 --replied 4 --moved 1
+mkt intent verdict reddit-q4                        # 样本不足/安全异常/观察互动，不判渠道生死
+
+# 报价实验：按动作/按结果，也可显式测试订阅或混合形状
+mkt billing --actions 20 --outcomes 2
+mkt billing --experiment-id sub-1 --pricing '{"model":"subscription","monthly_fee":100}'
+mkt billing --experiment-id sub-1 --record-acceptance accepted --by roy
 mkt campaign report <campaign>                     # 一页纸：计划/执行/结果/下一步
 ```
 - 账本 committed 是「发出去了」，不是「转化了」；事件与触达分栏，不合成转化率
 - activation/paid 必须带 source_ref 与核验状态，漏斗主体经 contacts 归一
-- 渠道有效性判断走 `mkt experiment`（判据预注册，机器只聚合不判定）
+- 渠道有效性可用可选 `mkt experiment` 做受控学习；也可直接比较同范围结果，不把预注册当产品门槛
 - `mkt ledger resolve <ref>` 处置 indeterminate（署名 + 依据，原账本行不改）
-- 对照预注册判据：达标→加深该渠道；不达标→回 ② 修假设
+- 对照学习结果：发现错误假设→回 ② 修假设；证据不足→补证或停止，不机械换渠道
 - **账本对不上平台实际状态 = 停该渠道查账。**
 
 ## 红线（内核已硬编码，agent 也不得绕过）
 
-- 只驱动本人拥有/运营的账号；不群发、不买量、不模板批发
+- 只驱动本人拥有或明确授权运营的账号；不群发、不买量、不模板批发
 - 实跑必须绑定已人审 plan；adhoc 仅 CLI 人工通道显式放行且账本留痕
 - 上限是内核属性：计划写多大都会被日预算/单次上限拒绝
 - 回读校验不一致绝不发送（449 空正文事故固化）
-- 不做对抗：不绕验证码、不伪造指纹、不用代理池
+- 不做对抗：不绕验证码、不伪造指纹、不用代理池绕过平台限制；代理只在合法网络需求与授权一致时绑定，不能提高配额或绕封禁
 - LinkedIn 全自动默认锁死（半自动=终端人工确认）；Reddit 日 ≤3 帖；HN 日 ≤1 帖（Show HN 限自有项目，提交后 1h 内发首条作者评论）
 - 结果事件不得编造或近似：activation/paid 必须真实发生并带核验状态；实验观察只在 running 期接受
 

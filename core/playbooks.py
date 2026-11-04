@@ -11,6 +11,12 @@
 
 本模块只读写本地计划/队列，不直接发送任何消息。所有发送仍由 mkt queue run 的
 Gate、暂停闸、日预算、人审和账本执行；不能绕过现有安全边界。
+
+证据地位提醒（2026-11-03）：GitHub Inbox 是"第一个写进代码的 playbook"，不是
+"第一个被证据支持的 playbook"。Askovo 同日的客户研究（1,699 条公开讨论、50 条
+入库证据）里没有一条维护者抱怨 issue/PR 分诊负担——这个痛点目前是假设。首个有
+语料支持的执行路径是 Reddit 意图信号（docs/playbooks/战术/）。本模块保留可用，
+但在拿到真实客户样本前不应作为对外主打能力宣传。
 """
 from __future__ import annotations
 
@@ -253,3 +259,44 @@ def render_markdown(plan):
         "",
     ]
     return "\n".join(lines)
+
+# ---------------------------------------------------------------------------
+# Playbook 注册表：以前只有 github-inbox 一个，现在把 Reddit 意图信号战术也做成对象。
+# 结构是数据，不是流程——执行仍走 mkt intent 与 mkt queue 两条既有路径。
+# ---------------------------------------------------------------------------
+PLAYBOOKS: Dict[str, Dict[str, Any]] = {
+    "github-inbox": {
+        "name": "GitHub Inbox 分流",
+        "channel": "github",
+        "evidence": "自家交付链数据（77 次提交 → 30 次合并）",
+        "status": "usable",
+        "steps": ["读授权仓库的 issue/PR", "规则分流（bug/question/feature/PR/security）",
+                  "生成可复核的 triage 计划", "人写候选回复", "建队列（仍需审批）", "回读确认"],
+        "caution": ("客户研究里没有维护者抱怨 issue 分诊负担的样本（1699 条筛选、50 条入库），"
+                    "这个痛点是假设，不是需求；对外宣传前先拿到真实客户样本"),
+    },
+    "reddit-intent": {
+        "name": "Reddit 意图信号四周",
+        "channel": "reddit",
+        "evidence": "自家 r/SaaS 判 AI 删帖事故 + 四周演练（被删率 19% → 判不通）",
+        "status": "usable",
+        "steps": ["第 0 周：账号门槛、目标 sub、信号词典",
+                  "第 1 周：居民期，只答问题不提产品",
+                  "第 2 周：≥20 条有效触达（最多 2 条带产品且披露）",
+                  "第 3 周：只跟进，不加新量",
+                  "第 4 周：三选一判定（通/不确定/不通）"],
+        "quota": {"actions_per_week": 20, "min_sample": 40, "deleted_max": 0.15,
+                  "response_pass": 0.10, "response_maybe": 0.03},
+        "caution": "AI 生成正文会被 AutoModerator 直接拦；被删不要重发",
+    },
+}
+
+
+def list_playbooks() -> List[Dict[str, Any]]:
+    """列出可用的 playbook（含证据状态与风险提示）。"""
+    return [{"id": k, **v} for k, v in PLAYBOOKS.items()]
+
+
+def playbook_spec(name: str) -> Optional[Dict[str, Any]]:
+    spec = PLAYBOOKS.get(name)
+    return {"id": name, **spec} if spec else None

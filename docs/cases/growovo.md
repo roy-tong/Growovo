@@ -15,7 +15,7 @@
 | 仓库改名 marketing-ops-automation → Growovo，README 重写为操作员定位 | [c305fe0](https://github.com/roy-tong/Growovo/commit/c305fe0)；改名经 API 验证生效 |
 | 零账号四步演示（lint → 人审闸门 → 写路径 dry-run → 账本） | [a76f523](https://github.com/roy-tong/Growovo/commit/a76f523)，`python3 mkt.py demo` 30 秒本地复现 |
 | 双语 README 全文对等（中文默认 + 英文 1:1，含完整命令矩阵） | [README.md](../../README.md) / [README.en.md](../../README.en.md) |
-| 离线单测 | 186 项，GitHub Actions 门禁，`python3 -m unittest discover tests` |
+| 离线单测 | 228 项，GitHub Actions 门禁，`python3 -m unittest discover tests` |
 | 任务结果三层记录（平台动作 / 任务结果 / 业务结果独立分层，矛盾即拒收） | [ea194e1](https://github.com/roy-tong/Growovo/commit/ea194e1)，`core/task_outcome.py` |
 | GitHub 专家任务基准（33 例，21 dev / 12 holdout；`--fail-on-harmful` 让基准可以当门禁用） | `scripts/github_benchmark.py` + `tests/fixtures/github_benchmark/` |
 | Skill 协议发布 | `skills/growovo-gtm`（GTM 操作协议）、`skills/github-project-ops`（GitHub 项目经营协议） |
@@ -49,4 +49,4 @@ Askovo P0（见[案例一](askovo.md)）不是单向服务。第一周内已经�
 | star / fork | 1 / 0。如实记录：自举极早期，无增长成果可宣称 |
 | 测试 | 186 项离线单测全绿；真实账号验证按渠道标注 PROVEN / PORTED / UNVERIFIED，不统一宣称 |
 | 边界 | 明确不做：冷邮件群发、广告投放、一键涨粉、对抗平台风控 |
-| 下一验证点 | Askovo D14 门禁（2026-11-14）与 Verovo 发射周中检（11/14）——两个都是预注册判据，结果出来前不提前叙事 |
+| 下一步 | 用自己的管道跑一次「持续跟」：把对象台账、到期提醒、跟进记录用在真实的人身上（`mkt followup`） |

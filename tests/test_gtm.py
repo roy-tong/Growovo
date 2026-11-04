@@ -37,7 +37,7 @@ class GtmDiagnoseTests(unittest.TestCase):
         self.assertEqual(by_id["product-hunt"]["priority"], "P2")
 
         report = gtm.markdown(payload)
-        for section in ("# GTM 诊断报告", "## 平台优先级", "## 价值事件口径", "## 下一步"):
+        for section in ("# GTM 诊断报告", "## 各平台排位", "## 价值事件口径", "## 下一步"):
             self.assertIn(section, report)
         self.assertIn("Product Hunt", report.split("## 价值事件口径")[0])
 
@@ -48,8 +48,11 @@ class GtmDiagnoseTests(unittest.TestCase):
                 self.assertIn(motion["label"], gtm.LABELS)
                 self.assertTrue(motion["evidence"], motion["motion"])
         report = gtm.markdown(payload)
-        self.assertIn("已验证·自家A/B", report)
-        self.assertIn("假设·待测", report)
+        # 对外报告只讲人话：内部编码一个都不许出现。
+        for code in gtm.LABELS.values():
+            self.assertNotIn(code, report)
+        self.assertIn("我们自己对比过", report)
+        self.assertIn("还没验证", report)
 
     def test_killed_motions_never_recommended(self):
         payload = gtm.diagnose(_facts())
@@ -58,9 +61,9 @@ class GtmDiagnoseTests(unittest.TestCase):
             dead = {m["motion"] for m in platform["killed_motions"]}
             self.assertFalse(alive & dead)
         report = gtm.markdown(payload)
-        matrix = report.split("判死动作")[0]
+        matrix = report.split("不做什么（以及为什么）")[0]
         self.assertNotIn("买星", matrix)
-        self.assertIn("判死动作", report)
+        self.assertIn("不做什么（以及为什么）", report)
 
     def test_missing_evidence_label_rejected(self):
         facts = _facts()
@@ -92,7 +95,7 @@ class GtmDiagnoseTests(unittest.TestCase):
             hyp["evidence_label"] = "hypothesis"
         payload = gtm.diagnose(facts)
         self.assertEqual(payload["confidence"]["level"], "低")
-        self.assertTrue(any("判据收集" in u for u in payload["unresolved"]))
+        self.assertTrue(any("观察指标" in u for u in payload["unresolved"]))
 
     def test_approximation_flagged_in_report(self):
         facts = _facts()
@@ -143,6 +146,56 @@ class GtmDiagnoseTests(unittest.TestCase):
         first = gtm.markdown(gtm.diagnose(_facts()))
         second = gtm.markdown(gtm.diagnose(_facts()))
         self.assertEqual(first, second)
+
+    def test_focus_picks_one_primary_and_never_a_launch_platform(self):
+        facts = _facts()
+        # 多个平台都够到 P0 时，报告必须只给一个主渠道，而不是一串 P0。
+        facts["icp"] = [
+            {"hypothesis": "开发者在意 eval", "tags": ["developers", "oss-maintainers", "technical-founders"],
+             "evidence_label": "self_ab", "evidence": "上游交付链复盘"},
+        ]
+        payload = gtm.diagnose(facts)
+        p0 = [p["id"] for p in payload["platforms"] if p["priority"] == "P0"]
+        self.assertGreater(len(p0), 1, "该用例需要多个 P0 才能验证收敛")
+
+        focus = payload["focus"]
+        self.assertIsNotNone(focus["primary"])
+        self.assertNotIn(focus["primary"], gtm.LAUNCH_PLATFORMS)
+        # 发射点与主渠道不能是同一个
+        self.assertNotEqual(focus["launch"], focus["primary"])
+        # 其余 P0 进入「本轮不做」，且不包含主渠道与发射点
+        deferred_ids = {p["id"] for p in payload["platforms"] if p["name"] in focus["deferred"]}
+        self.assertNotIn(focus["primary"], deferred_ids)
+        if focus["launch"]:
+            self.assertNotIn(focus["launch"], deferred_ids)
+
+        report = gtm.markdown(payload)
+        self.assertIn("## 本轮怎么打", report)
+        self.assertIn("主渠道（只打这一个）", report)
+        self.assertIn("也值得做、但这一轮不碰", report)
+
+    def test_focus_prefers_owned_account_when_scores_tie(self):
+        facts = _facts()
+        facts["icp"] = [
+            {"hypothesis": "开发者在 GitHub 和 HN", "tags": ["developers"],
+             "evidence_label": "self_ab", "evidence": "上游交付链复盘"},
+        ]
+        facts["owned_assets"] = {"platforms": ["github"]}
+        payload = gtm.diagnose(facts)
+        self.assertEqual(payload["focus"]["primary"], "github")
+
+    def test_focus_absent_when_nothing_scores(self):
+        facts = _facts()
+        facts["icp"] = [
+            {"hypothesis": "无人区人群", "tags": ["nobody"],
+             "evidence_label": "hypothesis", "evidence": "无"},
+        ]
+        facts["product"] = {"name": "x", "what": "x", "url": "https://example.com",
+                            "stage": "launched", "product_type": "unknown-type"}
+        facts["owned_assets"] = {"platforms": []}
+        payload = gtm.diagnose(facts)
+        self.assertIsNone(payload["focus"]["primary"])
+        self.assertNotIn("## 本轮怎么打", gtm.markdown(payload))
 
 
 if __name__ == "__main__":

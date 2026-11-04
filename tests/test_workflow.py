@@ -45,6 +45,19 @@ class Tmp(unittest.TestCase):
         p = self.dir / "plans" / f"{name or plan['plan_id']}.json"
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(json.dumps(plan, ensure_ascii=False), encoding="utf-8")
+        # 新审批绑定实际队列内容：测试夹具也必须存在，而不是只批准计划外壳。
+        for wave in plan.get("waves", []):
+            qref = wave.get("queue")
+            if not qref:
+                continue
+            q = self.dir.parent / qref
+            q.parent.mkdir(parents=True, exist_ok=True)
+            if not q.exists():
+                q.write_text(json.dumps({
+                    "campaign": wave.get("campaign") or f"{plan['plan_id']}-w{wave.get('wave', 1)}",
+                    "channel": wave.get("channel"), "action": wave.get("action"),
+                    "items": [{"id": "fixture-1", "target": "user@example.com", "body": "fixture"}],
+                }), encoding="utf-8")
         return p
 
 
@@ -231,13 +244,15 @@ class TestCampaign(Tmp):
         self.assertEqual("approve", camp.next_step(self.dir, led, "p1-w1")["code"])
 
         approval.approve_plan(self.dir, "p1", by="roy")
-        self.assertEqual("queue-missing", camp.next_step(self.dir, led, "p1-w1")["code"])
+        self.assertEqual("dry-run", camp.next_step(self.dir, led, "p1-w1")["code"])
 
         q = {"campaign": "p1-w1", "channel": "email", "action": "message",
              "items": [{"id": "1", "target": "a@example.com", "body": "正文"}]}
         (self.dir / "queues").mkdir(parents=True, exist_ok=True)
         (self.dir / "queues" / "p1-w1.json").write_text(json.dumps(q), encoding="utf-8")
-        self.assertEqual("dry-run", camp.next_step(self.dir, led, "p1-w1")["code"])
+        # 队列内容在批准后被替换，执行指纹失效，必须重新审批。
+        self.assertEqual("approve", camp.next_step(self.dir, led, "p1-w1")["code"])
+        approval.approve_plan(self.dir, "p1", by="roy")
 
         led.append(channel="email", action="message", target="a@example.com",
                    result="dry-run", campaign="p1-w1", ref="1")

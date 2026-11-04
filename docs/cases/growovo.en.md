@@ -47,6 +47,6 @@ Every GTM action logs operator/human minutes (the Askovo ledger's first day: 275
 | Item | Status |
 |---|---|
 | Stars / forks | 1 / 0. Recorded as-is: very early bootstrap, no growth outcome to claim |
-| Tests | 186 offline tests green; real-account verification labeled per channel PROVEN / PORTED / UNVERIFIED — no uniform claim |
+| Tests | 228 offline tests green; real-account verification labeled per channel PROVEN / PORTED / UNVERIFIED — no uniform claim |
 | Boundaries | Explicitly not doing: bulk cold email, paid ads, one-click follower growth, adversarial evasion of platform controls |
-| Next checkpoints | Askovo D14 gate (2026-11-14) and the Verovo launch-week mid-check (11/14) — both preregistered; no narrative before the data |
+| Next step | Run the "keep following up" loop through its own pipeline: object ledger, due reminders, follow-up records on real people (`mkt followup`) |

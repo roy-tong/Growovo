@@ -190,6 +190,109 @@ TOOLS = [
             "required": ["queue_path"],
         },
     },
+    {
+        "name": "mkt_retro_scan",
+        "description": "只读扫描本地目录，统计可读文件与可提取的事实条数；不写盘、不上传。用于复盘前的体量确认。",
+        "inputSchema": {"type": "object", "properties": {
+            "path": {"type": "string", "description": "要扫描的目录"},
+            "max_files": {"type": "integer", "default": 20000}}, "required": ["path"]},
+    },
+    {
+        "name": "mkt_retro_analyze",
+        "description": "只读复盘分析：渠道账、浪费、冲突、以及日志里被反复提到的那几句话。口径仍由人钉。",
+        "inputSchema": {"type": "object", "properties": {
+            "path": {"type": "string"},
+            "facts": {"type": "object", "description": "人工钉定的口径：{渠道:{动作,回应,结果}}，可省略"},
+            "max_files": {"type": "integer", "default": 20000}}, "required": ["path"]},
+    },
+    {
+        "name": "mkt_strategy",
+        "description": "只读策略推演：从产品事实包和复盘口径算出主渠道、保留清单、不做清单、冷启动五阶段、放大条件、风控映射。",
+        "inputSchema": {"type": "object", "properties": {
+            "facts": {"type": "object", "description": "产品事实包（同 mkt gtm diagnose）"},
+            "retro_facts": {"type": "object"}}, "required": ["facts"]},
+    },
+    {
+        "name": "mkt_cadence",
+        "description": "只读落地设计：按四周切出动作表，每条带负责人、人工分钟与验收物。",
+        "inputSchema": {"type": "object", "properties": {
+            "facts": {"type": "object"}, "start": {"type": "string"},
+            "actions_per_week": {"type": "integer", "default": 20}},
+            "required": ["facts", "start"]},
+    },
+    {
+        "name": "mkt_result",
+        "description": "只读结果：平台动作/任务结果/业务结果三层分开算，并对照判据。取不到的指标报「未测」，不当 0。",
+        "inputSchema": {"type": "object", "properties": {
+            "criteria": {"type": "array", "items": {"type": "object"}}}},
+    },
+    {
+        "name": "mkt_revise",
+        "description": "只读回流：给出「改哪个参数、从多少到多少」并标参数级/策略级。样本不足会拒绝下结论。",
+        "inputSchema": {"type": "object", "properties": {
+            "result": {"type": "object"}, "params": {"type": "object"}}},
+    },
+    {
+        "name": "mkt_followup_due",
+        "description": "只读跟进：今天该跟谁、哪些已经跟丢超过 7 天。",
+        "inputSchema": {"type": "object", "properties": {"on": {"type": "string"}}},
+    },
+    {
+        "name": "mkt_progress",
+        "description": "只读进度：日报问「今天有什么该动没动」，周报问「这周比上周好还是差」。",
+        "inputSchema": {"type": "object", "properties": {
+            "scope": {"type": "string", "enum": ["daily", "weekly"], "default": "weekly"},
+            "on": {"type": "string"}}},
+    },
+    {
+        "name": "mkt_voice",
+        "description": "平台语气画像与开头骨架：这个平台怎么说话、开头怎么写、什么会被当成广告。",
+        "inputSchema": {"type": "object", "properties": {
+            "platform": {"type": "string"},
+            "hook": {"type": "string"}, "what": {"type": "string"}},
+            "required": ["platform"]},
+    },
+    {
+        "name": "mkt_voice_lint",
+        "description": "检查一段文字在指定平台会不会被当成广告；返回问题列表，空表示可用。",
+        "inputSchema": {"type": "object", "properties": {
+            "platform": {"type": "string"}, "text": {"type": "string"}},
+            "required": ["platform", "text"]},
+    },
+    {
+        "name": "mkt_experience",
+        "description": "用户经验库：别人真跑过的平台做法，带出处与样本量；≥2 篇才算规律，1 篇只能当假设。",
+        "inputSchema": {"type": "object", "properties": {"platform": {"type": "string"}},
+                        "required": ["platform"]},
+    },
+    {
+        "name": "mkt_playbooks",
+        "description": "可用 playbook 清单：每个都带证据来源与风险提示，没有证据的会自己承认。",
+        "inputSchema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "mkt_opportunity",
+        "description": "只读需求发现：产品事实×真实信号，返回需求匹配、候选解释与下一动作；不证明购买意愿。",
+        "inputSchema": {"type": "object", "properties": {
+            "facts": {"type": "object"}, "signals": {"type": ["object", "array"]}},
+            "required": ["facts", "signals"]},
+    },
+    {
+        "name": "mkt_value_artifact",
+        "description": "只读价值资产校验与业务渲染：教程/样例/测试/模板/对比/真实案例，action=lint|render。",
+        "inputSchema": {"type": "object", "properties": {
+            "action": {"enum": ["lint", "render"]}, "artifact": {"type": "object"}},
+            "required": ["action", "artifact"]},
+    },
+    {
+        "name": "mkt_journey",
+        "description": "只读用户旅程：同 campaign/subject/time_window 过滤，返回漏斗、断点与修复建议。",
+        "inputSchema": {"type": "object", "properties": {
+            "events": {"type": "array", "items": {"type": "object"}},
+            "campaign": {"type": "string"}, "subject": {"type": "string"},
+            "time_window": {"type": "object"}},
+            "required": ["events", "campaign", "time_window"]},
+    },
 ]
 
 
@@ -383,6 +486,122 @@ def _call_tool(name, args):
         with contextlib.redirect_stdout(buf):
             github.audit(args["repo"])
         return _text({"repo": args["repo"], "markdown": buf.getvalue()})
+
+    if name == "mkt_retro_scan":
+        from core import logscan
+        data = logscan.scan_memory(args["path"], max_files=args.get("max_files", 20000))
+        return _text({"inventory": data["inventory"], "claims": len(data["claims"])})
+
+    if name == "mkt_retro_analyze":
+        from core import logscan, retro
+        data = logscan.scan_memory(args["path"], max_files=args.get("max_files", 20000))
+        facts = args.get("facts")
+        rows = retro.rates_from_facts(facts) if facts else []
+        analysis = {"channels": rows or [],
+                    "waste": retro.waste(rows) if rows else [],
+                    "conflicts": retro.conflicts(retro.consolidate(data["claims"]),
+                                                 only_channels=list(facts) if facts else None),
+                    "timeline": retro.timeline(data["claims"])}
+        pool = retro.evidence_pool(data["claims"])
+        return _text({"analysis": analysis,
+                      "evidence": [{"channel": r["name"],
+                                    "lines": [i["sentence"][:140] for i in r["items"][:3]]}
+                                   for r in pool[:6]]})
+
+    if name == "mkt_strategy":
+        from core import gtm, strategy, retro
+        payload = gtm.diagnose(args["facts"])
+        analysis = None
+        if args.get("retro_facts"):
+            rows = retro.rates_from_facts(args["retro_facts"])
+            analysis = {"channels": rows, "waste": retro.waste(rows)}
+        st = strategy.build(args["facts"]["product"], focus=payload["focus"],
+                            analysis=analysis)
+        return _text({"strategy": st, "rendered": strategy.render(st)})
+
+    if name == "mkt_cadence":
+        from core import gtm, strategy, cadence
+        payload = gtm.diagnose(args["facts"])
+        st = strategy.build(args["facts"]["product"], focus=payload["focus"], analysis=None)
+        plan = cadence.build(st, start=args["start"],
+                             actions_per_week=args.get("actions_per_week", 20))
+        return _text({"plan": plan, "rendered": cadence.render(plan)})
+
+    if name == "mkt_result":
+        from core import result
+        from core.followups import Followups
+        r = result.collect(ledger_entries=Ledger(DATA / "ledger.jsonl").all(),
+                           followups=Followups(DATA / "followups.jsonl"),
+                           criteria=args.get("criteria") or [])
+        return _text({"result": r, "rendered": result.render(r)})
+
+    if name == "mkt_revise":
+        from core import result, revise
+        from core.followups import Followups
+        r = args.get("result") or result.collect(
+            ledger_entries=Ledger(DATA / "ledger.jsonl").all(),
+            followups=Followups(DATA / "followups.jsonl"))
+        diff = revise.propose(r, args.get("params") or {})
+        return _text({"diff": diff, "rendered": revise.render(diff)})
+
+    if name == "mkt_followup_due":
+        from core.followups import Followups, describe
+        fu = Followups(DATA / "followups.jsonl")
+        on = args.get("on")
+        return _text({"date": on, "due": [describe(r) for r in fu.due(on)],
+                      "overdue": [describe(r) for r in fu.overdue(on)],
+                      "stats": fu.stats(on)})
+
+    if name == "mkt_progress":
+        from core import progress
+        from core.followups import Followups
+        fu = Followups(DATA / "followups.jsonl")
+        if args.get("scope", "weekly") == "daily":
+            d = progress.daily(fu, on=args.get("on"))
+            return _text({"daily": d, "rendered": progress.render_daily(d)})
+        w = progress.weekly(fu, on=args.get("on"))
+        return _text({"weekly": w, "rendered": progress.render_weekly(w)})
+
+    if name == "mkt_voice":
+        from core import voice
+        d = voice.draft(args["platform"], hook=args.get("hook", ""), what=args.get("what", ""))
+        return _text({"profile": voice.profile(args["platform"]), "drafts": d["drafts"],
+                      "rendered": voice.render(args["platform"])})
+
+    if name == "mkt_voice_lint":
+        from core import voice
+        problems = voice.lint(args["platform"], args.get("text", ""))
+        return _text({"ok": not problems, "problems": problems})
+
+    if name == "mkt_experience":
+        from core import experience
+        if hasattr(experience, "eligible"):
+            rows = experience.eligible(args["platform"])
+        else:
+            rows = experience.graded(args["platform"])["rule"]
+        return _text({"eligible": rows, "freshness": experience.freshness(args["platform"]),
+                      "rendered": experience.render(args["platform"])})
+
+    if name == "mkt_opportunity":
+        from core import opportunity
+        return _text(opportunity.discover(args["facts"], args["signals"]))
+
+    if name == "mkt_value_artifact":
+        from core import value_artifact
+        if args["action"] == "lint":
+            errors = value_artifact.lint(args["artifact"])
+            return _text({"ok": not errors, "errors": errors})
+        return _text({"rendered": value_artifact.render(args["artifact"])})
+
+    if name == "mkt_journey":
+        from core import journey
+        return _text(journey.diagnose(
+            args["events"], campaign=args["campaign"],
+            subject=args.get("subject") or None, time_window=args["time_window"]))
+
+    if name == "mkt_playbooks":
+        from core import playbooks
+        return _text(playbooks.list_playbooks())
 
     return _err(f"未知工具: {name}")
 

@@ -31,6 +31,48 @@ def fingerprint(plan):
     return hashlib.sha256(blob.encode("utf-8")).hexdigest()
 
 
+def _read_json(path):
+    return json.loads(Path(path).read_text(encoding="utf-8"))
+
+
+def _queue_payloads(plan, data_dir=None):
+    """读取计划声明的队列；声明了却缺失时拒绝审批，而不是批准一个空壳。"""
+    payloads = []
+    for wave in (plan or {}).get("waves", []):
+        ref = str(wave.get("queue") or "").strip()
+        if not ref:
+            continue
+        candidates = [Path(ref)]
+        if data_dir is not None and not Path(ref).is_absolute():
+            candidates.extend([Path(data_dir) / ref,
+                               Path(data_dir) / "queues" / Path(ref).name])
+        path = next((p for p in candidates if p.exists()), None)
+        if path is None:
+            raise ApprovalError(f"计划引用的队列不存在，无法绑定实际发送内容: {ref}")
+        queue = _read_json(path)
+        items = queue.get("items") or []
+        queue["items"] = sorted(items, key=lambda row: json.dumps(row, ensure_ascii=False, sort_keys=True))
+        payloads.append({"path": str(path.resolve()), "queue": queue})
+    return payloads
+
+
+def execution_fingerprint(plan, *, data_dir=None, workspace=None, account=None):
+    """审批实际执行内容：plan + queue + account + workspace。
+
+    queue 内 targets/body/action/platform 都会改变哈希；账号与工作区也会参与，
+    因此批准后换队列内容、换目标账号或换工作目录都必须重新审批。
+    """
+    payload = {
+        "plan": {k: v for k, v in (plan or {}).items() if k != "review"},
+        "queues": _queue_payloads(plan, data_dir=data_dir),
+        "workspace": str(workspace or (plan or {}).get("workspace") or
+                           (Path(data_dir).resolve() if data_dir is not None else "")),
+        "account": str(account or (plan or {}).get("account") or "default"),
+    }
+    blob = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(blob.encode("utf-8")).hexdigest()
+
+
 def plans_dir(data_dir):
     return Path(data_dir) / "plans"
 
@@ -85,7 +127,7 @@ def approval_events(data_dir, plan_id=None):
     return out
 
 
-def approve_plan(data_dir, plan_id, *, by, note="", days=None):
+def approve_plan(data_dir, plan_id, *, by, note="", days=None, account=None, workspace=None):
     """校验 → 指纹 → 写 review → 追加审批事件。返回 (plan, path, event)。
 
     校验未过的计划不允许批准（先 lint 再人审，而不是边审边补）。
@@ -102,12 +144,15 @@ def approve_plan(data_dir, plan_id, *, by, note="", days=None):
         raise ApprovalError("计划校验未过，不能批准：" + "；".join(errs))
 
     now = datetime.now()
-    fp = fingerprint(plan)
+    fp = execution_fingerprint(plan, data_dir=data_dir, workspace=workspace, account=account)
     review = {
         "human_approved": True,
         "approved_at": now.isoformat(timespec="seconds"),
         "approved_by": by,
         "plan_sha256": fp,
+        "fingerprint_scope": "plan+queue+account+workspace",
+        "account": str(account or plan.get("account") or "default"),
+        "workspace": str(workspace or plan.get("workspace") or Path(data_dir).resolve()),
     }
     if note:
         review["note"] = note
@@ -127,6 +172,9 @@ def approve_plan(data_dir, plan_id, *, by, note="", days=None):
         "by": by,
         "note": note,
         "plan_sha256": fp,
+        "fingerprint_scope": review["fingerprint_scope"],
+        "account": review["account"],
+        "workspace": review["workspace"],
         "expires_at": review.get("expires_at"),
         "snapshot": str(snap),
     }
@@ -162,10 +210,10 @@ def revoke_plan(data_dir, plan_id, *, by, note=""):
     return plan, event
 
 
-def verify_approval(plan):
+def verify_approval(plan, *, data_dir=None, account=None, workspace=None):
     """执行前校验。抛 ApprovalError；通过返回 status dict。
 
-    通过条件：human_approved=true；有指纹则必须与当前内容一致；未过期。
+    通过条件：human_approved=true；有指纹则必须与当前执行内容一致；未过期。
     旧计划（无指纹）放行但标 legacy。
     """
     review = (plan or {}).get("review") or {}
@@ -173,9 +221,13 @@ def verify_approval(plan):
         raise ApprovalError("review.human_approved=false，拒绝执行（人审是执行前置条件）")
     fp = review.get("plan_sha256")
     if fp:
-        if fp != fingerprint(plan):
+        current = execution_fingerprint(
+            plan, data_dir=data_dir,
+            workspace=workspace or review.get("workspace"),
+            account=account or review.get("account"))
+        if fp != current:
             raise ApprovalError(
-                "计划在批准后被修改（指纹不一致）——需重新审批，旧批准不覆盖新内容")
+                "计划/队列/账号/工作区在批准后被修改（执行指纹不一致）——需重新审批，旧批准不覆盖新内容")
     expires = review.get("expires_at")
     if expires:
         try:
@@ -188,12 +240,15 @@ def verify_approval(plan):
         "approved_by": review.get("approved_by"),
         "approved_at": review.get("approved_at"),
         "plan_sha256": fp,
+        "fingerprint_scope": review.get("fingerprint_scope", "plan+queue+account+workspace"),
+        "account": review.get("account"),
+        "workspace": review.get("workspace"),
         "expires_at": expires,
         "legacy": not bool(fp),
     }
 
 
-def status(plan):
+def status(plan, *, data_dir=None):
     """只读审批状态（报告用，不抛异常）。"""
     review = (plan or {}).get("review") or {}
     st = {
@@ -210,7 +265,7 @@ def status(plan):
         st["reason"] = "未审批"
         return st
     try:
-        verify_approval(plan)
+        verify_approval(plan, data_dir=data_dir)
         st["valid"] = True
     except ApprovalError as exc:
         st["reason"] = str(exc)

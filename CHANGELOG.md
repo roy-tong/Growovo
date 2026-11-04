@@ -1,5 +1,80 @@
 # Changelog
 
+## 0.4.0 - 2026-11-04
+
+This release turns the execution kernel into a complete GTM/User Growth loop:
+demand discovery, value artifacts, authorized execution, same-scope results and
+typed learning. Local implementation and tests are not production business
+validation.
+
+### Added
+
+- **Demand and value loop**: `mkt opportunity` discovers candidate needs from
+  product facts and explicit signals; `mkt artifact` validates and renders
+  tutorials, examples, reproducible tests, templates, comparisons and real
+  cases; `mkt journey` diagnoses discovery→engagement→trial→activation→retention→payment
+  inside one campaign/subject/time window.
+- **Platform × Motion × Vertical playbooks** (`core/playbook_model.py`) compose
+  platform rules, reusable growth motions and vertical value constraints
+  without duplicating a workflow per platform and industry.
+- **Capability, competition and evolution evaluation** (`core/evaluation.py`,
+  `mkt evaluate`): same-condition metric comparisons, external unseen-case
+  contract and regression/evolution history, without a composite winner score.
+- **Typed experience eligibility** (`core/experience.py`): official rules,
+  reproducible methods, single-expert experience, short-term tactics and own
+  tests have separate source, rights, relevance, independence, review and
+  freshness gates. Strategy, MCP and prompt generation use eligible records only.
+- **Authorized account and network assets**: account ownership/authorization,
+  lifecycle, health, cooldown and human takeover (`mkt account`); proxy
+  environment-variable references bound to accounts (`mkt network`) with no
+  credential reading, quota increase or ban evasion.
+- **Pricing experiments** (`mkt billing`): action/outcome candidates plus
+  explicit subscription/hybrid experiments and acceptance logs. Accepted quote
+  is commercial feedback, not payment.
+- **Growth modules across CLI and MCP**: opportunity, value artifact and journey
+  are available as read-only MCP tools as well as CLI commands.
+- **Real CLI end-to-end coverage** for email plan→approval→dry-run→result,
+  X reply queues, manual work sheets, campaign isolation, account lifecycle and
+  pricing experiments.
+
+### Changed
+
+- **Result projection is scope-first**: ledger, outcomes and follow-ups share
+  campaign/subject/time-window filters with no fallback to full history.
+  Verified value events are dynamic per real `OutcomeLedger` data.
+- **Approval binds the execution, not just the plan**: fingerprint covers the
+  normalized queue, targets, bodies, action, platform, account and workspace.
+  Queue tampering, wrong account/workspace, expiry, revoke and missing queues
+  fail closed.
+- **Intent campaigns are configurable learning experiments**, not fixed
+  four-week pass/dead verdicts. Sample insufficiency and safety anomalies remain
+  visible; channel death is not automatic.
+- **Strategy and cadence no longer require product-level numeric gates**.
+  Success criteria are optional learning objects; the fourth week is
+  retrospective and next iteration.
+- README, English README, Growovo GTM Skill and feature status now describe the
+  actual Demand/Execution/Learning product rather than only the GitHub Inbox
+  playbook.
+
+### Fixed
+
+- Cross-campaign and historical-record leakage in result, revision and journey
+  projections.
+- Duplicate platform registry definitions; X queue generation now emits the
+  supported `reply` action instead of an unsupported `message` queue.
+- Case-specific Verovo/default ICP content and Star-threshold gates removed from
+  generic Growovo strategy and execution defaults.
+- Stale or unreviewed experience can no longer be presented as current platform
+  guidance.
+
+### Verification
+
+- `python3 -m unittest discover -s tests`: **402 tests pass**.
+- `python3 mkt.py demo`: plan lint, approval, dry-run/write path and ledger pass.
+- Real CLI E2E covers email, X reply contract and manual channels without live
+  sends.
+- `git diff --check` passes.
+
 ## 0.3.0 - 2026-11-02
 
 ### Added

@@ -46,10 +46,17 @@ def lint_plan(plan, *, registry=None, intervals=None):
         errs.append("audience.spec 必填（客群检索式/来源）")
 
     sc = plan.get("success_criteria") or {}
-    if isinstance(sc, dict):
-        for k in ("metric", "target", "stop"):
-            if not sc.get(k):
-                errs.append(f"success_criteria.{k} 必填（失败判据预注册）")
+    if not isinstance(sc, dict):
+        errs.append("success_criteria 必须为对象（可选学习指标，不是产品生死门）")
+    else:
+        # 迭代期只校验结构，不强制统一 target/stop。受控实验可另行预注册，
+        # 但不能用缺省数字阻止其他产品探索。
+        if sc.get("metric") is not None and not isinstance(sc.get("metric"), str):
+            errs.append("success_criteria.metric 必须为字符串")
+        if sc.get("target") is not None and not isinstance(sc.get("target"), (int, float, str)):
+            errs.append("success_criteria.target 必须为数字或字符串")
+        if sc.get("stop") is not None and not isinstance(sc.get("stop"), str):
+            errs.append("success_criteria.stop 必须为字符串")
 
     waves = plan.get("waves") or []
     if not isinstance(waves, list) or not waves:
@@ -131,7 +138,7 @@ def enforce_approval(data_dir, campaign, adhoc=False):
                 f"campaign '{campaign}' 属于计划 {plan.get('plan_id')}，"
                 "计划校验未过：" + "；".join(errs[:5]))
         try:
-            verify_approval(plan)
+            verify_approval(plan, data_dir=data_dir)
         except ApprovalError as exc:
             raise PlanNotApproved(
                 f"campaign '{campaign}' 属于计划 {plan.get('plan_id')}，{exc}")

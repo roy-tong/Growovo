@@ -1,19 +1,18 @@
 # Case: Askovo — Growovo's first dogfood client (P0, in progress)
 
 > **Role**: Growovo takes over Askovo's GTM as the operator, using one real launch to prove the operator-minute / human-minute ledger and the four-phase discipline.
-> **Period**: started 2026-10-31 · D14 gate = 2026-11-14 · data as of 2026-11-02
+> **Period**: started 2026-10-31 · data as of 2026-11-02 (no verdict date since 2026-11-03; running on an iteration cadence)
 > **[中文版](askovo.md)**
 
 ## Background and goal
 
 [Askovo](https://github.com/roy-tong/askovo) is the "judgment layer" of the ovo family: a SURE evidence engine that grounds product and business reasoning in verifiable evidence chains. Its relationship with Growovo is upstream/downstream — Askovo answers "what should be done", Growovo answers "where do users come from".
 
-This case runs Askovo as Growovo's **P0 dogfood client**: no new capabilities, no demo data — one end-to-end pass through the four GTM phases, with gates preregistered up front:
+This case runs Askovo as Growovo's **first dogfood client**: no new capabilities, no demo data — one end-to-end pass through the four GTM phases.
 
-| Gate | Criterion |
-|---|---|
-| **P0 pass** | ≥1 real value event, and total human effort ≤12 hours |
-| **Kill** | Human effort >20 hours, or zero registrations → retreat to a RaaS service model |
+It answers one question: **how many human minutes does one pass cost, and does it actually bring people in.** Since 2026-11-03 there is no verdict date and no kill line — the product is still iterating, and a number fixed in advance would bend the work toward the number instead of the outcome.
+
+Two numbers still matter, but they are no longer a pass/fail gate: **total human minutes** for one full pass, and **whether anyone actually showed up**. Both are reported as measured, not as a score.
 
 The "value event" definition was pinned on day one: since Askovo is not yet on PyPI, measurement uses GitHub traffic as a **labelled approximation**, never presented as an exact number.
 
@@ -36,7 +35,7 @@ Five assets passed the my-voice style bar in one pass: landing page, Show HN pos
 | English blog | Long-form comparison "Askovo vs your research stack", pushed | ✅ Live at <https://roy-tong.github.io/notes/askovo-vs-your-research-stack-en/> (200 on 2026-11-02; the URL logged on 10-31 had the wrong path and case, corrected and recorded as a lesson) |
 | Show HN | Post + first comment drafted and ready | ⏸ Requires the account owner to paste (~60 seconds); Growovo does not post on behalf of anyone |
 
-**Measure (D11–13, pending)**: the GitHub-traffic approximation is preregistered; D14 = 2026-11-14.
+**Measure**: GitHub traffic is a labelled approximation (downloads ≠ users) and is flagged as such in every report; there is no D14 verdict any more.
 
 ## The ledger (this case's core output)
 
@@ -67,4 +66,4 @@ Askovo eats its own dog food: a seven-node askovo-on-askovo study run on the SUR
 | Show HN | Not posted (waiting on the human action) |
 | Product side | Askovo kept shipping during dogfood: 2.3.0 ([fe8451d](https://github.com/roy-tong/askovo/commit/fe8451d)) → 2.6.0 (2026-11-01) |
 
-**This case cannot currently claim any growth outcome.** What it can claim: a minutes ledger, a fixed false positive, a gap caught by its own audit, and a gate-first experiment still in flight. D14 (Nov 14) decides; whichever way it goes — pass or Kill — the result will be written back here.
+**This case cannot currently claim any growth outcome.** What it can claim: a minutes ledger, a fixed false positive, a gap caught by its own audit. The next step is no longer waiting for a verdict day — it is running the "right people + useful words + keep following up" loop for four weeks and writing the result back honestly.

@@ -104,7 +104,7 @@ def collect(data_dir, ledger, campaign):
         "campaign": campaign,
         "generated_at": datetime.now().isoformat(timespec="seconds"),
         "plan": (dict(plan, _path=str(plan_path)) if plan else None),
-        "plan_approval": approval_status(plan) if plan else None,
+        "plan_approval": approval_status(plan, data_dir=data_dir) if plan else None,
         "queue": {
             "path": str(queue_path),
             "exists": queue is not None,
@@ -249,10 +249,23 @@ def review_markdown(data_dir, ledger, campaign):
     return "\n".join(lines)
 
 
-def next_step(data_dir, ledger, campaign=None):
-    """状态机：返回 {code,title,command,why}。无 campaign 时取最近修改的计划。"""
+def next_step(data_dir, ledger, campaign=None, followups=None):
+    """状态机：返回 {code,title,command,why}。无 campaign 时取最近修改的计划。
+
+    followups 传入跟进引擎时，到期的跟进优先于"再发一条新内容"——已经回过话的人
+    比陌生人好谈，而且过期不跟就等于丢掉前面所有投入。
+    """
     from .approval import list_plans
     from .planlint import governing_plan
+
+    if followups is not None:
+        due = followups.due()
+        if due:
+            worst = min(r["next_due"] for r in due)
+            return {"code": "followup-due",
+                    "title": f"先跟进：{len(due)} 个人今天该跟（最早到期 {worst}）",
+                    "command": "mkt followup due",
+                    "why": "发新内容之前，先把已经回过话的人跟完。跟丢了就等于重来。"}
 
     plan, plan_path = (None, None)
     if campaign:
@@ -271,7 +284,7 @@ def next_step(data_dir, ledger, campaign=None):
                                "--channel email --wave-action message --size 10",
                     "why": "没有计划就没有人审对象；内核只执行受计划管辖的动作。"}
 
-    st = approval_status(plan)
+    st = approval_status(plan, data_dir=data_dir)
     pid = plan.get("plan_id", "")
     if not st["valid"]:
         return {"code": "approve", "title": "计划待审批（或批准已失效）",

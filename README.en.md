@@ -7,9 +7,9 @@
 
 <p align="center"><a href="README.md">简体中文</a> · <strong>English</strong></p>
 
-Growovo is built for operators who maintain product communities, content channels, and customer communication. You provide goals, authorized accounts, and task lists; everything is previewed and reviewed before any recurring action runs. Every action is recorded as success, failure, or indeterminate (needs human verification), with pause and follow-up handling.
+Growovo is a GTM/User Growth operator for **indie developers and one-person companies**. Provide product facts, target users, and authorization boundaries: it identifies demand worth serving, produces reproducible value artifacts and growth actions, and records every action as success, failure, or indeterminate. Sending, impressions, and stars are not business outcomes.
 
-The product consists of an **Operator Engine** (the execution core) and **Playbooks** (business workflows). The currently available GitHub Inbox Playbook triages issue lists and generates reply queues; content, email, and growth campaigns reuse the same execution core. CLI, MCP, and Skill share one set of approval, budget, read-back, and ledger mechanisms. A successful send only means the operation completed — business outcomes such as signups or payments are recorded separately.
+The product combines **Demand / Execution / Learning** with an **Operator Engine and Playbooks**: Opportunity Discovery checks product-value fit, Value Artifact packages tutorials, examples, tests, templates and real cases, and Journey diagnoses activation and retention breakpoints. GitHub Inbox is one Playbook, not the product definition. CLI, MCP, and Skill share approval, budget, read-back, and ledger mechanisms; activation, retained use, and payment are verified independently.
 
 [![tests](https://github.com/roy-tong/Growovo/actions/workflows/tests.yml/badge.svg)](https://github.com/roy-tong/Growovo/actions/workflows/tests.yml)
 
@@ -25,14 +25,14 @@ Each can be used independently. The `mkt.py` and `growovo-gtm` identifiers are k
 
 ## Compliance and discipline (read this first)
 
-- Only for accounts **you own or operate**; never touch other people's accounts, no agency-style automation
+- Only for accounts **you own or are explicitly authorized to operate**; never touch unauthorized accounts. Ownership, scope, and human takeover are audited.
 - The CDP channel is zero-credential: no passwords, tokens, or cookies are ever stored; SMTP credentials come only from environment variables
 - **All write operations default to dry-run; `--go` runs for real** — real runs must be bound to a **human-approved plan**: without plan governance the default is refusal; only the manual CLI path `--adhoc` explicitly allows a run (the ledger records adhoc=true; not available over MCP)
 - Daily budgets are atomically reserved before sends; `indeterminate` (unknown outcome) can never be auto-resent — a human must run `ledger resolve`; DNC/bounced identities in contacts merge with `suppress.txt` into a single suppression source
 - Fail and stop (no retry bombardment); a read-back mismatch never sends (codified after the 449 empty-body incident)
 - Human pacing: randomized intervals + per-run hard cap + daily budget (see the table in core/throttle.py)
 - No mass blasting: per-recipient personalized content is a precondition; leftover placeholders are rejected outright by the gates
-- No adversarial techniques: no CAPTCHA bypassing, no fingerprint spoofing, no proxy pools
+- No adversarial techniques: no CAPTCHA bypassing, no fingerprint spoofing, no proxy use to evade platform controls. Proxies are only for documented legitimate network needs with matching account authorization, never for higher quotas or ban evasion.
 
 ## Install and quickstart
 
@@ -98,6 +98,17 @@ python3 mkt.py check              # verify the CDP session and X/Gmail login sta
 | `python3 mkt.py scorecard` | Receipt and outcome scorecard (read-only) | — |
 | `python3 mkt.py optimize` | Optimization proposals (requires_human, never auto-applied) | — |
 | `python3 mkt.py gtm diagnose --facts <json>` | **GTM diagnosis**: product facts pack → platform priorities + cold-start checklist + scale gates (every recommendation carries an evidence label; schema in core/gtm.py; risk notes in docs/risk/) | — |
+| `mkt opportunity --facts <json> --signals <json>` | **Opportunity Discovery**: product-value fit, candidate explanations and next actions. Product issues precede acquisition; complaints are not purchase intent | — |
+| `mkt artifact lint/render --file <json>` | **Value Artifacts**: validate/render tutorials, examples, reproducible tests, templates, comparisons and real cases with direct value, reproduction steps and boundaries | — |
+| `mkt journey --events <json> --campaign C --since D1 --until D2` | **User journeys**: diagnose discovery→engagement→trial→activation→retention→payment in one scope; historical campaigns never fill the current window | — |
+| `mkt evaluate compare/evolution/external` | **Capability, competition and evolution evaluation**: same-condition comparisons, external unseen-case contract and regression history without a composite winner score | — |
+| `mkt playbook compose --platform P --motion M --vertical V` | **Platform × Motion × Vertical** playbooks without duplicating a workflow per platform and industry | — |
+| `mkt account add/list/check/warm/eligible/takeover` | **Authorized account assets**: ownership/authorization evidence, lifecycle, health, cooldown and human takeover; no login or sends | — |
+| `mkt network bind/list/export` | **Proxy references**: only environment-variable names bound to accounts; no credential reading, higher quotas, or ban evasion | — |
+| `mkt intent start/log/show/verdict` | **Intent learning experiments**: configurable windows and optional targets; sample/safety observations, not pass/dead channel verdicts | — |
+| `mkt exp show/coverage/stale` | **Experience eligibility**: official rules, reproducible methods, single-expert experience, short-term tactics and own tests have separate rules; expired/unreviewed/irrelevant records never enter execution | — |
+| `mkt result` / `mkt revise` | **Result and revision**: one campaign/subject/time_window projection for real OutcomeLedger events and dynamic value events; no automatic channel verdicts | — |
+| `mkt billing --actions N --outcomes M` | **Pricing experiments**: action/outcome plus explicit subscription/hybrid candidates and acceptance logs; accepted quote is not payment | — |
 | `python3 mkt.py schedule …` | Persisted waves: add / tick / status / resume | — |
 
 Level meanings: PROVEN = verified on a real account; PORTED = the pattern is verified, this wrapper has not been run end-to-end; UNVERIFIED = selectors untested in practice — the first run must be supervised (first-run checklist in channel doc 03 §5).
@@ -187,7 +198,7 @@ Each channel × action declares a preferred transport plus a fallback chain; **f
 ## Repository layout
 
 ```
-core/      ledger (with human adjudication overrides) · gates (incl. DNC merge) · throttle atomic daily budgets · pipeline write-path transactions · evidence · cdp session · transports registry · planlint plan validation · approval events/plan fingerprints · queue edit-time gates · campaign view/review preview/next step · links tracking links · outcome_io CSV import & ledger aggregation · collector local webhook/redirect · action_runner single actions · queue_runner all-channel queues · playbooks GitHub Inbox triage/draft queues · workflows recipe learning/approval/replay · locators locator ladder · scorecard · optimization proposals · scheduler persisted waves · workspace multi-product isolation · experiments preregistration · attribution events/funnels/attribution · demo zero-account demo · doctor environment check
+core/      ledger (with human adjudication overrides) · gates (incl. DNC merge) · throttle atomic daily budgets · pipeline write-path transactions · evidence · cdp session · transports registry · planlint plan validation · approval execution fingerprints (plan+queue+account+workspace) · queue edit-time gates · campaign view/review preview/next step · followups scoped ledgers · intent configurable learning experiments · logscan local evidence scanning · retro channel accounting · narrative business claims · platforms single registry (37) · voice profiles (37) · experience typed eligibility (129 raw records, not auto-eligible) · strategy and cadence · execute strategy→plan/queue/manual · result scoped three-layer projection · revise candidate parameter diffs · progress daily/weekly · opportunity discovery · value_artifact · journey · playbook_model Platform×Motion×Vertical · accounts authorized identity lifecycle · network proxy references · billing pricing experiments · links tracking links · outcome_io CSV import & ledger aggregation · collector local webhook/redirect · action_runner single actions · queue_runner all-channel queues · playbooks GitHub Inbox triage/draft queues · workflows recipe learning/approval/replay · locators locator ladder · scorecard · optimization proposals · scheduler persisted waves · workspace multi-product isolation · experiments optional learning experiments · attribution events/funnels/attribution · demo zero-account demo · doctor environment check
 channels/  x/(vendor+adapter) · email_smtp · email_cdp · reddit · linkedin · github (first api-channel release) · hn (CDP write + Algolia read)
 transports/  os_input (macOS keyboard/mouse/AX simulation, UNVERIFIED)
 skills/    growovo-gtm (GTM operations protocol) · github-project-ops (GitHub project operations protocol + audit script)

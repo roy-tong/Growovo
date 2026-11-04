@@ -8,3 +8,9 @@ __pycache__/
 *.pyc
 .DS_Store
 .venv/
+build/
+dist/
+*.egg-info/
+.pytest_cache/
+# Raw collected platform text is local input, not a distributable asset.
+docs/playbooks/经验库/corpus/

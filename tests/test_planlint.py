@@ -73,14 +73,14 @@ class TestLint(unittest.TestCase):
                                 "size": cap, "content_policy": "x"}])
         self.assertEqual(lint_plan(p2), [])
 
-    def test_content_policy_and_criteria_required(self):
+    def test_content_policy_and_criteria_structure(self):
         p = valid_plan(waves=[{"wave": 1, "channel": "email", "action": "message", "size": 5}])
         errs = lint_plan(p)
         self.assertTrue(any("content_policy" in e for e in errs))
         p2 = valid_plan(success_criteria={"metric": "reply_rate"})
-        errs2 = lint_plan(p2)
-        self.assertTrue(any("success_criteria.target" in e for e in errs2))
-        self.assertTrue(any("success_criteria.stop" in e for e in errs2))
+        self.assertEqual([], lint_plan(p2))
+        p3 = valid_plan(success_criteria={"metric": 42})
+        self.assertTrue(any("success_criteria.metric" in e for e in lint_plan(p3)))
 
 
 class TestEnforceApproval(unittest.TestCase):

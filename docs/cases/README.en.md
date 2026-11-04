@@ -4,7 +4,7 @@
 
 | Case | Role | Status | One line |
 |---|---|---|---|
-| [Askovo](askovo.en.md) | First dogfood client (P0) | 🟡 In progress, D14 gate 2026-11-14 | 2 of 3 channels executed (blog re-verified live 11-02; the logged URL was wrong); verdict template frozen; measurement path and Show HN outstanding |
+| [Askovo](askovo.en.md) | First dogfood client | 🟡 In progress (no verdict date) | 2 of 3 channels executed (blog re-verified live 11-02; the logged URL was wrong); measurement path and Show HN outstanding; iteration cadence since 2026-11-03 |
 | [Verovo](verovo.en.md) | Precedent case: one full GTM cycle mapped from price paid → defaults | 🟢 Retrospective complete, launch week executing | ~1,200 emails and ~900 X actions bought 4 kill lines; launch pack M1–M8 ready, freeze 11/06 |
 | [Growovo](growovo.en.md) | Bootstrap | 🟡 Early | Rename, bilingual README, 186 tests, contributor entry points, comparison page — every self-operations action through its own pipeline, minutes on record |
 
@@ -12,7 +12,7 @@
 
 A legitimate Growovo case must contain:
 
-1. **Preregistered goals and gates** — "what counts as pass, what counts as dead" written before launch; decision lines never move afterwards;
+1. **A decision line written before launch** — what counts as working and what counts as dead, stated up front and not moved afterwards; no "judge it on day 14" gate during iteration;
 2. **Four phases** — define (readiness + positioning) / build (assets) / run (channel execution) / measure (outcome definitions);
 3. **Minutes ledger** — operator and human tracked separately; the human budget is a hard constraint;
 4. **Two-layer results** — platform action success ≠ business outcome; approximations must be labeled;

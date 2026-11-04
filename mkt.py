@@ -133,7 +133,10 @@ def cmd_pause(args):
 
 def cmd_report(args):
     from core.safety import report
+    from core.followups import Followups
     d = report(DATA, _ledger(), hours=args.hours)
+    fu = Followups(DATA / "followups.jsonl")
+    d["followups"] = fu.stats()
     if getattr(args, "format", "json") == "md":
         print(_report_md(d))
     else:
@@ -165,6 +168,687 @@ def cmd_contacts(args):
     elif args.action == "import":
         print(json.dumps(c.import_legacy(args.file), ensure_ascii=False))
     return 0
+
+
+
+def cmd_followup(args):
+    from core.followups import Followups, describe
+    fu = Followups(DATA / "followups.jsonl")
+    act = args.action
+    if act == "add":
+        rec = fu.add(args.platform, args.target, source=args.source,
+                     note=args.note, on=args.on or None, channel=args.channel,
+                     campaign=getattr(args, "campaign", ""))
+        print(describe(rec))
+        print(f"  下次跟进：{rec['next_due']}")
+    elif act == "due":
+        rows = fu.due(args.on or None)
+        if args.json:
+            print(json.dumps(rows, ensure_ascii=False, indent=1))
+            return 0
+        if not rows:
+            print("今天没有该跟的人。")
+            return 0
+        print(f"今天该跟 {len(rows)} 个：")
+        for r in rows:
+            print("  " + describe(r))
+    elif act == "list":
+        rows = fu.all()
+        if args.stage:
+            rows = [r for r in rows if r["stage"] == args.stage]
+        if args.json:
+            print(json.dumps(rows, ensure_ascii=False, indent=1))
+            return 0
+        print(f"{len(rows)} 个对象")
+        for r in rows:
+            print("  " + describe(r))
+    elif act == "touch":
+        rec = fu.touch(args.id, args.result, note=args.note,
+                       channel=args.channel, on=args.on or None,
+                       campaign=getattr(args, "campaign", ""))
+        print(describe(rec))
+        if rec.get("next_due"):
+            print(f"  下次跟进：{rec['next_due']}")
+        else:
+            print(f"  已关闭：{rec.get('closed_reason', '')}")
+    elif act == "stats":
+        st = fu.stats(args.on or None)
+        if args.json:
+            print(json.dumps(st, ensure_ascii=False, indent=1))
+            return 0
+        print(f"对象 {st['total']}｜进行中 {st['open']}｜今天到期 {st['due']}｜逾期 {st['overdue']}")
+        print(f"有实质回应 {st['substantive']}｜45 天后仍在对话 {st['conversations_after_45d']}")
+        for row in fu.platform_breakdown():
+            print(f"  {row['platform']:<10} 共 {row['total']:>2}｜进行中 {row['open']:>2}｜实质 {row['substantive']}")
+    elif act == "close":
+        rec = fu.close(args.id, args.reason)
+        print(f"{rec['id']} 已关闭：{rec['closed_reason']}")
+    return 0
+
+
+def cmd_intent(args):
+    from core.intent import IntentCampaign
+    act = args.action
+    path = DATA / "intent" / f"{args.id}.json"
+    if act == "start":
+        subs = [x.strip() for x in (args.subs or "").split(",") if x.strip()]
+        data = IntentCampaign.start(path, args.id, platform=args.platform or "reddit",
+                                    subs=subs, started=args.on or None, owner=args.owner or "",
+                                    weeks=getattr(args, "weeks", 4),
+                                    weekly_target=getattr(args, "weekly_target", None))
+        print(f"战术已建：{data['id']}（{data['started']} → {data['ends']}）")
+        print(f"  {data['platform']}｜目标 sub：{', '.join(data['subs']) or '（未填）'}")
+        return 0
+    c = IntentCampaign(path)
+    if act == "log":
+        d = c.log(sent=args.sent or 0, deleted=args.deleted or 0,
+                  replied=args.replied or 0, moved=args.moved or 0,
+                  note=args.note or "", on=args.on or None)
+        s = c.summary(args.on or None)
+        print(f"已记录（{args.id}）：累计 {s['sent']} 条触达，回应率 {s['response_rate']:.0%}")
+        return 0
+    if act == "show":
+        s = c.summary(args.on or None)
+        print(f"{args.id}｜第 {s['week']} 周·{s['phase']}：{s['todo']}")
+        print(f"  触达 {s['sent']}｜被删 {s['deleted']}（{s['deleted_rate']:.0%}）"
+              f"｜回应 {s['replied']}（{s['response_rate']:.0%}）｜转私信 {s['moved']}")
+        if s["weeks_behind_quota"]:
+            print(f"  ⚠ 第 {'、'.join(map(str, s['weeks_behind_quota']))} 周未达每周 20 条配额")
+        return 0
+    if act == "verdict":
+        v = c.verdict(args.on or None)
+        print(f"判定：{v['verdict']}")
+        print(f"  {v['reason']}")
+        print(f"  数据：触达 {v['sent']}｜被删率 {v['deleted_rate']:.0%}"
+              f"｜回应率 {v['response_rate']:.0%}｜转私信 {v['moved']}")
+        return 0
+    return 0
+
+
+
+def cmd_retro(args):
+    from core import logscan, retro, narrative
+    act = args.action
+
+    if act == "scan":
+        root = Path(args.path).expanduser()
+        if not root.exists():
+            print(f"路径不存在：{root}", file=sys.stderr)
+            return 2
+        out = Path(args.out) if args.out else (DATA / "retro" / "scan.json")
+        res = logscan.scan(root, out, max_files=args.max_files)
+        inv = res["inventory"]
+        print(f"扫描 {inv['files']} 个文件（{inv['bytes'] / 1024:.0f} KB），"
+              f"{res['files_with_claims']} 个有可用事实，共提取 {res['claims']} 条")
+        print(f"  已保存：{res['saved']}")
+        return 0
+
+    src = Path(args.scan) if getattr(args, "scan", "") else (DATA / "retro" / "scan.json")
+
+    if act == "analyze":
+        if not src.exists():
+            print("还没有扫描结果，先跑 mkt retro scan --path <目录>", file=sys.stderr)
+            return 2
+        data = logscan.load(src)
+        pool = retro.evidence_pool(data["claims"])
+        print("日志里在说的那些话（同一句重复出现越多次，越可能是关键事实）\n")
+        for row in pool[:8]:
+            print(f"【{row['name']}】")
+            for it in row["items"]:
+                name = retro.METRIC_NAMES.get(it["metric"], it["metric"])
+                mark = f" ×{it['support']}" if it["support"] > 1 else ""
+                print(f"  ({name}){mark} {it['sentence'][:110]}")
+                print(f"         └ {it['file']}")
+            print()
+        return 0
+
+    if act == "report":
+        data = None
+        if getattr(args, "path", ""):
+            root = Path(args.path).expanduser()
+            if root.exists():
+                tmp = DATA / "retro" / "scan.json"
+                logscan.scan(root, tmp, max_files=args.max_files)
+                data = logscan.load(tmp)
+        if data is None:
+            if not src.exists():
+                print("需要 --path <目录> 或先跑 mkt retro scan", file=sys.stderr)
+                return 2
+            data = logscan.load(src)
+
+        if not getattr(args, "facts", ""):
+            print("报告需要一个钉好口径的事实文件（--facts）。\n"
+                  "机器只负责把证据摊开；动作数/回应数用哪个口径，必须人来钉，"
+                  "否则算出来的比率是假的。", file=sys.stderr)
+            return 2
+        facts = json.loads(Path(args.facts).read_text(encoding="utf-8"))
+        rows = retro.rates_from_facts(facts)
+        for r in rows:
+            r["sources"] = [f"{args.facts}#{r['channel']}"]
+        analysis = {"channels": rows, "waste": retro.waste(rows),
+                    "conflicts": retro.conflicts(retro.consolidate(data["claims"]),
+                                                 only_channels=list(facts.keys())),
+                    "timeline": retro.timeline(data["claims"]),
+                    "evidence_index": {}}
+        claims = narrative.build_claims(analysis)
+        problems = narrative.audit_claims(claims)
+        if problems:
+            print("结论不合格，拒绝出报告：", file=sys.stderr)
+            for p in problems:
+                print("  - " + p, file=sys.stderr)
+            return 3
+        md = _retro_markdown(analysis, claims, data, Path(args.path) if args.path else None)
+        out = Path(args.out) if args.out else (BASE / "reports" / "retro.md")
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(md, encoding="utf-8")
+        print(f"已生成：{out}")
+        print(f"  证据 {len(data['claims'])} 条 · 渠道 {len(rows)} 个 · "
+              f"结论 {len(claims)} 条（全部通过四件套自检）")
+        return 0
+    return 0
+
+
+def _retro_markdown(a, claims, data, root):
+    from core import narrative as na
+    from core import retro as rt
+    inv = data["inventory"]
+    t = a["timeline"]
+    parts = ["# 复盘报告", ""]
+    parts.append(na.lede(
+        f"扫了 {inv['files']} 个文件，提取 {len(data['claims'])} 条带出处的事实，"
+        f"覆盖 {t['start']} → {t['end']}（{t['days']} 天，{t['active_days']} 个有记录的日子）。"))
+    parts.append("")
+    parts.append(na.section("渠道账",
+        "动作数与回应数采用人工钉定的口径；机器只负责把日志里的证据摊开。",
+        na.table(["渠道", "动作", "回应", "结果", "每百次动作带来回应", "每百次动作带来结果"],
+                 [[r["name"], r["actions"], r["responses"], r["outcomes"],
+                   r["response_per_100"], r["outcome_per_100"]] for r in a["channels"]])))
+    parts.append("")
+    w = rt.wins(a)
+    if w:
+        parts.append("")
+        parts.append(na.section("做对了什么",
+            "复盘不能只列错误。这些动作有效率和量，下一轮直接复用。",
+            na.table(["打法", "类型", "为什么算做对了"],
+                     [[x["name"], x["kind"], x["why"]] for x in w])))
+    parts.append("")
+    if claims:
+        parts.append(na.section("结论", "每条都按「结论—依据—机制—所以」写，缺一项就不允许出现。",
+                                na.render_claims(claims)))
+    else:
+        thin = [r for r in a["channels"] if (r.get("actions") or 0) < 30]
+        names = "、".join(r["name"] for r in thin) or "全部渠道"
+        parts.append(na.section("结论：样本不足，不下判断",
+            "复盘不允许在数据不够的时候给结论。这不是留白，是明确说「现在还看不出来」。",
+            "\n".join([
+                f"- 所有渠道的单轮动作都不到 30 次（{names}），任何比率都没有统计意义",
+                "- 现在的阶段目标是**把一轮动作跑完**，不是判断渠道好坏",
+                "- 下一步：按策略跑满 4 周、每周 ≥20 次触达，再回来复盘",
+            ])))
+    pool = rt.evidence_pool(data["claims"])
+    if pool:
+        lines = []
+        for row in pool[:5]:
+            lines.append(f"**{row['name']}**")
+            for it in row["items"][:4]:
+                name = rt.METRIC_NAMES.get(it["metric"], it["metric"])
+                mark = f"（重复 {it['support']} 次）" if it["support"] > 1 else ""
+                lines.append(f"- ({name}) {it['sentence'][:140]}{mark}")
+            lines.append("")
+        parts.append("")
+        parts.append(na.section("证据池",
+            "日志里被反复提到的数字，按出现次数排序。不作为结论，只作为核对与反驳的材料。",
+            "\n".join(lines)))
+    if a["conflicts"]:
+        parts.append("")
+        parts.append(na.section("数字对不上的地方",
+            "跨渠道比较之前必须先统一口径，否则比的是记录方式，不是效果。",
+            na.table(["渠道", "指标", "日志里出现的取值"],
+                     [[c["name"], c["metric"], "、".join(map(str, c["values"]))] for c in a["conflicts"]])))
+    rules = rt.derive_rules(a)
+    if rules:
+        parts.append("")
+        parts.append(na.section("下次的规则", "每条都挂在数字上，不是口号。",
+                                na.table(["规则", "依据"], [[r["rule"], r["basis"]] for r in rules])))
+    parts.append("")
+    parts.append(na.section("数据说明",
+        "这一节决定了上面的结论能被信到什么程度。",
+        "\n".join([
+            f"- 扫描范围：{root if root else inv['root']}",
+            f"- 文件 {inv['files']} 个，其中 {len(data.get('files_with_claims', []))} 个含可用事实",
+            "- 跳过 json/jsonl/csv 原始语料：那里面的数字是数据本身，不是运营动作",
+            "- 单文件最多读 256KB；超过一万的数值、8 位日期、PR 号一律丢弃",
+            "- 同一个指标有多个合理取值时全部保留，不自动裁决——口径由人钉",
+        ])))
+    return "\n".join(parts)
+
+
+
+
+
+
+def cmd_exp(args):
+    from core import experience
+    if args.action == "show":
+        print(experience.render(args.platform))
+    elif args.action == "coverage":
+        fresh = experience.freshness()
+        for pid, n in experience.coverage().items():
+            q = [x for x in experience.stale() if x["platform"] == pid]
+            newest = q[0]["newest_days"] if q else None
+            age = f"最新 {newest} 天前" if newest is not None else "无发布时间"
+            print(f"  {pid:<18} {n:>3} 条   {age}")
+        print(f"\n窗口 {fresh['window_days']} 天：{fresh['fresh_claims']}/{fresh['claims']} 条在窗口内"
+              f"，{'达标' if fresh['meets_window'] else '不达标（需要重采）'}")
+    elif args.action == "stale":
+        plan = experience.maintenance_plan()
+        print(f"维护窗口 {plan['window_days']} 天，每平台目标 {plan['target_per_platform']} 条，"
+              f"建议每 {plan['refresh_cadence_days']} 天重采一次")
+        print(f"命令：{plan['command']}\n")
+        for x in plan["platforms_needing_refresh"]:
+            print(f"  待刷新 {x['name']:<10} {x['claims']:>3} 条  {x['why']}")
+        if not plan["platforms_needing_refresh"]:
+            print("  全部在窗口内。")
+    return 0
+
+
+def cmd_voice(args):
+    from core import voice
+    if args.action == "show":
+        print(voice.render(args.platform))
+    elif args.action == "draft":
+        d = voice.draft(args.platform, hook=args.hook or "", what=args.what or "",
+                        ask=args.ask or "")
+        print(f"# {args.platform} 的开头 · {d['tone']}")
+        print()
+        for i, x in enumerate(d["drafts"], 1):
+            print(f"{i}. {x['opener']}")
+        print()
+        print(f"长度：{d['length']}｜别这么写：" + "；".join(d["taboos"]))
+    elif args.action == "lint":
+        text = args.text or ""
+        if args.file:
+            text = Path(args.file).read_text(encoding="utf-8")
+        problems = voice.lint(args.platform, text)
+        if not problems:
+            print("这条可以用。")
+            return 0
+        print(f"{len(problems)} 个问题：")
+        for p in problems:
+            print(f"  - {p}")
+        return 2
+    return 0
+
+
+def cmd_result(args):
+    from core import result
+    from core.followups import Followups
+    from core.intent import IntentCampaign
+    from core.scope import scope_from_args, filter_rows, ScopedFollowups
+    scope = scope_from_args(args)
+    entries = filter_rows(_ledger().all() if hasattr(_ledger(), "all") else [], scope)
+    fu = ScopedFollowups(Followups(DATA / "followups.jsonl"), scope)
+    ic = None
+    if getattr(args, "intent", ""):
+        pth = DATA / "intent" / f"{args.intent}.json"
+        if pth.exists():
+            ic = IntentCampaign(pth)
+    isum = ic.summary() if ic else None
+    events = []
+    ev = DATA / "outcomes" / "events.jsonl"
+    if ev.exists():
+        events = [json.loads(x) for x in ev.read_text(encoding="utf-8").splitlines() if x.strip()]
+    events = filter_rows(events, scope)
+    crit = json.loads(args.criteria) if getattr(args, "criteria", "") else []
+    value_events = [x.strip() for x in str(getattr(args, "value_events", "") or "").split(",") if x.strip()]
+    r = result.collect(ledger_entries=entries, followups=fu, intent_summary=isum,
+                       outcome_events=events, criteria=crit, scope=scope,
+                       value_events=value_events or None)
+    if args.json:
+        print(json.dumps(r, ensure_ascii=False, indent=1))
+    else:
+        print(result.render(r))
+    return 0
+
+
+def _journey_summary(payload):
+    from core.narrative import table
+    lines = ["# 用户旅程诊断", ""]
+    if payload.get("status") in ("no_data", "insufficient_data"):
+        lines.append("当前范围没有足够的已确认事件，不把历史对象当成本轮进展。")
+    rows = [[x["label"], x["subjects"], x["events"]] for x in payload.get("funnel", [])]
+    lines.append(table(["阶段", "确认人数", "记录数"], rows))
+    rec = payload.get("priority_recommendation") or {}
+    if rec:
+        lines.extend(["", f"下一步：{rec.get('label', '')}——{rec.get('reason', '')}"])
+    if payload.get("acquisition", {}).get("should_pause"):
+        lines.append("存在未解除的产品阻断，先修产品并暂停新增获客。")
+    return "\n".join(lines)
+
+
+def cmd_opportunity(args):
+    from core import opportunity
+    facts = json.loads(Path(args.facts).read_text(encoding="utf-8"))
+    signals = json.loads(Path(args.signals).read_text(encoding="utf-8"))
+    payload = opportunity.discover(facts, signals)
+    if args.json:
+        print(json.dumps(payload, ensure_ascii=False, indent=1))
+        return 0
+    from core.narrative import table
+    lines = ["# 需求机会候选", ""]
+    rows = []
+    for c in payload.get("candidates", []):
+        action = c.get("next_action") or {}
+        rows.append([c.get("need", "")[:36], c.get("demand_match", {}).get("status", ""),
+                     action.get("label") or action.get("code", ""),
+                     (c.get("explanation") or [""])[0]])
+    if not rows:
+        lines.append("没有形成候选；继续采集或补产品事实，不编造机会。")
+    else:
+        lines.append(table(["需求", "匹配", "下一动作", "判断依据"], rows))
+        lines.append("")
+        lines.append("> 匹配分只表示产品事实匹配，不证明需求强度、购买意愿或收入。")
+    print("\n".join(lines))
+    return 0
+
+
+def cmd_artifact(args):
+    from core import value_artifact
+    artifact = json.loads(Path(args.file).read_text(encoding="utf-8"))
+    if args.action == "lint":
+        errors = value_artifact.lint(artifact)
+        if errors:
+            print("\n".join(errors))
+            return 2
+        print("价值资产校验通过。")
+        return 0
+    print(value_artifact.render(artifact))
+    return 0
+
+
+def cmd_playbook(args):
+    from core import playbook_model
+    if args.action == "list":
+        print(json.dumps({"motions": playbook_model.MOTIONS,
+                          "verticals": playbook_model.VERTICALS}, ensure_ascii=False, indent=1))
+        return 0
+    playbook = playbook_model.compose(args.platform, args.motion, args.vertical)
+    if args.json:
+        print(json.dumps(playbook, ensure_ascii=False, indent=1))
+    else:
+        print(playbook_model.render(playbook))
+    return 0
+
+
+def cmd_evaluate(args):
+    from core import evaluation
+    if args.action == "compare":
+        ours = json.loads(Path(args.ours).read_text(encoding="utf-8"))
+        alternative = json.loads(Path(args.alternative).read_text(encoding="utf-8"))
+        payload = evaluation.compare_runs(ours, alternative)
+    elif args.action == "evolution":
+        previous = json.loads(Path(args.previous).read_text(encoding="utf-8"))
+        current = json.loads(Path(args.current).read_text(encoding="utf-8"))
+        payload = evaluation.assess_evolution(previous, current)
+    else:
+        case = json.loads(Path(args.file).read_text(encoding="utf-8"))
+        problems = evaluation.validate_external_case(case)
+        payload = {"ok": not problems, "problems": problems,
+                   "note": "外部任务契约通过不代表业务效果已验证"}
+    print(json.dumps(payload, ensure_ascii=False, indent=1))
+    return 0 if payload.get("ok", True) else 2
+
+
+def cmd_journey(args):
+    from core import journey
+    path = Path(args.events)
+    text = path.read_text(encoding="utf-8")
+    try:
+        events = json.loads(text)
+    except json.JSONDecodeError:
+        events = [json.loads(x) for x in text.splitlines() if x.strip()]
+    if not args.since or not args.until:
+        print("journey 需要 --since 与 --until，禁止用无界历史代替本轮进展", file=sys.stderr)
+        return 2
+    payload = journey.diagnose(events, campaign=args.campaign,
+                               subject=args.subject or None,
+                               time_window={"start": args.since, "end": args.until})
+    if args.json:
+        print(json.dumps(payload, ensure_ascii=False, indent=1))
+    else:
+        print(_journey_summary(payload))
+    return 0
+
+
+def cmd_revise(args):
+    from core import result, revise
+    from core.followups import Followups
+    from core.intent import IntentCampaign
+    from core.scope import scope_from_args, filter_rows, ScopedFollowups
+    scope = scope_from_args(args)
+    entries = filter_rows(_ledger().all() if hasattr(_ledger(), "all") else [], scope)
+    fu = ScopedFollowups(Followups(DATA / "followups.jsonl"), scope)
+    ic = None
+    if getattr(args, "intent", ""):
+        pth = DATA / "intent" / f"{args.intent}.json"
+        if pth.exists():
+            ic = IntentCampaign(pth)
+    if getattr(args, "result", ""):
+        r = json.loads(Path(args.result).read_text(encoding="utf-8"))
+    else:
+        events = []
+        ev = DATA / "outcomes" / "events.jsonl"
+        if ev.exists():
+            events = [json.loads(x) for x in ev.read_text(encoding="utf-8").splitlines() if x.strip()]
+        r = result.collect(ledger_entries=entries, followups=fu,
+                           intent_summary=ic.summary() if ic else None,
+                           outcome_events=filter_rows(events, scope), scope=scope)
+    params = json.loads(args.params) if getattr(args, "params", "") else {}
+    diff = revise.propose(r, params, intent=ic.summary() if ic else None)
+    print(revise.render(diff))
+    return 0
+
+
+def cmd_execute(args):
+    import csv as _csv
+    from core import execute
+    strat = json.loads(Path(args.strategy_file).read_text(encoding="utf-8"))
+    rows = list(_csv.DictReader(Path(args.targets).read_text(encoding="utf-8").splitlines()))
+    targets = [{"target": r.get("target", ""), "body": r.get("body", ""),
+                "subject": r.get("subject", "")} for r in rows]
+    try:
+        res = execute.build(strat, targets, campaign=args.campaign, data_dir=DATA,
+                            criteria=json.loads(args.criteria) if args.criteria else None,
+                            account=getattr(args, "account", None),
+                            workspace=getattr(args, "workspace", None))
+    except execute.ExecuteError as e:
+        print(f"不能生成：{e}", file=sys.stderr)
+        return 2
+    print(execute.render(res))
+    return 0
+
+
+def cmd_strategy(args):
+    from core import gtm, strategy, cadence, retro, logscan
+    act = args.action
+
+    if act == "build":
+        facts = json.loads(Path(args.facts).read_text(encoding="utf-8"))
+        payload = gtm.diagnose(facts)
+        analysis = None
+        if getattr(args, "retro_facts", ""):
+            rfacts = json.loads(Path(args.retro_facts).read_text(encoding="utf-8"))
+            rows = retro.rates_from_facts(rfacts)
+            for r in rows:
+                r["sources"] = [f"{args.retro_facts}#{r['channel']}"]
+            analysis = {"channels": rows, "waste": retro.waste(rows)}
+        s = strategy.build(facts["product"], focus=payload["focus"],
+                           analysis=analysis,
+                           constraints={"human_minutes_per_week": args.human_minutes,
+                                        "actions_per_week": args.actions_per_week})
+        if getattr(args, "json", False):
+            print(json.dumps(s, ensure_ascii=False, indent=1))
+            return 0
+        md = strategy.render(s)
+        if args.out:
+            out = Path(args.out); out.parent.mkdir(parents=True, exist_ok=True)
+            out.write_text(md, encoding="utf-8")
+            print(f"策略已生成：{out}")
+        else:
+            print(md)
+        return 0
+
+    if act == "cadence":
+        facts = json.loads(Path(args.facts).read_text(encoding="utf-8")) if args.facts else None
+        if facts:
+            payload = gtm.diagnose(facts)
+            s = strategy.build(facts["product"], focus=payload["focus"], analysis=None)
+        else:
+            s = {"primary": {"name": args.primary or "GitHub", "residency": 0}}
+            s.update({"cold_start": []})
+        plan = cadence.build(s, start=args.start, actions_per_week=args.actions_per_week)
+        md = cadence.render(plan)
+        if args.out:
+            out = Path(args.out); out.parent.mkdir(parents=True, exist_ok=True)
+            out.write_text(md, encoding="utf-8")
+            print(f"动作表已生成：{out}")
+        else:
+            print(md)
+        return 0
+    return 0
+
+
+def cmd_progress(args):
+    from core import progress
+    from core.followups import Followups
+    from core.intent import IntentCampaign
+    fu = Followups(DATA / "followups.jsonl")
+    ic = None
+    if getattr(args, "intent", ""):
+        p = DATA / "intent" / f"{args.intent}.json"
+        if p.exists():
+            ic = IntentCampaign(p)
+    on = args.on or None
+    if args.action == "daily":
+        print(progress.render_daily(progress.daily(fu, ic, on)))
+    else:
+        print(progress.render_weekly(progress.weekly(fu, ic, on)))
+    return 0
+
+
+def cmd_billing(args):
+    from core import billing
+    pricing = json.loads(args.pricing) if args.pricing else None
+    try:
+        path = DATA / "pricing-experiments.jsonl"
+        if args.summary:
+            print(json.dumps(billing.acceptance_summary(path), ensure_ascii=False, indent=1))
+            return 0
+        if args.experiment_id:
+            log = billing.PricingExperimentLog(path)
+            if args.record_acceptance:
+                rec = log.record(args.experiment_id, args.record_acceptance,
+                                 reason=args.reason, actor=args.by)
+                print(json.dumps(rec, ensure_ascii=False, indent=1))
+            else:
+                rec = log.offer(args.experiment_id, actions=args.actions,
+                                outcomes=args.outcomes, pricing=pricing,
+                                prospect=args.prospect)
+                print(json.dumps(rec, ensure_ascii=False, indent=1))
+            return 0
+        return _billing_run(args, pricing)
+    except ValueError as e:
+        print(f"报价被拒：{e}", file=sys.stderr)
+        return 2
+
+
+def _billing_run(args, pricing):
+    from core import billing
+    if args.from_files:
+        q = billing.quote_from_files(DATA / "ledger.jsonl", DATA / "outcomes" / "events.jsonl",
+                                     pricing)
+    else:
+        q = billing.quote(args.actions, args.outcomes, pricing)
+    if args.json:
+        print(json.dumps(q, ensure_ascii=False, indent=1))
+    else:
+        print(billing.describe(q))
+    return 0
+
+
+def cmd_account(args):
+    from core.accounts import AccountRegistry
+    registry = AccountRegistry(DATA / "accounts.json")
+    act = args.action
+    if act == "add":
+        rec = registry.register(
+            args.platform, args.handle, args.identity_type, account_id=args.account_id or None,
+            owner=args.owner, ownership_evidence=args.ownership_evidence,
+            authorization_evidence=args.authorization_evidence,
+            multi_account_allowed=args.multi_account_allowed,
+            multi_account_evidence=args.multi_account_evidence,
+            disclosure=args.disclosure)
+        print(json.dumps(rec, ensure_ascii=False, indent=1))
+        return 0
+    if act == "list":
+        print(json.dumps(registry.all(platform=args.platform, status=args.status),
+                         ensure_ascii=False, indent=1))
+        return 0
+    if act == "check":
+        print(json.dumps(registry.operational(args.account_id), ensure_ascii=False, indent=1))
+        return 0
+    if act == "warm":
+        rec = registry.transition(args.account_id, "warming", reason=args.reason or "进入养号阶段")
+        print(json.dumps(rec, ensure_ascii=False, indent=1))
+        return 0
+    if act == "eligible":
+        rec = registry.transition(args.account_id, "eligible", reason=args.reason or "养号复核通过",
+                                  evidence=args.evidence, reviewer=args.by)
+        print(json.dumps(rec, ensure_ascii=False, indent=1))
+        return 0
+    if act == "pause":
+        rec = registry.transition(args.account_id, "paused", reason=args.reason)
+        print(json.dumps(rec, ensure_ascii=False, indent=1))
+        return 0
+    if act == "takeover":
+        rec = registry.request_human_takeover(args.account_id, args.reason)
+        print(json.dumps(rec, ensure_ascii=False, indent=1))
+        return 0
+    if act == "resolve":
+        rec = registry.resolve_human_takeover(args.account_id, reviewer=args.by, note=args.note)
+        print(json.dumps(rec, ensure_ascii=False, indent=1))
+        return 0
+    if act == "audit":
+        print(json.dumps(registry.audit(args.account_id or None), ensure_ascii=False, indent=1))
+        return 0
+    return 2
+
+
+def cmd_network(args):
+    from core.network import ProxyRegistry
+    from core.accounts import AccountRegistry
+    registry = ProxyRegistry(DATA / "network.json")
+    accounts = AccountRegistry(DATA / "accounts.json")
+    act = args.action
+    if act == "bind":
+        rec = registry.bind(args.account_id, args.env_var, platform=args.platform,
+                            purpose=args.purpose, account_registry=accounts)
+        print(json.dumps(rec, ensure_ascii=False, indent=1))
+        return 0
+    if act == "list":
+        print(json.dumps(registry.all(), ensure_ascii=False, indent=1))
+        return 0
+    if act == "unbind":
+        rec = registry.unbind(args.account_id, reason=args.reason)
+        print(json.dumps(rec, ensure_ascii=False, indent=1))
+        return 0
+    if act == "audit":
+        print(json.dumps(registry.audit(args.account_id or None), ensure_ascii=False, indent=1))
+        return 0
+    if act == "export":
+        print(json.dumps(registry.export(), ensure_ascii=False, indent=1))
+        return 0
+    return 2
 
 
 def cmd_demo(args):
@@ -273,7 +957,8 @@ def cmd_plan(args):
             raise SystemExit(f"plan {act} 需要 --by <你的名字>（无署名的审批不是审批）")
         if act == "approve":
             plan, path, event = approval.approve_plan(
-                DATA, args.id, by=args.by, note=args.note or "", days=args.days)
+                DATA, args.id, by=args.by, note=args.note or "", days=args.days,
+                account=getattr(args, "account", None), workspace=getattr(args, "workspace", None))
             print(f"已批准 {args.id}（{path}）")
             print(json.dumps(event, ensure_ascii=False, indent=1))
             queue = ((plan.get("waves") or [{}])[0].get("queue")
@@ -438,7 +1123,9 @@ def cmd_init(args):
 
 def cmd_next(args):
     from core.campaign import next_step
-    n = next_step(DATA, _ledger(), args.campaign or None)
+    from core.followups import Followups
+    n = next_step(DATA, _ledger(), args.campaign or None,
+                  followups=Followups(DATA / "followups.jsonl"))
     if args.json:
         print(json.dumps(n, ensure_ascii=False, indent=1))
     else:
@@ -999,6 +1686,8 @@ def build_parser():
     sp.add_argument("--content-policy", dest="content_policy")
     sp.add_argument("--evidence-grade", dest="evidence_grade")
     sp.add_argument("--by", help="approve/revoke：审批人署名")
+    sp.add_argument("--account", help="approve：绑定的实际执行账号")
+    sp.add_argument("--workspace", help="approve：绑定的执行工作区")
     sp.add_argument("--note"); sp.add_argument("--days", type=int, help="批准有效期（天）")
     sp.add_argument("--force", action="store_true")
     sp.set_defaults(fn=cmd_plan)
@@ -1093,6 +1782,221 @@ def build_parser():
     sp.add_argument("--contact-id")
     sp.add_argument("--file", help="import 旧格式文件（er-batch）")
     sp.set_defaults(fn=cmd_contacts)
+
+
+
+
+    sp = sub.add_parser("strategy", help="策略：主渠道/冷启动/放大/风控/第一周")
+    ssub = sp.add_subparsers(dest="action", required=True)
+    a = ssub.add_parser("build", help="从产品事实包 + 复盘算出这一轮怎么打")
+    a.add_argument("--facts", required=True, help="产品事实包 JSON（同 mkt gtm diagnose）")
+    a.add_argument("--retro-facts", default="", help="人工钉定的口径 JSON，用于「不做」清单")
+    a.add_argument("--human-minutes", type=int, default=120)
+    a.add_argument("--actions-per-week", type=int, default=20)
+    a.add_argument("--out", default="")
+    a.add_argument("--json", action="store_true", help="输出策略 JSON（供 mkt execute 用）")
+    a = ssub.add_parser("cadence", help="四周动作表")
+    a.add_argument("--start", required=True, help="开始日期 YYYY-MM-DD")
+    a.add_argument("--facts", default="")
+    a.add_argument("--primary", default="")
+    a.add_argument("--actions-per-week", type=int, default=20)
+    a.add_argument("--out", default="")
+    sp.set_defaults(fn=cmd_strategy)
+
+
+
+
+    sp = sub.add_parser("exp", help="用户经验：别人真跑过的做法，带出处与样本量")
+    esub = sp.add_subparsers(dest="action", required=True)
+    a = esub.add_parser("show", help="看某个平台的经验"); a.add_argument("platform")
+    a = esub.add_parser("coverage", help="哪些平台已有经验")
+    a = esub.add_parser("stale", help="哪些平台的经验该重采了")
+    sp.set_defaults(fn=cmd_exp)
+
+    sp = sub.add_parser("voice", help="平台语气：怎么说话、开头怎么写、会不会像广告")
+    vsub = sp.add_subparsers(dest="action", required=True)
+    a = vsub.add_parser("show", help="看这个平台的语气画像")
+    a.add_argument("platform")
+    a = vsub.add_parser("draft", help="给三个开头骨架")
+    a.add_argument("platform")
+    a.add_argument("--hook", default=""); a.add_argument("--what", default=""); a.add_argument("--ask", default="")
+    a = vsub.add_parser("lint", help="检查一段文字会不会被当成广告")
+    a.add_argument("platform"); a.add_argument("--text", default=""); a.add_argument("--file", default="")
+    sp.set_defaults(fn=cmd_voice)
+
+    sp = sub.add_parser("result", help="执行结果：平台动作/任务结果/业务结果三层")
+    sp.add_argument("--campaign", default=""); sp.add_argument("--intent", default="")
+    sp.add_argument("--subject", default=""); sp.add_argument("--since", default=""); sp.add_argument("--until", default="")
+    sp.add_argument("--value-events", default="", help="逗号分隔的价值事件类型；默认统计所有已核验事件")
+    sp.add_argument("--criteria", default="", help="可选学习指标 JSON 数组，不是产品生死门")
+    sp.add_argument("--json", action="store_true")
+    sp.set_defaults(fn=cmd_result)
+
+    sp = sub.add_parser("opportunity", help="需求发现：产品事实×真实信号→候选动作")
+    sp.add_argument("--facts", required=True, help="产品事实 JSON")
+    sp.add_argument("--signals", required=True, help="信号 JSON")
+    sp.add_argument("--json", action="store_true")
+    sp.set_defaults(fn=cmd_opportunity)
+
+    sp = sub.add_parser("artifact", help="价值资产：校验或渲染教程/样例/测试/模板/对比/案例")
+    sp.add_argument("action", choices=["lint", "render"])
+    sp.add_argument("--file", required=True, help="价值资产 JSON")
+    sp.set_defaults(fn=cmd_artifact)
+
+    sp = sub.add_parser("playbook", help="Playbook 组合：Platform × Motion × Vertical")
+    sp.add_argument("action", choices=["list", "compose"])
+    sp.add_argument("--platform", default="")
+    sp.add_argument("--motion", default="")
+    sp.add_argument("--vertical", default="")
+    sp.add_argument("--json", action="store_true")
+    sp.set_defaults(fn=cmd_playbook)
+
+    sp = sub.add_parser("evaluate", help="能力/竞争/进化评估：同条件对照与外部未见任务")
+    sp.add_argument("action", choices=["compare", "evolution", "external"])
+    sp.add_argument("--ours", default=""); sp.add_argument("--alternative", default="")
+    sp.add_argument("--previous", default=""); sp.add_argument("--current", default="")
+    sp.add_argument("--file", default="")
+    sp.set_defaults(fn=cmd_evaluate)
+
+    sp = sub.add_parser("journey", help="用户旅程：同 campaign/subject/time_window 的断点诊断")
+    sp.add_argument("--events", required=True, help="事件 JSON 或 JSONL")
+    sp.add_argument("--campaign", required=True)
+    sp.add_argument("--subject", default="")
+    sp.add_argument("--since", required=True); sp.add_argument("--until", required=True)
+    sp.add_argument("--json", action="store_true")
+    sp.set_defaults(fn=cmd_journey)
+
+    sp = sub.add_parser("revise", help="优化回流：改哪个参数、从多少到多少")
+    sp.add_argument("--result", default="", help="人工钉定的结果 JSON（复盘上一轮时用）")
+    sp.add_argument("--params", default="", help="当前参数 JSON")
+    sp.add_argument("--campaign", default=""); sp.add_argument("--subject", default="")
+    sp.add_argument("--since", default=""); sp.add_argument("--until", default="")
+    sp.add_argument("--intent", default="")
+    sp.set_defaults(fn=cmd_revise)
+
+    sp = sub.add_parser("execute", help="执行桥：策略+名单→计划与队列（人审后才发）")
+    sp.add_argument("--strategy-file", required=True, help="strategy build --json 的输出")
+    sp.add_argument("--targets", required=True, help="CSV，列：target,body[,subject]")
+    sp.add_argument("--campaign", required=True)
+    sp.add_argument("--account", default="", help="执行账号；默认 default")
+    sp.add_argument("--workspace", default="", help="执行工作区；默认当前 MKT_HOME")
+    sp.add_argument("--criteria", default="")
+    sp.set_defaults(fn=cmd_execute)
+
+    sp = sub.add_parser("progress", help="进度：日报/周报")
+    psub = sp.add_subparsers(dest="action", required=True)
+    a = psub.add_parser("daily", help="今天该关心什么")
+    a.add_argument("--on", default=""); a.add_argument("--intent", default="")
+    a = psub.add_parser("weekly", help="这一周比上一周好还是差")
+    a.add_argument("--on", default=""); a.add_argument("--intent", default="")
+    sp.set_defaults(fn=cmd_progress)
+
+    sp = sub.add_parser("retro", help="复盘：扫描本地日志→事实→渠道账→业务结论")
+    rsub = sp.add_subparsers(dest="action", required=True)
+    a = rsub.add_parser("scan", help="扫描目录，提取带出处的事实")
+    a.add_argument("--path", required=True, help="要扫描的目录")
+    a.add_argument("--out", default="")
+    a.add_argument("--max-files", type=int, default=20000)
+    a = rsub.add_parser("analyze", help="看渠道账")
+    a.add_argument("--scan", default="")
+    a = rsub.add_parser("report", help="生成业务复盘报告（需要人工钉定的口径文件）")
+    a.add_argument("--facts", required=True, help="口径文件 JSON：{渠道: {动作,回应,结果}}")
+    a.add_argument("--path", default="")
+    a.add_argument("--scan", default="")
+    a.add_argument("--out", default="")
+    a.add_argument("--max-files", type=int, default=20000)
+    sp.set_defaults(fn=cmd_retro)
+
+    sp = sub.add_parser("followup", help="跟进：说过话的人、到期提醒、三次原则")
+    fsub = sp.add_subparsers(dest="action", required=True)
+    a = fsub.add_parser("add", help="登记一个刚接触过的对象")
+    a.add_argument("--platform", required=True)
+    a.add_argument("--target", required=True, help="账号/邮箱/仓库")
+    a.add_argument("--source", default="", help="从哪条讨论来的")
+    a.add_argument("--note", default="")
+    a.add_argument("--channel", default="")
+    a.add_argument("--campaign", default="", help="可选活动归属；结果投影按此隔离")
+    a.add_argument("--on", default="", help="日期 YYYY-MM-DD，默认今天")
+    a = fsub.add_parser("due", help="今天该跟谁")
+    a.add_argument("--on", default=""); a.add_argument("--json", action="store_true")
+    a = fsub.add_parser("list", help="全部对象")
+    a.add_argument("--stage", default=""); a.add_argument("--json", action="store_true")
+    a = fsub.add_parser("touch", help="记一次跟进结果")
+    a.add_argument("id")
+    a.add_argument("--result", required=True,
+                   choices=["no_reply", "replied", "asked", "used", "declined"])
+    a.add_argument("--note", default=""); a.add_argument("--channel", default="")
+    a.add_argument("--campaign", default="", help="可选活动归属；默认沿用对象所属活动")
+    a.add_argument("--on", default="")
+    a = fsub.add_parser("stats", help="跟进健康度")
+    a.add_argument("--on", default=""); a.add_argument("--json", action="store_true")
+    a = fsub.add_parser("close", help="人工关闭")
+    a.add_argument("id"); a.add_argument("--reason", default="")
+    sp.set_defaults(fn=cmd_followup)
+
+    sp = sub.add_parser("intent", help="意图信号学习实验：可配置周期与观察指标，不自动判死渠道")
+    isub = sp.add_subparsers(dest="action", required=True)
+    a = isub.add_parser("start", help="开一个可配置学习实验")
+    a.add_argument("id"); a.add_argument("--platform", default="reddit")
+    a.add_argument("--subs", default="", help="逗号分隔的目标 sub")
+    a.add_argument("--owner", default=""); a.add_argument("--on", default="")
+    a.add_argument("--weeks", type=int, default=4, help="学习周期，默认 4 周")
+    a.add_argument("--weekly-target", type=int, default=None, help="可选每周观察目标，不设为产品生死门")
+    a = isub.add_parser("log", help="记一周的触达数")
+    a.add_argument("id"); a.add_argument("--sent", type=int, default=0)
+    a.add_argument("--deleted", type=int, default=0); a.add_argument("--replied", type=int, default=0)
+    a.add_argument("--moved", type=int, default=0); a.add_argument("--note", default="")
+    a.add_argument("--on", default="")
+    a = isub.add_parser("show", help="看进度与配额"); a.add_argument("id"); a.add_argument("--on", default="")
+    a = isub.add_parser("verdict", help="输出学习观察与安全异常，不给渠道生死判决")
+    a.add_argument("id"); a.add_argument("--on", default="")
+    sp.set_defaults(fn=cmd_intent)
+
+    sp = sub.add_parser("account", help="授权账号资产：登记/养号/健康度/人工接管/审计")
+    asub = sp.add_subparsers(dest="action", required=True)
+    for name in ("add", "list", "check", "warm", "eligible", "pause", "takeover", "resolve", "audit"):
+        a = asub.add_parser(name)
+        a.add_argument("--account-id", default="")
+        a.add_argument("--platform", default="")
+        a.add_argument("--handle", default="")
+        a.add_argument("--identity-type", default="real_authorized")
+        a.add_argument("--owner", default="")
+        a.add_argument("--ownership-evidence", default="")
+        a.add_argument("--authorization-evidence", default="")
+        a.add_argument("--multi-account-allowed", action="store_true")
+        a.add_argument("--multi-account-evidence", default="")
+        a.add_argument("--disclosure", default="")
+        a.add_argument("--status", default="")
+        a.add_argument("--reason", default="")
+        a.add_argument("--evidence", default="")
+        a.add_argument("--by", default="")
+        a.add_argument("--note", default="")
+    sp.set_defaults(fn=cmd_account)
+
+    sp = sub.add_parser("network", help="代理环境引用绑定：不读凭据、不提高配额、不绕封禁")
+    nsub = sp.add_subparsers(dest="action", required=True)
+    for name in ("bind", "list", "unbind", "audit", "export"):
+        a = nsub.add_parser(name)
+        a.add_argument("--account-id", required=(name == "bind"))
+        a.add_argument("--env-var", default="")
+        a.add_argument("--platform", default="")
+        a.add_argument("--purpose", default="authorized_access")
+        a.add_argument("--reason", default="")
+    sp.set_defaults(fn=cmd_network)
+
+    sp = sub.add_parser("billing", help="报价实验：动作/结果/订阅/混合")
+    sp.add_argument("--experiment-id", default="")
+    sp.add_argument("--record-acceptance", choices=["accepted", "rejected", "pending", "unknown"], default="")
+    sp.add_argument("--prospect", default="")
+    sp.add_argument("--reason", default="")
+    sp.add_argument("--by", default="")
+    sp.add_argument("--summary", action="store_true")
+    sp.add_argument("--actions", type=int, default=0, help="动作单元数")
+    sp.add_argument("--outcomes", type=int, default=0, help="客户系统可验证结果数")
+    sp.add_argument("--pricing", default="", help="定价 JSON，覆盖默认值")
+    sp.add_argument("--from-files", action="store_true", help="从账本与结果事件统计")
+    sp.add_argument("--json", action="store_true")
+    sp.set_defaults(fn=cmd_billing)
 
     sp = sub.add_parser("x", help="X 渠道（vendor，PROVEN）")
     sp.add_argument("action", choices=["publish", "reply", "message", "engage", "search", "inbox"])
