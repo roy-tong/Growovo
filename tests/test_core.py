@@ -16,7 +16,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from core.evidence import Evidence
 from core.gates import (Gate, GateError, check_content, check_target,
                         load_contact_suppressions, load_suppress, load_suppressions)
-from core.ledger import Ledger
+from core.ledger import Ledger, LedgerCorruptError
 from core.pipeline import WritePipeline, standard_pipeline
 from core.throttle import Throttle, ThrottleError
 
@@ -58,12 +58,14 @@ class TestLedger(TmpDir):
         self.assertEqual(led.no_retry("x"), {"@someone"})
         self.assertEqual(led.no_retry("email"), {"a@b.c"})
 
-    def test_corrupt_line_tolerated(self):
+    def test_corrupt_line_fails_loud(self):
+        """G-3（review 2026-11-04）：坏行静默跳过=把已发送当未发送，改为显式报错。"""
         p = self.dir / "ledger.jsonl"
         p.write_text("not-json\n" + json.dumps(
             {"channel": "x", "action": "search", "target": "q", "result": "dry-run"}
         ) + "\n", encoding="utf-8")
-        self.assertEqual(len(Ledger(p).all()), 1)
+        with self.assertRaises(LedgerCorruptError):
+            Ledger(p).all()
 
     def test_summary(self):
         led = Ledger(self.dir / "ledger.jsonl")
