@@ -47,6 +47,35 @@ class SuppressionIntegrity(unittest.TestCase):
         with self.assertRaises(SuppressionIntegrityError):
             load_contact_suppressions(self.dir)
 
+    def test_falsy_wrong_type_state_and_platforms_raise_not_washed(self):
+        """空数组是假值：`or {}` 会把它洗成合法空对象——类型错误必须报错。"""
+        for field in ("state", "platforms"):
+            with self.subTest(field=field):
+                record = {"id": "c1",
+                          "platforms": {"email": "dnc@example.com"},
+                          "state": {"dnc": True}}
+                record[field] = []
+                (self.dir / "contacts.jsonl").write_text(
+                    json.dumps(record) + "\n", encoding="utf-8")
+                with self.assertRaises(SuppressionIntegrityError):
+                    load_contact_suppressions(self.dir)
+
+    def test_non_boolean_dnc_flag_raises_not_truthy_guessed(self):
+        """字符串 'false' 在 Python 里是真值：布尔语义字段不得按真值猜。"""
+        (self.dir / "contacts.jsonl").write_text(json.dumps({
+            "id": "c1", "platforms": {"email": "dnc@example.com"},
+            "state": {"dnc": "false"},
+        }) + "\n", encoding="utf-8")
+        with self.assertRaises(SuppressionIntegrityError):
+            load_contact_suppressions(self.dir)
+
+    def test_boolean_false_dnc_is_valid_and_not_suppressed(self):
+        (self.dir / "contacts.jsonl").write_text(json.dumps({
+            "id": "c1", "platforms": {"email": "ok@example.com"},
+            "state": {"dnc": False},
+        }) + "\n", encoding="utf-8")
+        self.assertEqual(load_contact_suppressions(self.dir), set())
+
     def test_missing_file_is_empty_and_valid_contacts_still_work(self):
         self.assertEqual(load_contact_suppressions(self.dir), set())
         (self.dir / "contacts.jsonl").write_text(json.dumps({
