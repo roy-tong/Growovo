@@ -1,18 +1,18 @@
 # Growovo: implementation status
 
-Reviewed 2026-11-04. **Working baseline: v0.9.0 (2026-11-04).** Available means local implementation and local tests, not production validation on every platform or proof of business outcomes.
+Reviewed 2026-11-04. **Working baseline: v0.10.0 (2026-11-04).** Available means local implementation and local tests, not production validation on every platform or proof of business outcomes.
 
 > Business architecture: [GTM 业务操作系统 v5](gtm-os/README.md) covers role families 07–46, work-order/SOP/deliverable/handoff contracts, KPI definitions and templates. R0/R1 are now locally implemented; see [implementation and remaining boundaries](gtm-os/05-implementation.md). Registry coverage is not equivalent to all 40 professional SOPs being executable or externally effective.
 
 ## Verification snapshot
 
-- `python3 -m unittest discover -s tests`: **599 tests pass**.
+- `python3 -m unittest discover -s tests`: **631 tests pass**.
 - `python3 mkt.py demo`: plan validation, human approval, write pipeline and ledger pass.
 - `python3 mkt.py work-demo`: context → objective → WorkOrder → SOP → accepted deliverables → receiver handoff → approved plan/queue → independent KPI observation passes; no queue execution or send ledger.
-- Isolated wheel build and target install: `growovo-0.9.0` imports all packaged registries and runs the installed work demo; no source-checkout data dependency.
+- Isolated wheel build and target install: v0.9.0 was verified; the 0.10.0 wheel rebuild is not yet re-run in this snapshot.
 - Real CLI checks also cover email queue approval and dry-run, X reply queue contract, manual work sheets, campaign isolation, opportunity discovery, value artifacts, journeys, account lifecycle and pricing experiments. No real account sends in tests.
 
-## Baseline capabilities (through v0.9.0)
+## Baseline capabilities (through v0.10.0)
 
 | Area | Local implementation | Verification and remaining boundary |
 |---|---|---|
@@ -49,13 +49,22 @@ Reviewed 2026-11-04. **Working baseline: v0.9.0 (2026-11-04).** Available means 
 | Follow-up | `core/followups.py` + `mkt followup` | Optional campaign field supports scoped projections. Due follow-ups stay ahead of new actions; local records never send |
 | Measurement | `core/task_outcome.py` + GitHub benchmark | 33 synthetic keyword-baseline fixtures remain a failure-mode benchmark, not expert triage proof. `action_runner.record_ledger_outcome` records outcomes but does not independently verify delivery |
 
+## v0.10.0 additions
+
+| Area | Local implementation | Verification and remaining boundary |
+|---|---|---|
+| GTM design | `core/gtm_design.py` + `mkt gtm design/lint/taxonomy` + read-only `mkt_gtm_design` MCP tool: object × objective × motion × channel, explicit override, low-confidence clarification, constraint checks (authorized channels, assets, budget, region, data sources), outcome contracts with `observable`/`partially_observable`/`unverified` | Design only. No execution, no sends, no channel-effectiveness proof. Object/objective are signal heuristics, not validated segmentation. Proposed motions and channels are rule-checked, not approved |
+| Design handoff | `gtm_design.handoff` + `mkt gtm handoff`: design → goal family mapping and optional candidate Workstream via orchestration | Candidate plan only; the Workstream may infer a different motion from product facts than the design selected |
+| Design contract | Primary/leading signals, guardrails, explicit not-success lists, observation window and stop rule per objective; `unverified` when no data source is supplied | Window is a planning range, not a statistical power calculation. `current` stays `unmeasured`; platform receipts never become business results |
+| Agent proposal path | `--proposal` accepts candidate motions with reasons and channels; incompatible/unknown entries are rejected with visible reasons | The agent proposes, rules only check feasibility. Rejections do not imply the alternative is proven |
+
 ## v0.9.0 additions
 
 | Area | Local implementation | Verification and remaining boundary |
 |---|---|---|
 | Minimum-role orchestration | `core/orchestration.py` and `mkt orchestrate`; product/goal/task → required roles, optional triggers, WorkOrder DAG and handoffs | Candidate orchestration only. One full developer SOP; other selected steps are marked requires_expansion. No default 40-role team |
 | Per-deliverable expression | Audience-specific decision memo/runbook/tutorial/sales handoff/customer/partner formats; channel overlays for email/GitHub/X/LinkedIn/小红书/公众号/landing/presentation; artifact-specific required content and tone | Writing rules are not current official platform-rule verification. Internal technical/revenue/POC artifacts are not rewritten as social copy |
-| Standing routine authorization | `core/execution_policy.py`; workspace-scoped closed action set, exact account matching, expiry/revoke and fail-closed validation; `mkt policy` CLI management | Routine only replaces per-run plan approval. Empty account scope is default-only, not wildcard. MCP cannot create/revoke policy |
+| Standing routine authorization | `core/execution_policy.py`; workspace-scoped closed action set, exact account matching, 30-day default expiry (`--days 0` opt-in permanent), revoke and fail-closed validation; `mkt policy` CLI management | Routine only replaces per-run plan approval. Empty account scope is default-only, not wildcard. MCP cannot create/revoke policy |
 | Routine execution integration | `planlint`, `action_runner`, `pipeline`, `queue_runner`, email SMTP and MCP support explicit `routine` with independent `routine-policy` receipt | Payment/contract/discount/crisis/unknown actions cannot be authorized. Dry-run, pause, DNC, quota, readback, channel verification and unknown-result reconciliation remain |
 | Documentation and tests | `docs/gtm-os/06-orchestration-and-routine.md`; orchestration, policy core, CLI and MCP pass-through tests | All sends are fake/dry-run. Current workspace policy was enabled by the user's direct instruction for default-account routine actions; no live sends performed |
 

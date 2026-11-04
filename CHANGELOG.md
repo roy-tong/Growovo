@@ -1,5 +1,49 @@
 # Changelog
 
+## 0.10.0 - 2026-11-04
+
+This release adds a GTM design layer above role orchestration: a task is
+decomposed into object × objective × motion × channel, checked against real
+constraints, and returned with an outcome contract and an explicit verification
+level. It designs; it does not execute, send or predict.
+
+### Added
+
+- **GTM design** (`core/gtm_design.py`, `mkt gtm design/lint/taxonomy`):
+  six growth objects, six objectives, six composable motions and the existing
+  37-platform registry. Text signals infer object/objective, explicit flags
+  override, and low confidence returns `needs_clarification` instead of a
+  fabricated plan.
+- **Agent proposals with rule checks**: `--proposal` accepts candidate motions,
+  reasons and channels. Incompatible motions, unknown channels and unknown
+  data sources are rejected with visible reasons; accepted candidates keep the
+  agent's rationale.
+- **Outcome contracts per objective**: primary and leading signals, guardrails,
+  explicit "not success" lists (plays, stars, GMV, pre-orders, sign-ups),
+  observation window, stop rule and `observable` / `partially_observable` /
+  `unverified` verification levels.
+- **Constraint checks**: authorized channels, content/technical/sales/supply
+  assets, budget, region and data sources; unauthorized channels stay visible
+  with `executable=false` rather than being silently dropped.
+- **Design handoff** (`mkt gtm handoff`, `gtm_design.handoff`): maps the design
+  objective to the existing awareness/adoption/commercial goal families and,
+  when product facts are supplied, produces a linted candidate Workstream via
+  `core/orchestration.py`. The handoff remains a design-to-plan bridge: no
+  execution and no claim that the selected motion was run.
+- **Narrower routine authorization by default** (`mkt policy enable`): standing
+  authorization now defaults to 30 days; permanent authorization requires an
+  explicit `--days 0` and produces a warning. The API keeps its explicit
+  `days=None` semantics for tests and administrative tooling.
+- **Docs**: `docs/gtm-os/07-object-motion-design.md`; README/README.en and the
+  GTM OS index now point to the design layer.
+
+### Boundaries
+
+- A design is not execution, not channel effectiveness and not proof of growth.
+- No real account sends; platform authorization is not verified by this layer.
+- With no data source the contract stays `unverified`; platform receipts cannot
+  be reported as business results.
+
 ## 0.9.0 - 2026-11-04
 
 This release makes GTM orchestration selective rather than org-chart-driven and

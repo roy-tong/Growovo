@@ -15,6 +15,8 @@ Growovo 面向**独立开发者与一人公司**，提供 GTM/User Growth 的需
 
 **v0.9 新增按需编排与常驻营销授权**：`mkt orchestrate` 根据产品、目标和任务只选择必要岗位，并逐份决定交付物的内容与表达；日常发帖、回复、私信和邮件可在工作区已有明确 `routine-policy` 时直接执行，不再一律逐次人审。付款、合同、折扣等仍需人工，dry-run、暂停、DNC、配额、回读和未知结果保护不降级。详见[编排与授权](docs/gtm-os/06-orchestration-and-routine.md)。
 
+**v0.10 新增 GTM 设计层**：`mkt gtm design` 把增长任务拆成对象×目标×机制×渠道，先用约束（授权渠道/素材/预算/地区/数据源）筛可行性，再按目标生成结果契约与验证等级。Agent 可以提交候选机制与理由，规则只负责兼容性与边界，并保留拒绝理由；没有数据渠道时只承认平台回执，不把播放量、Star、预售订单或注册数当业务结果。详见[对象×目标×机制×渠道](docs/gtm-os/07-object-motion-design.md)。
+
 [![tests](https://github.com/roy-tong/Growovo/actions/workflows/tests.yml/badge.svg)](https://github.com/roy-tong/Growovo/actions/workflows/tests.yml)
 
 **先试一个结果：** `python3 mkt.py demo` 在本地完成计划校验、审批、dry-run 和账本演示；`python3 mkt.py work-demo` 继续演示 WorkOrder→SOP→交付验收→交接→KPI→已审批 plan/queue，全程无需账号或网络且不执行队列。实际平台命令的验证等级见下表。[能力进度与技术取舍](docs/feature-status.md)。
@@ -83,8 +85,10 @@ python3 mkt.py check              # 确认 CDP 会话与 X/Gmail 登录态
 | `python3 mkt.py contacts add/find/dnc/mark/import` | 线索库操作（幂等去重/DNC 隐藏/er-batch 导入） | — |
 | `mkt followup add/due/touch/stats/close` | **跟进台账**：说过话的人单独记；首触 + 第 3/14/45 天，最多三次跟进，无实质回应自动判弃；`mkt next` 会把到期的跟进顶到最前面 | — |
 | `mkt intent start/log/show/verdict` | **意图信号学习实验**：可配置周期与可选观察目标，保留样本不足与安全异常，输出学习观察而非渠道生死判决 | — |
+| `mkt gtm design "任务" [--constraints …] [--proposal …] [--save …]` | **GTM 设计**：对象×目标×机制×渠道，约束检查、结果契约、未知项与验证等级 | 本地实现，只设计不执行 |
+| `mkt gtm handoff <design.json> [--product facts.json]` | **设计交接**：目标契约映射 + 候选岗位 Workstream（复用 orchestrate） | 候选编排，非发布批准 |
 | `mkt orchestrate --product P --goal G --task T [--format md]` | **按需编排**：只选必要岗位，逐份确定交付物、内容结构、表达和交接 | 本地实现，候选方案非发布批准 |
-| `mkt policy show/enable/disable/check` + `--routine` | **常驻营销授权**：授权账号/动作内日常触达可直接执行；付款等不可加入；其他安全门不变 | 本地实现，无真实发送验证 |
+| `mkt policy show/enable/disable/check` + `--routine` | **常驻营销授权**：授权账号/动作内日常触达可直接执行；默认 30 天有效；付款等不可加入；其他安全门不变 | 本地实现，无真实发送验证 |
 | `mkt capability list/show/lint` / `mkt template list/show/lint` | **GTM 注册表**：18 能力域、40 岗位族、32 模板及交叉引用校验 | 本地实现 |
 | `mkt context` / `mkt objective` / `mkt work` | **业务工作**：不可变上下文、目标、WorkOrder 创建/lint/ready/依赖/状态/下一步 | 本地实现 |
 | `mkt sop` / `mkt deliverable` / `mkt handoff` | **专业闭环**：SOP 版本与证据门运行、交付物 QA、指定接收人签收/拒收 | 一条完整 SOP；其余为注册摘要 |

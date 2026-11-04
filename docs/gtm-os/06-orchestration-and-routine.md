@@ -107,6 +107,8 @@ mkt policy disable --by <操作人>
 
 空账号列表只允许 `""` 或字面 `default`，**不是任意账号通配符**。
 
+`--days` 默认 30 天；只有显式 `--days 0` 才是不过期，且会在 stderr 提示、`mkt policy show` 里带 `warning`。已有旧策略不会因为升级被自动改写。
+
 ### 3.3 直接执行日常触达
 
 ```bash

@@ -1,7 +1,7 @@
 # Growovo GTM 业务操作系统 · 产品设计 v5
 
 > 状态：完整设计 + R0/R1 本地实现 + 按需编排和日常营销常驻授权；不表示 40 个岗位全部专业 SOP 已运行或外部业务已验证
-> 实现说明：[05-implementation.md](05-implementation.md)；编排与授权：[06-orchestration-and-routine.md](06-orchestration-and-routine.md)
+> 实现说明：[05-implementation.md](05-implementation.md)；编排与授权：[06-orchestration-and-routine.md](06-orchestration-and-routine.md)；对象×目标×机制×渠道：[07-object-motion-design.md](07-object-motion-design.md)
 > 日期：2026-11-04
 > 范围：品牌传播、获客、转化、销售、交易、留存、客户成功与 GTM 基础设施
 > 上游边界：市场洞察、GTM 战略、产品定位与定价策略由 Askovo 负责；Growovo 消费其结论并完成运营执行
@@ -17,6 +17,7 @@
 | [04-roadmap-and-acceptance.md](04-roadmap-and-acceptance.md) | 实施优先级、版本切片、测试场景与整体验收 | 项目负责人、研发、测试 |
 | [05-implementation.md](05-implementation.md) | 已实现的 R0/R1、CLI/MCP、demo、事实源与剩余边界 | 业务用户、研发、测试 |
 | [06-orchestration-and-routine.md](06-orchestration-and-routine.md) | 按需选岗、逐交付物表达、日常营销常驻授权与安全边界 | 业务用户、运营、研发 |
+| [07-object-motion-design.md](07-object-motion-design.md) | 对象×目标×机制×渠道的设计层、结果契约与验证等级 | 业务用户、运营、Agent 开发者 |
 | [examples/work-order.example.json](examples/work-order.example.json) | 可机读的工作委托单示例 | 研发、Agent |
 | [examples/sop.example.json](examples/sop.example.json) | 可机读的 SOP 与步骤契约示例 | 研发、Agent |
 | [examples/kpi-dictionary.example.json](examples/kpi-dictionary.example.json) | 可机读的指标定义示例 | 研发、数据、RevOps |

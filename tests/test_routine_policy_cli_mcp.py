@@ -37,6 +37,33 @@ class TestRoutinePolicyCLI(unittest.TestCase):
         self.cli("policy", "disable", "--by", "human-owner")
         self.cli("policy", "check", "--channel", "email", "--action-name", "message", expected=2)
 
+    def test_enable_defaults_to_30_day_expiry(self):
+        policy = self.cli("policy", "enable", "--by", "human-owner", "--actions", "email:message")
+        self.assertTrue(policy["expires_at"], policy)
+        shown = self.cli("policy", "show")
+        self.assertTrue(shown["expires_at"])
+        self.assertNotIn("warning", shown)
+
+    def test_enable_with_zero_days_is_explicit_permanent(self):
+        result = subprocess.run(
+            [sys.executable, str(ROOT / "mkt.py"), "--workspace", str(self.data),
+             "policy", "enable", "--by", "human-owner", "--actions", "email:message", "--days", "0"],
+            cwd=ROOT, text=True, capture_output=True)
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertIn("不过期", result.stderr)
+        policy = json.loads(result.stdout)
+        self.assertIsNone(policy["expires_at"])
+        shown = self.cli("policy", "show")
+        self.assertIn("warning", shown)
+
+    def test_negative_days_is_rejected(self):
+        result = subprocess.run(
+            [sys.executable, str(ROOT / "mkt.py"), "--workspace", str(self.data),
+             "policy", "enable", "--by", "human-owner", "--actions", "email:message", "--days", "-1"],
+            cwd=ROOT, text=True, capture_output=True)
+        self.assertEqual(2, result.returncode)
+        self.assertIn("授权失败", result.stderr)
+
     def test_named_account_must_match_exactly(self):
         self.cli("policy", "enable", "--by", "human-owner", "--actions", "x:publish,linkedin:message",
                  "--accounts", "brand-main")
