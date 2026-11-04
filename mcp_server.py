@@ -9,7 +9,8 @@ ZCode 等 MCP 客户端连接）。配法（客户端 mcp 配置）：
   - 写操作只有两个入口：队列粒度（mkt_run_queue，全渠道）与单条动作（mkt_action，
     全渠道）——两者共用暂停/审批/账本，没有绕过留痕的路径
   - 写操作默认 dry-run；go=true 需显式传
-  - UNVERIFIED 渠道（reddit/linkedin/hn/github 写）拒绝实跑，除非 allow_unverified=true
+  - UNVERIFIED 渠道（reddit/linkedin/hn/github 写）拒绝实跑；首跑校准（allow_unverified）
+    是 CLI 人工通道专属参数，MCP 既不暴露也不接受，agent 不得自行解除渠道验证门禁
   - 实跑须绑定已人审 plan，或在工作区已有有效 routine policy 时显式 routine=true；
     无 plan 的 adhoc 放行**只在 CLI 人工通道（--adhoc）开放**，MCP 不暴露授权管理，
     agent 不得自我创建/撤销授权或绕过其他安全门
@@ -80,6 +81,14 @@ TOOLS = [
             "product": {"type": "object"}, "goal": {"type": "string"}, "task": {"type": "string"},
             "audience": {"type": "string"}, "channel": {"type": "string"}, "motion": {"type": "string"}},
             "required": ["product", "goal", "task"]},
+    },
+    {
+        "name": "mkt_gtm_design",
+        "description": "只读 GTM 设计：把增长任务拆成对象×目标×机制×渠道，做约束检查并给出结果契约；不执行、不发送、不预测。",
+        "inputSchema": {"type": "object", "properties": {
+            "task": {"type": "string"}, "object": {"type": "string"}, "objective": {"type": "string"},
+            "constraints": {"type": "object"}, "proposal": {"type": "object"}},
+            "required": ["task"]},
     },
     {
         "name": "mkt_capabilities",
@@ -184,7 +193,7 @@ TOOLS = [
         "name": "mkt_action",
         "description": "单条写动作（与队列同一套门禁/暂停/审批/账本）。channel ∈ x|reddit|linkedin|github|hn；"
                        "action ∈ publish|reply|message|engage。默认 dry-run；go=true 需已人审 plan 或有效 routine policy 且 routine=true；"
-                       "UNVERIFIED 渠道实跑需 allow_unverified=true。email 只支持队列。",
+                       "UNVERIFIED 渠道实跑首跑校准仅限人工 CLI 通道，MCP 不提供绕过。email 只支持队列。",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -202,7 +211,6 @@ TOOLS = [
                 "go": {"type": "boolean", "default": False},
                 "routine": {"type": "boolean", "default": False,
                             "description": "仅在工作区已有有效日常营销授权时使用；不能自我授权"},
-                "allow_unverified": {"type": "boolean", "default": False},
             },
             "required": ["channel", "action"],
         },
@@ -220,7 +228,7 @@ TOOLS = [
     {
         "name": "mkt_run_queue",
         "description": "执行一个队列（全渠道：email/hn/github/reddit/linkedin/x-reply）。"
-                       "默认 dry-run；go=true 实跑；UNVERIFIED 渠道实跑需 allow_unverified=true；"
+                       "默认 dry-run；go=true 实跑；UNVERIFIED 渠道首跑校准仅限人工 CLI 通道；"
                        "实跑须已人审 plan，或显式 routine=true 且策略匹配（无 plan 的 adhoc 仅 CLI；授权管理不对 MCP 开放）。",
         "inputSchema": {
             "type": "object",
@@ -230,7 +238,6 @@ TOOLS = [
                 "go": {"type": "boolean", "default": False},
                 "routine": {"type": "boolean", "default": False,
                             "description": "仅使用已存在的 routine policy；MCP 不能创建或撤销授权"},
-                "allow_unverified": {"type": "boolean", "default": False},
             },
             "required": ["queue_path"],
         },
@@ -411,6 +418,18 @@ def _err(msg):
     return {"content": [{"type": "text", "text": str(msg)}], "isError": True}
 
 
+AGENT_ESCALATION_PARAMS = ("allow_unverified",)
+
+
+def _agent_escalation_error(args):
+    """拒绝代理自行提升权限的参数：这些是 CLI 人工通道专属，schema 不暴露、传入即报错。"""
+    for key in AGENT_ESCALATION_PARAMS:
+        if args.get(key) is not None:
+            return ("%s 不属于 MCP 参数面：UNVERIFIED 渠道首跑校准只能由人工通过 CLI 完成"
+                    "（mkt.py --allow-unverified），agent 不得自行解除渠道验证门禁。" % key)
+    return None
+
+
 def _call_tool(name, args):
     if name == "mkt_memory":
         from core.operations_memory import summarize
@@ -471,6 +490,19 @@ def _call_tool(name, args):
         errors = orchestration.lint_orchestration(plan)
         plan["validation"] = {"ok": not errors, "errors": errors}
         plan["rendered_markdown"] = orchestration.render_markdown(plan)
+        return _text(plan)
+
+    if name == "mkt_gtm_design":
+        from core import gtm_design
+        plan = gtm_design.design(
+            args["task"],
+            object_id=args.get("object") or None,
+            objective_id=args.get("objective") or None,
+            constraints=args.get("constraints"),
+            proposal=args.get("proposal"),
+        )
+        problems = gtm_design.lint(plan)
+        plan["validation"] = {"ok": not problems, "problems": problems}
         return _text(plan)
 
     if name == "mkt_capabilities":
@@ -593,10 +625,12 @@ def _call_tool(name, args):
 
     if name == "mkt_run_queue":
         from core.queue_runner import QueueRunError, run_queue
+        escalation = _agent_escalation_error(args)
+        if escalation:
+            return _err(escalation)
         try:
             results = run_queue(args["queue_path"], data_dir=DATA,
                                 go=bool(args.get("go")),
-                                allow_unverified=bool(args.get("allow_unverified")),
                                 routine=bool(args.get("routine")), account=args.get("account"))
         except QueueRunError as exc:
             return _err(f"队列拒跑: {exc}")
@@ -614,11 +648,13 @@ def _call_tool(name, args):
 
     if name == "mkt_action":
         from core.action_runner import ActionError, run_action
+        escalation = _agent_escalation_error(args)
+        if escalation:
+            return _err(escalation)
         try:
             rec = run_action(
                 channel=args["channel"], action=args["action"], data_dir=DATA,
                 campaign=args.get("campaign", ""), go=bool(args.get("go")),
-                allow_unverified=bool(args.get("allow_unverified")),
                 target=args.get("target"), text=args.get("text"),
                 title=args.get("title"), url=args.get("url"),
                 subreddit=args.get("subreddit"), number=args.get("number"),
@@ -887,7 +923,7 @@ def handle(msg):
         return {"jsonrpc": "2.0", "id": mid, "result": {
             "protocolVersion": PROTOCOL_VERSION,
             "capabilities": {"tools": {}},
-            "serverInfo": {"name": "mkt-server", "version": "0.9.0"},
+            "serverInfo": {"name": "mkt-server", "version": "0.10.0"},
         }}
     if method == "ping":
         return {"jsonrpc": "2.0", "id": mid, "result": {}}
