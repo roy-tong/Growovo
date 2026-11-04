@@ -12,6 +12,7 @@ All vendor boundaries are fakes; no network or browser operations.
 """
 import json
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -81,6 +82,112 @@ class XLedgerGates(unittest.TestCase):
         with self.assertRaises(SystemExit) as ctx:
             self._run("reply", ["https://x.com/b/status/2"])
         self.assertIn("不重试名单", str(ctx.exception))
+
+    def _claims_dir(self):
+        return self.data / "state" / "x-claims"
+
+    def _remove_claims(self):
+        import shutil as _shutil
+        if self._claims_dir().exists():
+            _shutil.rmtree(self._claims_dir())
+
+    def test_indeterminate_rows_carry_resolvable_refs_resolve_failed_recovers(self):
+        """G-2.1：indeterminate 必须带非空 ref，可被 ledger.resolve 裁决；
+        裁决为 failed 且人工清理 claim 后，同一意图允许再次执行。"""
+        _fake_vendor(self.vendor, "reply_x.py")
+        self._run("reply", ["https://x.com/c/status/9"])
+        rows = self.ledger.results(channel="x", action="reply")
+        self.assertEqual(1, len(rows))
+        ref = rows[0].get("ref")
+        self.assertTrue(ref, "indeterminate 记录必须带非空 ref，否则无法人工裁决")
+        self.ledger.resolve(ref, result="failed", by="roy",
+                            note="平台后台核实：发送前失败，未发出")
+        self._remove_claims()  # 人工确认无外部动作后清理认领
+        self._run("reply", ["https://x.com/c/status/9"])  # 裁决 failed + 认领清理 → 允许重试
+        self.assertTrue(self._vendor_called("reply_x.py"))
+
+    def test_resolve_committed_keeps_idempotent_block(self):
+        _fake_vendor(self.vendor, "reply_x.py")
+        self._run("reply", ["https://x.com/d/status/1"])
+        row = self.ledger.results(channel="x", action="reply")[0]
+        self.ledger.resolve(row["ref"], result="committed", by="roy",
+                             note="平台后台核实：已发出")
+        self._remove_claims()
+        with self.assertRaises(SystemExit) as ctx:
+            self._run("reply", ["https://x.com/d/status/1"])
+        self.assertIn("幂等", str(ctx.exception))
+
+    def test_multi_target_batch_records_per_target_not_joined(self):
+        """G-2.2：批量动作逐目标记账；字符串拼接目标会让逐目标防重失效。"""
+        self._run("engage", ["follow", "@user_a", "@user_b"])
+        rows = self.ledger.results(channel="x", action="engage")
+        self.assertEqual(2, len(rows))
+        self.assertEqual({"@user_a", "@user_b"}, {r["target"] for r in rows})
+        self.assertFalse(any("," in r["target"] for r in rows),
+                         "不得用逗号拼接的聚合目标冒充逐目标记录")
+        self.assertTrue(all(r.get("ref") for r in rows))
+        with self.assertRaises(SystemExit) as ctx:
+            self._run("engage", ["follow", "@user_a"])
+        self.assertIn("不重试名单", str(ctx.exception))
+
+    def test_atomic_claim_blocks_second_worker_on_same_intent(self):
+        """G-2.3：check-then-send 竞态由原子认领关闭；账本干净也拦。"""
+        _fake_vendor(self.vendor, "follow_x.py")
+        self._run("engage", ["follow", "@race"])   # 产生未知状态 → 认领保留
+        self.assertTrue(any(self._claims_dir().iterdir()))
+        # 模拟另一 Worker：账本被清空（仍见"未发送"），但认领存在
+        (self.data / "ledger.jsonl").unlink()
+        self.ledger = Ledger(self.data / "ledger.jsonl")
+        with self.assertRaises(SystemExit) as ctx:
+            self._run("engage", ["follow", "@race"])
+        self.assertIn("执行认领失败", str(ctx.exception))
+
+    def test_claim_released_after_fully_decided_run(self):
+        """全部可判定并落账 → 认领自动释放；后续拦截由账本幂等承担。"""
+        logs = self.vendor / "logs"
+        logs.mkdir()
+        (logs / "follow-20261104.json").write_text(json.dumps(
+            {"records": [{"handle": "@ok1", "followed": True}]}), encoding="utf-8")
+        _fake_vendor(self.vendor, "follow_x.py")
+        self._run("engage", ["follow", "@ok1"])
+        rows = self.ledger.results(channel="x", action="engage")
+        self.assertEqual(1, len(rows))
+        self.assertEqual("committed", rows[0]["result"])
+        self.assertFalse(any(self._claims_dir().iterdir()) if self._claims_dir().exists() else False,
+                         "全部可判定后认领应释放")
+        with self.assertRaises(SystemExit) as ctx:
+            self._run("engage", ["follow", "@ok1"])
+        self.assertIn("幂等", str(ctx.exception))
+
+    def test_history_log_not_adopted_as_this_run_result(self):
+        """vendor 目录留有历史成功日志、本次无新回执 → 不得误判为 committed。"""
+        import os as _os
+        logs = self.vendor / "logs"
+        logs.mkdir()
+        old = logs / "publish-20261001.json"
+        old.write_text(json.dumps({"records": [{"index": 1, "posted": True}]}),
+                       encoding="utf-8")
+        past = time.time() - 3600
+        _os.utime(old, (past, past))
+        _fake_vendor(self.vendor, "publish_x.py")
+        self._run("publish", [])
+        rows = self.ledger.results(channel="x", action="publish")
+        self.assertEqual(1, len(rows))
+        self.assertEqual("indeterminate", rows[0]["result"],
+                         "历史成功日志不得被当作本次结果")
+
+    def test_partial_unknown_per_target_engage(self):
+        """一批多目标部分成功部分未知：分目标记录，一条成功不得掩盖其余未知。"""
+        logs = self.vendor / "logs"
+        logs.mkdir()
+        (logs / "follow-20261104b.json").write_text(json.dumps(
+            {"records": [{"handle": "@good", "followed": True}]}), encoding="utf-8")
+        _fake_vendor(self.vendor, "follow_x.py")
+        self._run("engage", ["follow", "@good", "@opaque"])
+        by_target = {r["target"]: r["result"] for r in
+                     self.ledger.results(channel="x", action="engage")}
+        self.assertEqual("committed", by_target.get("@good"))
+        self.assertEqual("indeterminate", by_target.get("@opaque"))
 
     def test_dry_run_without_records_stays_silent_not_indeterminate(self):
         """干跑不留结果文件时不记 indeterminate（dry-run 永不算已发送）。"""
