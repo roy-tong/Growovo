@@ -131,6 +131,35 @@ def _xdm_log_lines():
     return len(logf.read_text(encoding="utf-8").splitlines())
 
 
+# 命令参数里可识别的目标形态；message/publish 的目标在 vendor 侧队列文件里，
+# 这里看不到，属于第二层 Reserve（执行事务）的覆盖范围。
+_TARGET_PREFIXES = ("@", "http://", "https://", "tweet:", "item:")
+
+
+def _preflight_targets(extra_args):
+    return [str(a).strip() for a in extra_args
+            if str(a).strip().startswith(_TARGET_PREFIXES)]
+
+
+def _preflight_ledger(ledger, extra_args):
+    """幂等 + 不重试名单前置（与 WritePipeline 的 Gate 同一账本答案）。
+
+    X 不走统一写管道，但这不妨碍发送前先问账本同一个问题：发过没有。
+    already 命中（任何 campaign）或目标在 no_retry 名单（indeterminate/
+    no-dm/bounced/suppressed）时拒绝实跑——vendor 内部防重发不是本层依据。
+    """
+    targets = _preflight_targets(extra_args)
+    for target in targets:
+        if ledger.already(channel="x", target=target):
+            raise SystemExit(
+                f"幂等拦截：x 已成功发送给 {target}（任何 campaign）；拒绝重复发送")
+    no_retry = {str(t).lstrip("@") for t in ledger.no_retry("x") if t}
+    for target in targets:
+        if target.lstrip("@") in no_retry:
+            raise SystemExit(
+                f"不重试名单拦截（indeterminate/no-dm/bounced/suppressed）: {target}")
+
+
 def run(action, extra_args, *, go=False, adhoc=False, campaign=None, ledger=None, log=print,
         data_dir=None):
     """执行 vendor 脚本并把结果记账。go=False 时写操作自动降级为 dry-run。
@@ -174,6 +203,8 @@ def run(action, extra_args, *, go=False, adhoc=False, campaign=None, ledger=None
                 Throttle(data_root / "state").reserve("x", action, 1)
             except ThrottleError as exc:
                 raise SystemExit(f"日预算门禁: {exc}")
+            if ledger is not None:
+                _preflight_ledger(ledger, extra_args)
 
     before_lines = {"xdm": _xdm_log_lines()}
     cmd = [sys.executable, str(VENDOR / script)] + [str(a) for a in extra_args]
@@ -184,10 +215,23 @@ def run(action, extra_args, *, go=False, adhoc=False, campaign=None, ledger=None
         cmd.append("--go")
 
     proc = subprocess.run(cmd, cwd=str(VENDOR))
+    recorded = 0
     if ledger is not None and proc.returncode == 0:
         try:
-            _log_to_ledger(action, campaign or "", ledger, before_lines, log=log,
-                           approval_mode=mode)
+            recorded = _log_to_ledger(action, campaign or "", ledger, before_lines,
+                                      log=log, approval_mode=mode)
         except Exception as exc:  # 记账失败不掩盖 vendor 结果
             log(f"账本回写失败（不影响本次执行）: {exc}", "WARN")
+    if ledger is not None and go and recorded == 0:
+        # 外部动作已发生（或可能已发生）而账本无任何记录 = 下次运行会当作
+        # "没发过"再发一次。至少留下 indeterminate：未知状态禁止自动重发，
+        # 人工核实后 ledger.resolve 裁决（与账本 result 终态约定一致）。
+        targets = sorted(_preflight_targets(extra_args))
+        ledger.append(channel="x", transport="cdp", action=action,
+                      campaign=campaign or "",
+                      target=targets[0] if len(targets) == 1 else (",".join(targets) or "?"),
+                      result="indeterminate",
+                      detail="go 实跑但无 vendor 结果可回写（rc=%d）；未知状态"
+                             "禁止自动重发，人工核实后 ledger.resolve" % proc.returncode)
+        log("[x] go 实跑未回写任何账本记录，已记 indeterminate（禁止自动重发）", "WARN")
     return proc.returncode
