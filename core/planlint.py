@@ -9,9 +9,12 @@
 上限是内核属性不是计划属性：plan 里的 size 超过 Throttle 日预算 → lint 直接拒。
 """
 import json
+from contextlib import contextmanager
+from contextvars import ContextVar
 from pathlib import Path
 
 from .approval import ApprovalError, verify_approval
+from .execution_policy import allows as routine_allows
 from .throttle import INTERVALS
 
 REQUIRED_TOP = ["plan_id", "goal", "created", "hypothesis", "icp", "audience",
@@ -119,15 +122,67 @@ def governing_plan(data_dir, campaign):
     return None, None
 
 
-def enforce_approval(data_dir, campaign, adhoc=False):
-    """执行前强制：--go 写操作必须绑定已人审 plan（05 产品方案 §2.4）。
+# Some channel adapters perform a second, legacy approval check after
+# action_runner.precheck().  This task-local scope carries an *explicit*
+# routine=True request through that nested check without changing adapter
+# signatures or leaking authorization to other tasks/workspaces.
+_ROUTINE_SCOPE = ContextVar("growovo_routine_approval_scope", default=None)
 
+
+@contextmanager
+def routine_scope(data_dir, channel, action, account=""):
+    """Propagate one explicit routine request to nested legacy approval checks."""
+    scope = {
+        "data_dir": str(Path(data_dir).resolve()),
+        "channel": str(channel or "").strip().lower(),
+        "action": str(action or "").strip().lower(),
+        "account": account,
+    }
+    token = _ROUTINE_SCOPE.set(scope)
+    try:
+        yield
+    finally:
+        _ROUTINE_SCOPE.reset(token)
+
+
+def _inherited_routine(data_dir, channel, action, account):
+    scope = _ROUTINE_SCOPE.get()
+    if scope is None or scope["data_dir"] != str(Path(data_dir).resolve()):
+        return None
+    # A nested legacy call supplies no operation identity and inherits it.  If
+    # a caller does supply an identity, never silently substitute another one.
+    if channel is not None and str(channel).strip().lower() != scope["channel"]:
+        return None
+    if action is not None and str(action).strip().lower() != scope["action"]:
+        return None
+    if account and account != scope["account"]:
+        return None
+    return scope["channel"], scope["action"], scope["account"]
+
+
+def enforce_approval(data_dir, campaign, adhoc=False, *, routine=None,
+                     channel=None, action=None, account=""):
+    """执行前强制：routine 合格或绑定已人审 plan（05 产品方案 §2.4）。
+
+    - 显式 routine=True 且 channel/action/account 命中有效常驻授权：返回
+      ``routine-policy``；这只是替代逐次 plan 人审，不替代其他执行门。
+    - routine 不合格时继续原检查，绝不伪装成 plan/adhoc。
     - campaign 受某 plan 管辖：校验审批（未批准/批准后被改/过期）→ 拒跑
     - 无任何 plan 管辖：默认同样拒跑；显式 adhoc=True 才放行（CLI --adhoc 人工通道，
       账本记 adhoc=true；MCP 不暴露该通道——agent 不得自我授权）
 
-    返回放行方式："plan"（受管辖且已人审）或 "adhoc"（显式临时放行）。
+    routine=None/False 保持旧行为。None 仅供 action_runner 的任务局部上下文
+    向旧渠道适配器的第二次审批复核传递显式 routine 请求。
     """
+    if routine is None:
+        inherited = _inherited_routine(data_dir, channel, action, account)
+        if inherited is not None:
+            routine = True
+            channel, action, account = inherited
+    if routine is True and channel and action and routine_allows(
+            data_dir, channel, action, account):
+        return "routine-policy"
+
     plan, _ = governing_plan(data_dir, campaign)
     if plan is not None:
         # 人审不是“某个布尔字段为真”：计划本身必须先过 lint。否则一个缺必填

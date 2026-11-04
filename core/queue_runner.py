@@ -24,13 +24,18 @@ class QueueRunError(RuntimeError):
 
 
 def run_queue(queue_path, *, data_dir=None, go=False, allow_unverified=False,
-              only=None, log=print):
-    """执行队列，返回逐条记录列表。"""
+              only=None, log=print, routine=False, account=None):
+    """执行队列，返回逐条记录列表。
+
+    account=None 继承队列顶层 account；显式字符串覆盖它。账号范围始终按
+    routine policy 精确校验，routine=False 时这些新参数不参与旧审批逻辑。
+    """
     data = Path(data_dir or resolve())
     queue_path = Path(queue_path)
     q = load_queue(queue_path)
     campaign = q.get("campaign") or queue_path.stem
     channel, action = q.get("channel"), q.get("action")
+    account = q.get("account", "") if account is None else account
 
     errs = lint_queue(q, path=queue_path)
     if errs:
@@ -44,8 +49,11 @@ def run_queue(queue_path, *, data_dir=None, go=False, allow_unverified=False,
 
     if channel == "email":
         from channels.email_smtp import send_queue
-        return send_queue(queue_path, go=go, only=only, campaign=campaign,
-                          data_dir=data, log=log)
+        kwargs = {"go": go, "only": only, "campaign": campaign,
+                  "data_dir": data, "log": log}
+        if routine is True:
+            kwargs.update(routine=True, account=account)
+        return send_queue(queue_path, **kwargs)
 
     if channel == "x" and action != "reply":
         raise QueueRunError("x 队列只支持 reply；publish 用 mkt action x publish，"
@@ -53,7 +61,11 @@ def run_queue(queue_path, *, data_dir=None, go=False, allow_unverified=False,
     if action not in QUEUE_ACTIONS:
         raise QueueRunError(f"{channel}/{action} 不是队列可执行动作（{sorted(QUEUE_ACTIONS)}）")
 
-    precheck(channel, action, data, campaign, go, allow_unverified)
+    if routine is True:
+        precheck(channel, action, data, campaign, go, allow_unverified,
+                 routine=True, account=account)
+    else:
+        precheck(channel, action, data, campaign, go, allow_unverified)
     throttle = Throttle(data / "state")
     if go and not throttle.daily_allows(channel, action, len(items)):
         raise QueueRunError(f"日预算不足：{channel}/{action} 今日已用 "
@@ -63,12 +75,17 @@ def run_queue(queue_path, *, data_dir=None, go=False, allow_unverified=False,
     for idx, item in enumerate(items):
         target = item.get("target") or item.get("url") or ""
         text = item_text(item)
-        rec = run_action(
-            channel=channel, action=action, data_dir=data, campaign=campaign,
-            go=go, allow_unverified=allow_unverified, target=target, text=text,
-            title=item.get("title"), url=item.get("url"),
-            subreddit=item.get("subreddit"), number=item.get("number"),
-            extra=item.get("extra"), log=log)
+        action_kwargs = {
+            "channel": channel, "action": action, "data_dir": data,
+            "campaign": campaign, "go": go,
+            "allow_unverified": allow_unverified, "target": target, "text": text,
+            "title": item.get("title"), "url": item.get("url"),
+            "subreddit": item.get("subreddit"), "number": item.get("number"),
+            "extra": item.get("extra"), "log": log,
+        }
+        if routine is True:
+            action_kwargs.update(routine=True, account=account)
+        rec = run_action(**action_kwargs)
         rec = dict(rec)
         rec.setdefault("campaign", campaign)
         rec.setdefault("channel", channel)

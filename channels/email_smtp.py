@@ -60,18 +60,30 @@ class SMTPChannel:
 
 
 def send_queue(queue_file, *, go=False, only=None, campaign=None, ledger=None,
-               throttle=None, data_dir=None, adhoc=False, log=log):
+               throttle=None, data_dir=None, adhoc=False, routine=False,
+               account="", log=log):
     """跑一个邮件队列。go=False 全程 dry-run（不建 SMTP 连接、不碰网络）。
     campaign 缺省取队列文件的 campaign 字段（其次文件名）。
-    go=True 必须绑定已人审 plan；无 plan 管辖需 adhoc=True（CLI --adhoc，账本记 adhoc=true）。"""
+    go=True 必须绑定已人审 plan；无 plan 管辖需 adhoc=True（CLI --adhoc，账本记 adhoc=true）。
+    显式 routine=True 可改用命中 channel/action/account 的有效 routine-policy。"""
     data_dir = Path(data_dir or DATA)
     ledger = ledger or Ledger(data_dir / "ledger.jsonl")
     throttle = throttle or Throttle(data_dir / "state")
     qcampaign, items = load_queue(queue_file)
     campaign = campaign or qcampaign
+    from core.planlint import enforce_approval
+
+    def _approval(c, **kwargs):
+        if not kwargs:
+            return enforce_approval(data_dir, c, adhoc=adhoc)
+        return enforce_approval(data_dir, c, adhoc=adhoc, **kwargs)
+
     if go:
-        from core.planlint import enforce_approval
-        enforce_approval(data_dir, campaign, adhoc=adhoc)  # fail-fast；逐条记账由管道 approval 复核
+        if routine is True:
+            _approval(campaign, routine=True, channel="email",
+                      action="message", account=account)  # fail-fast；逐条由管道复核
+        else:
+            _approval(campaign)  # 原 plan/adhoc fail-fast，行为不变
     if only:
         items = [i for i in items if i.get("id") == only or i.get("target") == only]
 
@@ -82,10 +94,9 @@ def send_queue(queue_file, *, go=False, only=None, campaign=None, ledger=None,
     ch = SMTPChannel() if go else None
     gate = Gate(ledger, suppress=load_suppressions(data_dir))
     from core.safety import pause_file
-    from core.planlint import enforce_approval
     pipe = WritePipeline(gate=gate, ledger=ledger, throttle=throttle,
-                         pause_file=pause_file(data_dir),
-                         approval=lambda c: enforce_approval(data_dir, c, adhoc=adhoc))
+                         pause_file=pause_file(data_dir), approval=_approval,
+                         routine=routine, account=account)
     ev = Evidence(data_dir / "shots" / campaign)
 
     log(f"email 队列 {campaign}: {len(items)} 条（{'实跑' if go else 'dry-run'}）")

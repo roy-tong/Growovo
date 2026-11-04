@@ -14,7 +14,8 @@ from pathlib import Path
 ENV = "MKT_HOME"
 
 # data/ 下的标准子目录（schemas.md 的数据三件套 + 实验/留证/状态）
-SUBDIRS = ("plans", "queues", "outcomes", "experiments", "state", "shots")
+SUBDIRS = ("plans", "queues", "outcomes", "experiments", "state", "shots",
+           "context", "work", "deliverables", "sop", "metrics", "policies")
 
 
 def resolve(workspace=None, *, base=None, env=None):

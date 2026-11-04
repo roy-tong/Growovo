@@ -39,8 +39,15 @@ def _d(start: str, offset: int) -> str:
     return (date.fromisoformat(start) + timedelta(days=offset)).isoformat()
 
 
-def build(strategy: Dict[str, Any], start: str, actions_per_week: int = 20) -> Dict[str, Any]:
-    """按四周切：资格周 / 触达周 / 跟进周 / 判定周。"""
+def build(strategy: Dict[str, Any], start: str, actions_per_week: int = 20,
+          goal_plan: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """按四周切：资格周 / 触达周 / 跟进周 / 判定周。
+
+    给了 goal_plan 时，前两周直接用目标方案里的动作，不再套「每周 20 条」的
+    通用模板；后两周按目标族补跟进/样本/报价/复盘。
+    """
+    if goal_plan and goal_plan.get("actions"):
+        return _build_from_goal(strategy, start, goal_plan)
     primary = strategy["primary"]
     res = int(primary.get("residency") or 0)
     half = max(actions_per_week // 2, 5)
@@ -104,12 +111,111 @@ def build(strategy: Dict[str, Any], start: str, actions_per_week: int = 20) -> D
     }
 
 
+def _build_from_goal(strategy: Dict[str, Any], start: str,
+                     goal_plan: Dict[str, Any]) -> Dict[str, Any]:
+    start_d = date.fromisoformat(start)
+    actions = goal_plan.get("actions") or []
+    base = date.fromisoformat(actions[0]["day"]) if actions else start_d
+    weeks: Dict[int, List[Dict[str, Any]]] = {1: [], 2: [], 3: [], 4: []}
+    for a in actions:
+        off = max((date.fromisoformat(a["day"]) - base).days, 0)
+        wk = 1 if off < 7 else 2
+        weeks[wk].append({
+            "day": (start_d + timedelta(days=off)).isoformat(),
+            "what": a["what"], "who": a["who"],
+            "minutes": a["minutes"], "accept": a["accept"],
+        })
+
+    family = ((goal_plan.get("goal") or {}).get("family") or "")
+    if family == "commercial":
+        w3 = [
+            ("跟进第 1 个样本的读回；前两周没做成，就补 1 个（≤3 小时），最多 2 个",
+             "human", 120, "读回记录；或 1 份新样本范围 + 数据清单"),
+            ("对已报价的人做一次跟进；还没有报价，就开口一次（只一次）",
+             "human", 45, "跟进或报价记录"),
+            ("更新报价台账：谁报了、谁拒了、为什么", "machine", 10, "报价台账，每条带原因"),
+        ]
+    elif family == "adoption":
+        w3 = [
+            ("跟进 3 个用户的卡点，只修最高频的那一个", "human", 90, "修复记录 + 频次"),
+            ("把可复现样例放进 README 首屏，删掉解释性长文", "human", 45, "README diff"),
+            ("记本周四个数：clone/fork/issue/真实数据", "machine", 10, "四个数入账"),
+        ]
+    elif family == "awareness":
+        w3 = [
+            ("把首篇拆成 3 条短内容，分发到辅助平台，不改主线", "human", 90, "3 条发布记录"),
+            ("回完本周所有评论，把高频问题记成下一篇选题", "human", 45, "评论清空 + 选题清单"),
+            ("记本周四个数：访问/clone/star/外部 issue", "machine", 10, "四个数入账"),
+        ]
+    else:
+        w3 = [
+            ("给 1 个上期客户提下期范围与价格", "human", 45, "报价记录"),
+            ("问一次转介绍：还有谁在为同一件事头疼", "human", 30, "1 条转介绍或明确没有"),
+            ("记续约/复购信号：谁在问、问什么", "machine", 10, "台账"),
+        ]
+    support = strategy.get("support") or []
+    for i, (what, who, minutes, accept) in enumerate(w3):
+        task = {"day": (start_d + timedelta(days=14 + i * 2)).isoformat(),
+                "what": what, "who": who, "minutes": minutes, "accept": accept}
+        weeks[3].append(task)
+        if support and i == 0:
+            names = "、".join(s["name"] for s in support)
+            weeks[3].append({"day": (start_d + timedelta(days=15)).isoformat(),
+                             "what": f"在 {names} 各做 1 次轻动作（回答/转发/更新），不单独开 campaign",
+                             "who": "human", "minutes": 20,
+                             "accept": f"{len(support)} 条记录，带链接"})
+
+    weeks[4] = [
+        {"day": (start_d + timedelta(days=21)).isoformat(),
+         "what": "把到期跟进全部做完（不新增触达）", "who": "human",
+         "minutes": 30, "accept": "到期台账清零"},
+        {"day": (start_d + timedelta(days=24)).isoformat(),
+         "what": "统计四个数：发出、被删、回话、样本/报价", "who": "machine",
+         "minutes": 5, "accept": "四条数字与台账一致"},
+        {"day": (start_d + timedelta(days=27)).isoformat(),
+         "what": "按目标判据复盘：继续 / 缩范围 / 换目标，三选一",
+         "who": "human", "minutes": 20, "accept": "一页判定，附触发数据"},
+    ]
+
+    for w in weeks.values():
+        w.sort(key=lambda t: t["day"])
+    total = sum(t["minutes"] for w in weeks.values() for t in w)
+    goal_name = (goal_plan.get("goal") or {}).get("name")
+    if goal_name and goal_plan.get("secondary"):
+        goal_name += " + " + goal_plan["secondary"]["name"]
+    if goal_plan.get("secondary"):
+        labels = ("资格与内容", "发布与试用", "分发与修复", "跟进与下一轮")
+    else:
+        labels = {
+            "awareness": ("资格与内容", "发布与回应", "分发与复盘", "跟进与下一轮"),
+            "adoption": ("资格与样例", "试用与反馈", "修复与分发", "跟进与下一轮"),
+            "commercial": ("资格与名单", "触达与样本", "交付与报价", "跟进与下一轮"),
+            "repeat": ("客户与结果", "回访与报价", "续约与转介绍", "复盘与下一轮"),
+        }.get(family, ("资格与名单", "触达与样本", "交付与报价", "跟进与下一轮"))
+    return {
+        "primary": strategy["primary"]["name"],
+        "goal": goal_name,
+        "start": start,
+        "end": (start_d + timedelta(days=27)).isoformat(),
+        "weeks": [{"week": k, "focus": labels[k - 1], "tasks": weeks[k]}
+                  for k in (1, 2, 3, 4)],
+        "total_human_minutes": total,
+        "actions_planned": len(actions),
+    }
+
+
 def render(plan: Dict[str, Any]) -> str:
     from .narrative import table
-    lines = [f"# 四周动作表 · {plan['primary']}",
-             "",
-             f"{plan['start']} → {plan['end']}，人工合计约 {plan['total_human_minutes']} 分钟，"
-             f"计划触达 {plan['actions_planned']} 次。"]
+    title = f"# 四周动作表 · {plan['primary']}"
+    if plan.get("goal"):
+        title += f" · {plan['goal']}"
+    lines = [title, ""]
+    if plan.get("goal"):
+        lines.append(f"{plan['start']} → {plan['end']}，人工合计约 {plan['total_human_minutes']} 分钟，"
+                     f"计划动作 {plan['actions_planned']} 项（按目标方案，不套通用模板）。")
+    else:
+        lines.append(f"{plan['start']} → {plan['end']}，人工合计约 {plan['total_human_minutes']} 分钟，"
+                     f"计划触达 {plan['actions_planned']} 次。")
     for w in plan["weeks"]:
         lines.append("")
         lines.append(f"## 第 {w['week']} 周 · {w['focus']}")

@@ -34,8 +34,17 @@ def platform_layer(ledger_entries: Iterable[Dict[str, Any]]) -> Dict[str, int]:
             "total": sent + bad + unknown + suppressed}
 
 
-def task_layer(followups=None, intent_summary: Optional[Dict[str, Any]] = None) -> Dict[str, int]:
-    out = {"objects": 0, "replied": 0, "asked": 0, "moved": 0}
+def task_layer(followups=None, intent_summary: Optional[Dict[str, Any]] = None,
+               task_outcome_records=None, *, task_outcomes=None) -> Dict[str, int]:
+    """Project followups and canonical task-outcome records without cross-layer inference.
+
+    ``task_outcomes`` is a compatibility-friendly alias for
+    ``task_outcome_records``. A record's ``action_result`` is not counted as a
+    platform action here, and its ``business_outcome`` is not a value event.
+    """
+    out = {"objects": 0, "replied": 0, "asked": 0, "moved": 0,
+           "records": 0, "resolved": 0, "partial": 0, "unresolved": 0,
+           "unknown": 0, "needs_human": 0}
     if followups is not None:
         stats = followups.stats()
         out["objects"] = stats.get("substantive", 0)
@@ -47,6 +56,19 @@ def task_layer(followups=None, intent_summary: Optional[Dict[str, Any]] = None) 
                     out["asked"] += 1
     if intent_summary:
         out["moved"] = intent_summary.get("moved", 0)
+
+    records = task_outcome_records
+    if records is None:
+        records = task_outcomes
+    elif task_outcomes is not None:
+        records = list(records) + list(task_outcomes)
+    for record in records or ():
+        if not isinstance(record, dict):
+            continue
+        status = str(record.get("task_outcome") or "").strip()
+        if status in ("resolved", "partial", "unresolved", "unknown", "needs_human"):
+            out[status] += 1
+            out["records"] += 1
     return out
 
 
@@ -91,7 +113,8 @@ def check_criteria(criteria: Iterable[Dict[str, Any]],
         target = c.get("target")
         if metric in by_type or metric in ("paid", "signup", "activation"):
             actual = by_type.get(metric, business.get(metric, 0))
-        elif metric in ("asked", "replied", "objects"):
+        elif metric in ("asked", "replied", "objects", "moved", "resolved",
+                        "partial", "unresolved", "needs_human"):
             actual = task.get(metric, 0)
         elif metric in ("sent", "failed", "unknown", "suppressed"):
             actual = platform.get(metric, 0)
@@ -107,19 +130,44 @@ def check_criteria(criteria: Iterable[Dict[str, Any]],
     return rows
 
 
+def scoped_task_outcomes(records: Iterable[Dict[str, Any]],
+                         scope: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
+    """Apply campaign/subject/time scope to canonical records and metadata.
+
+    action_runner stores campaign/target inside metadata.  Flatten only for
+    matching; the canonical record remains unchanged in the returned copy.
+    """
+    from .scope import filter_rows
+    rows = []
+    for record in records:
+        if not isinstance(record, dict):
+            continue
+        row = dict(record)
+        metadata = record.get("metadata") or {}
+        for key in ("campaign", "target", "subject"):
+            if key not in row and metadata.get(key) not in (None, ""):
+                row[key] = metadata[key]
+        rows.append(row)
+    return filter_rows(rows, scope)
+
+
 def collect(*, ledger_entries=(), followups=None, intent_summary=None,
             outcome_events=(), criteria=(), scope: Optional[Dict[str, Any]] = None,
-            value_events: Optional[Iterable[str]] = None) -> Dict[str, Any]:
+            value_events: Optional[Iterable[str]] = None,
+            task_outcome_records=None, task_outcomes=None) -> Dict[str, Any]:
     p = platform_layer(ledger_entries)
-    t = task_layer(followups, intent_summary)
+    t = task_layer(followups, intent_summary, task_outcome_records,
+                   task_outcomes=task_outcomes)
     b = business_layer(outcome_events, value_events=value_events)
     rows = check_criteria(criteria, b, t, p)
 
-    if not any((p["total"], t["objects"], t["replied"], t["asked"], t["moved"], sum(b["by_type"].values()))):
+    task_activity = (t["objects"] + t["replied"] + t["asked"] + t["moved"]
+                     + t.get("records", 0))
+    if not any((p["total"], task_activity, sum(b["by_type"].values()))):
         observation, why = "数据不足", "当前范围没有动作、任务结果或可核验价值事件"
     elif b["by_type"]:
         observation, why = "已观察到价值事件", "业务事件与动作/任务结果分层记录，不互相推导"
-    elif p["total"] or t["objects"] or t["replied"] or t["asked"] or t["moved"]:
+    elif p["total"] or task_activity:
         observation, why = "部分观察", "已有动作或任务进展，但尚未观察到可核验价值事件"
     else:
         observation, why = "数据不足", "当前范围没有可核验结果"
@@ -142,11 +190,16 @@ def render(r: Dict[str, Any]) -> str:
     lines.append("## 三层分开算")
     lines.append("")
     business_bits = [f"{name} {count}" for name, count in b.get("by_type", {}).items()]
+    task_bits = (f"任务记录 {t.get('records', 0)}｜解决 {t.get('resolved', 0)}｜"
+                 f"部分解决 {t.get('partial', 0)}｜未解决 {t.get('unresolved', 0)}｜"
+                 f"未知 {t.get('unknown', 0)}｜需人工 {t.get('needs_human', 0)}｜"
+                 f"有回应的人 {t['objects']}｜回话 {t['replied']}｜提问 {t['asked']}｜"
+                 f"转一对一 {t['moved']}")
     lines.append(table(["层", "数字", "说明"], [
         ["平台动作", f"发出 {p['sent']}｜失败 {p['failed']}｜未知 {p['unknown']}｜抑制 {p['suppressed']}",
          "动作成功不等于有转化"],
-        ["任务结果", f"有回应的人 {t['objects']}｜回话 {t['replied']}｜提问 {t['asked']}｜转一对一 {t['moved']}",
-         "有人回话，说明开口方式对了一部分"],
+        ["任务结果", task_bits,
+         "任务完成有独立记录；不等于平台动作或业务转化"],
         ["业务结果", "｜".join(business_bits) if business_bits else "暂无可核验价值事件",
          "只计已核验且非近似事件，不能代替完整用户旅程"],
     ]))

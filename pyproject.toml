@@ -4,18 +4,17 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "growovo"
-version = "0.5.0"
+version = "0.9.0"
 description = "Agent-native GTM operator kernel: reviewed playbooks, authorized accounts, quotas and verifiable operation records."
 readme = "README.md"
 requires-python = ">=3.9"
-license = { file = "LICENSE" }
+license = "MIT"
 authors = [{ name = "Roy Tong" }]
 keywords = ["gtm", "growth", "marketing-automation", "mcp", "one-person-company", "agent"]
 classifiers = [
   "Development Status :: 3 - Alpha",
   "Environment :: Console",
   "Intended Audience :: Developers",
-  "License :: OSI Approved :: MIT License",
   "Programming Language :: Python :: 3",
   "Programming Language :: Python :: 3.9",
   "Programming Language :: Python :: 3.11",
@@ -47,3 +46,4 @@ include-package-data = false
 # Vendored x-ops-automation scripts are executed as files (never imported),
 # so they ship as package data next to the adapter that calls them.
 "channels.x" = ["vendor/*.py", "vendor/*.sh", "vendor/*.md"]
+"core" = ["*_data.json", "work_order_demo.json"]

@@ -10,8 +10,9 @@ ZCode 等 MCP 客户端连接）。配法（客户端 mcp 配置）：
     全渠道）——两者共用暂停/审批/账本，没有绕过留痕的路径
   - 写操作默认 dry-run；go=true 需显式传
   - UNVERIFIED 渠道（reddit/linkedin/hn/github 写）拒绝实跑，除非 allow_unverified=true
-  - 实跑必须绑定已人审 plan（enforce_approval）；无 plan 的 adhoc 放行**只在 CLI
-    人工通道（--adhoc）开放**，MCP 不暴露——agent 不得自我授权绕过人审
+  - 实跑须绑定已人审 plan，或在工作区已有有效 routine policy 时显式 routine=true；
+    无 plan 的 adhoc 放行**只在 CLI 人工通道（--adhoc）开放**，MCP 不暴露授权管理，
+    agent 不得自我创建/撤销授权或绕过其他安全门
   - 工具执行期间 stdout 重定向到 stderr，stdout 只留 JSON-RPC（stdio 协议不可污染）
   - 凭据只在服务端进程环境变量，不经工具参数往返
 """
@@ -71,6 +72,44 @@ TOOLS = [
             },
             "required": ["action"],
         },
+    },
+    {
+        "name": "mkt_orchestrate",
+        "description": "只读编排：按产品/目标/任务选择最小岗位组合、交付物、交接和表达方式；不自动组队执行或发布。",
+        "inputSchema": {"type": "object", "properties": {
+            "product": {"type": "object"}, "goal": {"type": "string"}, "task": {"type": "string"},
+            "audience": {"type": "string"}, "channel": {"type": "string"}, "motion": {"type": "string"}},
+            "required": ["product", "goal", "task"]},
+    },
+    {
+        "name": "mkt_capabilities",
+        "description": "只读 GTM 能力注册表：18 能力域、40 岗位族及其职责/KPI/SOP/交付物/审批映射。",
+        "inputSchema": {"type": "object", "properties": {
+            "capability_id": {"type": "string"}, "role_family": {"type": "string"},
+            "lint": {"type": "boolean", "default": False}}},
+    },
+    {
+        "name": "mkt_templates",
+        "description": "只读 GTM 交付物模板：32 个模板的版本、必填字段与 QA；可校验实例，不写工作区。",
+        "inputSchema": {"type": "object", "properties": {
+            "template_id": {"type": "string"}, "version": {"type": "string"},
+            "fields": {"type": "object"}, "lint_registry": {"type": "boolean", "default": False}}},
+    },
+    {
+        "name": "mkt_work_order",
+        "description": "只读工作操作系统：WorkOrder 列表/详情/下一步与关联 SOP run、交付物、交接；不创建、不审批。",
+        "inputSchema": {"type": "object", "properties": {
+            "action": {"enum": ["list", "show", "next"]}, "work_order_id": {"type": "string"}},
+            "required": ["action"]},
+    },
+    {
+        "name": "mkt_metric_measure",
+        "description": "只读 KPI 计算：按版本化指标字典对提供的事件确定性测量；分母为 0 返回 null，不伪造业务结果。",
+        "inputSchema": {"type": "object", "properties": {
+            "metric_id": {"type": "string"}, "version": {"type": "string"},
+            "events": {"type": "array", "items": {"type": "object"}},
+            "scope": {"type": "object"}, "cohort_end": {"type": "string"}, "as_of": {"type": "string"}},
+            "required": ["metric_id", "events"]},
     },
     {
         "name": "mkt_status",
@@ -144,7 +183,7 @@ TOOLS = [
     {
         "name": "mkt_action",
         "description": "单条写动作（与队列同一套门禁/暂停/审批/账本）。channel ∈ x|reddit|linkedin|github|hn；"
-                       "action ∈ publish|reply|message|engage。默认 dry-run；go=true 需已人审 plan；"
+                       "action ∈ publish|reply|message|engage。默认 dry-run；go=true 需已人审 plan 或有效 routine policy 且 routine=true；"
                        "UNVERIFIED 渠道实跑需 allow_unverified=true。email 只支持队列。",
         "inputSchema": {
             "type": "object",
@@ -158,8 +197,11 @@ TOOLS = [
                 "subreddit": {"type": "string"},
                 "number": {"type": "integer"},
                 "campaign": {"type": "string"},
+                "account": {"type": "string", "description": "routine policy 精确匹配的执行账号"},
                 "extra": {"type": "array", "items": {"type": "string"}},
                 "go": {"type": "boolean", "default": False},
+                "routine": {"type": "boolean", "default": False,
+                            "description": "仅在工作区已有有效日常营销授权时使用；不能自我授权"},
                 "allow_unverified": {"type": "boolean", "default": False},
             },
             "required": ["channel", "action"],
@@ -179,12 +221,15 @@ TOOLS = [
         "name": "mkt_run_queue",
         "description": "执行一个队列（全渠道：email/hn/github/reddit/linkedin/x-reply）。"
                        "默认 dry-run；go=true 实跑；UNVERIFIED 渠道实跑需 allow_unverified=true；"
-                       "实跑必须绑定已人审 plan（无 plan 的 adhoc 仅 CLI 人工通道，MCP 不开放）。",
+                       "实跑须已人审 plan，或显式 routine=true 且策略匹配（无 plan 的 adhoc 仅 CLI；授权管理不对 MCP 开放）。",
         "inputSchema": {
             "type": "object",
             "properties": {
                 "queue_path": {"type": "string", "description": "data/queues/<campaign>.json"},
+                "account": {"type": "string", "description": "可选：覆盖队列顶层账号，供 routine policy 精确校验"},
                 "go": {"type": "boolean", "default": False},
+                "routine": {"type": "boolean", "default": False,
+                            "description": "仅使用已存在的 routine policy；MCP 不能创建或撤销授权"},
                 "allow_unverified": {"type": "boolean", "default": False},
             },
             "required": ["queue_path"],
@@ -204,6 +249,61 @@ TOOLS = [
             "path": {"type": "string"},
             "facts": {"type": "object", "description": "人工钉定的口径：{渠道:{动作,回应,结果}}，可省略"},
             "max_files": {"type": "integer", "default": 20000}}, "required": ["path"]},
+    },
+    {
+        "name": "mkt_goals",
+        "description": "只读目标选项：按产品类型/阶段列出声量、使用、商业三类目标，每个带指标、判据、证明/不证明和推荐平台。",
+        "inputSchema": {"type": "object", "properties": {
+            "facts": {"type": "object", "description": "产品事实包（同 mkt gtm diagnose）"}},
+            "required": ["facts"]},
+    },
+    {
+        "name": "mkt_channel_venues",
+        "description": "只读渠道库：具体的地方（subreddit/Slack/newsletter/会议），带人群、能否发、信号密度、竞争与风险。",
+        "inputSchema": {"type": "object", "properties": {
+            "platform": {"type": "string"}}},
+    },
+    {
+        "name": "mkt_channel_plan",
+        "description": "只读渠道方案：目标→主/发射/辅助/旁听 + 经济学区间 + 容量 + 预注册实验。",
+        "inputSchema": {"type": "object", "properties": {
+            "facts": {"type": "object"}, "goal": {"type": "string"},
+            "secondary": {"type": "string"},
+            "platforms": {"type": "array", "items": {"type": "string"}}},
+            "required": ["facts", "goal"]},
+    },
+    {
+        "name": "mkt_deals",
+        "description": "只读转化：阶段、漏斗、卡住的对象；读 DATA/deals.jsonl。",
+        "inputSchema": {"type": "object", "properties": {
+            "stage": {"type": "string"}}},
+    },
+    {
+        "name": "mkt_deal_next",
+        "description": "只读转化：今天该跟谁、下一步动作、为什么、几天内。",
+        "inputSchema": {"type": "object", "properties": {"on": {"type": "string"}}},
+    },
+    {
+        "name": "mkt_sprint_plan",
+        "description": "只读冲刺方案：目标方案→N 天并行工作流、小时级排期、每日目标、加速杠杆、容量校验与红线。",
+        "inputSchema": {"type": "object", "properties": {
+            "facts": {"type": "object"}, "goal": {"type": "string"},
+            "secondary": {"type": "string"},
+            "platforms": {"type": "array", "items": {"type": "string"}},
+            "target": {"type": "number"}, "days": {"type": "integer", "default": 3},
+            "start": {"type": "string"}, "hours_per_day": {"type": "number"},
+            "launch_hour": {"type": "string"}},
+            "required": ["facts", "goal"]},
+    },
+    {
+        "name": "mkt_goal_plan",
+        "description": "只读目标方案：目标+平台→平台分工、前两周动作、里程碑、止损线；不写文件、不发消息。",
+        "inputSchema": {"type": "object", "properties": {
+            "facts": {"type": "object"}, "goal": {"type": "string"},
+            "platforms": {"type": "array", "items": {"type": "string"}},
+            "target": {"type": "number"}, "window_days": {"type": "integer"},
+            "secondary": {"type": "string"}, "secondary_target": {"type": "number"}},
+            "required": ["facts", "goal"]},
     },
     {
         "name": "mkt_strategy",
@@ -363,6 +463,67 @@ def _call_tool(name, args):
             ]})
         raise ValueError("unknown workflow action")
 
+    if name == "mkt_orchestrate":
+        from core import orchestration
+        plan = orchestration.orchestrate(args["product"], args["goal"], args["task"],
+                                         audience=args.get("audience", ""), channel=args.get("channel", ""),
+                                         motion=args.get("motion", ""))
+        errors = orchestration.lint_orchestration(plan)
+        plan["validation"] = {"ok": not errors, "errors": errors}
+        plan["rendered_markdown"] = orchestration.render_markdown(plan)
+        return _text(plan)
+
+    if name == "mkt_capabilities":
+        from core import capabilities
+        if args.get("lint"):
+            errors = capabilities.lint_registry()
+            return _text({"ok": not errors, "errors": errors})
+        if args.get("role_family"):
+            return _text(capabilities.get_role_family(args["role_family"]))
+        if args.get("capability_id"):
+            return _text(capabilities.get_capability(args["capability_id"]))
+        return _text({"capabilities": capabilities.list_capabilities(),
+                      "role_families": capabilities.list_role_families()})
+
+    if name == "mkt_templates":
+        from core import templates
+        if args.get("lint_registry"):
+            errors = templates.lint_registry()
+            return _text({"ok": not errors, "errors": errors})
+        if args.get("fields") is not None:
+            if not args.get("template_id") or not args.get("version"):
+                raise ValueError("模板实例校验需要 template_id/version/fields")
+            errors = templates.lint_instance(args["template_id"], args["version"], args["fields"])
+            return _text({"ok": not errors, "errors": errors})
+        if args.get("template_id"):
+            return _text(templates.get_template(args["template_id"]))
+        return _text({"templates": templates.list_templates()})
+
+    if name == "mkt_work_order":
+        from core.work import WorkStore
+        store = WorkStore(DATA)
+        if args["action"] == "next":
+            return _text({"next": store.next_actions()})
+        if args["action"] == "list":
+            return _text({"work_orders": store.list()})
+        order = store.get(args["work_order_id"])
+        from core.sop import SOPRunStore
+        from core.deliverables import DeliverableStore
+        from core.handoffs import HandoffStore
+        work_order_id = order["work_order_id"]
+        return _text({
+            "work_order": order,
+            "sop_runs": [r for r in SOPRunStore(DATA).list() if r["work_order_id"] == work_order_id],
+            "deliverables": [d for d in DeliverableStore(DATA).list() if d["work_order_id"] == work_order_id],
+            "handoffs": [h for h in HandoffStore(DATA).list() if h["work_order_id"] == work_order_id],
+        })
+
+    if name == "mkt_metric_measure":
+        from core import metrics
+        metric = metrics.MetricRegistry(DATA).get(args["metric_id"], args.get("version") or None)
+        return _text(metrics.measure(metric, args["events"], scope=args.get("scope") or {},
+                                     cohort_end=args.get("cohort_end", ""), as_of=args.get("as_of", "")))
+
     if name == "mkt_status":
         return _text(Ledger(DATA / "ledger.jsonl").summary())
 
@@ -435,7 +596,8 @@ def _call_tool(name, args):
         try:
             results = run_queue(args["queue_path"], data_dir=DATA,
                                 go=bool(args.get("go")),
-                                allow_unverified=bool(args.get("allow_unverified")))
+                                allow_unverified=bool(args.get("allow_unverified")),
+                                routine=bool(args.get("routine")), account=args.get("account"))
         except QueueRunError as exc:
             return _err(f"队列拒跑: {exc}")
         tally = {}
@@ -460,7 +622,8 @@ def _call_tool(name, args):
                 target=args.get("target"), text=args.get("text"),
                 title=args.get("title"), url=args.get("url"),
                 subreddit=args.get("subreddit"), number=args.get("number"),
-                extra=args.get("extra"))
+                extra=args.get("extra"), routine=bool(args.get("routine")),
+                account=args.get("account", ""))
         except ActionError as exc:
             return _err(f"动作拒跑: {exc}")
         return _text(rec)
@@ -515,6 +678,86 @@ def _call_tool(name, args):
                                     "lines": [i["sentence"][:140] for i in r["items"][:3]]}
                                    for r in pool[:6]]})
 
+    if name == "mkt_goals":
+        from core import goals
+        try:
+            return _text(goals.list_goals(args["facts"]))
+        except goals.GoalError as e:
+            return _err(str(e))
+
+    if name == "mkt_channel_venues":
+        from core import channels
+        rows = channels.VENUES
+        if args.get("platform"):
+            rows = [r for r in rows if r["platform"] == args["platform"]]
+        return _text(rows)
+
+    if name == "mkt_channel_plan":
+        from core import channels, goals
+        try:
+            gp = goals.build_plan(
+                args["facts"], args["goal"],
+                platforms=args.get("platforms"),
+                secondary_goal_id=args.get("secondary"))
+            return _text(channels.plan(args["facts"], gp))
+        except (goals.GoalError, ValueError) as e:
+            return _err(str(e))
+
+    if name == "mkt_deals":
+        from core import conversion
+        d = conversion.Deals(DATA / "deals.jsonl")
+        rows = d.all()
+        if args.get("stage"):
+            rows = [r for r in rows if r["stage"] == args["stage"]]
+        return _text({"deals": rows, "funnel": d.funnel()})
+
+    if name == "mkt_deal_next":
+        from core import conversion
+        d = conversion.Deals(DATA / "deals.jsonl")
+        on = args.get("on") or conversion._today()
+        rows = []
+        for row in d.all():
+            if row["stage"] in ("lost", "repeat"):
+                continue
+            days = (conversion.date.fromisoformat(on)
+                    - conversion.date.fromisoformat(row["updated"])).days
+            nxt = conversion.next_action(row["stage"], days)
+            if nxt["action"] == "等":
+                continue
+            item = dict(row)
+            item["next"] = nxt
+            rows.append(item)
+        return _text({"date": on, "due": rows})
+
+    if name == "mkt_sprint_plan":
+        from core import goals, sprint
+        try:
+            gp = goals.build_plan(
+                args["facts"], args["goal"],
+                platforms=args.get("platforms"),
+                target=args.get("target"),
+                secondary_goal_id=args.get("secondary"))
+            plan = sprint.build(
+                gp, days=args.get("days", 3), start=args.get("start"),
+                hours_per_day=args.get("hours_per_day", 8.0),
+                launch_hour=args.get("launch_hour", "21:00"))
+            return _text(plan)
+        except (goals.GoalError, sprint.SprintError) as e:
+            return _err(str(e))
+
+    if name == "mkt_goal_plan":
+        from core import goals
+        try:
+            return _text(goals.build_plan(
+                args["facts"], args["goal"],
+                platforms=args.get("platforms"),
+                target=args.get("target"),
+                window_days=args.get("window_days"),
+                secondary_goal_id=args.get("secondary"),
+                secondary_target=args.get("secondary_target")))
+        except goals.GoalError as e:
+            return _err(str(e))
+
     if name == "mkt_strategy":
         from core import gtm, strategy, retro
         payload = gtm.diagnose(args["facts"])
@@ -537,17 +780,21 @@ def _call_tool(name, args):
     if name == "mkt_result":
         from core import result
         from core.followups import Followups
+        from core.task_outcome import read_records
         r = result.collect(ledger_entries=Ledger(DATA / "ledger.jsonl").all(),
                            followups=Followups(DATA / "followups.jsonl"),
-                           criteria=args.get("criteria") or [])
+                           criteria=args.get("criteria") or [],
+                           task_outcome_records=read_records(DATA))
         return _text({"result": r, "rendered": result.render(r)})
 
     if name == "mkt_revise":
         from core import result, revise
         from core.followups import Followups
+        from core.task_outcome import read_records
         r = args.get("result") or result.collect(
             ledger_entries=Ledger(DATA / "ledger.jsonl").all(),
-            followups=Followups(DATA / "followups.jsonl"))
+            followups=Followups(DATA / "followups.jsonl"),
+            task_outcome_records=read_records(DATA))
         diff = revise.propose(r, args.get("params") or {})
         return _text({"diff": diff, "rendered": revise.render(diff)})
 
@@ -640,7 +887,7 @@ def handle(msg):
         return {"jsonrpc": "2.0", "id": mid, "result": {
             "protocolVersion": PROTOCOL_VERSION,
             "capabilities": {"tools": {}},
-            "serverInfo": {"name": "mkt-server", "version": "0.2.0"},
+            "serverInfo": {"name": "mkt-server", "version": "0.9.0"},
         }}
     if method == "ping":
         return {"jsonrpc": "2.0", "id": mid, "result": {}}

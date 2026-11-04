@@ -1,0 +1,115 @@
+{
+  "schema_version": "1.0",
+  "kind": "growovo.work_order",
+  "work_order_id": "wo-devrel-tutorial-001",
+  "workstream_id": "ws-developer-activation-001",
+  "objective_ref": {
+    "objective_id": "obj-first-success-001",
+    "version": "1"
+  },
+  "title": "交付一篇可复现教程并观察开发者首次成功",
+  "trigger": "新用户集中在首次调用前流失",
+  "business_purpose": "帮助合格开发者独立完成首次成功调用，并定位剩余 onboarding 阻塞",
+  "context_ref": {
+    "context_id": "ctx-example-product",
+    "version": "2026-11-04.1",
+    "source_kind": "user_declared",
+    "content_sha256": "replace-with-real-sha256"
+  },
+  "subject_refs": [
+    {
+      "subject_type": "developer_segment",
+      "subject_id": "segment-new-api-users"
+    }
+  ],
+  "scope": {
+    "included": ["有公开文档访问权限的新开发者"],
+    "excluded": ["未经授权的潜在客户名单", "生产客户环境"]
+  },
+  "capability_id": "C18",
+  "role_family": "46",
+  "collaborating_role_families": ["09", "10", "12", "24", "44"],
+  "input_bindings": [
+    {
+      "name": "approved_product_facts",
+      "artifact_id": "del-product-facts-001",
+      "version": "2",
+      "acceptance_status": "accepted",
+      "required": true
+    },
+    {
+      "name": "activation_event_definition",
+      "artifact_id": "metric-first-success",
+      "version": "1.0.0",
+      "acceptance_status": "accepted",
+      "required": true
+    }
+  ],
+  "sop_version_ref": {
+    "sop_id": "sop-devrel-first-success",
+    "version": "1.0.0"
+  },
+  "dependencies": [],
+  "deliverable_specs": [
+    {
+      "deliverable_type": "developer_tutorial",
+      "template_id": "T30",
+      "template_version": "1.0.0",
+      "reviewer_role": "technical_owner",
+      "required": true
+    },
+    {
+      "deliverable_type": "distribution_and_followup_pack",
+      "template_id": "T07",
+      "template_version": "1.0.0",
+      "reviewer_role": "channel_owner",
+      "required": true
+    }
+  ],
+  "owner": {
+    "actor_id": "person-devrel-owner",
+    "actor_type": "human",
+    "role_family": "46",
+    "raci": "accountable"
+  },
+  "receiver": {
+    "actor_id": "person-product-growth-owner",
+    "role_family": "24"
+  },
+  "schedule": {
+    "execution_window": "2026-11-05/2026-11-07",
+    "observation_window": "2026-11-08/2026-11-21",
+    "timezone": "Asia/Shanghai",
+    "due": "2026-11-07T18:00:00+08:00"
+  },
+  "budget": {
+    "currency": "CNY",
+    "external_spend_cap": 0,
+    "human_minutes_cap": 480
+  },
+  "risk_class": "R3",
+  "permission_ref": {
+    "policy_id": "default-gtm-policy",
+    "version": "1"
+  },
+  "result_metric_refs": [
+    {"metric_id": "developer_activation_rate", "version": "1.0.0"}
+  ],
+  "process_metric_refs": [
+    {"metric_id": "deliverable_first_pass_acceptance", "version": "1.0.0"}
+  ],
+  "guardrail_metric_refs": [
+    {"metric_id": "broken_example_rate", "version": "1.0.0"}
+  ],
+  "stop_rollback": {
+    "stop_if": ["示例在干净环境复现失败", "公开内容包含未批准路线图承诺"],
+    "rollback": "停止发布并下线错误版本；已产生的未知外部结果进入人工裁决",
+    "unknown_result": "needs_human_no_blind_retry"
+  },
+  "observation_plan": {
+    "event_source": "authorized_product_event_export",
+    "verification": "verified_non_approximate",
+    "action_success_does_not_advance_business_outcome": true
+  },
+  "state": "draft"
+}

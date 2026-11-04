@@ -27,15 +27,17 @@ STATE = BASE / "data" / "harvest_state.json"
 
 QUERIES = {
     "xhs": [
-        "小红书运营", "小红书涨粉", "小红书起号", "小红书 笔记 限流", "小红书 选题",
-        "小红书 封面", "小红书 爆款", "小红书 数据分析", "小红书 变现", "小红书 素人",
-        "抖音运营", "抖音起号", "抖音 完播率", "抖音 带货", "视频号 运营", "视频号 涨粉",
-        "公众号 运营", "公众号 涨粉", "公众号 搜一搜", "知乎 运营", "知乎 引流",
-        "B站 运营", "B站 涨粉", "微博 运营", "小红书 商业", "小红书 蒲公英",
+        # 运营策略
+        "自动化运营", "账号矩阵 运营", "内容运营 方法论", "用户增长 策略",
+        "私域 运营 打法", "投放 复盘", "选题 方法论", "爆款 拆解",
+        # 自动化 / 工具
+        "AI 运营 工作流", "批量 生成 内容", "自动化 发布", "RPA 运营",
+        # 风控
+        "限流 原因 排查", "封号 申诉", "违规 判定", "风控 机制",
+        "养号 方法", "矩阵 号 防关联", "搬运 判定",
     ],
     "douyin": [
-        "抖音运营", "抖音起号", "抖音 完播率", "抖音 推流机制", "抖音 新号",
-        "小红书运营", "视频号 运营", "短视频运营", "抖音 选题", "抖音 变现",
+        "自动化运营", "矩阵号 玩法", "风控 限流", "投流 复盘", "内容 方法论",
     ],
 }
 
@@ -90,11 +92,13 @@ def main() -> int:
         tail = "\n".join(out.splitlines()[-3:])
         got = out.count("✓")
         print(f"\n— {q} → {got} 条\n{tail}")
-        if proc.returncode != 0 or "安全验证" in (proc.stderr or ""):
-            print("⛔ 触发验证或异常，熔断停止", file=sys.stderr)
+        if "安全验证" in (proc.stderr or "") or proc.returncode == 2:
+            print("⛔ 触发验证，熔断停止", file=sys.stderr)
             st[today][args.platform] = used
             save_state(st)
             return 1
+        if got == 0 and proc.returncode not in (0,):
+            print(f"  （本批异常退出 {proc.returncode}，非风控，继续下一批）")
         used += got
         target -= got
         st[today][args.platform] = used

@@ -9,11 +9,15 @@
 
 Growovo 面向**独立开发者与一人公司**，提供 GTM/User Growth 的需求发现、价值内容、授权执行和真实结果回流。输入产品事实、目标用户与授权边界，先识别值得服务的需求，再生成可复现的价值资产和增长动作；每个动作记录成功、失败或待人工核实，不把发送、曝光或 Star 当成业务结果。
 
-产品由 **Demand / Execution / Learning 三层能力**与 **Operator Engine + Playbooks** 组成：Signal Interpretation 先校验宿主语义候选，Opportunity Discovery 再判断需求与产品匹配；Value Artifact 经本地复现、授权交付和用户读回形成完整价值链，Journey 诊断真实使用断点并保留多触点非因果边界。GitHub Inbox 只是其中一个 Playbook，而不是产品总定义。CLI、MCP、Skill 共用审批、预算、回读和账本。发送成功只代表操作完成，激活、持续使用和付费分别核验。
+先选目标（声量 / 使用 / 商业），再选渠道（具体的地方，不是平台），然后按阶段做转化。同一个产品换目标就换打法。产品由 **Demand / Execution / Learning 三层能力**与 **Operator Engine + Playbooks** 组成：Signal Interpretation 先校验宿主语义候选，Opportunity Discovery 再判断需求与产品匹配；Value Artifact 经本地复现、授权交付和用户读回形成完整价值链，Journey 诊断真实使用断点并保留多触点非因果边界。GitHub Inbox 只是其中一个 Playbook，而不是产品总定义。CLI、MCP、Skill 共用审批、预算、回读和账本。发送成功只代表操作完成，激活、持续使用和付费分别核验。
+
+**v0.8 新增 GTM Work OS**：18 个能力域、40 个岗位族和 32 个模板进入可校验注册表；不可变上下文、运营目标、WorkOrder、专业 SOP、交付物验收、跨岗位 Handoff 和 KPI 形成业务主链。`work-action` 只把 accepted 交付物物化为既有 plan/queue，不新增发送旁路。当前有一条完整开发者 SOP 运行链，不把注册覆盖说成 40 个专业自动化全部完成。详见[实现说明](docs/gtm-os/05-implementation.md)。
+
+**v0.9 新增按需编排与常驻营销授权**：`mkt orchestrate` 根据产品、目标和任务只选择必要岗位，并逐份决定交付物的内容与表达；日常发帖、回复、私信和邮件可在工作区已有明确 `routine-policy` 时直接执行，不再一律逐次人审。付款、合同、折扣等仍需人工，dry-run、暂停、DNC、配额、回读和未知结果保护不降级。详见[编排与授权](docs/gtm-os/06-orchestration-and-routine.md)。
 
 [![tests](https://github.com/roy-tong/Growovo/actions/workflows/tests.yml/badge.svg)](https://github.com/roy-tong/Growovo/actions/workflows/tests.yml)
 
-**先试一个结果：** `python3 mkt.py demo` 在本地完成计划校验、审批、dry-run 和账本演示，无需账号或网络。实际平台命令的验证等级见下表。[能力进度与技术取舍](docs/feature-status.md)。
+**先试一个结果：** `python3 mkt.py demo` 在本地完成计划校验、审批、dry-run 和账本演示；`python3 mkt.py work-demo` 继续演示 WorkOrder→SOP→交付验收→交接→KPI→已审批 plan/queue，全程无需账号或网络且不执行队列。实际平台命令的验证等级见下表。[能力进度与技术取舍](docs/feature-status.md)。
 
 > 为什么不自己写个脚本，或者用通用自动化平台？[对比页](docs/compare.md)（英文）逐项写了 Growovo 在哪输、在哪赢，并给出每条主张对应的仓库文件。
 
@@ -27,7 +31,7 @@ Growovo 面向**独立开发者与一人公司**，提供 GTM/User Growth 的需
 
 - 仅用于**本人拥有或明确授权运营的账号**；无授权不碰他人账号，账号归属、权限和人工接管全程留痕
 - CDP 通道零凭据：不保存任何密码/token/Cookie；SMTP 凭据只走环境变量
-- **一切写操作默认 dry-run，`--go` 才实跑**；实跑必须绑定**已人审 plan**——无 plan 管辖默认拒跑，仅 CLI 人工通道 `--adhoc` 显式放行（账本记 adhoc=true；MCP 不开放）
+- **一切写操作默认 dry-run，`--go` 才实跑**；实跑须绑定**已人审 plan**，或显式 `--routine` 且工作区常驻策略覆盖该账号/渠道/动作——无授权默认拒跑，仅 CLI 人工通道 `--adhoc` 显式放行（账本记 adhoc=true；MCP 不开放授权管理）
 - 日预算在发送前原子预留；`indeterminate`（未知结果）不可自动重发，必须人工 `ledger resolve`；contacts 的 DNC/bounced 身份与 `suppress.txt` 合并为同一发送抑制源
 - 失败即停（不重试轰炸）；回读校验不一致绝不发送（449 空正文事故的固化）
 - 人类节奏：随机间隔 + 单次硬上限 + 日预算（core/throttle.py 的表）
@@ -79,7 +83,18 @@ python3 mkt.py check              # 确认 CDP 会话与 X/Gmail 登录态
 | `python3 mkt.py contacts add/find/dnc/mark/import` | 线索库操作（幂等去重/DNC 隐藏/er-batch 导入） | — |
 | `mkt followup add/due/touch/stats/close` | **跟进台账**：说过话的人单独记；首触 + 第 3/14/45 天，最多三次跟进，无实质回应自动判弃；`mkt next` 会把到期的跟进顶到最前面 | — |
 | `mkt intent start/log/show/verdict` | **意图信号学习实验**：可配置周期与可选观察目标，保留样本不足与安全异常，输出学习观察而非渠道生死判决 | — |
-| `mkt strategy build/cadence` | **策略与落地**：只给一个主渠道 + 一个发射点 + 最多三条「不做」（带复盘数字）；冷启动五阶段判据；放大的前提是信号不是量；随后生成四周动作表，每条带验收物 | — |
+| `mkt orchestrate --product P --goal G --task T [--format md]` | **按需编排**：只选必要岗位，逐份确定交付物、内容结构、表达和交接 | 本地实现，候选方案非发布批准 |
+| `mkt policy show/enable/disable/check` + `--routine` | **常驻营销授权**：授权账号/动作内日常触达可直接执行；付款等不可加入；其他安全门不变 | 本地实现，无真实发送验证 |
+| `mkt capability list/show/lint` / `mkt template list/show/lint` | **GTM 注册表**：18 能力域、40 岗位族、32 模板及交叉引用校验 | 本地实现 |
+| `mkt context` / `mkt objective` / `mkt work` | **业务工作**：不可变上下文、目标、WorkOrder 创建/lint/ready/依赖/状态/下一步 | 本地实现 |
+| `mkt sop` / `mkt deliverable` / `mkt handoff` | **专业闭环**：SOP 版本与证据门运行、交付物 QA、指定接收人签收/拒收 | 一条完整 SOP；其余为注册摘要 |
+| `mkt metric list/show/measure` | **KPI**：版本化计数/比率、去重、scope、成熟度；分母 0 和未成熟返回 null | 本地实现，非通用 BI |
+| `mkt work-action materialize` / `mkt work-demo` | accepted 交付物→既有 plan/queue；完整零网络 Work OS 演示，不发送 | 本地实现 |
+| `mkt goal list/plan/select` | **目标选择**：声量/使用/商业三类共 9 个目标；按产品类型、阶段与已有账号给适配、平台分工、前两周动作与止损线；可选 1 个辅目标（如声量+使用），两个都达成才算成功；选择写成契约，供 `strategy` / `cadence` 按目标执行 | — |
+| `mkt strategy build/cadence` | **策略与落地**：按目标选择给 1 主渠道 + 1 发射点 + 最多 2 个辅助；再给冷启动五阶段、放大条件与四周动作表（`--selection` 时直接用目标方案的动作，不套通用模板） | — |
+| `mkt sprint plan` | **冲刺**：把目标方案压成 N 天并行工作流 + 小时级排期；含每日目标、加速杠杆、到点就换、平台容量校验与红线（`--days 3` 为默认） | — |
+| `mkt channel venues/plan/score` | **渠道**：具体地方（subreddit/Slack/newsletter/会议），不是平台；带人群、能否发、信号密度、竞争、风险；给主/发射/辅助/旁听组合、经济学区间、容量与预注册实验 | — |
+| `mkt deal add/advance/qualify/next/funnel/quote/objections` | **转化**：14 阶段管道（sourced→paid→repeat），五项资格、下一个动作、九个异议、四档 offer、一页 SOW、漏斗与卡住对象 | — |
 | `mkt execute --strategy-file --targets --campaign` | **执行桥**：有写通道的平台出计划+队列（过 lint 才写盘）；没有写通道的平台出**人工作业单**，不假装能自动；计划/队列/作业单不等于已执行 | — |
 | `mkt signal-interpret --candidates <json>` | **信号语义校验（只读）**：校验宿主结构化来源、主体、问题/技术讨论、替代方案、接触资格与商业证据并去重；工具寻求和自报购买意图不自动升级 | — |
 | `mkt opportunity --facts <json> --signals <json>` | **需求发现**：`semantic_candidates` 先过语义校验再匹配产品事实；旧原始信号只标 `unverified_signal`，不把抱怨当购买意愿 | — |
@@ -210,7 +225,7 @@ core/      ledger 账本（含人工裁决覆盖）· gates 门禁（含 DNC 合
 channels/  x/(vendor+adapter) · email_smtp · email_cdp · reddit · linkedin · github（api 通道首发） · hn（CDP 写 + Algolia 读）
 transports/  os_input（macOS 键鼠/AX 模拟，UNVERIFIED）
 skills/    growovo-gtm（GTM 操作协议）· github-project-ops（GitHub 项目经营协议+体检脚本）
-tests/     离线单测（431 项，含 449 事故回归、全渠道人审门禁/adhoc 放行、执行级审批指纹/队列篡改/账号与工作区绑定、预算原子预留、DNC/indeterminate 阻断、真实 CLI 端到端、37 平台策略/节奏/人工单契约、语义对抗/真实复现交付链/时序身份多触点旅程/经验可追溯复核、账号与报价实验、demo 闭环与 doctor 分级）：python3 -m unittest discover -s tests
+tests/     离线单测（599 项，含 449 事故回归、全渠道人审门禁/adhoc 放行、执行级审批指纹/队列篡改/账号与工作区绑定、预算原子预留、DNC/indeterminate 阻断、真实 CLI 端到端、37 平台策略/节奏/人工单契约、语义对抗/真实复现交付链/时序身份多触点旅程/经验可追溯复核、账号与报价实验、demo 闭环与 doctor 分级）：python3 -m unittest discover -s tests
 mcp_server.py  MCP 外壳（stdio JSON-RPC，零依赖）
 ```
 

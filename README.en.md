@@ -9,11 +9,15 @@
 
 Growovo is a GTM/User Growth operator for **indie developers and one-person companies**. Provide product facts, target users, and authorization boundaries: it identifies demand worth serving, produces reproducible value artifacts and growth actions, and records every action as success, failure, or indeterminate. Sending, impressions, and stars are not business outcomes.
 
-The product combines **Demand / Execution / Learning** with an **Operator Engine and Playbooks**: Signal Interpretation validates host-supplied semantics before Opportunity Discovery checks product-value fit. Value Artifacts move through local reproduction, authorized delivery and user-completion readback; Journey diagnoses activation and retention breakpoints without treating multi-touch order as causation. GitHub Inbox is one Playbook, not the product definition. CLI, MCP, and Skill share approval, budget, read-back, and ledger mechanisms; activation, retained use, and payment are verified independently.
+Goal selection comes first: awareness, real adoption, or a first payment are different plays, platforms, and pass lines for the same product. The product combines **Demand / Execution / Learning** with an **Operator Engine and Playbooks**: Signal Interpretation validates host-supplied semantics before Opportunity Discovery checks product-value fit. Value Artifacts move through local reproduction, authorized delivery and user-completion readback; Journey diagnoses activation and retention breakpoints without treating multi-touch order as causation. GitHub Inbox is one Playbook, not the product definition. CLI, MCP, and Skill share approval, budget, read-back, and ledger mechanisms; activation, retained use, and payment are verified independently.
+
+**New in v0.8 — GTM Work OS:** validated registries for 18 capability domains, 40 role families and 32 templates, plus immutable context, objectives, WorkOrders, evidence-gated SOPs, deliverable acceptance, receiver handoffs and deterministic KPI measurement. `work-action` only materialises accepted work into the existing plan/queue path; it adds no send bypass. One developer SOP is executable end to end today; registry coverage does not mean all 40 professional automations are complete. See the [implementation notes](docs/gtm-os/05-implementation.md).
+
+**New in v0.9 — task-specific orchestration and standing routine authorization:** `mkt orchestrate` selects only the roles required by the product, goal and task, then chooses the content structure and expression for each deliverable. Routine posts, replies, DMs and email can execute directly under an existing workspace `routine-policy`; payments, contracts and discounts remain human-only. Dry-run, pause, DNC, quota, read-back and unknown-result protections remain intact. See [orchestration and routine authorization](docs/gtm-os/06-orchestration-and-routine.md).
 
 [![tests](https://github.com/roy-tong/Growovo/actions/workflows/tests.yml/badge.svg)](https://github.com/roy-tong/Growovo/actions/workflows/tests.yml)
 
-**Try one result now:** `python3 mkt.py demo` runs plan validation, approval, dry-run, and a ledger demo locally — no accounts or network required. Verification levels for live platform commands are in the table below. See [feature status & trade-offs](docs/feature-status.md).
+**Try one result now:** `python3 mkt.py demo` runs plan validation, approval, dry-run, and a ledger demo locally. `python3 mkt.py work-demo` adds the full WorkOrder → SOP → deliverable acceptance → handoff → KPI → approved plan/queue flow, with no accounts, network, queue execution or sends. Verification levels for live platform commands are in the table below. See [feature status & trade-offs](docs/feature-status.md).
 
 > Why not write your own script, or use a general automation platform? [How Growovo compares](docs/compare.md) says where it loses and where it wins, and maps every claim to a file you can check.
 
@@ -27,7 +31,7 @@ Each can be used independently. The `mkt.py` and `growovo-gtm` identifiers are k
 
 - Only for accounts **you own or are explicitly authorized to operate**; never touch unauthorized accounts. Ownership, scope, and human takeover are audited.
 - The CDP channel is zero-credential: no passwords, tokens, or cookies are ever stored; SMTP credentials come only from environment variables
-- **All write operations default to dry-run; `--go` runs for real** — real runs must be bound to a **human-approved plan**: without plan governance the default is refusal; only the manual CLI path `--adhoc` explicitly allows a run (the ledger records adhoc=true; not available over MCP)
+- **All write operations default to dry-run; `--go` runs for real** — real runs require a **human-approved plan**, or explicit `--routine` with a workspace policy matching the account/channel/action. Without authorization the default is refusal; only the manual CLI path `--adhoc` explicitly allows an unplanned run (ledger `adhoc=true`; MCP exposes no policy management)
 - Daily budgets are atomically reserved before sends; `indeterminate` (unknown outcome) can never be auto-resent — a human must run `ledger resolve`; DNC/bounced identities in contacts merge with `suppress.txt` into a single suppression source
 - Fail and stop (no retry bombardment); a read-back mismatch never sends (codified after the 449 empty-body incident)
 - Human pacing: randomized intervals + per-run hard cap + daily budget (see the table in core/throttle.py)
@@ -97,6 +101,13 @@ python3 mkt.py check              # verify the CDP session and X/Gmail login sta
 | `python3 mkt.py workflow …` | Reusable recipes: learn / approve / replay (dry-run by default) / runs / reconcile | — |
 | `python3 mkt.py scorecard` | Receipt and outcome scorecard (read-only) | — |
 | `python3 mkt.py optimize` | Optimization proposals (requires_human, never auto-applied) | — |
+| `mkt orchestrate` | **Task-specific orchestration**: minimum roles, deliverables, handoffs, required content and audience/channel expression | Local candidate plan |
+| `mkt policy` + `--routine` | **Standing routine authorization**: direct routine touches within account/action scope; payments excluded; other gates retained | Local; no live-send validation |
+| `mkt capability` / `mkt template` | **GTM registries**: 18 domains, 40 role families and 32 templates with cross-reference lint | Local |
+| `mkt context` / `objective` / `work` / `sop` | **Business work**: immutable context, objectives, WorkOrders and evidence-gated SOP runs | One full SOP; remaining roles are registry summaries |
+| `mkt deliverable` / `handoff` / `metric` | **Acceptance and results**: template QA, named-receiver handoffs and deterministic KPI measurement | Local; not enterprise IdP or general BI |
+| `mkt work-action materialize` / `mkt work-demo` | Accepted deliverable → existing plan/queue; full zero-network Work OS demo without sends | Local |
+| `mkt goal list/plan/select` | **Goal selection**: 9 goals across awareness / adoption / commercial; applicability by product type, stage and owned accounts; platform roles capped at 1 primary + 1 launch + 2 support; the selection contract feeds strategy and cadence | — |
 | `python3 mkt.py gtm diagnose --facts <json>` | **GTM diagnosis**: product facts pack → platform priorities + cold-start checklist + scale gates (every recommendation carries an evidence label; schema in core/gtm.py; risk notes in docs/risk/) | — |
 | `mkt signal-interpret --candidates <json>` | **Read-only Signal Interpretation**: validate host-supplied source, subject, problem vs technical discussion, alternatives, contact eligibility and commercial evidence; tool seeking/self-declared intent never auto-upgrades | — |
 | `mkt opportunity --facts <json> --signals <json>` | **Opportunity Discovery**: qualified `semantic_candidates` proceed to product fit; legacy raw signals remain `unverified_signal`; complaints and self-declared intent are not observed purchase intent | — |
@@ -204,7 +215,7 @@ core/      ledger (with human adjudication overrides) · gates (incl. DNC merge)
 channels/  x/(vendor+adapter) · email_smtp · email_cdp · reddit · linkedin · github (first api-channel release) · hn (CDP write + Algolia read)
 transports/  os_input (macOS keyboard/mouse/AX simulation, UNVERIFIED)
 skills/    growovo-gtm (GTM operations protocol) · github-project-ops (GitHub project operations protocol + audit script)
-tests/     offline unit tests (431, incl. the 449 incident regression, all-channel human-review gates/adhoc passthrough, approval fingerprints & expiry, atomic budget reservation, DNC/indeterminate blocking, queue edit-time gates, idempotent CSV import, ledger adjudication overrides, collector redirect/event auth, clean MCP stdout, semantic adversarial cases, real local reproduction/delivery chains, journey timing/identity/multi-touch, traceable experience review, the demo loop and doctor tiers): python3 -m unittest discover -s tests
+tests/     offline unit tests (599, incl. the 449 incident regression, all-channel human-review gates/adhoc passthrough, approval fingerprints & expiry, atomic budget reservation, DNC/indeterminate blocking, queue edit-time gates, idempotent CSV import, ledger adjudication overrides, collector redirect/event auth, clean MCP stdout, semantic adversarial cases, real local reproduction/delivery chains, journey timing/identity/multi-touch, traceable experience review, the demo loop and doctor tiers): python3 -m unittest discover -s tests
 mcp_server.py  MCP shell (stdio JSON-RPC, zero dependencies)
 ```
 

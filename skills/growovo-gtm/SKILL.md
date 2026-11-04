@@ -1,15 +1,81 @@
 ---
 name: growovo-gtm
-description: Growovo GTM/User Growth 操作协议——面向独立开发者与一人公司，以真实需求、价值资产、授权执行和用户旅程为入口的 Agent-native 增长操作员。输入"把这个产品推向目标客户"，按"复盘→策略→落地→风控→执行→进度→结果→优化"八步闭环推进，并以同范围结果、候选实验和真实使用反馈修订策略。用于 GTM 运营、需求发现、价值内容、增长执行、营销自动化、触达方案、客群寻找、外联执行、用户旅程与渠道复盘。触发词：GTM、增长闭环、把这个产品推向用户、获客、激活转化、付费转化、launch 推广、营销自动化、触达方案、找目标客群、外联执行、growth campaign、mkt。
+description: Growovo GTM 业务操作系统——以不可变业务上下文、WorkOrder、专业 SOP、交付物验收、跨岗位 Handoff、授权执行和真实 KPI 为主链。覆盖 18 能力域/40 岗位族与 32 模板，用于品牌内容、需求获客、销售售前、激活转化、用户留存、客户成功、RevOps、GTM 工程和 DevRel。输入"把这个产品推向目标客户"或具体 GTM 工作时，先建工作契约与验收，再决定是否生成 plan/queue；发送、曝光和 Star 不算业务结果。触发词：GTM、WorkOrder、SOP、增长闭环、获客、激活转化、销售交接、客户成功、RevOps、DevRel、营销自动化、growth campaign、mkt。
 ---
 
 # Growovo GTM 操作协议（growovo-gtm）
 
 本 skill 是 **Growovo 执行内核的 agent 操作协议**（05 产品方案 §5.3）：
-agent 当参谋（出方案）、内核当执行（守门禁）、人当闸门（审计划）。动作落到
+agent 负责编排与执行、内核守门禁、人负责账号/策略授权及付款等高风险决定。动作落到
 CLI（`python3 mkt.py …`）或 MCP（mkt-server），本协议不发明新动作。
 
 仓库位置：github.com/roy-tong/Growovo（克隆到本机的目录；MCP 配置里用其绝对路径）
+
+## v0.8 默认主链：先验收工作，再决定执行
+
+不要把用户需求直接翻译成发帖或群发。先判断 18 个能力域 / 40 个岗位族中的责任位置，再按以下主链：
+
+```text
+Product + Goal + Task → orchestrate（最小岗位 + 交付物 + 表达方式）
+→ BusinessContext → Objective → WorkOrder → SOPRun → Deliverable accepted
+→ Handoff accepted（有下游时） → ActionRequest → 既有 plan/queue 或常驻营销授权
+→ 平台动作 / 任务结果 / 业务结果分层观察 → 规则版本回流
+```
+
+先跑编排，不默认使用全部岗位，也不默认输出一种格式：
+
+```bash
+python3 mkt.py orchestrate --product product.json \
+  --goal "14 天内首次成功调用" \
+  --task "写开发者教程并做 GitHub 发布" \
+  --audience developer --channel github --format md
+# 高管 → decision memo；运营 → runbook；开发者 → 可复现教程；
+# 销售 → 资格交接；email → 个性化触发 + 一个价值点 + 一个 CTA。
+```
+
+```bash
+python3 mkt.py capability list
+python3 mkt.py capability show --role-family 46
+python3 mkt.py template show T30
+python3 mkt.py context import --file context.json --by <人>
+python3 mkt.py objective create --file objective.json --by <人>
+python3 mkt.py work create --file work-order.json --by <人>
+python3 mkt.py work ready --id <work_order_id> --by <人>
+python3 mkt.py sop start --work-order-id <work_order_id> --by <人>
+# 交付物提交与独立验收、接收人签收后，才物化执行计划
+python3 mkt.py work-action materialize --work-order-id <id> --step-id <step> \
+  --deliverable-id <id> --deliverable-version 1 \
+  --strategy-file strategy.json --targets targets.csv --campaign <id> --by <人>
+```
+
+硬约束：
+
+- 只选择目标产品、目标和任务需要的岗位；没有触发条件的渠道、销售、投放、公关、CS 等角色不得为了“显得完整”加入。
+- 按受众、交付目的和渠道选择内容结构与表达；内部技术/收入/POC 文档不得被渠道化成社媒口吻，每份交付物分别确定 required_content。
+- `ready` 前检查输入验收、上下文 / 目标 / SOP 版本、Owner、Receiver、交付物、指标和依赖；缺项只能 blocked。
+- SOP 步骤没有产物和 DoD 证据不能完成；R3/R4 作者不能终审自己；Handoff 只有指定接收人能 accepted。
+- 当前只有 `sop-devrel-first-success@1.0.0` 是完整可执行 Step Contract；其他岗位的注册摘要不能冒充已运行 SOP。
+- `work-action` 只生成既有 plan/queue，真实发送走 `plan approve` 或有效 `routine-policy`，并始终经过 dry-run、`pipeline/action_runner` 等既有门禁。MCP 的 `mkt_capabilities`、`mkt_templates`、`mkt_work_order`、`mkt_metric_measure` 只读。
+- KPI 分母为 0 或观察未成熟返回 null；committed 只增加平台动作，不推进任务或业务结果。
+- 完整命令与边界见 `docs/gtm-os/05-implementation.md`；先跑 `python3 mkt.py work-demo` 可看全链。
+
+## 日常营销执行与高风险决定的边界
+
+日常发帖、私信回复和邮件可以在工作区已有有效 `routine-policy` 时直接执行，不必逐次 plan 人审：
+
+```bash
+# 授权管理只能由人通过 CLI 完成；agent 不自我创建/扩大授权
+python3 mkt.py policy show
+python3 mkt.py policy check --channel x --action-name publish --account default
+# 已授权的日常动作：显式 routine + go；不传 go 仍只是 dry-run
+python3 mkt.py action x publish --text "<内容>" --campaign <id> --account default --go --routine
+python3 mkt.py queue run data/queues/<campaign>.json --go --routine
+```
+
+- 只执行封闭动作集及授权账号范围内的日常营销触达；空账号列表只允许 default/未指定账号。
+- 付款、合同、折扣、危机响应及未知动作必须交由有权人员，不能用 routine。
+- `routine` 只替代逐次 plan 审批；pause、DNC、quota、readback、UNVERIFIED、indeterminate 人工裁决全部保留。
+- 不传 `--routine` 或策略不匹配时，仍执行原 plan 人审；MCP 不开放授权创建、扩大或撤销。
 
 ## 入口是一个 GTM 目标，不是单个渠道动作
 
@@ -28,8 +94,73 @@ CLI（`python3 mkt.py …`）或 MCP（mkt-server），本协议不发明新动�
 
 **为什么多了「守」这一层**：客户语料里最一致的卡点不是"不知道去哪发"，而是**发一次就没声音**。
 有效动作是「找对的人 + 有用的话 + 持续跟」。所以任何一次投放结束，都必须落到跟进台账：
-没有 `mkt followup add` 的触达，等于没做。
+对一对一外联和需要持续关系的触达，没有 `mkt followup add` 就等于没完成承接；品牌、文档、内部运营等不适用该触达类型的工作，按各自 WorkOrder 的交付物和接收方验收，不机械加跟进。
 
+
+## 第 0 步：先选目标，再选平台
+
+同一个产品，追 star、追真实使用、追第一笔付费是三套动作、三套平台、三套判据。
+不要一上来问「打哪个平台」，先问「这一轮到底要什么」。
+
+| 目标族 | 追什么 | 它不证明 |
+|---|---|---|
+| 声量 awareness | GitHub star、关注者、一次发射的讨论量 | 有人需要、会用、会付钱 |
+| 使用 adoption | fork、外部 issue、真实数据提交、激活 | 愿意付费、会留存 |
+| 商业 commercial | 合格对话、样本、报价、付费、复购 | 可规模化、单位经济成立 |
+
+```bash
+python3 mkt.py goal list --facts data/<workspace>/facts.json
+python3 mkt.py goal plan --facts data/<workspace>/facts.json --goal commercial.first_paid
+# 人选目标 + 平台；不选平台时用推荐组合
+python3 mkt.py goal select --facts data/<workspace>/facts.json \
+  --goal commercial.first_paid --platforms reddit,hackernews,github \
+  --out data/<workspace>/goal-selection.json
+# 也可以 1 主 + 1 辅（两个都达成才算成功）
+python3 mkt.py goal select --facts data/<workspace>/facts.json \
+  --goal awareness.stars --secondary adoption.real_data \
+  --platforms github,hackernews,reddit \
+  --out data/<workspace>/goal-selection.json
+python3 mkt.py strategy build --facts data/<workspace>/facts.json \
+  --selection data/<workspace>/goal-selection.json
+python3 mkt.py strategy cadence --facts data/<workspace>/facts.json \
+  --selection data/<workspace>/goal-selection.json --start 2026-11-05
+# 只有 3 天：换冲刺打法（不压缩六周计划）
+python3 mkt.py sprint plan --facts data/<workspace>/facts.json \
+  --selection data/<workspace>/goal-selection.json --days 3 --start 2026-11-05
+# 渠道：具体地方（subreddit/Slack/newsletter），不是平台
+python3 mkt.py channel plan --facts data/<workspace>/facts.json \
+  --selection data/<workspace>/goal-selection.json
+# 转化：阶段、下一个动作、漏斗、报价
+python3 mkt.py deal list
+python3 mkt.py deal next
+python3 mkt.py deal funnel
+python3 mkt.py deal quote --id <deal> --offer diagnostic
+```
+
+硬规则：
+
+- 一次最多 **1 主渠道 + 1 发射点 + 2 辅助平台**；发射平台不能单独当主渠道；
+- 可选 **1 个主目标 + 1 个辅目标**；两个都达成才算成功，只达成一个不算；
+- 目标没定，不建名单、不发消息、不报价；
+- 目标值是排期形状，不是预测；没有基线就标「基线未提供」，不编数；
+- 旧的复盘数字不能改写这一轮的主渠道——人群可能换了，旧效率不迁移；
+- 目标达成只证明那一个数变了，不自动证明需求、付费或可规模化。
+
+### 渠道与转化的两条硬规则
+
+1. **渠道单位是 venue，不是平台。** r/FinOps 是渠道，Reddit 不是。先看 venue 的
+   `promo`（allowed/limited/banned）、`access`、`signal_density`；banned 只能旁听/回答，
+   不能发产品帖。一次 1 主 + 1 发射 + 2 辅助 + 2 旁听；经济学是假设区间，不是预测。
+2. **转化单位是 deal stage，不是消息。** 14 个阶段，每个阶段只有一个下一个动作；
+   没有 `qualified` 不给样本，没有 `readback` 不报价，没有 `paid` 不交付。
+   所有阶段推进都必须有 evidence；进入 qualified 前先通过资格，报价只允许 readback；paid 可附独立 verification method/ref。同一对象最多 2 次动作，第三次是骚扰。
+
+```bash
+python3 mkt.py channel plan --facts f.json --selection s.json
+python3 mkt.py deal next            # 今天该跟谁
+python3 mkt.py deal funnel          # 掉在哪一步
+python3 mkt.py deal quote --id deal-0001 --offer diagnostic
+```
 
 ## 八步闭环（内核已实现，不是文档清单）
 
@@ -39,7 +170,9 @@ CLI（`python3 mkt.py …`）或 MCP（mkt-server），本协议不发明新动�
 | 步 | 要回答的问题 | 命令 | MCP |
 |---|---|---|---|
 | 〇 复盘 | 哪做得好、哪做得不好、为什么、改什么 | `mkt retro scan --path <目录>` → `analyze` → `report --facts <口径>` | `mkt_retro_scan` / `mkt_retro_analyze` |
-| ① 策略 | 打哪条、怎么冷启动、什么时候放大 | `mkt strategy build --facts f.json --retro-facts r.json` | `mkt_strategy` |
+| ① 策略 | 这一轮要什么、打哪条、怎么冷启动、什么时候放大 | `mkt goal list/plan/select` → `mkt strategy build --facts f.json --selection s.json` | `mkt_goals` / `mkt_goal_plan` / `mkt_strategy` |
+| ①b 渠道 | 具体去哪、能不能发、能带多少对话、什么时候停 | `mkt channel venues/plan/score` | `mkt_channel_venues` / `mkt_channel_plan` |
+| ①c 转化 | 每个对象下一步做什么、卡在哪、怎么报价 | `mkt deal add/advance/qualify/next/funnel/quote` | `mkt_deals` / `mkt_deal_next` |
 | ② 落地 | 账号、每天做什么、什么算做完 | `mkt strategy cadence --facts f.json --start 2026-11-04` | `mkt_cadence` |
 | ③ 风控 | 平台怎么查 AI、我们改什么 | 含在策略输出的「平台会怎么查我们」 | `mkt_strategy` |
 | ④ 执行 | 真发出去 | `mkt execute --strategy-file --targets --campaign`（有写通道出队列；没有的出人工单） | — |

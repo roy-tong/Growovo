@@ -4,12 +4,21 @@
 用法:
   mkt <channel> <action> [参数] [--go] [--campaign <id>] [--only <target>] [--adhoc]
 
-统一语义：**写操作默认 dry-run，--go 才实跑**；实跑必须绑定已人审 plan
-（data/plans/*.json 的 review.human_approved=true），无 plan 管辖的临时发送需
-显式 **--adhoc** 放行（账本记 adhoc=true；MCP 不开放该通道）。
+统一语义：**写操作默认 dry-run，--go 才实跑**；实跑须绑定已人审 plan，或显式 --routine
+且工作区 routine policy 覆盖该账号/渠道/动作。无 plan 管辖的临时发送仍可显式
+**--adhoc** 放行（账本记 adhoc=true；MCP 不开放该通道，也不开放授权管理）。
   mkt status                账本聚合（channel/campaign/result）
   mkt check                 CDP 会话与各渠道登录态检查
   mkt demo                  零网络零账号演示（lint→人审→写路径 dry-run→账本）
+  mkt work-demo             GTM Work OS 全闭环演示（不执行队列）
+  mkt orchestrate …         按产品/目标/任务选最小岗位与表达方式
+  mkt policy …              日常营销常驻授权（不开放付款等高风险动作）
+  mkt capability …          18 能力域 / 40 岗位族注册表
+  mkt template …            32 个交付物模板与实例校验
+  mkt context/objective/work …  不可变上下文、目标与 WorkOrder
+  mkt sop/deliverable/handoff …  SOP、交付验收与跨岗位交接
+  mkt metric …              版本化 KPI 字典与确定性测量
+  mkt work-action …         accepted 交付物→既有 plan/queue（不发送）
   mkt doctor [--selftest]   环境体检（--selftest 连跑全部离线单测）
   mkt experiment …          实验引擎：预注册→观察→人判（机器不判因果）
   mkt workflow …            可复用工作流：learn/approve/replay/runs/reconcile（版本化 + 指纹 + 运行日志）
@@ -506,9 +515,12 @@ def cmd_result(args):
     events = filter_rows(events, scope)
     crit = json.loads(args.criteria) if getattr(args, "criteria", "") else []
     value_events = [x.strip() for x in str(getattr(args, "value_events", "") or "").split(",") if x.strip()]
+    from core.task_outcome import read_records
+    task_records = result.scoped_task_outcomes(read_records(DATA), scope)
     r = result.collect(ledger_entries=entries, followups=fu, intent_summary=isum,
                        outcome_events=events, criteria=crit, scope=scope,
-                       value_events=value_events or None)
+                       value_events=value_events or None,
+                       task_outcome_records=task_records)
     if args.json:
         print(json.dumps(r, ensure_ascii=False, indent=1))
     else:
@@ -605,6 +617,258 @@ def cmd_artifact(args):
     return 0
 
 
+def _business_command(fn):
+    """Consistent CLI failure semantics for the business work OS."""
+    def wrapped(args):
+        try:
+            return fn(args) or 0
+        except (ValueError, KeyError, OSError, json.JSONDecodeError) as exc:
+            print(f"业务操作被拒绝：{exc}", file=sys.stderr)
+            return 2
+    return wrapped
+
+
+def _load_structured(path):
+    text = Path(path).read_text(encoding="utf-8")
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        return [json.loads(line) for line in text.splitlines() if line.strip()]
+
+
+def _emit(payload):
+    print(json.dumps(payload, ensure_ascii=False, indent=1))
+    return 0
+
+
+@_business_command
+def cmd_policy(args):
+    from core import execution_policy
+    if args.action == "enable":
+        actions = [x.strip() for x in args.actions.split(",") if x.strip()] or None
+        accounts = [x.strip() for x in args.accounts.split(",") if x.strip()] or None
+        return _emit(execution_policy.authorize(DATA, by=args.by, actions=actions,
+                                                accounts=accounts, days=args.days))
+    if args.action == "disable":
+        return _emit(execution_policy.revoke(DATA, by=args.by))
+    if args.action == "list-actions":
+        return _emit({"routine_actions": execution_policy.list_routine_actions()})
+    if args.action == "check":
+        allowed = execution_policy.allows(DATA, args.channel, args.action_name, account=args.account)
+        _emit({"allowed": allowed, "channel": args.channel, "action": args.action_name,
+               "account": args.account})
+        return 0 if allowed else 2
+    return _emit(execution_policy.get_policy(DATA))
+
+
+@_business_command
+def cmd_orchestrate(args):
+    from core import orchestration
+    product = _load_structured(args.product)
+    if isinstance(product, dict) and isinstance(product.get("product"), dict):
+        product = product["product"]
+    plan = orchestration.orchestrate(product, args.goal, args.task,
+                                     audience=args.audience, channel=args.channel,
+                                     motion=args.motion)
+    errors = orchestration.lint_orchestration(plan)
+    plan["validation"] = {"ok": not errors, "errors": errors}
+    if args.out:
+        out = Path(args.out)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(json.dumps(plan, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
+        plan["saved_to"] = str(out)
+    if args.format == "md":
+        print(orchestration.render_markdown(plan))
+    else:
+        _emit(plan)
+    return 0 if not errors else 2
+
+
+@_business_command
+def cmd_capability(args):
+    from core import capabilities
+    if args.action == "lint":
+        errors = capabilities.lint_registry()
+        _emit({"ok": not errors, "errors": errors})
+        return 0 if not errors else 2
+    if args.action == "show":
+        if bool(args.role_family) == bool(args.capability):
+            raise ValueError("show 需要且只能指定 --role-family 或 --capability")
+        payload = capabilities.get_role_family(args.role_family) if args.role_family else capabilities.get_capability(args.capability)
+    else:
+        roles = capabilities.list_role_families()
+        if args.capability:
+            roles = [r for r in roles if r["capability_id"] == args.capability]
+        payload = {"capabilities": capabilities.list_capabilities(), "role_families": roles,
+                   "counts": {"capabilities": len(capabilities.list_capabilities()),
+                              "role_families": len(roles)}}
+    return _emit(payload)
+
+
+@_business_command
+def cmd_template(args):
+    from core import templates
+    if args.action == "list":
+        return _emit({"templates": templates.list_templates()})
+    if args.action == "show":
+        return _emit(templates.get_template(args.template_id))
+    if args.file:
+        spec = _load_structured(args.file)
+        errors = templates.lint_instance(spec["template_id"], spec.get("version") or spec.get("template_version"), spec.get("fields") or {})
+    else:
+        errors = templates.lint_registry()
+    _emit({"ok": not errors, "errors": errors})
+    return 0 if not errors else 2
+
+
+@_business_command
+def cmd_context(args):
+    from core.work import ContextStore
+    store = ContextStore(DATA)
+    if args.action == "import":
+        return _emit(store.import_snapshot(_load_structured(args.file), by=args.by))
+    if args.action == "show":
+        return _emit(store.get(args.context_id, args.version or None))
+    return _emit({"contexts": store.list()})
+
+
+@_business_command
+def cmd_objective(args):
+    from core.work import ObjectiveStore
+    store = ObjectiveStore(DATA)
+    if args.action == "create":
+        return _emit(store.create(_load_structured(args.file), by=args.by))
+    if args.action == "show":
+        return _emit(store.get(args.objective_id, args.version or None))
+    return _emit({"objectives": store.list()})
+
+
+@_business_command
+def cmd_work(args):
+    from core import work
+    store = work.WorkStore(DATA)
+    if args.action == "create":
+        order = store.create(_load_structured(args.file), by=args.by)
+        return _emit({"work_order": order, "lint_errors": work.lint_work_order(order),
+                      "next": f"mkt work ready --id {order['work_order_id']} --by <human>"})
+    if args.action == "show":
+        return _emit(store.get(args.id))
+    if args.action == "lint":
+        errors = work.lint_work_order(_load_structured(args.file)) if args.file else store.lint(args.id)
+        _emit({"ok": not errors, "errors": errors})
+        return 0 if not errors else 2
+    if args.action == "ready":
+        return _emit(store.ready(args.id, by=args.by))
+    if args.action == "transition":
+        return _emit(store.transition(args.id, args.to, by=args.by, reason=args.reason))
+    if args.action == "next":
+        return _emit({"next": store.next_actions()})
+    return _emit({"work_orders": store.list()})
+
+
+@_business_command
+def cmd_sop(args):
+    from core import sop
+    registry = sop.SOPRegistry(DATA)
+    runs = sop.SOPRunStore(DATA)
+    if args.action == "list":
+        return _emit({"sops": registry.list()})
+    if args.action == "show":
+        return _emit(registry.get(args.sop_id, args.version or None))
+    if args.action == "lint":
+        errors = sop.lint_sop(_load_structured(args.file))
+        _emit({"ok": not errors, "errors": errors})
+        return 0 if not errors else 2
+    if args.action == "register":
+        return _emit(registry.register(_load_structured(args.file), by=args.by))
+    if args.action == "start":
+        return _emit(runs.start(args.work_order_id, by=args.by))
+    if args.action == "run":
+        return _emit(runs.get(args.run_id))
+    if args.action == "complete":
+        approval = {"by": args.approval_by, "scope": args.approval_scope} if args.approval_by else None
+        return _emit(runs.complete_step(args.run_id, args.step_id,
+                                        outputs=_load_structured(args.outputs),
+                                        dod_results=_load_structured(args.dod), by=args.by,
+                                        approval=approval))
+    if args.action == "block":
+        return _emit(runs.block_step(args.run_id, args.step_id, reason=args.reason, by=args.by))
+    if args.action == "reopen":
+        return _emit(runs.reopen_step(args.run_id, args.step_id, reason=args.reason, by=args.by))
+    raise ValueError(f"未知 SOP action: {args.action}")
+
+
+@_business_command
+def cmd_deliverable(args):
+    from core.deliverables import DeliverableStore
+    store = DeliverableStore(DATA)
+    if args.action == "create":
+        return _emit(store.create(_load_structured(args.file), by=args.by))
+    if args.action == "show":
+        return _emit(store.get(args.id, args.version or None))
+    if args.action == "list":
+        return _emit({"deliverables": store.list()})
+    if args.action == "submit":
+        return _emit(store.submit(args.id, version=args.version or None, by=args.by))
+    if args.action == "review":
+        return _emit(store.review(args.id, version=args.version or None,
+                                  results=_load_structured(args.results), by=args.by))
+    if args.action == "revise":
+        return _emit(store.revise(args.id, _load_structured(args.fields), by=args.by))
+    raise ValueError(f"未知 Deliverable action: {args.action}")
+
+
+@_business_command
+def cmd_handoff(args):
+    from core.handoffs import HandoffStore
+    store = HandoffStore(DATA)
+    if args.action == "create":
+        return _emit(store.create(_load_structured(args.file), by=args.by))
+    if args.action == "accept":
+        return _emit(store.accept(args.id, by=args.by))
+    if args.action == "reject":
+        return _emit(store.reject(args.id, by=args.by, reason=args.reason,
+                                  return_step_id=args.return_step))
+    if args.action == "pending":
+        return _emit(store.pending(now=args.now or None))
+    if args.action == "show":
+        return _emit(store.get(args.id))
+    return _emit({"handoffs": store.list()})
+
+
+@_business_command
+def cmd_metric(args):
+    from core import metrics
+    registry = metrics.MetricRegistry(DATA)
+    if args.action == "list":
+        return _emit({"metrics": registry.list()})
+    if args.action == "show":
+        return _emit(registry.get(args.metric_id, args.version or None))
+    if args.action == "register":
+        return _emit(registry.register(_load_structured(args.file), by=args.by))
+    metric = registry.get(args.metric_id, args.version or None)
+    events = _load_structured(args.events)
+    scope = {k: v for k, v in {"campaign": args.campaign, "subject": args.subject,
+                               "since": args.since, "until": args.until}.items() if v}
+    return _emit(metrics.measure(metric, events, scope=scope,
+                                 cohort_end=args.cohort_end, as_of=args.as_of))
+
+
+@_business_command
+def cmd_work_action(args):
+    import csv
+    from core import work_actions
+    strategy = _load_structured(args.strategy_file)
+    targets = [{"target": row.get("target", ""), "body": row.get("body", ""),
+                "subject": row.get("subject", "")}
+               for row in csv.DictReader(Path(args.targets).read_text(encoding="utf-8").splitlines())]
+    return _emit(work_actions.materialize(
+        DATA, work_order_id=args.work_order_id, step_id=args.step_id,
+        deliverable_id=args.deliverable_id, deliverable_version=args.deliverable_version or None,
+        strategy=strategy, targets=targets, campaign=args.campaign,
+        account=args.account, workspace=args.execution_workspace, by=args.by))
+
+
 def cmd_playbook_model(args):
     from core import playbook_model
     if args.action == "list":
@@ -681,9 +945,11 @@ def cmd_revise(args):
         ev = DATA / "outcomes" / "events.jsonl"
         if ev.exists():
             events = [json.loads(x) for x in ev.read_text(encoding="utf-8").splitlines() if x.strip()]
+        from core.task_outcome import read_records
         r = result.collect(ledger_entries=entries, followups=fu,
                            intent_summary=ic.summary() if ic else None,
-                           outcome_events=filter_rows(events, scope), scope=scope)
+                           outcome_events=filter_rows(events, scope), scope=scope,
+                           task_outcome_records=result.scoped_task_outcomes(read_records(DATA), scope))
     params = json.loads(args.params) if getattr(args, "params", "") else {}
     diff = revise.propose(r, params, intent=ic.summary() if ic else None)
     print(revise.render(diff))
@@ -709,12 +975,33 @@ def cmd_execute(args):
     return 0
 
 
+def _goal_plan_from_selection(path, facts):
+    from core import goals
+    sel = json.loads(Path(path).read_text(encoding="utf-8"))
+    roles = sel.get("platforms") or {}
+    ids = [roles.get("primary")]
+    if roles.get("launch"):
+        ids.append(roles["launch"])
+    ids.extend(roles.get("support") or [])
+    ids = [i for i in ids if i]
+    secondary = next((m for m in (sel.get("metrics") or [])
+                      if m.get("role") == "secondary"), None)
+    return goals.build_plan(facts, sel["goal_id"], platforms=ids,
+                            target=sel.get("target"),
+                            window_days=sel.get("window_days"),
+                            secondary_goal_id=(secondary or {}).get("id"),
+                            secondary_target=(secondary or {}).get("target"))
+
+
 def cmd_strategy(args):
     from core import gtm, strategy, cadence, retro, logscan
     act = args.action
 
     if act == "build":
         facts = json.loads(Path(args.facts).read_text(encoding="utf-8"))
+        goal_plan = None
+        if getattr(args, "selection", ""):
+            goal_plan = _goal_plan_from_selection(args.selection, facts)
         payload = gtm.diagnose(facts)
         analysis = None
         if getattr(args, "retro_facts", ""):
@@ -726,7 +1013,8 @@ def cmd_strategy(args):
         s = strategy.build(facts["product"], focus=payload["focus"],
                            analysis=analysis,
                            constraints={"human_minutes_per_week": args.human_minutes,
-                                        "actions_per_week": args.actions_per_week})
+                                        "actions_per_week": args.actions_per_week},
+                           goal_plan=goal_plan)
         if getattr(args, "json", False):
             print(json.dumps(s, ensure_ascii=False, indent=1))
             return 0
@@ -741,13 +1029,23 @@ def cmd_strategy(args):
 
     if act == "cadence":
         facts = json.loads(Path(args.facts).read_text(encoding="utf-8")) if args.facts else None
-        if facts:
+        goal_plan = None
+        if getattr(args, "selection", ""):
+            if not facts:
+                print("用 --selection 时必须同时给 --facts", file=sys.stderr)
+                return 2
+            goal_plan = _goal_plan_from_selection(args.selection, facts)
+            s = strategy.build(facts["product"], focus={}, analysis=None,
+                               goal_plan=goal_plan)
+        elif facts:
             payload = gtm.diagnose(facts)
             s = strategy.build(facts["product"], focus=payload["focus"], analysis=None)
         else:
             s = {"primary": {"name": args.primary or "GitHub", "residency": 0}}
             s.update({"cold_start": []})
-        plan = cadence.build(s, start=args.start, actions_per_week=args.actions_per_week)
+        plan = cadence.build(s, start=args.start,
+                             actions_per_week=args.actions_per_week,
+                             goal_plan=goal_plan)
         md = cadence.render(plan)
         if args.out:
             out = Path(args.out); out.parent.mkdir(parents=True, exist_ok=True)
@@ -897,6 +1195,11 @@ def cmd_demo(args):
     return run_demo(BASE)
 
 
+def cmd_work_demo(args):
+    from core.work_demo import run_work_demo
+    return run_work_demo(BASE)
+
+
 def cmd_doctor(args):
     from core.doctor import run_doctor
     return run_doctor(BASE, DATA, selftest=args.selftest)
@@ -1036,7 +1339,7 @@ def cmd_queue(args):
         try:
             results = run_queue(args.path, data_dir=DATA, go=args.go,
                                 allow_unverified=args.allow_unverified,
-                                only=args.only)
+                                only=args.only, routine=args.routine)
         except QueueRunError as exc:
             raise SystemExit(f"队列拒跑：{exc}")
         tally = {}
@@ -1474,6 +1777,263 @@ def cmd_gtm(args):
     return 0
 
 
+def cmd_goal(args):
+    from core import goals
+    try:
+        facts = json.loads(Path(args.facts).read_text(encoding="utf-8"))
+    except (OSError, ValueError) as e:
+        print(f"事实包读不了：{e}", file=sys.stderr)
+        return 2
+    act = args.action
+    try:
+        if act == "list":
+            payload = goals.list_goals(facts)
+            if args.json:
+                print(json.dumps(payload, ensure_ascii=False, indent=1))
+                return 0
+            rendered = goals.render_list(payload)
+        elif act == "plan":
+            platforms = _split_platforms(getattr(args, "platforms", ""))
+            plan = goals.build_plan(facts, args.goal, platforms=platforms,
+                                    target=args.target, window_days=args.window_days,
+                                    secondary_goal_id=args.secondary or None,
+                                    secondary_target=args.secondary_target)
+            if args.json:
+                print(json.dumps(plan, ensure_ascii=False, indent=1))
+                return 0
+            rendered = goals.render_plan(plan)
+        elif act == "select":
+            platforms = _split_platforms(args.platforms)
+            selection = goals.select(facts, args.goal, platforms,
+                                     target=args.target, window_days=args.window_days,
+                                     note=args.note,
+                                     secondary_goal_id=args.secondary or None,
+                                     secondary_target=args.secondary_target)
+            out = Path(args.out)
+            out.parent.mkdir(parents=True, exist_ok=True)
+            out.write_text(json.dumps(selection, ensure_ascii=False, indent=1) + "\n",
+                           encoding="utf-8")
+            if args.json:
+                print(json.dumps(selection, ensure_ascii=False, indent=1))
+            else:
+                print(f"已写入选择：{out}")
+                goal_label = selection["goal_id"]
+                if selection.get("secondary_goal_id"):
+                    goal_label += f" + {selection['secondary_goal_id']}"
+                print(f"目标：{goal_label}；平台：{'、'.join(selection['selected'])}")
+                print(f"下一步：python3 mkt.py strategy build --facts {args.facts} "
+                      f"--selection {out}")
+            return 0
+        else:
+            print("用法: mkt goal list|plan|select", file=sys.stderr)
+            return 2
+    except goals.GoalError as e:
+        print(f"不能生成：{e}", file=sys.stderr)
+        return 2
+    if args.out:
+        out = Path(args.out)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(rendered, encoding="utf-8")
+        print(f"已生成：{out}")
+    else:
+        print(rendered)
+    return 0
+
+
+def cmd_sprint(args):
+    from core import goals, sprint
+    try:
+        if getattr(args, "selection", ""):
+            facts = json.loads(Path(args.facts).read_text(encoding="utf-8"))
+            goal_plan = _goal_plan_from_selection(args.selection, facts)
+        else:
+            facts = json.loads(Path(args.facts).read_text(encoding="utf-8"))
+            platforms = _split_platforms(getattr(args, "platforms", ""))
+            goal_plan = goals.build_plan(
+                facts, args.goal, platforms=platforms,
+                target=args.target, window_days=None,
+                secondary_goal_id=args.secondary or None,
+                secondary_target=args.secondary_target)
+        plan = sprint.build(goal_plan, days=args.days, start=args.start,
+                            hours_per_day=args.hours_per_day,
+                            launch_hour=args.launch_hour)
+        if args.json:
+            print(json.dumps(plan, ensure_ascii=False, indent=1))
+            return 0
+        rendered = sprint.render(plan)
+    except (goals.GoalError, sprint.SprintError) as e:
+        print(f"不能生成：{e}", file=sys.stderr)
+        return 2
+    if args.out:
+        out = Path(args.out)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(rendered, encoding="utf-8")
+        print(f"已生成：{out}")
+    else:
+        print(rendered)
+    return 0
+
+
+def _goal_plan_for(args, facts):
+    from core import goals
+    if getattr(args, "selection", ""):
+        return _goal_plan_from_selection(args.selection, facts)
+    platforms = _split_platforms(getattr(args, "platforms", ""))
+    return goals.build_plan(
+        facts, args.goal, platforms=platforms,
+        secondary_goal_id=args.secondary or None)
+
+
+def cmd_channel(args):
+    from core import channels, goals
+    act = args.action
+    if act == "venues":
+        rows = channels.VENUES
+        if args.platform:
+            rows = [r for r in rows if r["platform"] == args.platform]
+        if args.json:
+            print(json.dumps(rows, ensure_ascii=False, indent=1))
+            return 0
+        from core.narrative import table
+        print(table(["id", "平台", "地方", "人群", "能不能发", "怎么进", "信号"],
+                    [[r["id"], r["platform"], r["name"], "、".join(r["audience"]),
+                      r["promo"], r["access"], f"{r['signal_density']}/3"]
+                     for r in rows]))
+        return 0
+
+    facts = json.loads(Path(args.facts).read_text(encoding="utf-8"))
+    try:
+        goal_plan = (_goal_plan_for(args, facts)
+                     if getattr(args, "goal", "") or getattr(args, "selection", "")
+                     else None)
+        if act == "score":
+            row = channels.venue(args.venue)
+            scored = channels.score_venue(row, facts, goal_plan)
+            if args.json:
+                print(json.dumps(scored, ensure_ascii=False, indent=1))
+            else:
+                print(f"{scored['name']}：{scored['score']} 分；"
+                      f"受众命中 {'、'.join(scored['audience_hits']) or '无'}；"
+                      f"promo={scored['promo']}，access={scored['access']}")
+            return 0
+        plan = channels.plan(facts, goal_plan)
+        if args.json:
+            print(json.dumps(plan, ensure_ascii=False, indent=1))
+            return 0
+        rendered = channels.render(plan)
+    except (goals.GoalError, ValueError) as e:
+        print(f"不能生成：{e}", file=sys.stderr)
+        return 2
+    if getattr(args, "out", ""):
+        out = Path(args.out)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(rendered, encoding="utf-8")
+        print(f"已生成：{out}")
+    else:
+        print(rendered)
+    return 0
+
+
+def cmd_deal(args):
+    from core import conversion
+    deals = conversion.Deals(DATA / "deals.jsonl")
+    act = args.action
+    try:
+        if act == "add":
+            rec = deals.add(args.contact, name=args.name, campaign=args.campaign,
+                            owner=args.owner, note=args.note)
+            print(json.dumps(rec, ensure_ascii=False, indent=1) if args.json
+                  else f"已建 {rec['id']}：{rec['name']}（{rec['stage']}）")
+            return 0
+        if act == "advance":
+            rec = deals.advance(args.id, args.stage, args.by,
+                                evidence=args.evidence, note=args.note,
+                                verification_method=getattr(args, "verify_method", ""),
+                                verification_ref=getattr(args, "verify_ref", ""))
+            print(json.dumps(rec, ensure_ascii=False, indent=1) if args.json
+                  else f"{rec['id']} → {rec['stage']}")
+            return 0
+        if act == "qualify":
+            criteria = {"trigger": args.trigger, "contactable": args.contactable,
+                        "data": args.data, "cost": args.cost, "price": args.price}
+            out = deals.qualify(args.id, criteria)
+            print(json.dumps(out, ensure_ascii=False, indent=1) if args.json
+                  else f"{args.id}：{out['result']['score']}/5，"
+                       f"{'合格' if out['result']['qualified'] else '未合格'}")
+            return 0
+        if act == "list":
+            rows = [r for r in deals.all() if not args.stage or r["stage"] == args.stage]
+            if args.json:
+                print(json.dumps(rows, ensure_ascii=False, indent=1))
+                return 0
+            from core.narrative import table
+            print(table(["id", "对象", "阶段", "报价", "更新"],
+                        [[r["id"], r.get("name", ""), r["stage"],
+                          r.get("value", 0), r["updated"]] for r in rows]))
+            return 0
+        if act == "funnel":
+            data = deals.funnel(args.on or None)
+            print(json.dumps(data, ensure_ascii=False, indent=1) if args.json
+                  else conversion.render_status(data))
+            return 0
+        if act == "next":
+            on = args.on or conversion._today()
+            rows = []
+            for row in deals.all():
+                if row["stage"] in ("lost", "repeat"):
+                    continue
+                days = (conversion.date.fromisoformat(on)
+                        - conversion.date.fromisoformat(row["updated"])).days
+                nxt = conversion.next_action(row["stage"], days)
+                if nxt["action"] == "等":
+                    continue
+                item = dict(row)
+                item["next"] = nxt
+                rows.append(item)
+            rows.sort(key=lambda r: (r["next"]["due_in_days"], r["id"]))
+            if args.json:
+                print(json.dumps(rows, ensure_ascii=False, indent=1))
+            else:
+                print(conversion.render_next(rows))
+            return 0
+        if act == "quote":
+            deal = deals.get(args.id)
+            out = conversion.quote(deal, args.offer)
+            rendered = conversion.render_quote(out)
+            if args.json:
+                print(json.dumps(out, ensure_ascii=False, indent=1))
+                return 0
+            if args.out:
+                path = Path(args.out)
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(rendered, encoding="utf-8")
+                print(f"已生成：{path}")
+            else:
+                print(rendered)
+            return 0
+        if act == "objections":
+            if args.json:
+                print(json.dumps(conversion.OBJECTIONS, ensure_ascii=False, indent=1))
+                return 0
+            from core.narrative import table
+            print(table(["异议", "信号", "怎么回", "什么时候走开"],
+                        [[o["label"], o["signal"], o["response"], o["walk_away"]]
+                         for o in conversion.OBJECTIONS]))
+            return 0
+    except conversion.ConversionError as e:
+        print(f"不能执行：{e}", file=sys.stderr)
+        return 2
+    print("用法: mkt deal add|advance|qualify|list|next|funnel|quote|objections",
+          file=sys.stderr)
+    return 2
+
+
+def _split_platforms(raw):
+    if not raw:
+        return None
+    return [x.strip() for x in str(raw).replace("，", ",").split(",") if x.strip()]
+
+
 def cmd_schedule(args):
     from core import scheduler
     data = Path(DATA)
@@ -1641,7 +2201,7 @@ def cmd_action(args):
             allow_unverified=args.allow_unverified, target=args.target,
             text=text, title=args.title, url=args.url,
             subreddit=args.subreddit, number=args.number,
-            extra=args.extra)
+            extra=args.extra, routine=args.routine, account=args.account)
     except ActionError as exc:
         raise SystemExit(f"动作拒跑：{exc}")
     print(json.dumps(rec, ensure_ascii=False, indent=1))
@@ -1707,6 +2267,8 @@ def build_parser():
     sp.set_defaults(fn=cmd_report)
     sp = sub.add_parser("demo", help="零网络零账号演示：计划校验→人审闸门→写路径 dry-run→账本")
     sp.set_defaults(fn=cmd_demo)
+    sp = sub.add_parser("work-demo", help="零网络 GTM Work OS：上下文→工作单→SOP→交付→交接→KPI→plan/queue")
+    sp.set_defaults(fn=cmd_work_demo)
     sp = sub.add_parser("doctor", help="环境体检：内核/数据/凭据/CDP/暂停态（--selftest 连跑单测）")
     sp.add_argument("--selftest", action="store_true", help="附带跑全部离线单测")
     sp.set_defaults(fn=cmd_doctor)
@@ -1746,7 +2308,8 @@ def build_parser():
     sp.add_argument("--id-prefix", dest="id_prefix")
     sp.add_argument("--max-len", dest="max_len", type=int)
     sp.add_argument("--force", action="store_true")
-    sp.add_argument("--go", action="store_true", help="run：实跑（须已人审 plan）")
+    sp.add_argument("--go", action="store_true", help="run：实跑（须已人审 plan 或有效 routine policy）")
+    sp.add_argument("--routine", action="store_true", help="run：使用工作区日常营销常驻授权；其他安全门不变")
     sp.add_argument("--only", help="run：只跑指定 id/target")
     sp.add_argument("--allow-unverified", dest="allow_unverified", action="store_true",
                     help="run：UNVERIFIED 渠道实跑（首跑人工在场）")
@@ -1760,7 +2323,9 @@ def build_parser():
     sp.add_argument("--title"); sp.add_argument("--url")
     sp.add_argument("--subreddit"); sp.add_argument("--number", type=int)
     sp.add_argument("--campaign")
+    sp.add_argument("--account", default="", help="执行账号；routine policy 按此精确匹配")
     sp.add_argument("--go", action="store_true")
+    sp.add_argument("--routine", action="store_true", help="使用日常营销常驻授权；付款/合同等不适用")
     sp.add_argument("--allow-unverified", dest="allow_unverified", action="store_true")
     sp.add_argument("--extra", nargs="*", help="透传 vendor（x message/engage）")
     sp.set_defaults(fn=cmd_action)
@@ -1836,10 +2401,12 @@ def build_parser():
     a.add_argument("--actions-per-week", type=int, default=20)
     a.add_argument("--out", default="")
     a.add_argument("--json", action="store_true", help="输出策略 JSON（供 mkt execute 用）")
+    a.add_argument("--selection", default="", help="mkt goal select 写出的选择契约 JSON")
     a = ssub.add_parser("cadence", help="四周动作表")
     a.add_argument("--start", required=True, help="开始日期 YYYY-MM-DD")
     a.add_argument("--facts", default="")
     a.add_argument("--primary", default="")
+    a.add_argument("--selection", default="", help="mkt goal select 写出的选择契约 JSON")
     a.add_argument("--actions-per-week", type=int, default=20)
     a.add_argument("--out", default="")
     sp.set_defaults(fn=cmd_strategy)
@@ -1898,6 +2465,133 @@ def build_parser():
     sp.add_argument("action", choices=["lint", "render"])
     sp.add_argument("--file", required=True, help="价值资产 JSON")
     sp.set_defaults(fn=cmd_artifact)
+
+    sp = sub.add_parser("policy", help="日常营销常驻授权：仅限授权账号/渠道/动作；付款等仍需人工")
+    psub = sp.add_subparsers(dest="action", required=True)
+    a = psub.add_parser("show")
+    a = psub.add_parser("list-actions")
+    a = psub.add_parser("enable"); a.add_argument("--by", required=True)
+    a.add_argument("--actions", default="", help="可选：channel:action 逗号列表；默认内置日常动作")
+    a.add_argument("--accounts", default="", help="可选：授权账号逗号列表")
+    a.add_argument("--days", type=int, default=None, help="可选：授权有效天数")
+    a = psub.add_parser("disable"); a.add_argument("--by", required=True)
+    a = psub.add_parser("check"); a.add_argument("--channel", required=True); a.add_argument("--action-name", required=True)
+    a.add_argument("--account", default="")
+    sp.set_defaults(fn=cmd_policy)
+
+    sp = sub.add_parser("orchestrate", help="按产品/目标/任务选择最小岗位组合、交付物与表达方式")
+    sp.add_argument("--product", required=True, help="产品事实 JSON；也接受含 product 的事实包")
+    sp.add_argument("--goal", required=True, help="本轮业务目标")
+    sp.add_argument("--task", required=True, help="具体任务、受众、渠道和范围描述")
+    sp.add_argument("--audience", default="", choices=["", "executive", "operator", "developer", "sales", "customer", "partner", "高管", "运营", "开发者", "销售", "客户", "伙伴"])
+    sp.add_argument("--channel", default="", help="email/github/x/linkedin/xiaohongshu/wechat/landing/presentation 或中文别名")
+    sp.add_argument("--motion", default="", help="可选：显式覆盖任务类型推断")
+    sp.add_argument("--format", choices=["json", "md"], default="json", help="输出结构化编排或可阅读方案 brief")
+    sp.add_argument("--out", default="", help="可选：保存 Workstream 候选 JSON")
+    sp.set_defaults(fn=cmd_orchestrate)
+
+    sp = sub.add_parser("capability", help="GTM OS：18 能力域与 40 岗位族注册表")
+    csub = sp.add_subparsers(dest="action", required=True)
+    a = csub.add_parser("list", help="列出能力域与岗位族"); a.add_argument("--capability", default="")
+    a = csub.add_parser("show", help="查看能力域或岗位完整契约")
+    a.add_argument("--capability", default=""); a.add_argument("--role-family", default="")
+    a = csub.add_parser("lint", help="校验 18/40 覆盖与引用完整性")
+    sp.set_defaults(fn=cmd_capability)
+
+    sp = sub.add_parser("template", help="GTM OS：32 个交付物模板与实例校验")
+    tsub = sp.add_subparsers(dest="action", required=True)
+    a = tsub.add_parser("list")
+    a = tsub.add_parser("show"); a.add_argument("template_id")
+    a = tsub.add_parser("lint"); a.add_argument("--file", default="", help="可选：{template_id,version,fields} 实例")
+    sp.set_defaults(fn=cmd_template)
+
+    sp = sub.add_parser("context", help="GTM OS：导入不可变 Askovo/用户业务上下文快照")
+    csub = sp.add_subparsers(dest="action", required=True)
+    a = csub.add_parser("import"); a.add_argument("--file", required=True); a.add_argument("--by", default="operator")
+    a = csub.add_parser("list")
+    a = csub.add_parser("show"); a.add_argument("context_id"); a.add_argument("--version", default="")
+    sp.set_defaults(fn=cmd_context)
+
+    sp = sub.add_parser("objective", help="GTM OS：运营目标与主结果指标契约")
+    osub = sp.add_subparsers(dest="action", required=True)
+    a = osub.add_parser("create"); a.add_argument("--file", required=True); a.add_argument("--by", default="operator")
+    a = osub.add_parser("list")
+    a = osub.add_parser("show"); a.add_argument("objective_id"); a.add_argument("--version", default="")
+    sp.set_defaults(fn=cmd_objective)
+
+    sp = sub.add_parser("work", help="GTM OS：WorkOrder 创建、校验、ready、状态与下一步")
+    wsub = sp.add_subparsers(dest="action", required=True)
+    a = wsub.add_parser("create"); a.add_argument("--file", required=True); a.add_argument("--by", default="operator")
+    a = wsub.add_parser("list")
+    a = wsub.add_parser("show"); a.add_argument("--id", required=True)
+    a = wsub.add_parser("lint"); a.add_argument("--id", default=""); a.add_argument("--file", default="")
+    a = wsub.add_parser("ready"); a.add_argument("--id", required=True); a.add_argument("--by", default="operator")
+    a = wsub.add_parser("transition"); a.add_argument("--id", required=True); a.add_argument("--to", required=True)
+    a.add_argument("--by", default="operator"); a.add_argument("--reason", default="")
+    a = wsub.add_parser("next")
+    sp.set_defaults(fn=cmd_work)
+
+    sp = sub.add_parser("sop", help="GTM OS：版本化专业 SOP 与证据门运行器")
+    ssub = sp.add_subparsers(dest="action", required=True)
+    a = ssub.add_parser("list")
+    a = ssub.add_parser("show"); a.add_argument("sop_id"); a.add_argument("--version", default="")
+    a = ssub.add_parser("lint"); a.add_argument("--file", required=True)
+    a = ssub.add_parser("register"); a.add_argument("--file", required=True); a.add_argument("--by", default="operator")
+    a = ssub.add_parser("start"); a.add_argument("--work-order-id", required=True); a.add_argument("--by", default="operator")
+    a = ssub.add_parser("run"); a.add_argument("--run-id", required=True)
+    a = ssub.add_parser("complete"); a.add_argument("--run-id", required=True); a.add_argument("--step-id", required=True)
+    a.add_argument("--outputs", required=True, help="步骤产物 JSON 数组文件")
+    a.add_argument("--dod", required=True, help="DoD 结果 JSON 数组文件")
+    a.add_argument("--by", default="operator"); a.add_argument("--approval-by", default=""); a.add_argument("--approval-scope", default="")
+    a = ssub.add_parser("block"); a.add_argument("--run-id", required=True); a.add_argument("--step-id", required=True)
+    a.add_argument("--reason", required=True); a.add_argument("--by", default="operator")
+    a = ssub.add_parser("reopen"); a.add_argument("--run-id", required=True); a.add_argument("--step-id", required=True)
+    a.add_argument("--reason", required=True); a.add_argument("--by", default="operator")
+    sp.set_defaults(fn=cmd_sop)
+
+    sp = sub.add_parser("deliverable", help="GTM OS：模板交付物、提交、独立验收与修订")
+    dsub = sp.add_subparsers(dest="action", required=True)
+    a = dsub.add_parser("create"); a.add_argument("--file", required=True); a.add_argument("--by", default="operator")
+    a = dsub.add_parser("list")
+    a = dsub.add_parser("show"); a.add_argument("--id", required=True); a.add_argument("--version", default="")
+    a = dsub.add_parser("submit"); a.add_argument("--id", required=True); a.add_argument("--version", default=""); a.add_argument("--by", default="operator")
+    a = dsub.add_parser("review"); a.add_argument("--id", required=True); a.add_argument("--version", default="")
+    a.add_argument("--results", required=True, help="逐项 rubric 审核结果 JSON 数组"); a.add_argument("--by", required=True)
+    a = dsub.add_parser("revise"); a.add_argument("--id", required=True); a.add_argument("--fields", required=True); a.add_argument("--by", default="operator")
+    sp.set_defaults(fn=cmd_deliverable)
+
+    sp = sub.add_parser("handoff", help="GTM OS：跨岗位交接、接收、拒收与 SLA")
+    hsub = sp.add_subparsers(dest="action", required=True)
+    a = hsub.add_parser("create"); a.add_argument("--file", required=True); a.add_argument("--by", default="operator")
+    a = hsub.add_parser("list")
+    a = hsub.add_parser("show"); a.add_argument("--id", required=True)
+    a = hsub.add_parser("pending"); a.add_argument("--now", default="")
+    a = hsub.add_parser("accept"); a.add_argument("--id", required=True); a.add_argument("--by", required=True)
+    a = hsub.add_parser("reject"); a.add_argument("--id", required=True); a.add_argument("--by", required=True)
+    a.add_argument("--reason", required=True); a.add_argument("--return-step", required=True)
+    sp.set_defaults(fn=cmd_handoff)
+
+    sp = sub.add_parser("metric", help="GTM OS：版本化指标字典与确定性测量")
+    msub = sp.add_subparsers(dest="action", required=True)
+    a = msub.add_parser("list")
+    a = msub.add_parser("show"); a.add_argument("metric_id"); a.add_argument("--version", default="")
+    a = msub.add_parser("register"); a.add_argument("--file", required=True); a.add_argument("--by", default="operator")
+    a = msub.add_parser("measure"); a.add_argument("--metric-id", required=True); a.add_argument("--version", default="")
+    a.add_argument("--events", required=True, help="事件 JSON 数组或 JSONL")
+    a.add_argument("--campaign", default=""); a.add_argument("--subject", default="")
+    a.add_argument("--since", default=""); a.add_argument("--until", default="")
+    a.add_argument("--cohort-end", default=""); a.add_argument("--as-of", default="")
+    sp.set_defaults(fn=cmd_metric)
+
+    sp = sub.add_parser("work-action", help="GTM OS：accepted 交付物→既有 plan/queue；不发送")
+    asub = sp.add_subparsers(dest="action", required=True)
+    a = asub.add_parser("materialize")
+    a.add_argument("--work-order-id", required=True); a.add_argument("--step-id", required=True)
+    a.add_argument("--deliverable-id", required=True); a.add_argument("--deliverable-version", default="")
+    a.add_argument("--strategy-file", required=True); a.add_argument("--targets", required=True)
+    a.add_argument("--campaign", required=True); a.add_argument("--account", default="")
+    a.add_argument("--execution-workspace", default=""); a.add_argument("--by", default="operator")
+    sp.set_defaults(fn=cmd_work_action)
 
     sp = sub.add_parser("playbook-model", help="Playbook 组合：Platform × Motion × Vertical")
     sp.add_argument("action", choices=["list", "compose"])
@@ -2123,6 +2817,121 @@ def build_parser():
     dg.add_argument("--output", help="可选：导出 Markdown")
     dg.add_argument("--json", action="store_true")
     sp.set_defaults(fn=cmd_gtm)
+
+    sp = sub.add_parser("goal", help="目标：先定这一轮要什么（声量/使用/商业），再选平台")
+    gsub = sp.add_subparsers(dest="action", required=True)
+    a = gsub.add_parser("list", help="列出这个产品可选的目标与推荐平台")
+    a.add_argument("--facts", required=True, help="产品事实包 JSON（同 mkt gtm diagnose）")
+    a.add_argument("--json", action="store_true")
+    a.add_argument("--out", default="")
+    a = gsub.add_parser("plan", help="生成一个目标（+平台）的完整方案")
+    a.add_argument("--facts", required=True)
+    a.add_argument("--goal", required=True, help="目标 id，例如 commercial.first_paid")
+    a.add_argument("--platforms", default="", help="逗号分隔：主渠道,发射点,辅助1,辅助2；不填用推荐组合")
+    a.add_argument("--target", type=float, default=None, help="覆盖默认目标；不填用建议形状")
+    a.add_argument("--window-days", type=int, default=None)
+    a.add_argument("--secondary", default="", help="可选辅目标 id，例如 adoption.real_data")
+    a.add_argument("--secondary-target", type=float, default=None)
+    a.add_argument("--json", action="store_true")
+    a.add_argument("--out", default="")
+    a = gsub.add_parser("select", help="写入「目标 + 平台」选择契约，供 strategy/cadence 使用")
+    a.add_argument("--facts", required=True)
+    a.add_argument("--goal", required=True)
+    a.add_argument("--platforms", required=True, help="逗号分隔：主渠道,发射点,辅助1,辅助2")
+    a.add_argument("--target", type=float, default=None)
+    a.add_argument("--window-days", type=int, default=None)
+    a.add_argument("--secondary", default="", help="可选辅目标 id")
+    a.add_argument("--secondary-target", type=float, default=None)
+    a.add_argument("--note", default="")
+    a.add_argument("--out", required=True)
+    a.add_argument("--json", action="store_true")
+    sp.set_defaults(fn=cmd_goal)
+
+    sp = sub.add_parser("sprint", help="冲刺：把目标方案压成 N 天并行工作流与小时级排期")
+    ssub = sp.add_subparsers(dest="action", required=True)
+    a = ssub.add_parser("plan", help="生成 3 天/7 天冲刺方案（只读）")
+    a.add_argument("--facts", required=True, help="产品事实包 JSON")
+    a.add_argument("--goal", default="", help="目标 id；用 --selection 时可省")
+    a.add_argument("--secondary", default="")
+    a.add_argument("--secondary-target", type=float, default=None)
+    a.add_argument("--platforms", default="")
+    a.add_argument("--target", type=float, default=None)
+    a.add_argument("--selection", default="", help="mkt goal select 写出的选择契约")
+    a.add_argument("--days", type=int, default=3, help="冲刺天数，默认 3")
+    a.add_argument("--start", default="", help="开始日期 YYYY-MM-DD，默认今天")
+    a.add_argument("--hours-per-day", type=float, default=8.0)
+    a.add_argument("--launch-hour", default="21:00", help="发射时间（北京时间），默认 21:00")
+    a.add_argument("--json", action="store_true")
+    a.add_argument("--out", default="")
+    sp.set_defaults(fn=cmd_sprint)
+
+    from core.conversion import OFFERS as _OFFERS, STAGES as _STAGES
+    sp = sub.add_parser("channel", help="渠道：具体地方、规则、经济学、实验")
+    csub = sp.add_subparsers(dest="action", required=True)
+    a = csub.add_parser("venues", help="列出渠道库；可按平台过滤")
+    a.add_argument("--platform", default="")
+    a.add_argument("--json", action="store_true")
+    a = csub.add_parser("plan", help="生成渠道组合：主/发射/辅助/旁听 + 经济学")
+    a.add_argument("--facts", required=True)
+    a.add_argument("--selection", default="")
+    a.add_argument("--goal", default="")
+    a.add_argument("--secondary", default="")
+    a.add_argument("--platforms", default="")
+    a.add_argument("--json", action="store_true")
+    a.add_argument("--out", default="")
+    a = csub.add_parser("score", help="给一个渠道打分")
+    a.add_argument("--venue", required=True)
+    a.add_argument("--facts", required=True)
+    a.add_argument("--selection", default="")
+    a.add_argument("--goal", default="")
+    a.add_argument("--secondary", default="")
+    a.add_argument("--platforms", default="")
+    a.add_argument("--json", action="store_true")
+    sp.set_defaults(fn=cmd_channel)
+
+    sp = sub.add_parser("deal", help="转化：阶段、下一个动作、资格、报价、漏斗")
+    dsub = sp.add_subparsers(dest="action", required=True)
+    a = dsub.add_parser("add", help="建一个转化对象")
+    a.add_argument("--contact", required=True)
+    a.add_argument("--name", default="")
+    a.add_argument("--campaign", default="")
+    a.add_argument("--owner", default="")
+    a.add_argument("--note", default="")
+    a.add_argument("--json", action="store_true")
+    a = dsub.add_parser("advance", help="推进阶段；所有阶段必须有 evidence；qualified 先过资格，paid 可附独立核验")
+    a.add_argument("--id", required=True)
+    a.add_argument("--stage", required=True, choices=_STAGES)
+    a.add_argument("--by", default="roy")
+    a.add_argument("--evidence", default="")
+    a.add_argument("--verify-method", default="", help="paid 可选：独立核验方式；与 --verify-ref 成对")
+    a.add_argument("--verify-ref", default="", help="paid 可选：独立核验记录；与 --verify-method 成对")
+    a.add_argument("--note", default="")
+    a.add_argument("--json", action="store_true")
+    a = dsub.add_parser("qualify", help="五项资格打分")
+    a.add_argument("--id", required=True)
+    a.add_argument("--trigger", action="store_true")
+    a.add_argument("--contactable", action="store_true")
+    a.add_argument("--data", action="store_true")
+    a.add_argument("--cost", action="store_true")
+    a.add_argument("--price", action="store_true")
+    a.add_argument("--json", action="store_true")
+    a = dsub.add_parser("list", help="列出对象")
+    a.add_argument("--stage", choices=_STAGES, default="")
+    a.add_argument("--json", action="store_true")
+    a = dsub.add_parser("funnel", help="漏斗与卡住的对象")
+    a.add_argument("--on", default="")
+    a.add_argument("--json", action="store_true")
+    a = dsub.add_parser("next", help="今天该跟谁")
+    a.add_argument("--on", default="")
+    a.add_argument("--json", action="store_true")
+    a = dsub.add_parser("quote", help="生成一页 SOW")
+    a.add_argument("--id", required=True)
+    a.add_argument("--offer", choices=sorted(_OFFERS), default="diagnostic")
+    a.add_argument("--out", default="")
+    a.add_argument("--json", action="store_true")
+    a = dsub.add_parser("objections", help="异议库")
+    a.add_argument("--json", action="store_true")
+    sp.set_defaults(fn=cmd_deal)
 
     sp = sub.add_parser("optimize", help="按记分卡与运营记忆给出人工决策建议（不自动执行）")
     sp.add_argument("--campaign"); sp.add_argument("--channel")

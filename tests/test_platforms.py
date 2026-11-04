@@ -47,3 +47,34 @@ class PlatformSourceTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class EvidenceBackedRules(unittest.TestCase):
+    """语料跑出来的规则必须留在代码里，别下次重构又丢了。"""
+
+    def test_xiaohongshu_cold_start_has_reach_check(self):
+        checks = " ".join(platforms.BY_ID["xiaohongshu"]["cold_start"]["checklist"])
+        self.assertIn("搜索框", checks)
+        self.assertIn("绝对化词", checks)
+
+    def test_xiaohongshu_stage_is_searchable_not_just_unblocked(self):
+        stage = platforms.BY_ID["xiaohongshu"]["stages"][0][1]
+        self.assertIn("搜", stage)
+
+    def test_zhihu_requires_keyword_library_and_length(self):
+        checks = " ".join(platforms.BY_ID["zhihu"]["cold_start"]["checklist"])
+        self.assertIn("关键词库", checks)
+        self.assertIn("800", checks)
+
+    def test_wechat_requires_search_index_verification(self):
+        checks = " ".join(platforms.BY_ID["wechat"]["cold_start"]["checklist"])
+        self.assertIn("搜一搜", checks)
+        self.assertIn("搜一搜", platforms.BY_ID["wechat"]["stages"][0][1])
+
+    def test_scaling_needs_repeat_not_one_hit(self):
+        for pid in ("xiaohongshu", "zhihu", "wechat"):
+            self.assertIn("连续 3", platforms.BY_ID[pid]["scale_gate"], pid)
+
+    def test_evidence_field_records_source(self):
+        for pid in ("zhihu", "wechat"):
+            self.assertTrue(platforms.BY_ID[pid].get("evidence"), pid)

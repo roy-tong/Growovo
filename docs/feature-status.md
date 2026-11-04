@@ -1,14 +1,18 @@
 # Growovo: implementation status
 
-Reviewed 2026-11-04. **Released baseline: v0.5.0.** Available means local implementation and local tests, not production validation on every platform or proof of business outcomes.
+Reviewed 2026-11-04. **Working baseline: v0.9.0 (2026-11-04).** Available means local implementation and local tests, not production validation on every platform or proof of business outcomes.
+
+> Business architecture: [GTM 业务操作系统 v5](gtm-os/README.md) covers role families 07–46, work-order/SOP/deliverable/handoff contracts, KPI definitions and templates. R0/R1 are now locally implemented; see [implementation and remaining boundaries](gtm-os/05-implementation.md). Registry coverage is not equivalent to all 40 professional SOPs being executable or externally effective.
 
 ## Verification snapshot
 
-- `python3 -m unittest discover -s tests`: **431 tests pass**.
+- `python3 -m unittest discover -s tests`: **599 tests pass**.
 - `python3 mkt.py demo`: plan validation, human approval, write pipeline and ledger pass.
+- `python3 mkt.py work-demo`: context → objective → WorkOrder → SOP → accepted deliverables → receiver handoff → approved plan/queue → independent KPI observation passes; no queue execution or send ledger.
+- Isolated wheel build and target install: `growovo-0.9.0` imports all packaged registries and runs the installed work demo; no source-checkout data dependency.
 - Real CLI checks also cover email queue approval and dry-run, X reply queue contract, manual work sheets, campaign isolation, opportunity discovery, value artifacts, journeys, account lifecycle and pricing experiments. No real account sends in tests.
 
-## Released baseline capabilities (through v0.5.0)
+## Baseline capabilities (through v0.9.0)
 
 | Area | Local implementation | Verification and remaining boundary |
 |---|---|---|
@@ -23,6 +27,11 @@ Reviewed 2026-11-04. **Released baseline: v0.5.0.** Available means local implem
 | Voice and value content | `core/voice.py` has 37 platform profiles with tone, sentence style, openers and taboos; `mkt voice` and `mkt_voice_lint` | `check_preservation` checks facts, URLs, numbers and disclosures. Profile skeletons do not prove content value or platform acceptance |
 | Platform source | `core/platforms.py` has 37 unique platform entries and 6 write-action mappings | Registration is not research completion or execution verification. Every platform must pass strategy, cadence and manual-sheet contract tests; generic Verovo numbers, duplicate `_CORE` and Star gates were removed |
 | Platform × Motion × Vertical | `core/playbook_model.py` composes platform rules, reusable growth motions and vertical-specific value/acceptance constraints | A composed playbook is a candidate workflow, not evidence of channel effectiveness or platform permission |
+| Sprint planning | `core/sprint.py` + `mkt sprint plan` + `mkt_sprint_plan`: N-day compression, parallel workstreams, hourly blocks, front-loaded daily targets, six levers, three checkpoints, platform daily-capacity checks and red lines | A sprint is a signal test, not market validation; platform limits are conservative, not platform maxima; planned actions are not executed. 12 dedicated tests; full suite 486 pass. No external sends |
+| Business narrative | `mkt channel plan` and `mkt deal next|funnel|quote` render business language by default: scene → pain → current substitute → why this venue → what to say → proof → signal → falsifier; stage meaning → what we know/need → why this action → risk → walk-away; pricing rationale. JSON keeps scores/stage codes | Narrative is still generated from deterministic fields, not a model; evidence levels are hand-labeled per venue; the renderer cannot verify a user's quote or a payment. |
+| Channel model | `core/channels.py` + `mkt channel venues|plan|score` + `mkt_channel_venues` / `mkt_channel_plan`: venue-level registry (12 venues) with audience, access, promo policy, signal density, competition, speed, risk and evidence; 1 primary + 1 launch + 2 support + 2 listen-only; bounded economics, capacity, experiments and rules | A channel plan is a scheduling hypothesis, not channel effectiveness. Venue size is an order of magnitude, not audience reach. Promotion-banned venues are listen-only. No platform writes. 11 dedicated tests |
+| Conversion pipeline | `core/conversion.py` + `mkt deal add|advance|qualify|list|next|funnel|quote|objections` + `mkt_deals` / `mkt_deal_next`: 14 stages with explicit transitions, evidence gates for quote/SOW/payment, five-criterion qualification, one next action per stage, nine objections, four offers, one-page SOW, funnel and stuck deals | A stage is a record, not a forecast. `paid` requires evidence; a quote is not revenue; a sample is not payment. `deals.jsonl` is append-only per advance. 16 dedicated tests |
+| Goal selection | `core/goals.py` + `mkt goal list/plan/select` + `mkt_goals` / `mkt_goal_plan`; selection contract feeds `strategy --selection` and `cadence --selection` | 声量/使用/商业三类、9 个目标；适配按产品类型/阶段/已有账号判，平台分工限 1 主 + 1 发射 + 2 辅助；可选 1 个辅目标，两个都达成才算成功。默认目标是排期形状，不是预测；平台亲和度是规划启发式，不是渠道效果证明 |
 | Strategy | `core/gtm.py`, `core/strategy.py`, `core/cadence.py` | No mandatory numeric `goals`; cold start, scale and risk parameters are configurable learning inputs. Fourth week is retrospective/next iteration, not a fixed product verdict |
 | Opportunity Discovery | `core/opportunity.py` + `mkt opportunity` + `mkt_opportunity` | Explicit IDs/tags/text containment only; no semantic market inference. Complaints do not equal purchase intent. Product issues take priority over acquisition |
 | Value Artifact | `core/value_artifact.py` + `mkt artifact` + `mkt_value_artifact` | Tutorials, examples, reproducible tests, templates, comparisons and real cases require scenario, source-backed value, reproduction steps, limitations and observation events. Exposure/sending is not user value |
@@ -40,6 +49,42 @@ Reviewed 2026-11-04. **Released baseline: v0.5.0.** Available means local implem
 | Follow-up | `core/followups.py` + `mkt followup` | Optional campaign field supports scoped projections. Due follow-ups stay ahead of new actions; local records never send |
 | Measurement | `core/task_outcome.py` + GitHub benchmark | 33 synthetic keyword-baseline fixtures remain a failure-mode benchmark, not expert triage proof. `action_runner.record_ledger_outcome` records outcomes but does not independently verify delivery |
 
+## v0.9.0 additions
+
+| Area | Local implementation | Verification and remaining boundary |
+|---|---|---|
+| Minimum-role orchestration | `core/orchestration.py` and `mkt orchestrate`; product/goal/task → required roles, optional triggers, WorkOrder DAG and handoffs | Candidate orchestration only. One full developer SOP; other selected steps are marked requires_expansion. No default 40-role team |
+| Per-deliverable expression | Audience-specific decision memo/runbook/tutorial/sales handoff/customer/partner formats; channel overlays for email/GitHub/X/LinkedIn/小红书/公众号/landing/presentation; artifact-specific required content and tone | Writing rules are not current official platform-rule verification. Internal technical/revenue/POC artifacts are not rewritten as social copy |
+| Standing routine authorization | `core/execution_policy.py`; workspace-scoped closed action set, exact account matching, expiry/revoke and fail-closed validation; `mkt policy` CLI management | Routine only replaces per-run plan approval. Empty account scope is default-only, not wildcard. MCP cannot create/revoke policy |
+| Routine execution integration | `planlint`, `action_runner`, `pipeline`, `queue_runner`, email SMTP and MCP support explicit `routine` with independent `routine-policy` receipt | Payment/contract/discount/crisis/unknown actions cannot be authorized. Dry-run, pause, DNC, quota, readback, channel verification and unknown-result reconciliation remain |
+| Documentation and tests | `docs/gtm-os/06-orchestration-and-routine.md`; orchestration, policy core, CLI and MCP pass-through tests | All sends are fake/dry-run. Current workspace policy was enabled by the user's direct instruction for default-account routine actions; no live sends performed |
+
+## v0.8.0 additions
+
+| Area | Local implementation | Verification and remaining boundary |
+|---|---|---|
+| Capability and template registry | `core/capabilities.py` / `capability_data.json` and `core/templates.py` / `template_data.json`; `mkt capability` and `mkt template`; 18 domains, 40 role families and 32 templates with cross-reference lint | All roles have SOP summaries and contracts in the registry. Only `sop-devrel-first-success@1.0.0` is currently a full executable Step Contract; no claim of 40 completed professional automations |
+| Context, objective and WorkOrder | `core/work.py`; immutable context snapshots, versioned objectives, WorkOrder lint/ready/dependencies/state/next | `user_declared` remains distinct from Askovo research. Local `by` signatures are not enterprise identity |
+| SOP run and deliverable acceptance | `core/sop.py`, `core/deliverables.py`; evidence-gated steps, required human approvals, template instances, QA reviews, R3/R4 author/reviewer separation and revisions | External correctness and business usefulness are not inferred from fixture approval |
+| Receiver handoff | `core/handoffs.py`; accepted artifacts, named receiver, rejection return step and SLA projection | Creation or notification is not receiver acceptance |
+| KPI measurement | `core/metrics.py` / `metric_data.json`; versioned count/ratio metrics, filters, dedupe, scope, maturity and deterministic recalculation | Current calculator supports counts and numerator/denominator ratios, not general BI. Zero denominator and pending maturity return null |
+| Work-to-execution bridge | `core/work_actions.py`; accepted deliverable + current action_request step → existing plan/queue with provenance in execution fingerprint | No direct transport and no sends. Existing plan approval, dry-run/go, pause, quota, suppression and unknown-result gates remain mandatory |
+| Conversion and result integrity | `core/conversion.py`: event-append projections, cohort funnel, all-stage evidence, qualification/quote guards; `core/result.py`: TaskOutcome-aware three-layer results; execute evidence grade is `unverified` | Paid retains evidence-only compatibility with optional verification method/ref. A cohort rate is descriptive, not causal |
+| CLI, MCP and demo | New CLI surfaces; read-only `mkt_capabilities`, `mkt_templates`, `mkt_work_order`, `mkt_metric_measure`; `mkt work-demo`; JSON registries included in package data | MCP cannot create work, approve deliverables, accept handoffs or self-authorize. No full Web UI or enterprise RBAC claimed |
+
+## v0.7.0 additions
+
+| Review item | Runnable depth added | Verification and remaining boundary |
+|---|---|---|
+| Channel as a product surface | `core/channels.py`; venue registry; score; plan; economics; capacity; experiments; render. CLI + MCP read-only | 12 venues are a starting library, not a complete market map. Scores are planning heuristics. Economics is assumption ranges; real reply/qualified/sample/paid rates must be filled back. |
+| Conversion as a product surface | `core/conversion.py`; 14-stage machine; `Deals` append-only store; qualification; next action; objections; offers; quote; funnel; render. CLI + MCP read-only | Stage evidence is operator-supplied; the module does not verify payment or delivery. `paid` requires an evidence string but does not check a bank record. Funnel is descriptive, not causal. |
+
+## v0.6.0 additions
+
+| Review item | Runnable depth added | Verification and remaining boundary |
+|---|---|---|
+| Goal selection | `core/goals.py` has a 9-goal catalog across awareness / adoption / commercial, applicability by product type/stage/owned platform, platform affinity ranking, role limits, target/window validation, a goal-selection contract and business-language rendering. `mkt goal list/plan/select` with optional `--secondary`; MCP `mkt_goals` / `mkt_goal_plan` are read-only. `strategy build --selection` keeps the chosen primary instead of letting old retro numbers override it; `cadence --selection` uses the goal plan's two-week actions instead of the generic 20/week template | Goal achieved is not demand, payment willingness or repeatability. Platform affinity is a planning heuristic, not channel effectiveness. Default targets are shapes, not forecasts; missing baselines are shown as missing. 37 dedicated tests; full suite 474 pass. No external sends or business validation |
+
 ## v0.5.0 depth additions
 
 | Review item | Runnable depth added | Verification and remaining boundary |
@@ -48,6 +93,8 @@ Reviewed 2026-11-04. **Released baseline: v0.5.0.** Available means local implem
 | G2 value delivery chain | `core/value_delivery.py` implements research → solution → reproduction → asset → authorized delivery → user readback → completed. `mkt value-chain run` executes only an argv bound to an explicit command fingerprint, with `shell=False`, and records real exit code/output/timestamps/source_ref | Missing/failed reproduction cannot produce a verified asset. Unauthorized commands are not executed. Delivery only records an authorized external receipt; this module never sends. Sent/exposure is not use; completion requires a post-delivery, same-subject, sourced and verified value event |
 | G3 Journey depth | `core/journey.py` now sorts by parsed real time, rejects late prior-stage backfill, distinguishes first/repeated activation, normalizes email identities and explicit `identity_map`, and separately exposes ordered multi-touch relationships. CLI/MCP accept identity mapping | Out-of-order, repeated activation, approximate, unknown and unverified events remain disclosed. Missing prior stages stay missing. Last event/channel receives no causal credit |
 | G4 experience re-review | `core/experience.py` requires rights basis + confirmer + confirmation time + rights record, plus signed review time/record/source domains. `mkt exp assess` exposes eligibility, `review_grade`, rights details, review records and domains | `rights_cleared=True` or `human_reviewed=True` alone never qualifies. `internal_self_report` is experiment-only; formal strategy/generalization requires `traceable_review`. Legacy records remain readable but do not inherit eligibility |
+
+| G5 corpus → rules | 605-article corpus (小红书/B站/公众号/Reddit/Discord) distilled into `experience.jsonl` (210 claims: 28 manual, 182 extracted, 40 topic-level), then written into `platforms.py` as `cold_start.checklist` / `stages` / `scale_gate` / `evidence` and rendered by `strategy`. Six tests pin the wording | Claims are still self-reported practitioner experience; freshness is 91/210 inside 60 days, so most of it is directional, not proof. Discord yielded only 4 channels |
 
 ## External validation still required
 
