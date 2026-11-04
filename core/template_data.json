@@ -1,0 +1,3437 @@
+{
+  "schema_version": "1.0",
+  "base_required_slots": [
+    "deliverable_id",
+    "work_order_id",
+    "objective_id",
+    "business_context_ref",
+    "owner",
+    "contributors",
+    "receiver",
+    "subject",
+    "scope",
+    "exclusions",
+    "time_window",
+    "timezone",
+    "due",
+    "input_artifacts",
+    "evidence_refs",
+    "result_metrics",
+    "process_metrics",
+    "guardrails",
+    "budget",
+    "permissions",
+    "risk",
+    "approvals",
+    "handoff",
+    "outcome_status"
+  ],
+  "templates": [
+    {
+      "template_id": "T01",
+      "version": "1.0.0",
+      "name": "运营目标与 KPI 契约",
+      "roles": [
+        "07",
+        "08",
+        "09",
+        "10",
+        "11",
+        "12",
+        "13",
+        "14",
+        "15",
+        "16",
+        "17",
+        "18",
+        "19",
+        "20",
+        "21",
+        "22",
+        "23",
+        "24",
+        "25",
+        "26",
+        "27",
+        "28",
+        "29",
+        "30",
+        "31",
+        "32",
+        "33",
+        "34",
+        "35",
+        "36",
+        "37",
+        "38",
+        "39",
+        "40",
+        "41",
+        "42",
+        "43",
+        "44",
+        "45",
+        "46"
+      ],
+      "required_slots": [
+        "deliverable_id",
+        "work_order_id",
+        "objective_id",
+        "business_context_ref",
+        "owner",
+        "contributors",
+        "receiver",
+        "subject",
+        "scope",
+        "exclusions",
+        "time_window",
+        "timezone",
+        "due",
+        "input_artifacts",
+        "evidence_refs",
+        "result_metrics",
+        "process_metrics",
+        "guardrails",
+        "budget",
+        "permissions",
+        "risk",
+        "approvals",
+        "handoff",
+        "outcome_status",
+        "business_problem",
+        "target_subject_qualification",
+        "baseline_window",
+        "baseline",
+        "objective_or_learning_question",
+        "primary_result_metric",
+        "secondary_result_metrics",
+        "data_sources",
+        "review_schedule"
+      ],
+      "professional_fields": [
+        {
+          "field_id": "business_problem",
+          "label": "业务问题"
+        },
+        {
+          "field_id": "target_subject_qualification",
+          "label": "目标主体与合格条件"
+        },
+        {
+          "field_id": "baseline_window",
+          "label": "基线及窗口"
+        },
+        {
+          "field_id": "baseline",
+          "label": "基线或未知声明"
+        },
+        {
+          "field_id": "objective_or_learning_question",
+          "label": "目标或学习问题"
+        },
+        {
+          "field_id": "primary_result_metric",
+          "label": "主结果指标"
+        },
+        {
+          "field_id": "secondary_result_metrics",
+          "label": "辅助结果指标"
+        },
+        {
+          "field_id": "data_sources",
+          "label": "数据来源"
+        },
+        {
+          "field_id": "review_schedule",
+          "label": "复盘时间与决策人"
+        }
+      ],
+      "qa": [
+        "只设一个主结果；基线未知时明确未知；指标均已注册且目标不是动作量的改名。",
+        "事实、产品 / 客户 / 财务数字与 evidence_refs 中的来源一致；未知项不得编造。",
+        "外部动作必须另行生成 Action Request；提交、验收、签收和业务结果观察不得混用。"
+      ]
+    },
+    {
+      "template_id": "T02",
+      "version": "1.0.0",
+      "name": "工作委托单（Work Order）",
+      "roles": [
+        "07",
+        "08",
+        "09",
+        "10",
+        "11",
+        "12",
+        "13",
+        "14",
+        "15",
+        "16",
+        "17",
+        "18",
+        "19",
+        "20",
+        "21",
+        "22",
+        "23",
+        "24",
+        "25",
+        "26",
+        "27",
+        "28",
+        "29",
+        "30",
+        "31",
+        "32",
+        "33",
+        "34",
+        "35",
+        "36",
+        "37",
+        "38",
+        "39",
+        "40",
+        "41",
+        "42",
+        "43",
+        "44",
+        "45",
+        "46"
+      ],
+      "required_slots": [
+        "deliverable_id",
+        "work_order_id",
+        "objective_id",
+        "business_context_ref",
+        "owner",
+        "contributors",
+        "receiver",
+        "subject",
+        "scope",
+        "exclusions",
+        "time_window",
+        "timezone",
+        "due",
+        "input_artifacts",
+        "evidence_refs",
+        "result_metrics",
+        "process_metrics",
+        "guardrails",
+        "budget",
+        "permissions",
+        "risk",
+        "approvals",
+        "handoff",
+        "outcome_status",
+        "trigger",
+        "business_purpose",
+        "input_contract",
+        "sop_version_ref",
+        "deliverable_specs",
+        "step_dependencies",
+        "raci",
+        "human_time",
+        "milestones",
+        "exception_stop_conditions",
+        "outcome_observation_plan"
+      ],
+      "professional_fields": [
+        {
+          "field_id": "trigger",
+          "label": "工作触发"
+        },
+        {
+          "field_id": "business_purpose",
+          "label": "业务目的"
+        },
+        {
+          "field_id": "input_contract",
+          "label": "输入契约"
+        },
+        {
+          "field_id": "sop_version_ref",
+          "label": "SOP ID 与版本"
+        },
+        {
+          "field_id": "deliverable_specs",
+          "label": "交付物及模板版本"
+        },
+        {
+          "field_id": "step_dependencies",
+          "label": "步骤与依赖"
+        },
+        {
+          "field_id": "raci",
+          "label": "RACI"
+        },
+        {
+          "field_id": "human_time",
+          "label": "人工时间"
+        },
+        {
+          "field_id": "milestones",
+          "label": "里程碑"
+        },
+        {
+          "field_id": "exception_stop_conditions",
+          "label": "异常与停止条件"
+        },
+        {
+          "field_id": "outcome_observation_plan",
+          "label": "结果观察计划"
+        }
+      ],
+      "qa": [
+        "没有输入、Owner、交付物、DoD 或接收人的任务不能 ready；依赖未验收不能执行。",
+        "事实、产品 / 客户 / 财务数字与 evidence_refs 中的来源一致；未知项不得编造。",
+        "外部动作必须另行生成 Action Request；提交、验收、签收和业务结果观察不得混用。"
+      ]
+    },
+    {
+      "template_id": "T03",
+      "version": "1.0.0",
+      "name": "品牌传播方案",
+      "roles": [
+        "07"
+      ],
+      "required_slots": [
+        "deliverable_id",
+        "work_order_id",
+        "objective_id",
+        "business_context_ref",
+        "owner",
+        "contributors",
+        "receiver",
+        "subject",
+        "scope",
+        "exclusions",
+        "time_window",
+        "timezone",
+        "due",
+        "input_artifacts",
+        "evidence_refs",
+        "result_metrics",
+        "process_metrics",
+        "guardrails",
+        "budget",
+        "permissions",
+        "risk",
+        "approvals",
+        "handoff",
+        "outcome_status",
+        "brand_objective",
+        "positioning_version",
+        "audience_task",
+        "big_idea",
+        "message_house",
+        "substantiated_claims",
+        "prohibited_claims",
+        "channel_roles",
+        "creative_assets",
+        "brand_measurement",
+        "demand_measurement",
+        "risk_controls"
+      ],
+      "professional_fields": [
+        {
+          "field_id": "brand_objective",
+          "label": "品牌目标"
+        },
+        {
+          "field_id": "positioning_version",
+          "label": "上游定位版本"
+        },
+        {
+          "field_id": "audience_task",
+          "label": "受众任务"
+        },
+        {
+          "field_id": "big_idea",
+          "label": "Big idea"
+        },
+        {
+          "field_id": "message_house",
+          "label": "消息屋"
+        },
+        {
+          "field_id": "substantiated_claims",
+          "label": "事实与可支持主张"
+        },
+        {
+          "field_id": "prohibited_claims",
+          "label": "禁用主张"
+        },
+        {
+          "field_id": "channel_roles",
+          "label": "渠道角色"
+        },
+        {
+          "field_id": "creative_assets",
+          "label": "创意与资产"
+        },
+        {
+          "field_id": "brand_measurement",
+          "label": "品牌测量"
+        },
+        {
+          "field_id": "demand_measurement",
+          "label": "需求测量"
+        },
+        {
+          "field_id": "risk_controls",
+          "label": "风险与控制"
+        }
+      ],
+      "qa": [
+        "不自行改定位；每项主张有依据；渠道不是机械复制；品牌测量与转化测量分开。",
+        "事实、产品 / 客户 / 财务数字与 evidence_refs 中的来源一致；未知项不得编造。",
+        "外部动作必须另行生成 Action Request；提交、验收、签收和业务结果观察不得混用。"
+      ]
+    },
+    {
+      "template_id": "T04",
+      "version": "1.0.0",
+      "name": "媒体沟通与危机方案",
+      "roles": [
+        "08"
+      ],
+      "required_slots": [
+        "deliverable_id",
+        "work_order_id",
+        "objective_id",
+        "business_context_ref",
+        "owner",
+        "contributors",
+        "receiver",
+        "subject",
+        "scope",
+        "exclusions",
+        "time_window",
+        "timezone",
+        "due",
+        "input_artifacts",
+        "evidence_refs",
+        "result_metrics",
+        "process_metrics",
+        "guardrails",
+        "budget",
+        "permissions",
+        "risk",
+        "approvals",
+        "handoff",
+        "outcome_status",
+        "issue_timeline",
+        "known_facts",
+        "unknown_facts",
+        "stakeholders",
+        "news_angle",
+        "media_list",
+        "fact_sheet",
+        "qa_and_no_answer",
+        "spokesperson",
+        "severity_level",
+        "response_sla",
+        "correction_update_plan"
+      ],
+      "professional_fields": [
+        {
+          "field_id": "issue_timeline",
+          "label": "议题与时间线"
+        },
+        {
+          "field_id": "known_facts",
+          "label": "已知事实"
+        },
+        {
+          "field_id": "unknown_facts",
+          "label": "未知事项"
+        },
+        {
+          "field_id": "stakeholders",
+          "label": "利益相关方"
+        },
+        {
+          "field_id": "news_angle",
+          "label": "新闻角度"
+        },
+        {
+          "field_id": "media_list",
+          "label": "媒体名单"
+        },
+        {
+          "field_id": "fact_sheet",
+          "label": "事实表"
+        },
+        {
+          "field_id": "qa_and_no_answer",
+          "label": "Q&A 与禁答"
+        },
+        {
+          "field_id": "spokesperson",
+          "label": "发言人"
+        },
+        {
+          "field_id": "severity_level",
+          "label": "响应分级"
+        },
+        {
+          "field_id": "response_sla",
+          "label": "响应 SLA"
+        },
+        {
+          "field_id": "correction_update_plan",
+          "label": "纠错和更新机制"
+        }
+      ],
+      "qa": [
+        "危机只保留核实事实；发言人 / 法务 / 高管权限明确；每次更新有版本和时间。",
+        "事实、产品 / 客户 / 财务数字与 evidence_refs 中的来源一致；未知项不得编造。",
+        "外部动作必须另行生成 Action Request；提交、验收、签收和业务结果观察不得混用。"
+      ]
+    },
+    {
+      "template_id": "T05",
+      "version": "1.0.0",
+      "name": "内容营销与文案方案",
+      "roles": [
+        "09",
+        "10"
+      ],
+      "required_slots": [
+        "deliverable_id",
+        "work_order_id",
+        "objective_id",
+        "business_context_ref",
+        "owner",
+        "contributors",
+        "receiver",
+        "subject",
+        "scope",
+        "exclusions",
+        "time_window",
+        "timezone",
+        "due",
+        "input_artifacts",
+        "evidence_refs",
+        "result_metrics",
+        "process_metrics",
+        "guardrails",
+        "budget",
+        "permissions",
+        "risk",
+        "approvals",
+        "handoff",
+        "outcome_status",
+        "user_task",
+        "topics_queries",
+        "content_stage",
+        "angle",
+        "outline",
+        "fact_pack",
+        "body_copy",
+        "cta",
+        "landing_page",
+        "editorial_calendar",
+        "reuse_update_plan",
+        "outcome_event"
+      ],
+      "professional_fields": [
+        {
+          "field_id": "user_task",
+          "label": "用户任务"
+        },
+        {
+          "field_id": "topics_queries",
+          "label": "主题与查询"
+        },
+        {
+          "field_id": "content_stage",
+          "label": "内容阶段"
+        },
+        {
+          "field_id": "angle",
+          "label": "内容角度"
+        },
+        {
+          "field_id": "outline",
+          "label": "大纲"
+        },
+        {
+          "field_id": "fact_pack",
+          "label": "事实包"
+        },
+        {
+          "field_id": "body_copy",
+          "label": "正文"
+        },
+        {
+          "field_id": "cta",
+          "label": "行动引导"
+        },
+        {
+          "field_id": "landing_page",
+          "label": "承接页"
+        },
+        {
+          "field_id": "editorial_calendar",
+          "label": "编辑日历"
+        },
+        {
+          "field_id": "reuse_update_plan",
+          "label": "复用与更新计划"
+        },
+        {
+          "field_id": "outcome_event",
+          "label": "结果事件"
+        }
+      ],
+      "qa": [
+        "内容服务明确任务而非仅曝光；事实 / 链接 / 数字一致；有复审或下线日期。",
+        "事实、产品 / 客户 / 财务数字与 evidence_refs 中的来源一致；未知项不得编造。",
+        "外部动作必须另行生成 Action Request；提交、验收、签收和业务结果观察不得混用。"
+      ]
+    },
+    {
+      "template_id": "T06",
+      "version": "1.0.0",
+      "name": "创意生产 Brief",
+      "roles": [
+        "10",
+        "11"
+      ],
+      "required_slots": [
+        "deliverable_id",
+        "work_order_id",
+        "objective_id",
+        "business_context_ref",
+        "owner",
+        "contributors",
+        "receiver",
+        "subject",
+        "scope",
+        "exclusions",
+        "time_window",
+        "timezone",
+        "due",
+        "input_artifacts",
+        "evidence_refs",
+        "result_metrics",
+        "process_metrics",
+        "guardrails",
+        "budget",
+        "permissions",
+        "risk",
+        "approvals",
+        "handoff",
+        "outcome_status",
+        "communication_task",
+        "single_message",
+        "concept",
+        "script_storyboard",
+        "key_frames",
+        "master_channel_specs",
+        "brand_components",
+        "asset_rights",
+        "alt_subtitles",
+        "variants",
+        "production_cost"
+      ],
+      "professional_fields": [
+        {
+          "field_id": "communication_task",
+          "label": "沟通任务"
+        },
+        {
+          "field_id": "single_message",
+          "label": "单句信息"
+        },
+        {
+          "field_id": "concept",
+          "label": "创意概念"
+        },
+        {
+          "field_id": "script_storyboard",
+          "label": "脚本与分镜"
+        },
+        {
+          "field_id": "key_frames",
+          "label": "关键帧"
+        },
+        {
+          "field_id": "master_channel_specs",
+          "label": "母版与渠道规格"
+        },
+        {
+          "field_id": "brand_components",
+          "label": "品牌组件"
+        },
+        {
+          "field_id": "asset_rights",
+          "label": "素材来源与授权"
+        },
+        {
+          "field_id": "alt_subtitles",
+          "label": "Alt 文本与字幕"
+        },
+        {
+          "field_id": "variants",
+          "label": "变体"
+        },
+        {
+          "field_id": "production_cost",
+          "label": "制作成本"
+        }
+      ],
+      "qa": [
+        "源文件可打开；权利范围 / 期限明确；渠道规格、字幕、可访问性和事实通过 QA。",
+        "事实、产品 / 客户 / 财务数字与 evidence_refs 中的来源一致；未知项不得编造。",
+        "外部动作必须另行生成 Action Request；提交、验收、签收和业务结果观察不得混用。"
+      ]
+    },
+    {
+      "template_id": "T07",
+      "version": "1.0.0",
+      "name": "社媒与社区运营方案",
+      "roles": [
+        "12",
+        "15"
+      ],
+      "required_slots": [
+        "deliverable_id",
+        "work_order_id",
+        "objective_id",
+        "business_context_ref",
+        "owner",
+        "contributors",
+        "receiver",
+        "subject",
+        "scope",
+        "exclusions",
+        "time_window",
+        "timezone",
+        "due",
+        "input_artifacts",
+        "evidence_refs",
+        "result_metrics",
+        "process_metrics",
+        "guardrails",
+        "budget",
+        "permissions",
+        "risk",
+        "approvals",
+        "handoff",
+        "outcome_status",
+        "platform_community_purpose",
+        "account_authorization",
+        "audience_behavior",
+        "content_pillars",
+        "publishing_frequency",
+        "publishing_calendar",
+        "interaction_moderation_sop",
+        "escalation_path",
+        "contributor_incentives",
+        "measurement_plan",
+        "platform_red_lines"
+      ],
+      "professional_fields": [
+        {
+          "field_id": "platform_community_purpose",
+          "label": "平台 / 社区目的"
+        },
+        {
+          "field_id": "account_authorization",
+          "label": "账号授权"
+        },
+        {
+          "field_id": "audience_behavior",
+          "label": "受众行为"
+        },
+        {
+          "field_id": "content_pillars",
+          "label": "栏目"
+        },
+        {
+          "field_id": "publishing_frequency",
+          "label": "发布频率"
+        },
+        {
+          "field_id": "publishing_calendar",
+          "label": "发布日历"
+        },
+        {
+          "field_id": "interaction_moderation_sop",
+          "label": "评论 / 私信 / 主持 SOP"
+        },
+        {
+          "field_id": "escalation_path",
+          "label": "升级路径"
+        },
+        {
+          "field_id": "contributor_incentives",
+          "label": "贡献者激励"
+        },
+        {
+          "field_id": "measurement_plan",
+          "label": "测量计划"
+        },
+        {
+          "field_id": "platform_red_lines",
+          "label": "平台红线"
+        }
+      ],
+      "qa": [
+        "平台原生适配；有发布后的互动 Owner；社区健康与业务结果分开；不以粉丝数代替结果。",
+        "事实、产品 / 客户 / 财务数字与 evidence_refs 中的来源一致；未知项不得编造。",
+        "外部动作必须另行生成 Action Request；提交、验收、签收和业务结果观察不得混用。"
+      ]
+    },
+    {
+      "template_id": "T08",
+      "version": "1.0.0",
+      "name": "达人合作方案",
+      "roles": [
+        "13"
+      ],
+      "required_slots": [
+        "deliverable_id",
+        "work_order_id",
+        "objective_id",
+        "business_context_ref",
+        "owner",
+        "contributors",
+        "receiver",
+        "subject",
+        "scope",
+        "exclusions",
+        "time_window",
+        "timezone",
+        "due",
+        "input_artifacts",
+        "evidence_refs",
+        "result_metrics",
+        "process_metrics",
+        "guardrails",
+        "budget",
+        "permissions",
+        "risk",
+        "approvals",
+        "handoff",
+        "outcome_status",
+        "collaboration_objective",
+        "candidate_due_diligence",
+        "audience_evidence",
+        "brand_safety_review",
+        "creative_brief",
+        "delivery_revision_terms",
+        "commercial_disclosure",
+        "pricing_commission",
+        "asset_portrait_rights",
+        "exclusivity",
+        "tracking_plan",
+        "anti_fraud_rules",
+        "mature_settlement"
+      ],
+      "professional_fields": [
+        {
+          "field_id": "collaboration_objective",
+          "label": "合作目标"
+        },
+        {
+          "field_id": "candidate_due_diligence",
+          "label": "候选与尽调"
+        },
+        {
+          "field_id": "audience_evidence",
+          "label": "受众证据"
+        },
+        {
+          "field_id": "brand_safety_review",
+          "label": "品牌安全"
+        },
+        {
+          "field_id": "creative_brief",
+          "label": "创意 brief"
+        },
+        {
+          "field_id": "delivery_revision_terms",
+          "label": "交付与修改"
+        },
+        {
+          "field_id": "commercial_disclosure",
+          "label": "商业披露"
+        },
+        {
+          "field_id": "pricing_commission",
+          "label": "报价与佣金"
+        },
+        {
+          "field_id": "asset_portrait_rights",
+          "label": "素材与肖像权"
+        },
+        {
+          "field_id": "exclusivity",
+          "label": "排他"
+        },
+        {
+          "field_id": "tracking_plan",
+          "label": "追踪"
+        },
+        {
+          "field_id": "anti_fraud_rules",
+          "label": "反作弊"
+        },
+        {
+          "field_id": "mature_settlement",
+          "label": "成熟结算"
+        }
+      ],
+      "qa": [
+        "合同与素材版本一致；商业披露清晰；异常流量冻结结算；授权到期可下线。",
+        "事实、产品 / 客户 / 财务数字与 evidence_refs 中的来源一致；未知项不得编造。",
+        "外部动作必须另行生成 Action Request；提交、验收、签收和业务结果观察不得混用。"
+      ]
+    },
+    {
+      "template_id": "T09",
+      "version": "1.0.0",
+      "name": "搜索与自然发现方案",
+      "roles": [
+        "14"
+      ],
+      "required_slots": [
+        "deliverable_id",
+        "work_order_id",
+        "objective_id",
+        "business_context_ref",
+        "owner",
+        "contributors",
+        "receiver",
+        "subject",
+        "scope",
+        "exclusions",
+        "time_window",
+        "timezone",
+        "due",
+        "input_artifacts",
+        "evidence_refs",
+        "result_metrics",
+        "process_metrics",
+        "guardrails",
+        "budget",
+        "permissions",
+        "risk",
+        "approvals",
+        "handoff",
+        "outcome_status",
+        "search_surfaces",
+        "query_question_set",
+        "language_region",
+        "search_intent",
+        "current_pages_app_version",
+        "technical_audit",
+        "question_page_map",
+        "content_metadata_schema",
+        "citable_facts",
+        "index_citation_sampling",
+        "conversion_plan"
+      ],
+      "professional_fields": [
+        {
+          "field_id": "search_surfaces",
+          "label": "搜索表面"
+        },
+        {
+          "field_id": "query_question_set",
+          "label": "查询与问题集"
+        },
+        {
+          "field_id": "language_region",
+          "label": "语言与地区"
+        },
+        {
+          "field_id": "search_intent",
+          "label": "搜索意图"
+        },
+        {
+          "field_id": "current_pages_app_version",
+          "label": "现页面与 App 版本"
+        },
+        {
+          "field_id": "technical_audit",
+          "label": "技术审计"
+        },
+        {
+          "field_id": "question_page_map",
+          "label": "问题—页面映射"
+        },
+        {
+          "field_id": "content_metadata_schema",
+          "label": "内容 / 元数据 / 结构化数据"
+        },
+        {
+          "field_id": "citable_facts",
+          "label": "事实可引用性"
+        },
+        {
+          "field_id": "index_citation_sampling",
+          "label": "索引与引用抽样"
+        },
+        {
+          "field_id": "conversion_plan",
+          "label": "转化计划"
+        }
+      ],
+      "qa": [
+        "品牌 / 非品牌分开；AI 引用只报告样本；禁止海量低质页面；技术变更有验证和回滚。",
+        "事实、产品 / 客户 / 财务数字与 evidence_refs 中的来源一致；未知项不得编造。",
+        "外部动作必须另行生成 Action Request；提交、验收、签收和业务结果观察不得混用。"
+      ]
+    },
+    {
+      "template_id": "T10",
+      "version": "1.0.0",
+      "name": "增长实验与增长回路方案",
+      "roles": [
+        "16",
+        "22"
+      ],
+      "required_slots": [
+        "deliverable_id",
+        "work_order_id",
+        "objective_id",
+        "business_context_ref",
+        "owner",
+        "contributors",
+        "receiver",
+        "subject",
+        "scope",
+        "exclusions",
+        "time_window",
+        "timezone",
+        "due",
+        "input_artifacts",
+        "evidence_refs",
+        "result_metrics",
+        "process_metrics",
+        "guardrails",
+        "budget",
+        "permissions",
+        "risk",
+        "approvals",
+        "handoff",
+        "outcome_status",
+        "bottleneck",
+        "segmentation",
+        "growth_loop",
+        "mechanism_hypothesis",
+        "user_action",
+        "incentives_exclusions",
+        "value_event",
+        "anti_fraud",
+        "experiment_portfolio",
+        "cost_model",
+        "primary_guardrail_metrics",
+        "scale_stop_rules"
+      ],
+      "professional_fields": [
+        {
+          "field_id": "bottleneck",
+          "label": "业务瓶颈"
+        },
+        {
+          "field_id": "segmentation",
+          "label": "分群"
+        },
+        {
+          "field_id": "growth_loop",
+          "label": "增长回路"
+        },
+        {
+          "field_id": "mechanism_hypothesis",
+          "label": "机制假设"
+        },
+        {
+          "field_id": "user_action",
+          "label": "用户动作"
+        },
+        {
+          "field_id": "incentives_exclusions",
+          "label": "激励与排除"
+        },
+        {
+          "field_id": "value_event",
+          "label": "价值事件"
+        },
+        {
+          "field_id": "anti_fraud",
+          "label": "反作弊"
+        },
+        {
+          "field_id": "experiment_portfolio",
+          "label": "实验组合"
+        },
+        {
+          "field_id": "cost_model",
+          "label": "成本模型"
+        },
+        {
+          "field_id": "primary_guardrail_metrics",
+          "label": "主指标与护栏"
+        },
+        {
+          "field_id": "scale_stop_rules",
+          "label": "扩展与停止规则"
+        }
+      ],
+      "qa": [
+        "同期变化不冒充增量；激励后看留存 / 贡献；每个实验只回答一个主要问题。",
+        "事实、产品 / 客户 / 财务数字与 evidence_refs 中的来源一致；未知项不得编造。",
+        "外部动作必须另行生成 Action Request；提交、验收、签收和业务结果观察不得混用。"
+      ]
+    },
+    {
+      "template_id": "T11",
+      "version": "1.0.0",
+      "name": "付费媒体方案",
+      "roles": [
+        "17",
+        "22"
+      ],
+      "required_slots": [
+        "deliverable_id",
+        "work_order_id",
+        "objective_id",
+        "business_context_ref",
+        "owner",
+        "contributors",
+        "receiver",
+        "subject",
+        "scope",
+        "exclusions",
+        "time_window",
+        "timezone",
+        "due",
+        "input_artifacts",
+        "evidence_refs",
+        "result_metrics",
+        "process_metrics",
+        "guardrails",
+        "budget",
+        "permissions",
+        "risk",
+        "approvals",
+        "handoff",
+        "outcome_status",
+        "target_event",
+        "platform_placements",
+        "account_structure",
+        "audiences_exclusions",
+        "creative_assets",
+        "budget_cost_caps",
+        "bidding_strategy",
+        "frequency_caps",
+        "landing_page",
+        "tracking_plan",
+        "attribution_incrementality",
+        "budget_change_rules",
+        "anomaly_stop_rules"
+      ],
+      "professional_fields": [
+        {
+          "field_id": "target_event",
+          "label": "目标事件"
+        },
+        {
+          "field_id": "platform_placements",
+          "label": "平台与版位"
+        },
+        {
+          "field_id": "account_structure",
+          "label": "账户结构"
+        },
+        {
+          "field_id": "audiences_exclusions",
+          "label": "受众与排除"
+        },
+        {
+          "field_id": "creative_assets",
+          "label": "素材"
+        },
+        {
+          "field_id": "budget_cost_caps",
+          "label": "预算与成本范围"
+        },
+        {
+          "field_id": "bidding_strategy",
+          "label": "出价"
+        },
+        {
+          "field_id": "frequency_caps",
+          "label": "频次"
+        },
+        {
+          "field_id": "landing_page",
+          "label": "落地页"
+        },
+        {
+          "field_id": "tracking_plan",
+          "label": "追踪"
+        },
+        {
+          "field_id": "attribution_incrementality",
+          "label": "归因与增量方法"
+        },
+        {
+          "field_id": "budget_change_rules",
+          "label": "调预算规则"
+        },
+        {
+          "field_id": "anomaly_stop_rules",
+          "label": "异常停投"
+        }
+      ],
+      "qa": [
+        "实际 / 批准预算对照；平台转化不直接作财务结果；超支和异常默认停，不自动加钱。",
+        "事实、产品 / 客户 / 财务数字与 evidence_refs 中的来源一致；未知项不得编造。",
+        "外部动作必须另行生成 Action Request；提交、验收、签收和业务结果观察不得混用。"
+      ]
+    },
+    {
+      "template_id": "T12",
+      "version": "1.0.0",
+      "name": "Demand Gen / ABM 方案",
+      "roles": [
+        "18"
+      ],
+      "required_slots": [
+        "deliverable_id",
+        "work_order_id",
+        "objective_id",
+        "business_context_ref",
+        "owner",
+        "contributors",
+        "receiver",
+        "subject",
+        "scope",
+        "exclusions",
+        "time_window",
+        "timezone",
+        "due",
+        "input_artifacts",
+        "evidence_refs",
+        "result_metrics",
+        "process_metrics",
+        "guardrails",
+        "budget",
+        "permissions",
+        "risk",
+        "approvals",
+        "handoff",
+        "outcome_status",
+        "account_tiers",
+        "icp_source",
+        "buying_group",
+        "triggers",
+        "account_stage",
+        "offer",
+        "content_channel_orchestration",
+        "scoring_exclusions",
+        "mql_sal_criteria",
+        "routing_rules",
+        "sales_sla",
+        "sourced_influenced_definitions"
+      ],
+      "professional_fields": [
+        {
+          "field_id": "account_tiers",
+          "label": "账户层级"
+        },
+        {
+          "field_id": "icp_source",
+          "label": "ICP 来源"
+        },
+        {
+          "field_id": "buying_group",
+          "label": "购买组"
+        },
+        {
+          "field_id": "triggers",
+          "label": "触发"
+        },
+        {
+          "field_id": "account_stage",
+          "label": "账户阶段"
+        },
+        {
+          "field_id": "offer",
+          "label": "Offer"
+        },
+        {
+          "field_id": "content_channel_orchestration",
+          "label": "内容与渠道编排"
+        },
+        {
+          "field_id": "scoring_exclusions",
+          "label": "评分与排除"
+        },
+        {
+          "field_id": "mql_sal_criteria",
+          "label": "MQL / SAL 标准"
+        },
+        {
+          "field_id": "routing_rules",
+          "label": "路由"
+        },
+        {
+          "field_id": "sales_sla",
+          "label": "销售 SLA"
+        },
+        {
+          "field_id": "sourced_influenced_definitions",
+          "label": "Sourced / influenced 口径"
+        }
+      ],
+      "qa": [
+        "销售事前接受账户和 SAL 标准；每个交接对象有触发证据；MQL 不替代 pipeline / 收入。",
+        "事实、产品 / 客户 / 财务数字与 evidence_refs 中的来源一致；未知项不得编造。",
+        "外部动作必须另行生成 Action Request；提交、验收、签收和业务结果观察不得混用。"
+      ]
+    },
+    {
+      "template_id": "T13",
+      "version": "1.0.0",
+      "name": "Campaign / Event Runbook",
+      "roles": [
+        "19"
+      ],
+      "required_slots": [
+        "deliverable_id",
+        "work_order_id",
+        "objective_id",
+        "business_context_ref",
+        "owner",
+        "contributors",
+        "receiver",
+        "subject",
+        "scope",
+        "exclusions",
+        "time_window",
+        "timezone",
+        "due",
+        "input_artifacts",
+        "evidence_refs",
+        "result_metrics",
+        "process_metrics",
+        "guardrails",
+        "budget",
+        "permissions",
+        "risk",
+        "approvals",
+        "handoff",
+        "outcome_status",
+        "purpose",
+        "audience",
+        "theme",
+        "agenda",
+        "speakers_vendors",
+        "registration_consent",
+        "reminder_plan",
+        "minute_by_minute_runbook",
+        "onsite_livestream_plan",
+        "equipment_safety",
+        "interaction_records",
+        "post_event_routing",
+        "expense_outcome_reconciliation"
+      ],
+      "professional_fields": [
+        {
+          "field_id": "purpose",
+          "label": "活动目的"
+        },
+        {
+          "field_id": "audience",
+          "label": "受众"
+        },
+        {
+          "field_id": "theme",
+          "label": "主题"
+        },
+        {
+          "field_id": "agenda",
+          "label": "议程"
+        },
+        {
+          "field_id": "speakers_vendors",
+          "label": "嘉宾与供应商"
+        },
+        {
+          "field_id": "registration_consent",
+          "label": "报名与同意"
+        },
+        {
+          "field_id": "reminder_plan",
+          "label": "提醒"
+        },
+        {
+          "field_id": "minute_by_minute_runbook",
+          "label": "分钟表"
+        },
+        {
+          "field_id": "onsite_livestream_plan",
+          "label": "现场与直播"
+        },
+        {
+          "field_id": "equipment_safety",
+          "label": "设备与安全"
+        },
+        {
+          "field_id": "interaction_records",
+          "label": "互动记录"
+        },
+        {
+          "field_id": "post_event_routing",
+          "label": "会后分层路由"
+        },
+        {
+          "field_id": "expense_outcome_reconciliation",
+          "label": "费用与结果对账"
+        }
+      ],
+      "qa": [
+        "彩排和应急通过；报名不冒充结果；会后 SLA、同意和费用凭证完整。",
+        "事实、产品 / 客户 / 财务数字与 evidence_refs 中的来源一致；未知项不得编造。",
+        "外部动作必须另行生成 Action Request；提交、验收、签收和业务结果观察不得混用。"
+      ]
+    },
+    {
+      "template_id": "T14",
+      "version": "1.0.0",
+      "name": "渠道 / 联盟 / 区域 / BD 合作方案",
+      "roles": [
+        "20",
+        "21",
+        "23",
+        "32"
+      ],
+      "required_slots": [
+        "deliverable_id",
+        "work_order_id",
+        "objective_id",
+        "business_context_ref",
+        "owner",
+        "contributors",
+        "receiver",
+        "subject",
+        "scope",
+        "exclusions",
+        "time_window",
+        "timezone",
+        "due",
+        "input_artifacts",
+        "evidence_refs",
+        "result_metrics",
+        "process_metrics",
+        "guardrails",
+        "budget",
+        "permissions",
+        "risk",
+        "approvals",
+        "handoff",
+        "outcome_status",
+        "partnership_type",
+        "partner_region_rationale",
+        "shared_value",
+        "audience_inventory",
+        "responsibilities",
+        "commercial_terms",
+        "pricing_revenue_share",
+        "territory_exclusivity",
+        "joint_assets",
+        "tracking_deal_registration",
+        "data_roles",
+        "anti_fraud",
+        "settlement_exit"
+      ],
+      "professional_fields": [
+        {
+          "field_id": "partnership_type",
+          "label": "合作类型"
+        },
+        {
+          "field_id": "partner_region_rationale",
+          "label": "伙伴 / 区域依据"
+        },
+        {
+          "field_id": "shared_value",
+          "label": "共同价值"
+        },
+        {
+          "field_id": "audience_inventory",
+          "label": "受众与库存"
+        },
+        {
+          "field_id": "responsibilities",
+          "label": "职责"
+        },
+        {
+          "field_id": "commercial_terms",
+          "label": "商业条款"
+        },
+        {
+          "field_id": "pricing_revenue_share",
+          "label": "价格与分成"
+        },
+        {
+          "field_id": "territory_exclusivity",
+          "label": "区域与排他"
+        },
+        {
+          "field_id": "joint_assets",
+          "label": "联合资产"
+        },
+        {
+          "field_id": "tracking_deal_registration",
+          "label": "追踪与 deal registration"
+        },
+        {
+          "field_id": "data_roles",
+          "label": "数据角色"
+        },
+        {
+          "field_id": "anti_fraud",
+          "label": "反作弊"
+        },
+        {
+          "field_id": "settlement_exit",
+          "label": "结算与退出"
+        }
+      ],
+      "qa": [
+        "义务、收入归属与冲突规则明确；签约不等于有效；跨境 / 数据 / 税务按需审批。",
+        "事实、产品 / 客户 / 财务数字与 evidence_refs 中的来源一致；未知项不得编造。",
+        "外部动作必须另行生成 Action Request；提交、验收、签收和业务结果观察不得混用。"
+      ]
+    },
+    {
+      "template_id": "T15",
+      "version": "1.0.0",
+      "name": "激活与 CRO 方案",
+      "roles": [
+        "24",
+        "25"
+      ],
+      "required_slots": [
+        "deliverable_id",
+        "work_order_id",
+        "objective_id",
+        "business_context_ref",
+        "owner",
+        "contributors",
+        "receiver",
+        "subject",
+        "scope",
+        "exclusions",
+        "time_window",
+        "timezone",
+        "due",
+        "input_artifacts",
+        "evidence_refs",
+        "result_metrics",
+        "process_metrics",
+        "guardrails",
+        "budget",
+        "permissions",
+        "risk",
+        "approvals",
+        "handoff",
+        "outcome_status",
+        "qualified_subject",
+        "value_event",
+        "counter_event",
+        "current_journey",
+        "drop_off_points",
+        "mechanism_hypothesis",
+        "intervention_variants",
+        "instrumentation",
+        "randomization_unit",
+        "sample_window",
+        "qa_plan",
+        "guardrail_checks",
+        "rollout_rollback"
+      ],
+      "professional_fields": [
+        {
+          "field_id": "qualified_subject",
+          "label": "合格主体"
+        },
+        {
+          "field_id": "value_event",
+          "label": "价值事件"
+        },
+        {
+          "field_id": "counter_event",
+          "label": "反事件"
+        },
+        {
+          "field_id": "current_journey",
+          "label": "当前旅程"
+        },
+        {
+          "field_id": "drop_off_points",
+          "label": "断点"
+        },
+        {
+          "field_id": "mechanism_hypothesis",
+          "label": "机制假设"
+        },
+        {
+          "field_id": "intervention_variants",
+          "label": "干预与变体"
+        },
+        {
+          "field_id": "instrumentation",
+          "label": "埋点"
+        },
+        {
+          "field_id": "randomization_unit",
+          "label": "随机单元"
+        },
+        {
+          "field_id": "sample_window",
+          "label": "样本与窗口"
+        },
+        {
+          "field_id": "qa_plan",
+          "label": "QA"
+        },
+        {
+          "field_id": "guardrail_checks",
+          "label": "护栏检查"
+        },
+        {
+          "field_id": "rollout_rollback",
+          "label": "推广与回滚"
+        }
+      ],
+      "qa": [
+        "点击引导不等于激活；实验有预注册与 SRM 检查；低流量不伪造显著结论。",
+        "事实、产品 / 客户 / 财务数字与 evidence_refs 中的来源一致；未知项不得编造。",
+        "外部动作必须另行生成 Action Request；提交、验收、签收和业务结果观察不得混用。"
+      ]
+    },
+    {
+      "template_id": "T16",
+      "version": "1.0.0",
+      "name": "销售开发 / 机会计划",
+      "roles": [
+        "26",
+        "27"
+      ],
+      "required_slots": [
+        "deliverable_id",
+        "work_order_id",
+        "objective_id",
+        "business_context_ref",
+        "owner",
+        "contributors",
+        "receiver",
+        "subject",
+        "scope",
+        "exclusions",
+        "time_window",
+        "timezone",
+        "due",
+        "input_artifacts",
+        "evidence_refs",
+        "result_metrics",
+        "process_metrics",
+        "guardrails",
+        "budget",
+        "permissions",
+        "risk",
+        "approvals",
+        "handoff",
+        "outcome_status",
+        "account_research",
+        "contact_roles",
+        "trigger",
+        "current_solution",
+        "problem_impact",
+        "qualification",
+        "buying_group",
+        "decision_process",
+        "objections",
+        "mutual_action_plan",
+        "pricing_discount",
+        "next_stage_evidence",
+        "cs_handoff"
+      ],
+      "professional_fields": [
+        {
+          "field_id": "account_research",
+          "label": "账户研究"
+        },
+        {
+          "field_id": "contact_roles",
+          "label": "联系人角色"
+        },
+        {
+          "field_id": "trigger",
+          "label": "触发"
+        },
+        {
+          "field_id": "current_solution",
+          "label": "当前方案"
+        },
+        {
+          "field_id": "problem_impact",
+          "label": "问题与影响"
+        },
+        {
+          "field_id": "qualification",
+          "label": "资格"
+        },
+        {
+          "field_id": "buying_group",
+          "label": "购买组"
+        },
+        {
+          "field_id": "decision_process",
+          "label": "决策流程"
+        },
+        {
+          "field_id": "objections",
+          "label": "异议"
+        },
+        {
+          "field_id": "mutual_action_plan",
+          "label": "Mutual Action Plan"
+        },
+        {
+          "field_id": "pricing_discount",
+          "label": "报价与折扣"
+        },
+        {
+          "field_id": "next_stage_evidence",
+          "label": "下一阶段证据"
+        },
+        {
+          "field_id": "cs_handoff",
+          "label": "CS 交接"
+        }
+      ],
+      "qa": [
+        "来源和原话可核；会议不等于机会；合同 / bookings / 回款分开；不可交付承诺被阻断。",
+        "事实、产品 / 客户 / 财务数字与 evidence_refs 中的来源一致；未知项不得编造。",
+        "外部动作必须另行生成 Action Request；提交、验收、签收和业务结果观察不得混用。"
+      ]
+    },
+    {
+      "template_id": "T17",
+      "version": "1.0.0",
+      "name": "售前方案与 POC 章程",
+      "roles": [
+        "28"
+      ],
+      "required_slots": [
+        "deliverable_id",
+        "work_order_id",
+        "objective_id",
+        "business_context_ref",
+        "owner",
+        "contributors",
+        "receiver",
+        "subject",
+        "scope",
+        "exclusions",
+        "time_window",
+        "timezone",
+        "due",
+        "input_artifacts",
+        "evidence_refs",
+        "result_metrics",
+        "process_metrics",
+        "guardrails",
+        "budget",
+        "permissions",
+        "risk",
+        "approvals",
+        "handoff",
+        "outcome_status",
+        "business_technical_discovery",
+        "current_environment",
+        "use_cases",
+        "solution_architecture",
+        "scope_non_goals",
+        "demo_plan",
+        "test_data",
+        "success_criteria",
+        "responsibility_matrix",
+        "timeline_cost",
+        "security_privacy",
+        "limitations",
+        "acceptance_handoff"
+      ],
+      "professional_fields": [
+        {
+          "field_id": "business_technical_discovery",
+          "label": "业务与技术发现"
+        },
+        {
+          "field_id": "current_environment",
+          "label": "现环境"
+        },
+        {
+          "field_id": "use_cases",
+          "label": "用例"
+        },
+        {
+          "field_id": "solution_architecture",
+          "label": "架构"
+        },
+        {
+          "field_id": "scope_non_goals",
+          "label": "范围与非目标"
+        },
+        {
+          "field_id": "demo_plan",
+          "label": "Demo"
+        },
+        {
+          "field_id": "test_data",
+          "label": "测试数据"
+        },
+        {
+          "field_id": "success_criteria",
+          "label": "成功标准"
+        },
+        {
+          "field_id": "responsibility_matrix",
+          "label": "双方责任"
+        },
+        {
+          "field_id": "timeline_cost",
+          "label": "时间与成本"
+        },
+        {
+          "field_id": "security_privacy",
+          "label": "安全与隐私"
+        },
+        {
+          "field_id": "limitations",
+          "label": "限制"
+        },
+        {
+          "field_id": "acceptance_handoff",
+          "label": "逐项验收与移交"
+        }
+      ],
+      "qa": [
+        "客户与内部共同确认成功标准；POC 无范围不启动；每项结果有测试证据，不私许定制。",
+        "事实、产品 / 客户 / 财务数字与 evidence_refs 中的来源一致；未知项不得编造。",
+        "外部动作必须另行生成 Action Request；提交、验收、签收和业务结果观察不得混用。"
+      ]
+    },
+    {
+      "template_id": "T18",
+      "version": "1.0.0",
+      "name": "电商 / 商品促销方案",
+      "roles": [
+        "29"
+      ],
+      "required_slots": [
+        "deliverable_id",
+        "work_order_id",
+        "objective_id",
+        "business_context_ref",
+        "owner",
+        "contributors",
+        "receiver",
+        "subject",
+        "scope",
+        "exclusions",
+        "time_window",
+        "timezone",
+        "due",
+        "input_artifacts",
+        "evidence_refs",
+        "result_metrics",
+        "process_metrics",
+        "guardrails",
+        "budget",
+        "permissions",
+        "risk",
+        "approvals",
+        "handoff",
+        "outcome_status",
+        "sku_category",
+        "merchandise_plan",
+        "product_pages",
+        "price_cost_inventory",
+        "promotion_window_stacking",
+        "traffic_plan",
+        "payment_plan",
+        "fulfillment_plan",
+        "refund_policy",
+        "order_definitions",
+        "contribution_profit",
+        "stockout_stop_rules"
+      ],
+      "professional_fields": [
+        {
+          "field_id": "sku_category",
+          "label": "SKU 与类目"
+        },
+        {
+          "field_id": "merchandise_plan",
+          "label": "货盘"
+        },
+        {
+          "field_id": "product_pages",
+          "label": "商品页"
+        },
+        {
+          "field_id": "price_cost_inventory",
+          "label": "价格 / 成本 / 库存"
+        },
+        {
+          "field_id": "promotion_window_stacking",
+          "label": "促销窗与叠加"
+        },
+        {
+          "field_id": "traffic_plan",
+          "label": "流量"
+        },
+        {
+          "field_id": "payment_plan",
+          "label": "支付"
+        },
+        {
+          "field_id": "fulfillment_plan",
+          "label": "履约"
+        },
+        {
+          "field_id": "refund_policy",
+          "label": "退款"
+        },
+        {
+          "field_id": "order_definitions",
+          "label": "订单口径"
+        },
+        {
+          "field_id": "contribution_profit",
+          "label": "贡献利润"
+        },
+        {
+          "field_id": "stockout_stop_rules",
+          "label": "异常停售"
+        }
+      ],
+      "qa": [
+        "GMV / 支付 / 净收入分列；测试订单通过；库存与优惠一致；毛利 / 退款护栏完整。",
+        "事实、产品 / 客户 / 财务数字与 evidence_refs 中的来源一致；未知项不得编造。",
+        "外部动作必须另行生成 Action Request；提交、验收、签收和业务结果观察不得混用。"
+      ]
+    },
+    {
+      "template_id": "T19",
+      "version": "1.0.0",
+      "name": "直播作战单",
+      "roles": [
+        "30"
+      ],
+      "required_slots": [
+        "deliverable_id",
+        "work_order_id",
+        "objective_id",
+        "business_context_ref",
+        "owner",
+        "contributors",
+        "receiver",
+        "subject",
+        "scope",
+        "exclusions",
+        "time_window",
+        "timezone",
+        "due",
+        "input_artifacts",
+        "evidence_refs",
+        "result_metrics",
+        "process_metrics",
+        "guardrails",
+        "budget",
+        "permissions",
+        "risk",
+        "approvals",
+        "handoff",
+        "outcome_status",
+        "session_objective",
+        "host_guests",
+        "minute_runbook",
+        "sku_sequence",
+        "price_inventory",
+        "script_evidence_prohibited_terms",
+        "offers",
+        "short_video_paid_traffic",
+        "comment_escalation",
+        "emergency_switch_stop",
+        "after_sales_mature_settlement"
+      ],
+      "professional_fields": [
+        {
+          "field_id": "session_objective",
+          "label": "场次目标"
+        },
+        {
+          "field_id": "host_guests",
+          "label": "主播与嘉宾"
+        },
+        {
+          "field_id": "minute_runbook",
+          "label": "分钟表"
+        },
+        {
+          "field_id": "sku_sequence",
+          "label": "SKU 顺序"
+        },
+        {
+          "field_id": "price_inventory",
+          "label": "价格与库存"
+        },
+        {
+          "field_id": "script_evidence_prohibited_terms",
+          "label": "脚本 / 证据 / 禁用词"
+        },
+        {
+          "field_id": "offers",
+          "label": "优惠"
+        },
+        {
+          "field_id": "short_video_paid_traffic",
+          "label": "短视频与投流"
+        },
+        {
+          "field_id": "comment_escalation",
+          "label": "评论升级"
+        },
+        {
+          "field_id": "emergency_switch_stop",
+          "label": "应急切品与停播"
+        },
+        {
+          "field_id": "after_sales_mature_settlement",
+          "label": "售后与成熟结算"
+        }
+      ],
+      "qa": [
+        "彩排通过；实时价格和库存一致；现场导演可停播；按退款成熟净额复盘。",
+        "事实、产品 / 客户 / 财务数字与 evidence_refs 中的来源一致；未知项不得编造。",
+        "外部动作必须另行生成 Action Request；提交、验收、签收和业务结果观察不得混用。"
+      ]
+    },
+    {
+      "template_id": "T20",
+      "version": "1.0.0",
+      "name": "商家 / 门店运营方案",
+      "roles": [
+        "31",
+        "33"
+      ],
+      "required_slots": [
+        "deliverable_id",
+        "work_order_id",
+        "objective_id",
+        "business_context_ref",
+        "owner",
+        "contributors",
+        "receiver",
+        "subject",
+        "scope",
+        "exclusions",
+        "time_window",
+        "timezone",
+        "due",
+        "input_artifacts",
+        "evidence_refs",
+        "result_metrics",
+        "process_metrics",
+        "guardrails",
+        "budget",
+        "permissions",
+        "risk",
+        "approvals",
+        "handoff",
+        "outcome_status",
+        "merchant_store_subject",
+        "qualifications_site",
+        "category_trade_area",
+        "supply_inventory",
+        "service_sla",
+        "first_order_fulfillment",
+        "activity_route_staffing",
+        "training_plan",
+        "settlement_plan",
+        "inspection_quality",
+        "rectification_exit",
+        "safety_plan"
+      ],
+      "professional_fields": [
+        {
+          "field_id": "merchant_store_subject",
+          "label": "商家与门店主体"
+        },
+        {
+          "field_id": "qualifications_site",
+          "label": "资质与现场"
+        },
+        {
+          "field_id": "category_trade_area",
+          "label": "品类与商圈"
+        },
+        {
+          "field_id": "supply_inventory",
+          "label": "供给与库存"
+        },
+        {
+          "field_id": "service_sla",
+          "label": "SLA"
+        },
+        {
+          "field_id": "first_order_fulfillment",
+          "label": "首单与首履约"
+        },
+        {
+          "field_id": "activity_route_staffing",
+          "label": "活动 / 动线 / 人员"
+        },
+        {
+          "field_id": "training_plan",
+          "label": "培训"
+        },
+        {
+          "field_id": "settlement_plan",
+          "label": "结算"
+        },
+        {
+          "field_id": "inspection_quality",
+          "label": "巡店与质量"
+        },
+        {
+          "field_id": "rectification_exit",
+          "label": "整改与退出"
+        },
+        {
+          "field_id": "safety_plan",
+          "label": "安全"
+        }
+      ],
+      "qa": [
+        "签约不等于有效供给；资质 / 质量未过不上线；客流估算标近似；安全责任清楚。",
+        "事实、产品 / 客户 / 财务数字与 evidence_refs 中的来源一致；未知项不得编造。",
+        "外部动作必须另行生成 Action Request；提交、验收、签收和业务结果观察不得混用。"
+      ]
+    },
+    {
+      "template_id": "T21",
+      "version": "1.0.0",
+      "name": "用户 / Lifecycle / 私域 / 会员方案",
+      "roles": [
+        "34",
+        "35",
+        "36",
+        "37"
+      ],
+      "required_slots": [
+        "deliverable_id",
+        "work_order_id",
+        "objective_id",
+        "business_context_ref",
+        "owner",
+        "contributors",
+        "receiver",
+        "subject",
+        "scope",
+        "exclusions",
+        "time_window",
+        "timezone",
+        "due",
+        "input_artifacts",
+        "evidence_refs",
+        "result_metrics",
+        "process_metrics",
+        "guardrails",
+        "budget",
+        "permissions",
+        "risk",
+        "approvals",
+        "handoff",
+        "outcome_status",
+        "lifecycle_segment",
+        "subject_eligibility",
+        "consent_basis",
+        "entry_exit_rules",
+        "messages_benefits",
+        "channel_frequency_suppression",
+        "journey_branches",
+        "renewal_winback",
+        "anti_fraud",
+        "outcome_fatigue",
+        "rollback_plan"
+      ],
+      "professional_fields": [
+        {
+          "field_id": "lifecycle_segment",
+          "label": "生命周期与分群"
+        },
+        {
+          "field_id": "subject_eligibility",
+          "label": "主体资格"
+        },
+        {
+          "field_id": "consent_basis",
+          "label": "同意"
+        },
+        {
+          "field_id": "entry_exit_rules",
+          "label": "进入与退出"
+        },
+        {
+          "field_id": "messages_benefits",
+          "label": "消息与权益"
+        },
+        {
+          "field_id": "channel_frequency_suppression",
+          "label": "渠道 / 频控 / 抑制"
+        },
+        {
+          "field_id": "journey_branches",
+          "label": "旅程分支"
+        },
+        {
+          "field_id": "renewal_winback",
+          "label": "续费与召回"
+        },
+        {
+          "field_id": "anti_fraud",
+          "label": "反作弊"
+        },
+        {
+          "field_id": "outcome_fatigue",
+          "label": "结果与疲劳"
+        },
+        {
+          "field_id": "rollback_plan",
+          "label": "回滚"
+        }
+      ],
+      "qa": [
+        "同意和 DNC 优先；一次回应不等于留存；跨渠道不重复轰炸；自动扣费 / 权益变更有授权。",
+        "事实、产品 / 客户 / 财务数字与 evidence_refs 中的来源一致；未知项不得编造。",
+        "外部动作必须另行生成 Action Request；提交、验收、签收和业务结果观察不得混用。"
+      ]
+    },
+    {
+      "template_id": "T22",
+      "version": "1.0.0",
+      "name": "客户成功 / QBR / 续约方案",
+      "roles": [
+        "38"
+      ],
+      "required_slots": [
+        "deliverable_id",
+        "work_order_id",
+        "objective_id",
+        "business_context_ref",
+        "owner",
+        "contributors",
+        "receiver",
+        "subject",
+        "scope",
+        "exclusions",
+        "time_window",
+        "timezone",
+        "due",
+        "input_artifacts",
+        "evidence_refs",
+        "result_metrics",
+        "process_metrics",
+        "guardrails",
+        "budget",
+        "permissions",
+        "risk",
+        "approvals",
+        "handoff",
+        "outcome_status",
+        "contract_sales_commitments",
+        "customer_objectives",
+        "buying_group",
+        "value_events",
+        "onboarding_adoption_milestones",
+        "stakeholders",
+        "health_risks",
+        "support_plan",
+        "qbr_plan",
+        "renewal_timeline",
+        "expansion_plan",
+        "responsibility_evidence"
+      ],
+      "professional_fields": [
+        {
+          "field_id": "contract_sales_commitments",
+          "label": "合同与销售承诺"
+        },
+        {
+          "field_id": "customer_objectives",
+          "label": "客户目标"
+        },
+        {
+          "field_id": "buying_group",
+          "label": "购买组"
+        },
+        {
+          "field_id": "value_events",
+          "label": "价值事件"
+        },
+        {
+          "field_id": "onboarding_adoption_milestones",
+          "label": "启用与采用里程碑"
+        },
+        {
+          "field_id": "stakeholders",
+          "label": "利益相关人"
+        },
+        {
+          "field_id": "health_risks",
+          "label": "健康与风险"
+        },
+        {
+          "field_id": "support_plan",
+          "label": "支持"
+        },
+        {
+          "field_id": "qbr_plan",
+          "label": "QBR"
+        },
+        {
+          "field_id": "renewal_timeline",
+          "label": "续约时间线"
+        },
+        {
+          "field_id": "expansion_plan",
+          "label": "扩展"
+        },
+        {
+          "field_id": "responsibility_evidence",
+          "label": "责任与证据"
+        }
+      ],
+      "qa": [
+        "成交交接完整；健康分可解释；客户确认价值；续约 / 到账不混；风险有 Owner 和期限。",
+        "事实、产品 / 客户 / 财务数字与 evidence_refs 中的来源一致；未知项不得编造。",
+        "外部动作必须另行生成 Action Request；提交、验收、签收和业务结果观察不得混用。"
+      ]
+    },
+    {
+      "template_id": "T23",
+      "version": "1.0.0",
+      "name": "客户案例与倡导方案",
+      "roles": [
+        "07",
+        "15",
+        "39"
+      ],
+      "required_slots": [
+        "deliverable_id",
+        "work_order_id",
+        "objective_id",
+        "business_context_ref",
+        "owner",
+        "contributors",
+        "receiver",
+        "subject",
+        "scope",
+        "exclusions",
+        "time_window",
+        "timezone",
+        "due",
+        "input_artifacts",
+        "evidence_refs",
+        "result_metrics",
+        "process_metrics",
+        "guardrails",
+        "budget",
+        "permissions",
+        "risk",
+        "approvals",
+        "handoff",
+        "outcome_status",
+        "customer_scenario",
+        "customer_problem",
+        "alternative_solution",
+        "implementation",
+        "results",
+        "raw_data",
+        "quotes",
+        "limitations",
+        "anonymity_logo_number_permissions",
+        "incentive_disclosure",
+        "channel_versions",
+        "expiry_withdrawal",
+        "sales_usage_records"
+      ],
+      "professional_fields": [
+        {
+          "field_id": "customer_scenario",
+          "label": "客户场景"
+        },
+        {
+          "field_id": "customer_problem",
+          "label": "问题"
+        },
+        {
+          "field_id": "alternative_solution",
+          "label": "替代方案"
+        },
+        {
+          "field_id": "implementation",
+          "label": "实施"
+        },
+        {
+          "field_id": "results",
+          "label": "结果"
+        },
+        {
+          "field_id": "raw_data",
+          "label": "原始数据"
+        },
+        {
+          "field_id": "quotes",
+          "label": "引语"
+        },
+        {
+          "field_id": "limitations",
+          "label": "限制"
+        },
+        {
+          "field_id": "anonymity_logo_number_permissions",
+          "label": "匿名 / Logo / 数字授权"
+        },
+        {
+          "field_id": "incentive_disclosure",
+          "label": "激励披露"
+        },
+        {
+          "field_id": "channel_versions",
+          "label": "渠道版本"
+        },
+        {
+          "field_id": "expiry_withdrawal",
+          "label": "到期与撤回"
+        },
+        {
+          "field_id": "sales_usage_records",
+          "label": "销售使用记录"
+        }
+      ],
+      "qa": [
+        "客户与企业双审；数据可追溯；不夸大因果；撤回能定位全部版本。",
+        "事实、产品 / 客户 / 财务数字与 evidence_refs 中的来源一致；未知项不得编造。",
+        "外部动作必须另行生成 Action Request；提交、验收、签收和业务结果观察不得混用。"
+      ]
+    },
+    {
+      "template_id": "T24",
+      "version": "1.0.0",
+      "name": "客服与服务恢复方案",
+      "roles": [
+        "40"
+      ],
+      "required_slots": [
+        "deliverable_id",
+        "work_order_id",
+        "objective_id",
+        "business_context_ref",
+        "owner",
+        "contributors",
+        "receiver",
+        "subject",
+        "scope",
+        "exclusions",
+        "time_window",
+        "timezone",
+        "due",
+        "input_artifacts",
+        "evidence_refs",
+        "result_metrics",
+        "process_metrics",
+        "guardrails",
+        "budget",
+        "permissions",
+        "risk",
+        "approvals",
+        "handoff",
+        "outcome_status",
+        "user_order_environment",
+        "problem_impact",
+        "priority",
+        "identity_consent",
+        "known_facts",
+        "diagnosis",
+        "response_plan",
+        "escalation_plan",
+        "resolution_confirmation",
+        "compensation_refund",
+        "root_cause",
+        "knowledge_prevention_owner"
+      ],
+      "professional_fields": [
+        {
+          "field_id": "user_order_environment",
+          "label": "用户 / 订单 / 环境"
+        },
+        {
+          "field_id": "problem_impact",
+          "label": "问题与影响"
+        },
+        {
+          "field_id": "priority",
+          "label": "优先级"
+        },
+        {
+          "field_id": "identity_consent",
+          "label": "身份与同意"
+        },
+        {
+          "field_id": "known_facts",
+          "label": "已知事实"
+        },
+        {
+          "field_id": "diagnosis",
+          "label": "诊断"
+        },
+        {
+          "field_id": "response_plan",
+          "label": "答复"
+        },
+        {
+          "field_id": "escalation_plan",
+          "label": "升级"
+        },
+        {
+          "field_id": "resolution_confirmation",
+          "label": "解决确认"
+        },
+        {
+          "field_id": "compensation_refund",
+          "label": "赔付与退款"
+        },
+        {
+          "field_id": "root_cause",
+          "label": "根因"
+        },
+        {
+          "field_id": "knowledge_prevention_owner",
+          "label": "知识与预防 Owner"
+        }
+      ],
+      "qa": [
+        "关闭工单不等于解决；安全 / 法律 / 隐私及时升级；解决有用户或行为证据。",
+        "事实、产品 / 客户 / 财务数字与 evidence_refs 中的来源一致；未知项不得编造。",
+        "外部动作必须另行生成 Action Request；提交、验收、签收和业务结果观察不得混用。"
+      ]
+    },
+    {
+      "template_id": "T25",
+      "version": "1.0.0",
+      "name": "Marketing Ops 方案",
+      "roles": [
+        "41"
+      ],
+      "required_slots": [
+        "deliverable_id",
+        "work_order_id",
+        "objective_id",
+        "business_context_ref",
+        "owner",
+        "contributors",
+        "receiver",
+        "subject",
+        "scope",
+        "exclusions",
+        "time_window",
+        "timezone",
+        "due",
+        "input_artifacts",
+        "evidence_refs",
+        "result_metrics",
+        "process_metrics",
+        "guardrails",
+        "budget",
+        "permissions",
+        "risk",
+        "approvals",
+        "handoff",
+        "outcome_status",
+        "business_requirement",
+        "campaign_naming",
+        "fields_consent",
+        "audience_definition",
+        "routing_rules",
+        "automation_design",
+        "asset_map",
+        "integration_map",
+        "frequency_rules",
+        "test_records",
+        "launch_rollback",
+        "exception_owner"
+      ],
+      "professional_fields": [
+        {
+          "field_id": "business_requirement",
+          "label": "业务需求"
+        },
+        {
+          "field_id": "campaign_naming",
+          "label": "Campaign 命名"
+        },
+        {
+          "field_id": "fields_consent",
+          "label": "字段与同意"
+        },
+        {
+          "field_id": "audience_definition",
+          "label": "受众"
+        },
+        {
+          "field_id": "routing_rules",
+          "label": "路由"
+        },
+        {
+          "field_id": "automation_design",
+          "label": "自动化"
+        },
+        {
+          "field_id": "asset_map",
+          "label": "资产"
+        },
+        {
+          "field_id": "integration_map",
+          "label": "集成"
+        },
+        {
+          "field_id": "frequency_rules",
+          "label": "频率"
+        },
+        {
+          "field_id": "test_records",
+          "label": "测试记录"
+        },
+        {
+          "field_id": "launch_rollback",
+          "label": "上线与回滚"
+        },
+        {
+          "field_id": "exception_owner",
+          "label": "异常与 Owner"
+        }
+      ],
+      "qa": [
+        "测试覆盖路由 / 抑制 / 归因；生产批量修改人审；同步异常不静默。",
+        "事实、产品 / 客户 / 财务数字与 evidence_refs 中的来源一致；未知项不得编造。",
+        "外部动作必须另行生成 Action Request；提交、验收、签收和业务结果观察不得混用。"
+      ]
+    },
+    {
+      "template_id": "T26",
+      "version": "1.0.0",
+      "name": "Sales Ops 方案",
+      "roles": [
+        "42"
+      ],
+      "required_slots": [
+        "deliverable_id",
+        "work_order_id",
+        "objective_id",
+        "business_context_ref",
+        "owner",
+        "contributors",
+        "receiver",
+        "subject",
+        "scope",
+        "exclusions",
+        "time_window",
+        "timezone",
+        "due",
+        "input_artifacts",
+        "evidence_refs",
+        "result_metrics",
+        "process_metrics",
+        "guardrails",
+        "budget",
+        "permissions",
+        "risk",
+        "approvals",
+        "handoff",
+        "outcome_status",
+        "sales_stages_exit_evidence",
+        "crm_fields",
+        "account_opportunity_dedup",
+        "territory_routing",
+        "forecast_method",
+        "amount_discount_rules",
+        "performance_commission",
+        "permission_model",
+        "audit_plan",
+        "training_plan"
+      ],
+      "professional_fields": [
+        {
+          "field_id": "sales_stages_exit_evidence",
+          "label": "销售阶段与退出证据"
+        },
+        {
+          "field_id": "crm_fields",
+          "label": "CRM 字段"
+        },
+        {
+          "field_id": "account_opportunity_dedup",
+          "label": "账户与机会去重"
+        },
+        {
+          "field_id": "territory_routing",
+          "label": "区域与路由"
+        },
+        {
+          "field_id": "forecast_method",
+          "label": "预测"
+        },
+        {
+          "field_id": "amount_discount_rules",
+          "label": "金额与折扣"
+        },
+        {
+          "field_id": "performance_commission",
+          "label": "绩效与佣金"
+        },
+        {
+          "field_id": "permission_model",
+          "label": "权限"
+        },
+        {
+          "field_id": "audit_plan",
+          "label": "审计"
+        },
+        {
+          "field_id": "training_plan",
+          "label": "培训"
+        }
+      ],
+      "qa": [
+        "历史重述有版本；佣金 / 区域调整有审批；当前阶段快照不冒充 cohort 转化。",
+        "事实、产品 / 客户 / 财务数字与 evidence_refs 中的来源一致；未知项不得编造。",
+        "外部动作必须另行生成 Action Request；提交、验收、签收和业务结果观察不得混用。"
+      ]
+    },
+    {
+      "template_id": "T27",
+      "version": "1.0.0",
+      "name": "RevOps 指标与收入经营方案",
+      "roles": [
+        "43"
+      ],
+      "required_slots": [
+        "deliverable_id",
+        "work_order_id",
+        "objective_id",
+        "business_context_ref",
+        "owner",
+        "contributors",
+        "receiver",
+        "subject",
+        "scope",
+        "exclusions",
+        "time_window",
+        "timezone",
+        "due",
+        "input_artifacts",
+        "evidence_refs",
+        "result_metrics",
+        "process_metrics",
+        "guardrails",
+        "budget",
+        "permissions",
+        "risk",
+        "approvals",
+        "handoff",
+        "outcome_status",
+        "subject_identity",
+        "lifecycle_definition",
+        "system_mapping",
+        "metric_dictionary",
+        "revenue_cost_definitions",
+        "attribution_definitions",
+        "reconciliation_plan",
+        "forecast_method",
+        "operating_cadence",
+        "action_owners"
+      ],
+      "professional_fields": [
+        {
+          "field_id": "subject_identity",
+          "label": "主体与身份"
+        },
+        {
+          "field_id": "lifecycle_definition",
+          "label": "生命周期"
+        },
+        {
+          "field_id": "system_mapping",
+          "label": "系统映射"
+        },
+        {
+          "field_id": "metric_dictionary",
+          "label": "指标字典"
+        },
+        {
+          "field_id": "revenue_cost_definitions",
+          "label": "收入与成本口径"
+        },
+        {
+          "field_id": "attribution_definitions",
+          "label": "首末触 / Sourced / Influenced"
+        },
+        {
+          "field_id": "reconciliation_plan",
+          "label": "对账"
+        },
+        {
+          "field_id": "forecast_method",
+          "label": "预测"
+        },
+        {
+          "field_id": "operating_cadence",
+          "label": "经营节奏"
+        },
+        {
+          "field_id": "action_owners",
+          "label": "行动与 Owner"
+        }
+      ],
+      "qa": [
+        "跨系统差异显示；阶段口径多部门签收；归因不冒充因果；未分配收入不隐藏。",
+        "事实、产品 / 客户 / 财务数字与 evidence_refs 中的来源一致；未知项不得编造。",
+        "外部动作必须另行生成 Action Request；提交、验收、签收和业务结果观察不得混用。"
+      ]
+    },
+    {
+      "template_id": "T28",
+      "version": "1.0.0",
+      "name": "数据分析与实验读数",
+      "roles": [
+        "16",
+        "25",
+        "44"
+      ],
+      "required_slots": [
+        "deliverable_id",
+        "work_order_id",
+        "objective_id",
+        "business_context_ref",
+        "owner",
+        "contributors",
+        "receiver",
+        "subject",
+        "scope",
+        "exclusions",
+        "time_window",
+        "timezone",
+        "due",
+        "input_artifacts",
+        "evidence_refs",
+        "result_metrics",
+        "process_metrics",
+        "guardrails",
+        "budget",
+        "permissions",
+        "risk",
+        "approvals",
+        "handoff",
+        "outcome_status",
+        "decision_question",
+        "hypothesis",
+        "data_query_version",
+        "subject_cohort",
+        "randomization_unit",
+        "sample_plan",
+        "primary_secondary_guardrail_metrics",
+        "stopping_multiplicity",
+        "results_intervals",
+        "alternative_explanations",
+        "limitations",
+        "decision"
+      ],
+      "professional_fields": [
+        {
+          "field_id": "decision_question",
+          "label": "决策问题"
+        },
+        {
+          "field_id": "hypothesis",
+          "label": "假设"
+        },
+        {
+          "field_id": "data_query_version",
+          "label": "数据与查询版本"
+        },
+        {
+          "field_id": "subject_cohort",
+          "label": "主体与队列"
+        },
+        {
+          "field_id": "randomization_unit",
+          "label": "随机单元"
+        },
+        {
+          "field_id": "sample_plan",
+          "label": "样本"
+        },
+        {
+          "field_id": "primary_secondary_guardrail_metrics",
+          "label": "主 / 次 / 护栏指标"
+        },
+        {
+          "field_id": "stopping_multiplicity",
+          "label": "停止与多重性"
+        },
+        {
+          "field_id": "results_intervals",
+          "label": "结果与区间"
+        },
+        {
+          "field_id": "alternative_explanations",
+          "label": "替代解释"
+        },
+        {
+          "field_id": "limitations",
+          "label": "限制"
+        },
+        {
+          "field_id": "decision",
+          "label": "决定"
+        }
+      ],
+      "qa": [
+        "可重跑；分母 0 为 null；不 peeking；不显著不等于无效；结论不超越设计。",
+        "事实、产品 / 客户 / 财务数字与 evidence_refs 中的来源一致；未知项不得编造。",
+        "外部动作必须另行生成 Action Request；提交、验收、签收和业务结果观察不得混用。"
+      ]
+    },
+    {
+      "template_id": "T29",
+      "version": "1.0.0",
+      "name": "GTM 自动化设计",
+      "roles": [
+        "45"
+      ],
+      "required_slots": [
+        "deliverable_id",
+        "work_order_id",
+        "objective_id",
+        "business_context_ref",
+        "owner",
+        "contributors",
+        "receiver",
+        "subject",
+        "scope",
+        "exclusions",
+        "time_window",
+        "timezone",
+        "due",
+        "input_artifacts",
+        "evidence_refs",
+        "result_metrics",
+        "process_metrics",
+        "guardrails",
+        "budget",
+        "permissions",
+        "risk",
+        "approvals",
+        "handoff",
+        "outcome_status",
+        "business_task",
+        "systems_permissions",
+        "trigger",
+        "input_transform_output",
+        "field_mapping",
+        "idempotency",
+        "quota_suppression",
+        "credential_refs",
+        "logging_plan",
+        "unknown_result_policy",
+        "human_takeover",
+        "rollback_plan",
+        "cost_sla"
+      ],
+      "professional_fields": [
+        {
+          "field_id": "business_task",
+          "label": "业务任务"
+        },
+        {
+          "field_id": "systems_permissions",
+          "label": "系统与权限"
+        },
+        {
+          "field_id": "trigger",
+          "label": "触发"
+        },
+        {
+          "field_id": "input_transform_output",
+          "label": "输入 / 转换 / 输出"
+        },
+        {
+          "field_id": "field_mapping",
+          "label": "字段映射"
+        },
+        {
+          "field_id": "idempotency",
+          "label": "幂等"
+        },
+        {
+          "field_id": "quota_suppression",
+          "label": "限额与抑制"
+        },
+        {
+          "field_id": "credential_refs",
+          "label": "凭据引用"
+        },
+        {
+          "field_id": "logging_plan",
+          "label": "日志"
+        },
+        {
+          "field_id": "unknown_result_policy",
+          "label": "未知结果"
+        },
+        {
+          "field_id": "human_takeover",
+          "label": "人工接管"
+        },
+        {
+          "field_id": "rollback_plan",
+          "label": "回滚"
+        },
+        {
+          "field_id": "cost_sla",
+          "label": "成本与 SLA"
+        }
+      ],
+      "qa": [
+        "沙盒与小样本写回通过；无 transport 旁路；未知不重试；最小权限和运行 Owner 明确。",
+        "事实、产品 / 客户 / 财务数字与 evidence_refs 中的来源一致；未知项不得编造。",
+        "外部动作必须另行生成 Action Request；提交、验收、签收和业务结果观察不得混用。"
+      ]
+    },
+    {
+      "template_id": "T30",
+      "version": "1.0.0",
+      "name": "DevRel 方案",
+      "roles": [
+        "46"
+      ],
+      "required_slots": [
+        "deliverable_id",
+        "work_order_id",
+        "objective_id",
+        "business_context_ref",
+        "owner",
+        "contributors",
+        "receiver",
+        "subject",
+        "scope",
+        "exclusions",
+        "time_window",
+        "timezone",
+        "due",
+        "input_artifacts",
+        "evidence_refs",
+        "result_metrics",
+        "process_metrics",
+        "guardrails",
+        "budget",
+        "permissions",
+        "risk",
+        "approvals",
+        "handoff",
+        "outcome_status",
+        "developer_task",
+        "environment_versions",
+        "documentation_sdk_examples",
+        "reproduction_commands",
+        "expected_result",
+        "technical_limitations",
+        "event_community_plan",
+        "first_success_event",
+        "continued_adoption",
+        "contribution_partners",
+        "feedback_path"
+      ],
+      "professional_fields": [
+        {
+          "field_id": "developer_task",
+          "label": "开发者任务"
+        },
+        {
+          "field_id": "environment_versions",
+          "label": "环境与版本"
+        },
+        {
+          "field_id": "documentation_sdk_examples",
+          "label": "文档 / SDK / 示例"
+        },
+        {
+          "field_id": "reproduction_commands",
+          "label": "复现命令"
+        },
+        {
+          "field_id": "expected_result",
+          "label": "预期结果"
+        },
+        {
+          "field_id": "technical_limitations",
+          "label": "技术限制"
+        },
+        {
+          "field_id": "event_community_plan",
+          "label": "活动与社区"
+        },
+        {
+          "field_id": "first_success_event",
+          "label": "首次成功事件"
+        },
+        {
+          "field_id": "continued_adoption",
+          "label": "持续采用"
+        },
+        {
+          "field_id": "contribution_partners",
+          "label": "贡献与伙伴"
+        },
+        {
+          "field_id": "feedback_path",
+          "label": "反馈路径"
+        }
+      ],
+      "qa": [
+        "真实复现通过；下载 / Star 不算激活；代码与 secrets 安全审查；坏示例能下线。",
+        "事实、产品 / 客户 / 财务数字与 evidence_refs 中的来源一致；未知项不得编造。",
+        "外部动作必须另行生成 Action Request；提交、验收、签收和业务结果观察不得混用。"
+      ]
+    },
+    {
+      "template_id": "T31",
+      "version": "1.0.0",
+      "name": "跨岗位交接与验收单",
+      "roles": [
+        "07",
+        "08",
+        "09",
+        "10",
+        "11",
+        "12",
+        "13",
+        "14",
+        "15",
+        "16",
+        "17",
+        "18",
+        "19",
+        "20",
+        "21",
+        "22",
+        "23",
+        "24",
+        "25",
+        "26",
+        "27",
+        "28",
+        "29",
+        "30",
+        "31",
+        "32",
+        "33",
+        "34",
+        "35",
+        "36",
+        "37",
+        "38",
+        "39",
+        "40",
+        "41",
+        "42",
+        "43",
+        "44",
+        "45",
+        "46"
+      ],
+      "required_slots": [
+        "deliverable_id",
+        "work_order_id",
+        "objective_id",
+        "business_context_ref",
+        "owner",
+        "contributors",
+        "receiver",
+        "subject",
+        "scope",
+        "exclusions",
+        "time_window",
+        "timezone",
+        "due",
+        "input_artifacts",
+        "evidence_refs",
+        "result_metrics",
+        "process_metrics",
+        "guardrails",
+        "budget",
+        "permissions",
+        "risk",
+        "approvals",
+        "handoff",
+        "outcome_status",
+        "from_role",
+        "to_role",
+        "subject_id",
+        "business_background",
+        "completed_facts",
+        "deliverable_versions",
+        "observed_evidence",
+        "completed_actions",
+        "external_commitments",
+        "open_questions",
+        "acceptance_criteria",
+        "sla",
+        "receiver_decision",
+        "rejection_reason",
+        "rework_steps",
+        "next_action",
+        "next_action_time"
+      ],
+      "professional_fields": [
+        {
+          "field_id": "from_role",
+          "label": "交出岗位"
+        },
+        {
+          "field_id": "to_role",
+          "label": "接收岗位"
+        },
+        {
+          "field_id": "subject_id",
+          "label": "主体 ID"
+        },
+        {
+          "field_id": "business_background",
+          "label": "业务背景"
+        },
+        {
+          "field_id": "completed_facts",
+          "label": "已完成事实"
+        },
+        {
+          "field_id": "deliverable_versions",
+          "label": "交付物及版本"
+        },
+        {
+          "field_id": "observed_evidence",
+          "label": "原话 / 行为 / 数据证据"
+        },
+        {
+          "field_id": "completed_actions",
+          "label": "已做动作"
+        },
+        {
+          "field_id": "external_commitments",
+          "label": "对外承诺"
+        },
+        {
+          "field_id": "open_questions",
+          "label": "未决问题"
+        },
+        {
+          "field_id": "acceptance_criteria",
+          "label": "接收标准"
+        },
+        {
+          "field_id": "sla",
+          "label": "SLA"
+        },
+        {
+          "field_id": "receiver_decision",
+          "label": "接收决定"
+        },
+        {
+          "field_id": "rejection_reason",
+          "label": "拒收原因或不适用说明"
+        },
+        {
+          "field_id": "rework_steps",
+          "label": "返工步骤"
+        },
+        {
+          "field_id": "next_action",
+          "label": "下一动作"
+        },
+        {
+          "field_id": "next_action_time",
+          "label": "下一动作时间"
+        }
+      ],
+      "qa": [
+        "只有接收人能 accepted；拒收必须定位缺项并回退到具体 SOP 步骤；通知不等于交接完成。",
+        "事实、产品 / 客户 / 财务数字与 evidence_refs 中的来源一致；未知项不得编造。",
+        "外部动作必须另行生成 Action Request；提交、验收、签收和业务结果观察不得混用。"
+      ]
+    },
+    {
+      "template_id": "T32",
+      "version": "1.0.0",
+      "name": "复盘与规则变更单",
+      "roles": [
+        "07",
+        "08",
+        "09",
+        "10",
+        "11",
+        "12",
+        "13",
+        "14",
+        "15",
+        "16",
+        "17",
+        "18",
+        "19",
+        "20",
+        "21",
+        "22",
+        "23",
+        "24",
+        "25",
+        "26",
+        "27",
+        "28",
+        "29",
+        "30",
+        "31",
+        "32",
+        "33",
+        "34",
+        "35",
+        "36",
+        "37",
+        "38",
+        "39",
+        "40",
+        "41",
+        "42",
+        "43",
+        "44",
+        "45",
+        "46"
+      ],
+      "required_slots": [
+        "deliverable_id",
+        "work_order_id",
+        "objective_id",
+        "business_context_ref",
+        "owner",
+        "contributors",
+        "receiver",
+        "subject",
+        "scope",
+        "exclusions",
+        "time_window",
+        "timezone",
+        "due",
+        "input_artifacts",
+        "evidence_refs",
+        "result_metrics",
+        "process_metrics",
+        "guardrails",
+        "budget",
+        "permissions",
+        "risk",
+        "approvals",
+        "handoff",
+        "outcome_status",
+        "original_objective_hypothesis",
+        "three_layer_outcomes",
+        "cost_sources",
+        "what_worked",
+        "what_failed",
+        "alternative_explanations",
+        "data_limitations",
+        "decision",
+        "rule_diffs",
+        "impact_scope",
+        "rollback_plan",
+        "next_validation"
+      ],
+      "professional_fields": [
+        {
+          "field_id": "original_objective_hypothesis",
+          "label": "原目标与假设"
+        },
+        {
+          "field_id": "three_layer_outcomes",
+          "label": "实际三层结果"
+        },
+        {
+          "field_id": "cost_sources",
+          "label": "投入与成本来源"
+        },
+        {
+          "field_id": "what_worked",
+          "label": "做对了什么及依据"
+        },
+        {
+          "field_id": "what_failed",
+          "label": "做错了什么及代价"
+        },
+        {
+          "field_id": "alternative_explanations",
+          "label": "替代解释"
+        },
+        {
+          "field_id": "data_limitations",
+          "label": "数据限制"
+        },
+        {
+          "field_id": "decision",
+          "label": "继续 / 停止 / 修改决定"
+        },
+        {
+          "field_id": "rule_diffs",
+          "label": "SOP / 模板 / 指标 / 权限 diff"
+        },
+        {
+          "field_id": "impact_scope",
+          "label": "影响范围"
+        },
+        {
+          "field_id": "rollback_plan",
+          "label": "回滚"
+        },
+        {
+          "field_id": "next_validation",
+          "label": "下次验证"
+        }
+      ],
+      "qa": [
+        "至少一个具体规则 diff 或明确不变及理由；机制解释与事实分开；版本变更有人审。",
+        "事实、产品 / 客户 / 财务数字与 evidence_refs 中的来源一致；未知项不得编造。",
+        "外部动作必须另行生成 Action Request；提交、验收、签收和业务结果观察不得混用。"
+      ]
+    }
+  ]
+}

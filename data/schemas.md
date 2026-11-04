@@ -213,3 +213,53 @@ CSV 导入：
   不伪造漏斗事件；按 `(campaign, metric, window)` 幂等。
 - `mkt collect import --source posthog --csv <导出.csv> --event-map user_signed_up=signup,activated=activation`：
   PostHog 事件级导入，`distinct_id`/`event`/`timestamp`/`utm_campaign` 列自动映射，走 `import_key` 幂等。
+
+## GTM Work OS（v0.8，本地 R0/R1）
+
+统一采用 `core/event_store.py` 的 `{schema_version,event_id,event_type,entity_id,ts,by,payload}` 事件包；当前状态由事件投影生成，业务事件必须署名。完整使用说明见 `docs/gtm-os/05-implementation.md`。
+
+| 路径 | 事实与主要事件 |
+|---|---|
+| `context/snapshots.jsonl` | `context.imported`；不可变 `BusinessContextSnapshot`，来源为 `askovo` 或 `user_declared` |
+| `work/objectives.jsonl` | `objective.created`；固定 context 与主指标版本 |
+| `work/orders.jsonl` | `work_order.created/updated/state_changed`；`draft/blocked/ready/running/review/accepted/closed` |
+| `work/sop-runs.jsonl` | `sop_run.started/step_completed/step_blocked/step_reopened`；步骤产物、DoD、人审与当前步骤 |
+| `deliverables/events.jsonl` | `deliverable.created/revised/submitted/reviewed`；模板版本、字段、QA 与 accepted/rejected |
+| `work/handoffs.jsonl` | `handoff.created/accepted/rejected`；只有指定 receiver 可决定 |
+| `metrics/versions.jsonl` | `metric.registered`；不可变指标定义版本 |
+| `sop/versions.jsonl` | `sop.registered`；5–8 步专业 SOP 版本 |
+| `work/action-requests.jsonl` | `work_action.materialized`；WorkOrder/SOP/Deliverable 溯源及 plan/queue 路径 |
+| `deals.jsonl` | `growovo.deal_event` 追加事件；`all()` 投影当前 deal，兼容旧当前行；漏斗按 history cohort |
+
+关键约束：
+
+- WorkOrder `ready` 必须有已验收输入、固定上下文/目标/SOP、交付物、Owner、Receiver 和结果指标；依赖未验收只会 `blocked`。
+- SOP `done` 必须有产物 `{deliverable_type,artifact_id,version,evidence_ref}`、必需 DoD `pass+evidence_ref`，以及步骤声明的具名审批。
+- Deliverable `submitted≠accepted`；R3/R4 作者不能终审自己；只有 accepted 交付物可交接或进入 `work-action`。
+- `work-action` 只生成既有 plan/queue，`plan.provenance` 参与执行审批指纹；真实发送仍走 `plan approve`、`pipeline`、`action_runner` 与 `queue_runner`。
+- KPI 计数/比率按 MetricVersion、去重键、过滤器和 scope 重算；分母 0 与未成熟窗口均返回 `value=null`，不回退全历史。
+
+## 按需编排与 routine policy（v0.9）
+
+`mkt orchestrate` 输出 `growovo.workstream_candidate/1`：`selection`（最小岗位及原因）、`workstream`（WorkOrder DAG 与 Handoff）、`content_plan`（每份交付物的 required_content、表达、语气、渠道规则）和 `validation`。它是候选方案，不是执行批准。
+
+`policies/routine-marketing.json`：
+
+```json
+{
+  "version": 1,
+  "enabled": true,
+  "allow_actions": ["email:message", "x:publish", "x:reply"],
+  "allow_accounts": ["default"],
+  "authorized_by": "human-owner",
+  "authorized_at": "2026-11-04T12:00:00+00:00",
+  "expires_at": null,
+  "revoked": false
+}
+```
+
+- 封闭动作集见 `core/execution_policy.py`；付款、合同、折扣、危机和未知动作不能加入。
+- 非空 `allow_accounts` 精确、区分大小写匹配；空列表只允许未指定账号或字面 `default`，不是通配符。
+- 只有显式 `routine=True` 且策略有效才返回 `routine-policy`；非 routine 仍走原 plan/adhoc 逻辑。
+- routine 仅替代逐次 plan 审批；dry-run、pause、DNC、quota、readback、UNVERIFIED 和 indeterminate 人工裁决不变。
+- 授权管理只在 CLI 人工通道；MCP 仅接受执行时的 routine/account 参数，不能创建、扩大或撤销策略。

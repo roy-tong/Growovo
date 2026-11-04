@@ -32,7 +32,12 @@ from .platforms import BY_ID as _BY_ID, PLATFORMS as _PLATFORMS
 PLAYBOOK: Dict[str, Dict[str, Any]] = {
     p["id"]: {"account": p["account"], "residency": p["residency"],
               "stages": p["stages"], "scale": p["scale"],
-              "risk": p["risks"], "tier": p["tier"], "kind": p["kind"]}
+              "risk": p["risks"], "tier": p["tier"], "kind": p["kind"],
+              # 这两项是「开跑前该做什么」和「什么信号才算可以加量」，
+              # 以前只存在 platforms.py 里、没进策略输出，等于白写
+              "preflight": (p.get("cold_start") or {}).get("checklist") or [],
+              "scale_gate": p.get("scale_gate"),
+              "evidence": p.get("evidence")}
     for p in _PLATFORMS
 }
 
@@ -61,21 +66,37 @@ def _weakest_first(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
 
 def build(product: Dict[str, Any], focus: Optional[Dict[str, Any]] = None,
           analysis: Optional[Dict[str, Any]] = None,
-          constraints: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    """生成这一轮的策略。focus 来自 gtm.diagnose；analysis 来自 retro。"""
+          constraints: Optional[Dict[str, Any]] = None,
+          goal_plan: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """生成这一轮的策略。focus 来自 gtm.diagnose；analysis 来自 retro。
+
+    给了 goal_plan（mkt goal plan 的输出）时，平台分工以目标选择为准：
+    1 主渠道 + 1 发射点 + 最多 2 个辅助平台；旧复盘不再改写主渠道，
+    因为旧数据的对象可能不是这一轮的目标人群。
+    """
     constraints = constraints or {}
     focus = focus or {}
-    primary = focus.get("primary") or "github"
-    launch = focus.get("launch")
-    deferred = focus.get("deferred") or []
+    goal_plan = goal_plan or {}
+    if goal_plan:
+        gp = goal_plan.get("platforms") or {}
+        primary = (gp.get("primary") or {}).get("id") or "github"
+        launch = (gp.get("launch") or {}).get("id")
+        support = list(gp.get("support") or [])
+        deferred = []
+    else:
+        primary = focus.get("primary") or "github"
+        launch = focus.get("launch")
+        support = []
+        deferred = focus.get("deferred") or []
 
     pb = _pb(primary)
     rows = (analysis or {}).get("channels") or []
 
     # 不做清单：先放复盘里最差的渠道，再补上 gtm 判为不优先的
     not_doing: List[Dict[str, str]] = []
+    support_ids = {r["id"] for r in support}
     for r in _weakest_first(rows)[:2]:
-        if r["channel"] == primary:
+        if r["channel"] == primary or r["channel"] in support_ids:
             continue
         rate = r.get("response_per_100")
         not_doing.append({
@@ -96,7 +117,7 @@ def build(product: Dict[str, Any], focus: Optional[Dict[str, Any]] = None,
     # 复盘里有实测时，用它校正静态匹配：先看结果产出，再看回应。
     measured = [r for r in rows if (r.get("actions") or 0) >= 30
                 and r.get("outcome_per_100") is not None]
-    if measured:
+    if measured and not goal_plan:
         best = sorted(measured, key=lambda r: (-(r["outcome_per_100"] or 0),
                                                -(r["response_per_100"] or 0)))[0]
         if best["channel"] in PLAYBOOK:
@@ -107,7 +128,7 @@ def build(product: Dict[str, Any], focus: Optional[Dict[str, Any]] = None,
     # 保留清单：不是主力，但实测有效率，不能一起砍掉。
     keep_small: List[Dict[str, str]] = []
     for r in rows:
-        if r["channel"] == primary:
+        if r["channel"] == primary or r["channel"] in support_ids:
             continue
         a = r.get("actions") or 0
         resp = r.get("responses") or 0
@@ -126,18 +147,29 @@ def build(product: Dict[str, Any], focus: Optional[Dict[str, Any]] = None,
 
     first_week = _first_week(primary, pb, constraints)
 
+    primary_why = ((goal_plan.get("platforms") or {}).get("primary") or {}).get("why") \
+        if goal_plan else _primary_reason(primary, analysis)
+    launch_why = ((goal_plan.get("platforms") or {}).get("launch") or {}).get("why") \
+        if goal_plan else "只用来换曝光和真实反馈，不背获客指标"
     return {
         "product": product.get("name", ""),
+        "goal": goal_plan.get("goal") if goal_plan else None,
+        "secondary": goal_plan.get("secondary") if goal_plan else None,
         "primary": {"id": primary, "name": gtm_name(primary),
-                    "why": _primary_reason(primary, analysis),
+                    "why": primary_why,
                     "account": pb["account"], "residency": pb["residency"],
                     "tier": pb["tier"], "kind": pb.get("kind", "社区")},
+        "support": [{"id": r["id"], "name": r["name"], "why": r.get("why", "")}
+                    for r in support],
         "launch": ({"id": launch, "name": gtm_name(launch),
-                    "why": "只用来换曝光和真实反馈，不背获客指标"} if launch else None),
+                    "why": launch_why} if launch else None),
         "not_doing": not_doing[:3],
         "keep_small": keep_small[:3],
         "cold_start": stages,
+        "preflight": list(pb.get("preflight") or []),
+        "evidence": pb.get("evidence"),
         "scale": pb["scale"],
+        "scale_gate": pb.get("scale_gate"),
         "risk": [{"detect": d, "signal": s, "adjust": a} for d, s, a in pb["risk"]],
         "first_week": first_week,
         "budget": {"human_minutes_per_week": constraints.get("human_minutes_per_week", 120),
@@ -175,12 +207,46 @@ def render(strategy: Dict[str, Any]) -> str:
     from .narrative import table
     lines: List[str] = []
     p = strategy["primary"]
+    g = strategy.get("goal")
+    sec = strategy.get("secondary")
     lines.append(f"# 这一轮怎么打 · {strategy['product']}")
     lines.append("")
-    lines.append(f"**主渠道只有一个：{p['name']}。** {p['why']}。")
+    if g and sec:
+        lines.append(f"**这一轮的目标：{g['name']} + {sec['name']}**——"
+                     f"{g['metric_label']} {g['target_text']}；"
+                     f"{sec['metric_label']} {sec['target_text']}；{g['window_days']} 天。")
+        lines.append("")
+        lines.append(f"- 主目标证明：{g['proves']}；不证明：{g['does_not_prove']}")
+        lines.append(f"- 辅目标证明：{sec['proves']}；不证明：{sec['does_not_prove']}")
+        lines.append("")
+        lines.append("> 两个都达成才算成功；只达成一个不算。")
+        lines.append("")
+        lines.append(f"**主渠道：{p['name']}。** {p['why']}。")
+    elif g:
+        lines.append(f"**这一轮的目标：{g['name']}**——{g['metric_label']}，"
+                     f"{g['target_text']}，{g['window_days']} 天。")
+        lines.append("")
+        lines.append(f"- 证明：{g['proves']}")
+        lines.append(f"- 不证明：{g['does_not_prove']}")
+        lines.append("")
+        lines.append(f"**主渠道：{p['name']}。** {p['why']}。")
+    else:
+        lines.append(f"**主渠道只有一个：{p['name']}。** {p['why']}。")
     lines.append("")
     if strategy.get("launch"):
         lines.append(f"发射点：{strategy['launch']['name']}——{strategy['launch']['why']}。")
+        lines.append("")
+    if g:
+        rows = [["主渠道", p["name"], p["why"] or ""]]
+        if strategy.get("launch"):
+            rows.append(["发射点", strategy["launch"]["name"], strategy["launch"]["why"]])
+        for sup in strategy.get("support") or []:
+            rows.append(["辅助", sup["name"], sup.get("why") or ""])
+        lines.append("## 平台分工")
+        lines.append("")
+        lines.append(table(["角色", "平台", "为什么"], rows))
+        lines.append("")
+        lines.append("> 辅助平台不单独开 campaign：每周 2 次轻动作（回答/转发/更新），承接主渠道来的人。")
         lines.append("")
     if strategy.get("keep_small"):
         lines.append("## 保留但不主力")
@@ -201,6 +267,8 @@ def render(strategy: Dict[str, Any]) -> str:
     lines.append(f"- 内容档位：{p['tier']}")
     if p["residency"]:
         lines.append(f"- 养号期：{p['residency']} 天，期间只做贡献")
+    for item in strategy.get("preflight") or []:
+        lines.append(f"- {item}")
     lines.append("")
     from . import voice
     v = voice.profile(strategy["primary"]["id"])
@@ -235,10 +303,20 @@ def render(strategy: Dict[str, Any]) -> str:
                         for s in strategy["cold_start"]]))
     lines.append("")
     lines.append("> 「冷启动完成」意味着走到**被问到**这一档，不是「发出去了」。")
+    ev = (strategy.get("primary") or {})
+    evid = None
+    try:
+        from .platforms import BY_ID
+        evid = BY_ID.get(strategy["primary"]["id"], {}).get("evidence")
+    except Exception:
+        evid = None
+    if evid:
+        lines.append("")
+        lines.append(f"> 判据来源：{evid}")
     lines.append("")
     lines.append("## 什么时候可以放大")
     lines.append("")
-    lines.append(f"信号：{strategy['scale']['signal']}")
+    lines.append(f"信号：{strategy.get('scale_gate') or strategy['scale']['signal']}")
     lines.append("")
     lines.append(f"怎么做：{strategy['scale']['how']}")
     lines.append("")

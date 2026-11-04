@@ -1,5 +1,172 @@
 # Changelog
 
+## 0.9.0 - 2026-11-04
+
+This release makes GTM orchestration selective rather than org-chart-driven and
+allows explicitly authorized routine marketing execution without repeated plan
+approval. Payments and other high-risk commitments remain human decisions.
+
+### Added
+
+- **Minimum-role orchestration** (`core/orchestration.py`, `mkt orchestrate`,
+  `mkt_orchestrate`): product/goal/task selects only required roles and optional
+  triggers, then emits a WorkOrder DAG, receiver handoffs and validation.
+- **Per-deliverable expression**: decision memos, operator runbooks, technical
+  tutorials, sales handoffs, customer/partner plans, channel overlays and
+  artifact-specific required content. Public-channel style does not leak into
+  internal POC, revenue or support artifacts.
+- **Standing routine authorization** (`core/execution_policy.py`, `mkt policy`):
+  workspace-scoped closed routine actions, exact account scope, expiry, revoke
+  and fail-closed validation. MCP cannot manage authorization.
+- **Routine execution path**: `planlint`, action/queue runners, pipeline and
+  email SMTP accept explicit `routine` and return an independent
+  `routine-policy` receipt. Non-routine calls retain the original plan gate.
+- **Docs**: `docs/gtm-os/06-orchestration-and-routine.md` with orchestration,
+  policy setup, direct-execution examples and remaining boundaries.
+
+### Safety and verification
+
+- Routine authorization replaces only per-run plan approval. Dry-run, pause,
+  DNC/suppression, quotas, read-back, channel verification and indeterminate
+  reconciliation remain enforced. Payments, contracts, discounts, crisis
+  response and unknown actions cannot be added to the policy.
+- Full suite: **599 tests pass**. Policy tests use fake vendors/SMTP; no live
+  accounts, network sends or business outcomes are claimed.
+- The current workspace routine policy was enabled by the user's direct
+  instruction for default-account routine actions. No real message was sent.
+
+## 0.8.0 (unreleased) - 2026-11-04
+
+This release turns the GTM OS v5 design into a local R0/R1 business work
+kernel. Campaigns and queues are now execution tools beneath versioned work,
+professional SOPs, accepted deliverables and receiver handoffs.
+
+### Added
+
+- **Capability/template registries**: 18 capability domains, 40 role families
+  (07–46) and 32 deliverable templates with complete cross-reference lint,
+  deep-copy read APIs and packaged JSON data.
+- **Work OS**: immutable business context snapshots, versioned objectives,
+  WorkOrders, SOP versions and evidence-gated runs, deliverable QA reviews,
+  receiver-accepted handoffs and deterministic count/ratio KPI measurement.
+- **CLI/MCP surfaces**: `mkt capability`, `template`, `context`, `objective`,
+  `work`, `sop`, `deliverable`, `handoff`, `metric` and `work-action`; read-only
+  MCP tools for capabilities, templates, work orders and KPI measurement.
+- **Execution bridge**: an accepted deliverable at a declared action-request
+  step materialises the existing plan/queue with WorkOrder/SOP/deliverable
+  provenance included in the approval fingerprint. It never sends directly.
+- **`mkt work-demo`**: zero-network context → work → SOP → accepted artifacts →
+  handoff → approved plan/queue → independent KPI demo; no send ledger.
+
+### Fixed
+
+- Deal funnels use cohort entry history rather than dividing current stage
+  stock. Deal writes are append-only events with legacy reads; all stage
+  advances require evidence, qualification and quote preconditions are enforced,
+  and ordinary deals start at `sourced`.
+- `mkt execute` no longer invents evidence grade `B`; it records `unverified`.
+- CLI and MCP result projections read canonical TaskOutcome records. Platform
+  actions, task outcomes and business observations remain separate.
+
+### Verification and boundary
+
+- Full suite: **566 tests pass**; `mkt demo` and `mkt work-demo` pass without
+  network, real accounts or sends.
+- All 40 role families are registered, but only the developer-first-success SOP
+  is currently a complete executable Step Contract. Full B2B/PLG packs,
+  enterprise identity/RBAC, live source verification and business effectiveness
+  remain separate work.
+
+## 0.7.0 (unreleased) - 2026-11-04
+
+This release makes channel and conversion first-class product surfaces rather
+than advice inside a strategy document.
+
+### Added
+
+- **Channel model** (`core/channels.py`, `mkt channel venues|plan|score`,
+  `mkt_channel_venues` / `mkt_channel_plan`): the unit is a venue (a specific
+  subreddit, Slack, newsletter, conference or repo), not a platform. Each venue
+  carries audience, access, promotion policy, signal density, competition,
+  speed, risk and evidence. The planner assigns 1 primary + 1 launch + up to 2
+  support + 2 listen-only venues, and returns capacity, a bounded economics
+  range (assumptions, not forecasts), pre-registered experiments and rules.
+- **Conversion pipeline** (`core/conversion.py`, `mkt deal ...`,
+  `mkt_deals` / `mkt_deal_next`): a 14-stage deal machine with explicit
+  transitions, evidence requirements for quote/SOW/payment, five-criterion
+  qualification, one next action per stage (including "wait"), nine objections
+  with walk-away conditions, four offers, a one-page SOW renderer, funnel and
+  stuck-deal detection. `deals.jsonl` is append-only per stage advance.
+- **Business narrative by default**: `mkt channel plan` now renders, for each venue,
+  who is there, what they do today, why this venue rather than another, what to say,
+  what proof we have, what signal counts and what would make us leave; plus a
+  "why not elsewhere" table with reconsider conditions and ●/◐/○ evidence levels.
+  `mkt deal next|funnel` renders stage meaning, what we know/need, why this action,
+  risk/walk-away and why the price is the price. JSON keeps the technical fields.
+- **Docs**: `docs/channels.md`, `docs/conversion.md` and `docs/gtm-loop.md` state the research
+  logic, field definitions, economics assumptions, failure modes and boundaries.
+- **Tests**: 27 dedicated channel/conversion tests; full suite **513 pass**.
+
+### Changed
+
+- README command matrix and intro now put goal → channel → conversion in that
+  order; MCP `serverInfo.version` is `0.7.0`.
+
+### Boundary
+
+A channel plan is a scheduling hypothesis, not channel effectiveness. A deal
+stage is a record, not a forecast. Exposure is not reach, a reply is not
+qualification, a sample is not payment, and a quote is not revenue.
+
+## 0.6.0 (unreleased) - 2026-11-04
+
+This release adds goal selection before platform selection. The same product can
+chase awareness, real usage or a first payment; those are different actions,
+platforms and pass lines. A goal is now an explicit contract, not an implicit
+assumption inside a channel recommendation.
+
+### Added
+
+- **Goal catalog** (`core/goals.py`): 9 goals across `awareness` (GitHub stars,
+  social followers), `adoption` (forks, external issues, real data submissions,
+  activation) and `commercial` (qualified conversations, first paid deal,
+  repeat purchase). Each goal carries a metric definition, baseline, target
+  shape, window, leading and counter indicators, what it proves / does not
+  prove, stop/switch rules and a human-minute estimate.
+- **Applicability and platform roles**: goals are filtered by product type,
+  stage and owned platforms. Platform ranking combines goal affinity, ICP-tag
+  match, owned accounts and product-type match; roles are capped at 1 primary,
+  1 launch and 2 support, and a launch platform cannot be the only channel.
+- **Primary + optional secondary goal**: `--secondary` lets a round pair\n  awareness with adoption (or another family); the plan returns two metrics,\n  shared platform roles and a combined action list, and success requires\n  both targets. A primary that does not serve the primary goal is rejected.\n- **`mkt goal list|plan|select`**: list selectable goals, render a full plan
+  (roles, first two weeks, milestones, stop rules, trade-offs), and write a
+  `growovo.goal-selection/1` contract. `mkt strategy build --selection` and
+  `mkt strategy cadence --selection` consume the contract; the old retro
+  numbers no longer override the chosen primary, and cadence uses the goal
+  plan's actions instead of the generic 20/week template.
+- **Sprint planning** (`core/sprint.py`, `mkt sprint plan`, `mkt_sprint_plan`):
+  compress a goal plan into N days of parallel workstreams, hourly blocks,
+  front-loaded daily targets (secondary metric lags one day), six acceleration
+  levers, three checkpoints, platform daily-capacity checks and red lines.
+  A 3-day sprint is a signal test, not market validation.
+- **Read-only MCP tools** `mkt_goals`, `mkt_goal_plan` and `mkt_sprint_plan`.
+- **Docs**: `docs/goals.md`; README command matrix and intro updated.
+
+### Changed
+
+- `strategy.build` accepts `goal_plan`; the rendered strategy now opens with
+  the goal, what it proves / does not prove, and a platform-role table.
+- `cadence.build` accepts `goal_plan`; goal mode no longer claims a generic
+  touch count and schedules support platforms as light weekly actions.
+- MCP `serverInfo.version` is now `0.6.0`.
+
+### Verification
+
+- `python3 -m unittest discover -s tests`: **486 tests pass**.
+- `python3 mkt.py demo`: pass.
+- The goal layer is a planning aid: a reached goal does not prove demand,
+  payment willingness or repeatability, and platform affinity is not channel
+  effectiveness. No real account sends or external business validation.
+
 ## 0.5.0 - 2026-11-04
 
 This release deepens the growth loop from structured operations to evidence-bound

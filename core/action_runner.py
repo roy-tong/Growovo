@@ -33,7 +33,14 @@ def _registry():
     return REGISTRY
 
 
-def precheck(channel, action, data_dir, campaign, go, allow_unverified, target=None):
+def precheck(channel, action, data_dir, campaign, go, allow_unverified, target=None,
+             routine=False, account=""):
+    """Run shared write gates; return the approval mode for a real write.
+
+    routine=False uses the original approval call verbatim.  routine=True only
+    adds operation identity to that approval check; all earlier and later
+    safety gates remain unchanged.
+    """
     reg = _registry()
     if channel not in reg:
         raise ActionError(f"未知渠道 {channel!r}（支持: {sorted(reg)}）")
@@ -56,7 +63,12 @@ def precheck(channel, action, data_dir, campaign, go, allow_unverified, target=N
     if reg[channel].get("status") == "UNVERIFIED" and not allow_unverified:
         raise ActionError(f"{channel} 渠道为 UNVERIFIED，拒绝实跑（人工首跑校准后加 allow_unverified=true）")
     try:
+        if routine is True:
+            return enforce_approval(
+                data_dir, campaign, routine=True,
+                channel=channel, action=action, account=account)
         enforce_approval(data_dir, campaign)
+        return None
     except Exception as exc:
         # 统一成 ActionError，让 CLI/MCP 的拒跑路径一致；原因保留原文。
         raise ActionError(f"人审门禁: {exc}") from exc
@@ -77,14 +89,30 @@ def _x_last_record(ledger, campaign, action, fallback):
     return fallback
 
 
-def _dispatch_action(*, channel, action, data_dir=None, campaign="", go=False,
-               allow_unverified=False, target=None, text=None, title=None, url=None,
-               subreddit=None, number=None, extra=None, log=print):
+def _dispatch_action_inner(*, channel, action, data_dir=None, campaign="", go=False,
+                           allow_unverified=False, target=None, text=None, title=None, url=None,
+                           subreddit=None, number=None, extra=None, log=print,
+                           routine=False, account=""):
     """执行单条写动作，返回账本记录 dict。"""
     data = Path(data_dir or resolve())
     channel = (channel or "").strip().lower()
     action = (action or "").strip().lower()
-    precheck(channel, action, data, campaign, go, allow_unverified, target=target)
+    if routine is True:
+        approval_mode = precheck(
+            channel, action, data, campaign, go, allow_unverified, target=target,
+            routine=True, account=account)
+    else:
+        approval_mode = precheck(
+            channel, action, data, campaign, go, allow_unverified, target=target)
+
+    def _record(rec):
+        if routine is True and approval_mode == "routine-policy" and isinstance(rec, dict):
+            rec = dict(rec)
+            # Preserve a nested pipeline's actual mode (notably plan), and do
+            # not label an approval rejection with the earlier precheck mode.
+            if not rec.get("approval") and rec.get("result") != "rejected":
+                rec["approval"] = "routine-policy"
+        return rec
     if action in READ_ACTIONS:
         raise ActionError("读动作请用 mkt search/inbox/audit，不走 run_action")
     if not go:
@@ -104,7 +132,7 @@ def _dispatch_action(*, channel, action, data_dir=None, campaign="", go=False,
                 raise ActionError("hn reply 需要 target（item:N/URL）与 text")
             rec = hn.reply(target, text, go=go, campaign=campaign,
                            ledger=ledger, data_dir=data, log=log)
-        return rec
+        return _record(rec)
 
     if channel == "github":
         from channels import github
@@ -114,8 +142,9 @@ def _dispatch_action(*, channel, action, data_dir=None, campaign="", go=False,
             slug, num = _parse_issue(target)
         if not text:
             raise ActionError("github reply 需要 text")
-        return github.reply(slug, num, text, go=go, campaign=campaign,
-                            ledger=ledger, data_dir=data, log=log)
+        return _record(github.reply(
+            slug, num, text, go=go, campaign=campaign,
+            ledger=ledger, data_dir=data, log=log))
 
     if channel == "reddit":
         from channels import reddit
@@ -123,12 +152,14 @@ def _dispatch_action(*, channel, action, data_dir=None, campaign="", go=False,
             sub = subreddit or str(target or "").replace("r/", "")
             if not (sub and title and text):
                 raise ActionError("reddit publish 需要 subreddit/target、title、text")
-            return reddit.publish(sub, title, text, go=go, campaign=campaign,
-                                  ledger=ledger, data_dir=data, log=log)
+            return _record(reddit.publish(
+                sub, title, text, go=go, campaign=campaign,
+                ledger=ledger, data_dir=data, log=log))
         if not (target and text):
             raise ActionError("reddit reply 需要 target（帖子 URL）与 text")
-        return reddit.reply(target, text, go=go, campaign=campaign,
-                            ledger=ledger, data_dir=data, log=log)
+        return _record(reddit.reply(
+            target, text, go=go, campaign=campaign,
+            ledger=ledger, data_dir=data, log=log))
 
     if channel == "linkedin":
         import os
@@ -138,8 +169,9 @@ def _dispatch_action(*, channel, action, data_dir=None, campaign="", go=False,
                               "实跑请设 MKT_LINKEDIN_AUTO=1 并自行承担全自动风险")
         if not (target and text):
             raise ActionError("linkedin message 需要 target（profile URL）与 text")
-        return linkedin.message(target, text, go=go, campaign=campaign,
-                                ledger=ledger, data_dir=data, log=log)
+        return _record(linkedin.message(
+            target, text, go=go, campaign=campaign,
+            ledger=ledger, data_dir=data, log=log))
 
     if channel == "x":
         from channels.x.adapter import run as xrun
@@ -166,12 +198,31 @@ def _dispatch_action(*, channel, action, data_dir=None, campaign="", go=False,
                     "target": target or "", "result":
                     ("committed" if go else "dry-run") if code == 0 else "failed",
                     "detail": f"vendor exit {code}"}
-        return _x_last_record(ledger, campaign, action, fallback)
+        return _record(_x_last_record(ledger, campaign, action, fallback))
 
     if channel == "email":
         raise ActionError("email 只支持队列执行（mkt email message --queue …）")
 
     raise ActionError(f"{channel}/{action} 未接入统一动作执行器")
+
+
+def _dispatch_action(**kwargs):
+    """Bridge explicit routine approval through legacy channel re-checks.
+
+    Channel functions keep their existing signatures.  The ContextVar scope is
+    entered only for go=True *and* routine=True, is bound to this workspace and
+    operation, and is reset before returning.  Dry-run and legacy calls never
+    enter it.
+    """
+    if not (kwargs.get("go") and kwargs.get("routine") is True):
+        return _dispatch_action_inner(**kwargs)
+    from .planlint import routine_scope
+
+    data = Path(kwargs.get("data_dir") or resolve())
+    channel = (kwargs.get("channel") or "").strip().lower()
+    action = (kwargs.get("action") or "").strip().lower()
+    with routine_scope(data, channel, action, kwargs.get("account", "")):
+        return _dispatch_action_inner(**kwargs)
 
 
 # --------------------------------------------------------------------------- #

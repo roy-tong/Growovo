@@ -14,6 +14,7 @@
 铁律（449 空正文事故的固化）：readback 与 expect 归一化比对不一致 →
 终态 FAILED，绝不进入 SEND。dry-run 永远停在 SEND 之前并留截图。
 """
+import inspect
 import re
 from datetime import datetime
 from pathlib import Path
@@ -25,17 +26,52 @@ def _norm(s):
 
 
 class WritePipeline:
-    def __init__(self, *, gate, ledger, throttle, pause_file=None, approval=None):
+    def __init__(self, *, gate, ledger, throttle, pause_file=None, approval=None,
+                 routine=False, account=""):
         self.gate = gate
         self.ledger = ledger
         self.throttle = throttle
         self.pause_file = pause_file  # core.safety.pause_file(data_dir)；存在即一切写操作拒跑
-        self.approval = approval      # callable(campaign) -> "plan"|"adhoc"（planlint.enforce_approval）；
+        self.approval = approval      # callable(campaign) -> "plan"|"adhoc"|"routine-policy"；
                                       # 实跑（非 dry-run）时强制，抛 PlanNotApproved 即整条拒跑
+        self.routine = routine        # True 才附加操作身份；False/None 完全走旧回调调用
+        self.account = account
+
+    @staticmethod
+    def _routine_approval(callback, campaign, channel, action, account):
+        """Call new or legacy approval callbacks without retrying on TypeError.
+
+        Signature inspection happens before invocation, so a TypeError raised
+        *inside* a callback remains a real rejection/error and can never cause
+        a second invocation or be mistaken for an old callback signature.
+        """
+        supplied = {
+            "routine": True,
+            "channel": channel,
+            "action": action,
+            "account": account,
+        }
+        try:
+            signature = inspect.signature(callback)
+        except (TypeError, ValueError):
+            # Some extension callables have no inspectable signature.  Preserve
+            # the legacy call shape; such callbacks simply cannot opt into the
+            # new routine parameters.
+            return callback(campaign)
+        parameters = signature.parameters
+        if any(p.kind == inspect.Parameter.VAR_KEYWORD for p in parameters.values()):
+            kwargs = supplied
+        else:
+            kwargs = {
+                name: value for name, value in supplied.items()
+                if name in parameters
+                and parameters[name].kind != inspect.Parameter.POSITIONAL_ONLY
+            }
+        return callback(campaign, **kwargs)
 
     def run_one(self, item, *, channel, action, campaign, transport,
                 expect, target, compose, fill, readback, send, confirm,
-                shot=None, dry_run=True, max_len=None):
+                shot=None, dry_run=True, max_len=None, account=None):
         """执行一条队列项，返回终态 record dict（同时已入账本）。
 
         expect   期望进入编辑器/邮件正文的文本（回读比对基准）
@@ -53,7 +89,12 @@ class WritePipeline:
             return self._finish(rec)
         if self.approval is not None and not dry_run:
             try:
-                mode = self.approval(campaign)
+                if self.routine is True:
+                    mode = self._routine_approval(
+                        self.approval, campaign, channel, action,
+                        self.account if account is None else account)
+                else:
+                    mode = self.approval(campaign)
                 rec["approval"] = mode
             except Exception as exc:  # PlanNotApproved：实跑未绑定已人审 plan
                 rec.update(result="rejected", detail=f"人审门禁: {exc}")
@@ -99,19 +140,26 @@ class WritePipeline:
         detail = rec.get("detail", "")
         if rec.get("approval") == "adhoc":
             detail = (detail + "; " if detail else "") + "adhoc=true"
+        # Preserve the legacy ledger shape unless the new, distinct mode was
+        # actually used.  Routine authorization must remain auditable and must
+        # never be rewritten as plan/adhoc.
+        extra = ({"approval": "routine-policy"}
+                 if rec.get("approval") == "routine-policy" else {})
         self.ledger.append(
             channel=rec["channel"], action=rec["action"], target=rec["target"],
             result=rec["result"], transport=rec["transport"], campaign=rec["campaign"],
             evidence=rec.get("evidence"), ref=rec.get("id"), detail=detail,
+            **extra,
         )
         return rec
 
 
-def standard_pipeline(data_dir, ledger, *, adhoc=False):
-    """渠道写原语的标准管道：Gate + Throttle + 全局暂停闸 + 人审门禁（实跑强制）。
+def standard_pipeline(data_dir, ledger, *, adhoc=False, routine=None, account=""):
+    """渠道写原语的标准管道：Gate + Throttle + 全局暂停闸 + 审批门禁。
 
-    所有渠道写路径一律从这里构造——审批/暂停不再依赖各渠道自行接线
-    （此前 reddit/linkedin/github/hn 未接，email 接错目录，形同虚设）。
+    routine=True 传入动作/账号身份并允许有效的 ``routine-policy``；False
+    保持旧逻辑。None 仅用于旧渠道函数被 action_runner 的显式 routine
+    任务上下文包裹时，让第二次审批复核继承同一身份。
     adhoc 仅为 CLI 人工通道（--adhoc）；MCP 不传，agent 不得自我授权。
     """
     from .gates import Gate, load_suppressions
@@ -119,8 +167,17 @@ def standard_pipeline(data_dir, ledger, *, adhoc=False):
     from .safety import pause_file
     from .throttle import Throttle
     data_dir = Path(data_dir)
+
+    def _approval(campaign, **kwargs):
+        if routine is None and not kwargs:
+            # Legacy channel call shape.  Outside an action_runner routine
+            # scope this is exactly the old plan/adhoc check.
+            return enforce_approval(data_dir, campaign, adhoc=adhoc)
+        kwargs.setdefault("routine", routine)
+        return enforce_approval(data_dir, campaign, adhoc=adhoc, **kwargs)
+
     return WritePipeline(
         gate=Gate(ledger, suppress=load_suppressions(data_dir)),
         ledger=ledger, throttle=Throttle(data_dir / "state"),
-        pause_file=pause_file(data_dir),
-        approval=lambda c: enforce_approval(data_dir, c, adhoc=adhoc))
+        pause_file=pause_file(data_dir), approval=_approval,
+        routine=routine, account=account)

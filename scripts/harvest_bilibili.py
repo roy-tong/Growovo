@@ -36,9 +36,13 @@ MEDIA = Path("/tmp/gv_bili_media")
 UA = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/126.0 Safari/537.36")
 
+RELEVANT = ("运营", "增长", "营销", "流量", "获客", "转化", "私域", "投放",
+            "内容", "账号", "变现", "风控", "限流", "封号", "矩阵", "复盘")
+
 QUERIES = [
-    "B站运营 涨粉 经验", "B站UP主 起号", "B站 推荐机制 复盘",
-    "B站 完播率 提升", "B站 封面 标题 技巧", "B站 三连 涨粉",
+    "运营自动化 工作流", "增长黑客 案例复盘", "账号矩阵 运营方法",
+    "平台风控 限流 机制", "内容运营 方法论", "私域 增长 打法",
+    "AI 内容 生产 流程", "投放 ROI 复盘",
 ]
 
 
@@ -165,6 +169,10 @@ def main():
             if it["play"] < args.min_play:
                 continue
             if not (60 <= it["duration"] <= args.max_seconds):
+                continue
+            # 关键词泛化后会混进游戏/教程视频，按主题词过滤
+            blob = it["title"] + " " + (it.get("description") or "")
+            if not any(k in blob for k in RELEVANT):
                 continue
             seen.add(it["bvid"])
             picked.append(it)

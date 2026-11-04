@@ -45,6 +45,23 @@ TOPICS = {
     "jike": [("圈子", ("圈子", "社区氛围"))],
 }
 
+# 英文信源（Reddit/Discord）：同一套抽取逻辑要能认英文的可执行句
+TOPICS_EN = {
+    "launch": ("launch", "launched", "launching", "show hn", "product hunt"),
+    "growth": ("growth", "grow", "acquisition", "funnel", "conversion"),
+    "content": ("content", "blog", "seo", "keyword", "newsletter"),
+    "ads": ("ads", "advertising", "cac", "roas", "campaign"),
+    "pricing": ("pricing", "price", "plan", "tier", "freemium"),
+    "churn": ("churn", "retention", "cancel", "renewal"),
+    "automation": ("automation", "automate", "workflow", "script", "bot", "api"),
+    "moderation": ("ban", "banned", "shadowban", "rate limit", "blocked", "suspended", "spam filter"),
+    "outreach": ("cold email", "outreach", "dm", "lead", "prospect"),
+    "community": ("community", "discord", "reddit", "subreddit", "forum"),
+}
+MARKERS_EN = ("should", "don't", "do not", "avoid", "make sure", "the key", "tip:",
+              "i tested", "we tried", "we found", "what worked", "learned", "mistake",
+              "biggest", "never", "always", "instead of", "reason")
+
 ACTION_MARKERS = ("建议", "一定", "不要", "别", "关键", "核心", "技巧", "方法", "第一步",
                   "注意", "必须", "最好", "可以", "需要", "记住", "重点", "秘诀", "坑")
 SPLIT = re.compile(r"[。！？；!?;\n]+")
@@ -163,14 +180,19 @@ def chunk_plain(body: str, size: int = 70) -> List[str]:
 
 def candidates(body: str) -> List[str]:
     out = []
-    body = body.replace(" ", "") if body.count(" ") > len(body) / 8 else body
+    # 英文用句点断句：中文的 SPLIT 只认 。！？；，英文整段会被当成一句
+    if sum(1 for ch in body if ord(ch) < 128) > len(body) * 0.6:
+        body = re.sub(r"(?<=[a-z0-9\)\]])\.\s+", "。", body)
+    cjk = sum(1 for ch in body if "\u4e00" <= ch <= "\u9fff")
+    body = body.replace(" ", "") if cjk > len(body) * 0.3 else body
     if body.count("。") + body.count("，") < 5:
         body = "\n".join(chunk_plain(body))
     for s in SPLIT.split(body):
         s = s.strip()
-        if not (12 <= len(s) <= 110):
+        if not (12 <= len(s) <= 160):
             continue
-        if not any(m in s for m in ACTION_MARKERS):
+        low = s.lower()
+        if not (any(m in s for m in ACTION_MARKERS) or any(m in low for m in MARKERS_EN)):
             continue
         if any(b in s for b in BOILERPLATE):
             continue
@@ -185,7 +207,8 @@ def topic_claims(pid: str, min_support: int = 2) -> List[Dict]:
     d = CORPUS / pid
     if not d.exists():
         return []
-    topics = TOPICS["通用"] + TOPICS.get(pid, [])
+    topics = TOPICS["通用"] + TOPICS.get(pid, []) + list(TOPICS_EN.items())
+    en = any(ord(c) < 128 and c.isalpha() for c in body_join) if False else None
     articles = [parse_article(f) for f in sorted(d.glob("*.txt"))]
     out = []
     for name, kws in topics:

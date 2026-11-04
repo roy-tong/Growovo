@@ -1,0 +1,81 @@
+{
+  "schema_version": "1.0",
+  "kind": "growovo.metric_dictionary",
+  "dictionary_id": "developer-activation-example",
+  "version": "1.0.0",
+  "metrics": [
+    {
+      "metric_id": "developer_activation_rate",
+      "version": "1.0.0",
+      "name": "开发者激活率",
+      "layer": "business",
+      "subject_type": "developer",
+      "eligibility": "joined_authorized_tutorial_cohort",
+      "numerator": {
+        "event": "first_successful_api_call",
+        "filter": "verified = true and approximated = false",
+        "dedupe_key": "developer_id"
+      },
+      "denominator": {
+        "event": "eligible_tutorial_cohort_entry",
+        "dedupe_key": "developer_id"
+      },
+      "formula": "numerator_count / denominator_count",
+      "unit": "ratio",
+      "cohort": {"field": "cohort_entered_at", "window": "tutorial_release_window"},
+      "observation_window": {"value": 14, "unit": "day"},
+      "timezone": "Asia/Shanghai",
+      "source_refs": ["authorized_product_event_export"],
+      "verification_policy": "verified_non_approximate",
+      "owner_id": "person-product-growth-owner",
+      "baseline": null,
+      "target": null,
+      "guardrail_refs": ["broken_example_rate"],
+      "known_limitations": ["不能识别未授权导入的匿名开发者", "发布回执不计入激活"]
+    },
+    {
+      "metric_id": "deliverable_first_pass_acceptance",
+      "version": "1.0.0",
+      "name": "交付物一次验收通过率",
+      "layer": "process",
+      "subject_type": "deliverable",
+      "eligibility": "submitted_required_deliverables",
+      "numerator": {"event": "accepted_on_first_review", "dedupe_key": "deliverable_id"},
+      "denominator": {"event": "first_review_submitted", "dedupe_key": "deliverable_id"},
+      "formula": "numerator_count / denominator_count",
+      "unit": "ratio",
+      "cohort": {"field": "first_submitted_at", "window": "work_order_window"},
+      "observation_window": {"value": 0, "unit": "day"},
+      "timezone": "Asia/Shanghai",
+      "source_refs": ["acceptance_review_events"],
+      "verification_policy": "signed_reviewer_event",
+      "owner_id": "person-devrel-owner",
+      "baseline": null,
+      "target": null,
+      "guardrail_refs": [],
+      "known_limitations": ["验收通过率不证明外部业务有效"]
+    },
+    {
+      "metric_id": "broken_example_rate",
+      "version": "1.0.0",
+      "name": "失效示例率",
+      "layer": "guardrail",
+      "subject_type": "published_example",
+      "eligibility": "currently_published_examples",
+      "numerator": {"event": "clean_room_reproduction_failed", "dedupe_key": "example_version_id"},
+      "denominator": {"event": "clean_room_reproduction_attempted", "dedupe_key": "example_version_id"},
+      "formula": "numerator_count / denominator_count",
+      "unit": "ratio",
+      "cohort": {"field": "tested_at", "window": "weekly_quality_window"},
+      "observation_window": {"value": 7, "unit": "day"},
+      "timezone": "Asia/Shanghai",
+      "source_refs": ["versioned_reproduction_runs"],
+      "verification_policy": "real_exit_code_and_output",
+      "owner_id": "person-technical-owner",
+      "baseline": null,
+      "target": null,
+      "guardrail_refs": [],
+      "known_limitations": ["失败样本需区分示例错误与未声明环境差异"]
+    }
+  ]
+}
