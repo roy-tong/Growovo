@@ -20,7 +20,7 @@ CLI（`python3 mkt.py …`）或 MCP（mkt-server），本协议不发明新动�
 |---|---|---|
 | Positioning 定位（定） | 理解产品、定位 ICP、购买动机与竞争替代 | 研究上游 [askovo](https://github.com/roy-tong/askovo) + `mkt opportunity`（需求匹配/候选动作，不把抱怨当购买意愿） |
 | Asset 资产（造） | 生成可直接使用的教程、样例、测试、模板、对比与真实案例 | `mkt artifact lint/render` + 内容协作 skill；必须有直接用户价值、复现步骤和边界，不只是像人写 |
-| Campaign 投放（跑） | 选 Platform×Motion×Vertical、执行授权动作、管理反馈 | `mkt playbook compose` + `mkt execute`（统一审批/队列/人工单/读回） |
+| Campaign 投放（跑） | 选 Platform×Motion×Vertical、执行授权动作、管理反馈 | `mkt playbook-model compose` + `mkt execute`（统一审批/队列/人工单/读回） |
 | Outcome 结果（量） | 追踪真实使用、激活/留存/付费与断点 | `mkt journey`（同范围六阶段）+ `mkt result`（同范围三层投影）+ 可选学习实验 |
 | **Follow-up 跟进（守）** | **发完之后把人跟到底：对象台账、到期提醒、三次原则、判定弃或续** | `mkt followup`（台账/三次原则/到期）+ `mkt intent`（可配置学习实验）+ `mkt billing`（动作/结果/订阅/混合报价实验） |
 

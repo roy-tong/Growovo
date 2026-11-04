@@ -85,7 +85,7 @@ python3 mkt.py check              # 确认 CDP 会话与 X/Gmail 登录态
 | `mkt artifact lint/render --file <json>` | **价值资产**：校验/渲染教程、样例、可复现测试、模板、对比与真实案例；必须有直接价值、复现步骤与边界 | — |
 | `mkt journey --events <json> --campaign C --since D1 --until D2` | **用户旅程**：同范围诊断发现→互动→试用→激活→持续使用→付费的断点，历史 campaign 不补本轮 | — |
 | `mkt evaluate compare/evolution/external` | **能力/竞争/进化评估**：同条件逐项对照、外部未见任务契约与版本回归，不输出综合优胜分 | — |
-| `mkt playbook compose --platform P --motion M --vertical V` | **三维 Playbook**：平台规则×增长方法×行业承接组合，不为每个平台×行业复制一套流程 | — |
+| `mkt playbook-model compose --platform P --motion M --vertical V` | **三维 Playbook**：平台规则×增长方法×行业承接组合，不为每个平台×行业复制一套流程 | — |
 | `mkt account add/list/check/warm/eligible/takeover` | **授权账号资产**：归属/授权证据、养号生命周期、健康度、冷却与人工接管；无登录或发送 | — |
 | `mkt network bind/list/export` | **代理引用**：只存环境变量名与账号绑定，不读凭据、不提高配额、不绕封禁 | — |
 | `mkt exp show/coverage/stale` | **用户经验与资格**：官方规则、可复现方法、单篇资深经验、短期技巧、自有实测分轨管理；策略只取合资格经验，过期/未审/无关/无 URL 不进入执行 | — |

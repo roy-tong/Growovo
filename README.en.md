@@ -102,7 +102,7 @@ python3 mkt.py check              # verify the CDP session and X/Gmail login sta
 | `mkt artifact lint/render --file <json>` | **Value Artifacts**: validate/render tutorials, examples, reproducible tests, templates, comparisons and real cases with direct value, reproduction steps and boundaries | — |
 | `mkt journey --events <json> --campaign C --since D1 --until D2` | **User journeys**: diagnose discovery→engagement→trial→activation→retention→payment in one scope; historical campaigns never fill the current window | — |
 | `mkt evaluate compare/evolution/external` | **Capability, competition and evolution evaluation**: same-condition comparisons, external unseen-case contract and regression history without a composite winner score | — |
-| `mkt playbook compose --platform P --motion M --vertical V` | **Platform × Motion × Vertical** playbooks without duplicating a workflow per platform and industry | — |
+| `mkt playbook-model compose --platform P --motion M --vertical V` | **Platform × Motion × Vertical** playbooks without duplicating a workflow per platform and industry | — |
 | `mkt account add/list/check/warm/eligible/takeover` | **Authorized account assets**: ownership/authorization evidence, lifecycle, health, cooldown and human takeover; no login or sends | — |
 | `mkt network bind/list/export` | **Proxy references**: only environment-variable names bound to accounts; no credential reading, higher quotas, or ban evasion | — |
 | `mkt intent start/log/show/verdict` | **Intent learning experiments**: configurable windows and optional targets; sample/safety observations, not pass/dead channel verdicts | — |

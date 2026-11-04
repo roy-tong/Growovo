@@ -566,7 +566,7 @@ def cmd_artifact(args):
     return 0
 
 
-def cmd_playbook(args):
+def cmd_playbook_model(args):
     from core import playbook_model
     if args.action == "list":
         print(json.dumps({"motions": playbook_model.MOTIONS,
@@ -1843,13 +1843,13 @@ def build_parser():
     sp.add_argument("--file", required=True, help="价值资产 JSON")
     sp.set_defaults(fn=cmd_artifact)
 
-    sp = sub.add_parser("playbook", help="Playbook 组合：Platform × Motion × Vertical")
+    sp = sub.add_parser("playbook-model", help="Playbook 组合：Platform × Motion × Vertical")
     sp.add_argument("action", choices=["list", "compose"])
     sp.add_argument("--platform", default="")
     sp.add_argument("--motion", default="")
     sp.add_argument("--vertical", default="")
     sp.add_argument("--json", action="store_true")
-    sp.set_defaults(fn=cmd_playbook)
+    sp.set_defaults(fn=cmd_playbook_model)
 
     sp = sub.add_parser("evaluate", help="能力/竞争/进化评估：同条件对照与外部未见任务")
     sp.add_argument("action", choices=["compare", "evolution", "external"])
