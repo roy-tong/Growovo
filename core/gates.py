@@ -70,33 +70,60 @@ def load_suppress(path):
     return {l.strip() for l in lines if l.strip() and not l.strip().startswith("#")}
 
 
+class SuppressionIntegrityError(RuntimeError):
+    """抑制源（contacts.jsonl）存在但无法可靠解析。
+
+    把坏行当"没有 DNC"是 fail open：恰好损坏的那条 DNC 记录会被发送门禁
+    忽略。这里显式报错，让受影响的发送批次中止（G-4，review 2026-11-04）。
+    """
+
+
 def load_contact_suppressions(data_dir):
     """从 contacts.jsonl 读取 DNC / bounced 身份，作为发送门禁的统一抑制源。
 
     DNC 是联系人库的业务状态；发送门禁不能要求人工再抄一遍 suppress.txt。
-    这里把该联系人的全部平台身份都视为抑制目标；文件缺失/坏行按空处理，
-    真正的写操作仍会经过账本、暂停和审批门禁。
+    这里把该联系人的全部平台身份都视为抑制目标；文件缺失=未配置（空集），
+    文件存在但坏行/坏 schema=SuppressionIntegrityError（fail closed）。
     """
     path = Path(data_dir) / "contacts.jsonl"
     if not path.is_file():
         return set()
     out = set()
-    for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
-        line = line.strip()
+    try:
+        text = path.read_text(encoding="utf-8")
+    except UnicodeDecodeError as exc:
+        raise SuppressionIntegrityError(
+            "contacts.jsonl 不是合法 UTF-8（%s）；DNC 数据不可靠时拒绝当作空集"
+            "继续发送，请修复后重试。" % exc) from exc
+    for number, raw in enumerate(text.splitlines(), 1):
+        line = raw.strip()
         if not line or line.startswith("#"):
             continue
         try:
             rec = json.loads(line)
-        except json.JSONDecodeError:
-            continue
+        except json.JSONDecodeError as exc:
+            raise SuppressionIntegrityError(
+                "contacts.jsonl 第 %d 行不是合法 JSON：%s；坏行旁边的 DNC 记录"
+                "会被静默丢弃（fail open），必须中止受影响的发送。" % (number, exc)
+            ) from exc
+        if not isinstance(rec, dict):
+            raise SuppressionIntegrityError(
+                "contacts.jsonl 第 %d 行不是 JSON 对象；无法判断该联系人是否"
+                "需要抑制。" % number)
         state = rec.get("state") or {}
         if not isinstance(state, dict):
-            continue
+            raise SuppressionIntegrityError(
+                "contacts.jsonl 第 %d 行 state 不是对象（得到 %s）；schema 漂移"
+                "会让该联系人的 DNC/bounced 状态不可判读。"
+                % (number, type(state).__name__))
         if not (state.get("dnc") or state.get("bounced")):
             continue
         platforms = rec.get("platforms") or {}
-        if isinstance(platforms, dict):
-            out.update(str(v).strip() for v in platforms.values() if str(v or "").strip())
+        if not isinstance(platforms, dict):
+            raise SuppressionIntegrityError(
+                "contacts.jsonl 第 %d 行 platforms 不是对象；无法取出该 DNC "
+                "联系人应被抑制的平台身份。" % number)
+        out.update(str(v).strip() for v in platforms.values() if str(v or "").strip())
         for key in ("email", "handle", "target"):
             if rec.get(key):
                 out.add(str(rec[key]).strip())
