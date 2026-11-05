@@ -161,7 +161,7 @@ def _inherited_routine(data_dir, channel, action, account):
 
 
 def enforce_approval(data_dir, campaign, adhoc=False, *, routine=None,
-                     channel=None, action=None, account=""):
+                     channel=None, action=None, account="", platform_user_id=None):
     """执行前强制：routine 合格或绑定已人审 plan（05 产品方案 §2.4）。
 
     - 显式 routine=True 且 channel/action/account 命中有效常驻授权：返回
@@ -180,7 +180,7 @@ def enforce_approval(data_dir, campaign, adhoc=False, *, routine=None,
             routine = True
             channel, action, account = inherited
     if routine is True and channel and action and routine_allows(
-            data_dir, channel, action, account):
+            data_dir, channel, action, account, platform_user_id):
         return "routine-policy"
 
     plan, _ = governing_plan(data_dir, campaign)

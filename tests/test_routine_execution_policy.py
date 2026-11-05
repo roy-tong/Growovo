@@ -15,7 +15,7 @@ import mcp_server
 from channels import email_smtp
 from core import execution_policy
 from core.action_runner import ActionError, precheck, run_action
-from core.execution_policy import authorize, allows, get_policy, revoke
+from core.execution_policy import allows, authorize, get_policy, revoke
 from core.gates import Gate
 from core.ledger import Ledger
 from core.pipeline import WritePipeline, standard_pipeline

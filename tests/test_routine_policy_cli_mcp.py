@@ -71,6 +71,20 @@ class TestRoutinePolicyCLI(unittest.TestCase):
         self.assertEqual(2, result.returncode)
         self.assertIn("授权失败", result.stderr)
 
+    def test_identity_binding_is_enforced_by_policy_check(self):
+        policy = self.cli("policy", "enable", "--by", "human-owner",
+                          "--actions", "x:publish", "--accounts", "brand-main",
+                          "--identity", "brand-main=x:42", "--require-identity")
+        self.assertTrue(policy["account_identities"]["brand-main"])
+        self.assertTrue(policy["require_identity"])
+        self.assertTrue(self.cli("policy", "check", "--channel", "x", "--action-name", "publish",
+                                 "--account", "brand-main",
+                                 "--platform-user-id", "42")["allowed"])
+        self.cli("policy", "check", "--channel", "x", "--action-name", "publish",
+                 "--account", "brand-main", "--platform-user-id", "43", expected=2)
+        self.cli("policy", "check", "--channel", "x", "--action-name", "publish",
+                 "--account", "brand-main", expected=2)
+
     def test_named_account_must_match_exactly(self):
         self.cli("policy", "enable", "--by", "human-owner", "--actions", "x:publish,linkedin:message",
                  "--accounts", "brand-main")

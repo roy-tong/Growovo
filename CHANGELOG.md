@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.13.0 - 2026-11-05
+
+This release adds account-identity binding to standing authorization, closing
+the gap between a declared account label and the platform identity behind it.
+
+### Added
+
+- **Identity records in routine policies**: `mkt policy enable --identity
+  account=platform:user_id` (repeatable) plus `--require-identity`. Policies
+  store `account_identities` and the requirement flag.
+- **Identity-aware execution gate**: `allows(..., platform_user_id=...)` and
+  `mkt action --platform-user-id` verify the platform user id when supplied;
+  `--require-identity` rejects execution without a matching id.
+- **Policy check/show**: `mkt policy check --platform-user-id` reports the
+  identity result; `show` lists identity records and still audits broad scopes
+  and missing expiry.
+
+### Boundaries
+
+- Identity records are verified_at-stamped audit data supplied by the operator;
+  the repository does not perform OAuth or call platform APIs to prove them.
+- Queue/pipeline callers must pass `platform_user_id` to benefit from the
+  requirement; policies without identity records behave as before.
+
 ## 0.12.0 - 2026-11-05
 
 This release turns declared execution and verification inputs into traceable

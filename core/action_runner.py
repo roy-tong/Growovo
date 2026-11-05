@@ -34,7 +34,7 @@ def _registry():
 
 
 def precheck(channel, action, data_dir, campaign, go, allow_unverified, target=None,
-             routine=False, account=""):
+             routine=False, account="", platform_user_id=None):
     """Run shared write gates; return the approval mode for a real write.
 
     routine=False uses the original approval call verbatim.  routine=True only
@@ -66,7 +66,8 @@ def precheck(channel, action, data_dir, campaign, go, allow_unverified, target=N
         if routine is True:
             return enforce_approval(
                 data_dir, campaign, routine=True,
-                channel=channel, action=action, account=account)
+                channel=channel, action=action, account=account,
+                platform_user_id=platform_user_id)
         enforce_approval(data_dir, campaign)
         return None
     except Exception as exc:
@@ -92,7 +93,7 @@ def _x_last_record(ledger, campaign, action, fallback):
 def _dispatch_action_inner(*, channel, action, data_dir=None, campaign="", go=False,
                            allow_unverified=False, target=None, text=None, title=None, url=None,
                            subreddit=None, number=None, extra=None, log=print,
-                           routine=False, account=""):
+                           routine=False, account="", platform_user_id=None):
     """执行单条写动作，返回账本记录 dict。"""
     data = Path(data_dir or resolve())
     channel = (channel or "").strip().lower()
@@ -100,7 +101,7 @@ def _dispatch_action_inner(*, channel, action, data_dir=None, campaign="", go=Fa
     if routine is True:
         approval_mode = precheck(
             channel, action, data, campaign, go, allow_unverified, target=target,
-            routine=True, account=account)
+            routine=True, account=account, platform_user_id=platform_user_id)
     else:
         approval_mode = precheck(
             channel, action, data, campaign, go, allow_unverified, target=target)
@@ -206,7 +207,7 @@ def _dispatch_action_inner(*, channel, action, data_dir=None, campaign="", go=Fa
     raise ActionError(f"{channel}/{action} 未接入统一动作执行器")
 
 
-def _dispatch_action(**kwargs):
+def _dispatch_action(platform_user_id=None, **kwargs):
     """Bridge explicit routine approval through legacy channel re-checks.
 
     Channel functions keep their existing signatures.  The ContextVar scope is
@@ -214,6 +215,8 @@ def _dispatch_action(**kwargs):
     operation, and is reset before returning.  Dry-run and legacy calls never
     enter it.
     """
+    if platform_user_id is not None:
+        kwargs["platform_user_id"] = platform_user_id
     if not (kwargs.get("go") and kwargs.get("routine") is True):
         return _dispatch_action_inner(**kwargs)
     from .planlint import routine_scope
