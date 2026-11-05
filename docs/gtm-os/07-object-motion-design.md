@@ -63,7 +63,7 @@ mkt orchestrate（岗位与交付物） → mkt plan/queue（人审） → 执�
 | `commerce_led` | 商业/交易增长 | 硬件、内容账号、服务 | 购买路径 + 供应履约 |
 | `partnership_led` | 合作增长 | 开源、硬件、B2B、内容、服务、软件 | 合作方名单 |
 
-机制可以组合：最多 3 个，1 个 primary + 最多 2 个 supporting；supporting 只补主目标的上游条件（认知、需求、承接），不单独承诺结果。`selected_motions` 记录角色与理由，`combination.order` 给出建议顺序；`selected_motion` 保留为主机制，兼容旧调用。
+机制可以组合：最多 3 个，1 个 primary + 最多 2 个 supporting；supporting 只补主目标的上游条件（认知、需求、承接），不单独承诺结果。Proposal 可给每个机制带 `fit.audience_fit`、`fit.resource_fit` 与 `evidence`；有 fit 时按 fit 排序，没有证据的机制标记为 hypothesis 并进入 `combination.evidence_gaps`。`selected_motions` 记录角色与理由，`combination.order` 给出建议顺序；`selected_motion` 保留为主机制，兼容旧调用。
 
 ### 2.4 Channel
 
@@ -102,7 +102,7 @@ mkt orchestrate（岗位与交付物） → mkt plan/queue（人审） → 执�
 | `declared_only` | 只声明了数据源类型或连接未确认；不能把类型匹配当可核验 |
 | `unverified` | 没有数据渠道或缺少该目标必需的数据源；只能拿到平台回执 |
 
-验证等级由 `data_sources`、`data_connected`、`events_verified` 三者共同决定。`data_connected` 必须是 `data_sources` 的子集；事件级目标（activation / revenue / retention / contribution）还要求 `events_verified=true` 才能升级为 `verifiable`。这些都是操作者声明，本模块不能替代真实连接检测。
+验证等级由 `data_sources` 与 `data_receipts` 共同决定。回执至少包含 `source`、`connected`；事件级目标（activation / revenue / retention / contribution）还要求 `event`、`window`、`sample` 与 `receipt_id`。`data_connected` / `events_verified` 两个布尔字段保留兼容，但**单独使用只能到 `declared_only`**，不能升级为 `verifiable`。回执仍是操作者提供的记录，本模块不能替代真实连接检测。
 
 数据源用固定词表：`platform_insights`、`product_events`、`billing`、`order_system`、`crm`、`repo_events`。写错会被拒绝，而不是被当成一个看起来合理的自由文本。
 

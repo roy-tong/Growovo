@@ -673,8 +673,16 @@ def cmd_policy(args):
                "account": args.account})
         return 0 if allowed else 2
     policy = execution_policy.get_policy(DATA)
-    if isinstance(policy, dict) and not policy.get("expires_at"):
-        policy = dict(policy, warning="该常驻授权没有有效期；建议用 --days 重新启用，或显式接受长期授权")
+    if isinstance(policy, dict):
+        warnings = []
+        if not policy.get("expires_at"):
+            warnings.append("该常驻授权没有有效期；建议用 --days 重新启用，或显式接受长期授权")
+        broad = sorted(set(policy.get("allow_actions") or []) - {"email:message"})
+        if broad:
+            warnings.append("该常驻授权包含非默认动作：" + "、".join(broad)
+                            + "；请确认仍是当前需要的最小范围")
+        if warnings:
+            policy = dict(policy, warning=warnings[0], warnings=warnings)
     return _emit(policy)
 
 
@@ -883,7 +891,8 @@ def cmd_work_action(args):
         DATA, work_order_id=args.work_order_id, step_id=args.step_id,
         deliverable_id=args.deliverable_id, deliverable_version=args.deliverable_version or None,
         strategy=strategy, targets=targets, campaign=args.campaign,
-        account=args.account, workspace=args.execution_workspace, by=args.by))
+        account=args.account, workspace=args.execution_workspace, by=args.by,
+        allow_unbound=args.allow_unbound, binding_note=args.binding_note))
 
 
 def cmd_playbook_model(args):
@@ -2691,6 +2700,9 @@ def build_parser():
     a.add_argument("--strategy-file", required=True); a.add_argument("--targets", required=True)
     a.add_argument("--campaign", required=True); a.add_argument("--account", default="")
     a.add_argument("--execution-workspace", default=""); a.add_argument("--by", default="operator")
+    a.add_argument("--allow-unbound", action="store_true",
+                   help="允许交付物未声明 execution_payload 的旧路径；会在 provenance 中标记 unbound_explicit")
+    a.add_argument("--binding-note", default="", help="解释为何允许未绑定载荷")
     sp.set_defaults(fn=cmd_work_action)
 
     sp = sub.add_parser("playbook-model", help="Playbook 组合：Platform × Motion × Vertical")

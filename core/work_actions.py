@@ -32,7 +32,8 @@ def _sha(value: Any) -> str:
 def materialize(data_dir: Path | str, *, work_order_id: str, step_id: str,
                 deliverable_id: str, deliverable_version: Optional[str],
                 strategy: Dict[str, Any], targets: List[Dict[str, str]], campaign: str,
-                account: str = "", workspace: str = "", by: str) -> Dict[str, Any]:
+                account: str = "", workspace: str = "", by: str,
+                allow_unbound: bool = False, binding_note: str = "") -> Dict[str, Any]:
     data_dir = Path(data_dir)
     order = WorkStore(data_dir).get(work_order_id)
     if order["state"] not in ("ready", "running"):
@@ -52,6 +53,20 @@ def materialize(data_dir: Path | str, *, work_order_id: str, step_id: str,
         raise WorkActionError("执行载荷必须来自 accepted Deliverable")
     if deliverable["work_order_id"] != work_order_id:
         raise WorkActionError("Deliverable 与 WorkOrder 不匹配")
+    payload = deliverable["fields"].get("execution_payload")
+    payload_sha = _sha({"strategy": strategy, "targets": targets})
+    if payload is None:
+        if not allow_unbound:
+            raise WorkActionError(
+                "Deliverable 未声明 execution_payload；执行载荷无法追溯到已验收内容。"
+                "请在交付物中加入 execution_payload，或显式传 allow_unbound 并记录原因")
+        binding_mode = "unbound_explicit"
+    else:
+        expected = _sha({"strategy": payload.get("strategy"),
+                         "targets": payload.get("targets")})
+        if expected != payload_sha:
+            raise WorkActionError("执行载荷与 accepted Deliverable 的 execution_payload 不一致")
+        binding_mode = "deliverable"
     if (data_dir / "plans" / f"{campaign}.json").exists() or (data_dir / "queues" / f"{campaign}.json").exists():
         raise WorkActionError("campaign 已有 plan/queue，拒绝覆盖既有审批对象")
     request = {
@@ -64,6 +79,11 @@ def materialize(data_dir: Path | str, *, work_order_id: str, step_id: str,
             "deliverable_id": deliverable_id,
             "version": deliverable["version"],
             "content_sha256": _sha(deliverable["fields"]),
+        },
+        "payload_binding": {
+            "mode": binding_mode,
+            "payload_sha256": payload_sha,
+            "note": binding_note,
         },
         "campaign": campaign,
         "account": account or "default",

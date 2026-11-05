@@ -66,7 +66,8 @@ def _current_for(reference=None):
 
 def _normalise_actions(actions):
     if actions is None:
-        return list_routine_actions()
+        # Safe default: a missing action list must not grant every routine action.
+        return ["email:message"]
     if isinstance(actions, (str, bytes)) or not isinstance(actions, (list, tuple, set, frozenset)):
         raise ValueError("actions 必须是 channel:action 字符串列表")
     selected = set()
@@ -107,6 +108,7 @@ def _write(data_dir, policy):
 def authorize(data_dir, by, actions=None, accounts=None, days=None, now=None):
     """Create/replace the workspace routine policy and return its dict.
 
+    ``actions=None`` grants only ``email:message``, never the full routine set.
     ``by`` is mandatory audit attribution.  ``days=None`` means no expiry;
     otherwise it must be a positive integer.  ``now`` accepts a datetime or
     ISO timestamp and exists to make authorization deterministic in tests and
@@ -121,6 +123,7 @@ def authorize(data_dir, by, actions=None, accounts=None, days=None, now=None):
         "version": VERSION,
         "enabled": True,
         "allow_actions": _normalise_actions(actions),
+        "scope_defaulted": actions is None,
         "allow_accounts": _normalise_accounts(accounts),
         "authorized_by": by.strip(),
         "authorized_at": current.isoformat(timespec="seconds"),

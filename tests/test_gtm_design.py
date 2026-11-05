@@ -84,7 +84,9 @@ class ConstraintTests(unittest.TestCase):
             "增长一个小红书摄影账号",
             constraints={"authorized_channels": ["xiaohongshu"], "assets": ["content"],
                          "data_sources": ["platform_insights"],
-                         "data_connected": ["platform_insights"], "region": "cn"},
+                         "data_receipts": [{"source": "platform_insights", "connected": True,
+                                            "window": "2026-10", "receipt_id": "r-1"}],
+                         "region": "cn"},
         )
         self.assertEqual(["xiaohongshu"], [row["id"] for row in plan["channels"]["primary"]])
         self.assertTrue(plan["motions"][0]["executable"])
@@ -228,16 +230,29 @@ class ReviewFixTests(unittest.TestCase):
         connected = gtm_design.design(
             "推广智能硬件，目标预售订单",
             constraints={**base, "data_sources": ["order_system"],
-                         "data_connected": ["order_system"]},
+                         "data_receipts": [{"source": "order_system", "connected": True}]},
         )
         self.assertEqual("declared_only", connected["measurement_readiness"]["level"])
         verified = gtm_design.design(
             "推广智能硬件，目标预售订单",
             constraints={**base, "data_sources": ["order_system"],
-                         "data_connected": ["order_system"], "events_verified": True},
+                         "data_receipts": [{"source": "order_system", "connected": True,
+                                            "event": "order.paid", "window": "2026-10",
+                                            "sample": 42, "receipt_id": "r-2"}]},
         )
         self.assertEqual("verifiable", verified["measurement_readiness"]["level"])
         self.assertTrue(verified["measurement_readiness"]["ready"])
+
+    def test_boolean_flags_alone_do_not_make_results_verifiable(self):
+        plan = gtm_design.design(
+            "推广智能硬件，目标预售订单",
+            constraints={"authorized_channels": ["taobao"],
+                         "assets": ["content", "supply", "purchase"],
+                         "data_sources": ["order_system"],
+                         "data_connected": ["order_system"], "events_verified": True},
+        )
+        self.assertEqual("declared_only", plan["measurement_readiness"]["level"])
+        self.assertFalse(plan["measurement_readiness"]["ready"])
 
     def test_hardware_combines_content_and_commerce(self):
         plan = gtm_design.design(
@@ -251,6 +266,21 @@ class ReviewFixTests(unittest.TestCase):
         self.assertEqual("primary", roles["commerce_led"])
         self.assertEqual("supporting", roles["content_led"])
         self.assertEqual("content_led", plan["combination"]["order"][0])
+
+    def test_agent_fit_orders_motions_and_marks_hypotheses(self):
+        plan = gtm_design.design(
+            "增长我们的 SaaS 产品，提高激活",
+            proposal={"motions": [
+                {"id": "content_led", "why": "写教程", "fit": {"audience_fit": 0.3}},
+                {"id": "community_led", "why": "社区答疑",
+                 "fit": {"audience_fit": 0.9, "resource_fit": 0.7},
+                 "evidence": "过去 4 周社区回答带来 12 次试用"},
+            ]},
+        )
+        self.assertEqual("community_led", plan["selected_motion"])
+        self.assertEqual("community_led", plan["combination"]["primary"])
+        self.assertNotIn("community_led", plan["combination"]["evidence_gaps"])
+        self.assertIn("content_led", plan["combination"]["evidence_gaps"])
 
     def test_handoff_refuses_blocked_design(self):
         plan = gtm_design.design(

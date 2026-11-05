@@ -1,18 +1,18 @@
 # Growovo: implementation status
 
-Reviewed 2026-11-05. **Working baseline: v0.11.0 (2026-11-05).** Available means local implementation and local tests, not production validation on every platform or proof of business outcomes.
+Reviewed 2026-11-05. **Working baseline: v0.12.0 (2026-11-05).** Available means local implementation and local tests, not production validation on every platform or proof of business outcomes.
 
 > Business architecture: [GTM 业务操作系统 v5](gtm-os/README.md) covers role families 07–46, work-order/SOP/deliverable/handoff contracts, KPI definitions and templates. R0/R1 are now locally implemented; see [implementation and remaining boundaries](gtm-os/05-implementation.md). Registry coverage is not equivalent to all 40 professional SOPs being executable or externally effective.
 
 ## Verification snapshot
 
-- `python3 -m unittest discover -s tests`: **676 tests pass**.
+- `python3 -m unittest discover -s tests`: **680 tests pass**.
 - `python3 mkt.py demo`: plan validation, human approval, write pipeline and ledger pass.
 - `python3 mkt.py work-demo`: context → objective → WorkOrder → SOP → accepted deliverables → receiver handoff → approved plan/queue → independent KPI observation passes; no queue execution or send ledger.
 - Isolated wheel build and target install: v0.9.0 was verified; v0.10.0 shipped through the release workflow; the v0.11.0 wheel is rebuilt by the release workflow.
 - Real CLI checks also cover email queue approval and dry-run, X reply queue contract, manual work sheets, campaign isolation, opportunity discovery, value artifacts, journeys, account lifecycle and pricing experiments. No real account sends in tests.
 
-## Baseline capabilities (through v0.11.0)
+## Baseline capabilities (through v0.12.0)
 
 | Area | Local implementation | Verification and remaining boundary |
 |---|---|---|
@@ -48,6 +48,16 @@ Reviewed 2026-11-05. **Working baseline: v0.11.0 (2026-11-05).** Available means
 | Pricing experiments | `core/billing.py` + `mkt billing` | Action/outcome remains a candidate; explicit subscription/hybrid experiments and acceptance logs are supported. Accepted quote is not payment or product value |
 | Follow-up | `core/followups.py` + `mkt followup` | Optional campaign field supports scoped projections. Due follow-ups stay ahead of new actions; local records never send |
 | Measurement | `core/task_outcome.py` + GitHub benchmark | 33 synthetic keyword-baseline fixtures remain a failure-mode benchmark, not expert triage proof. `action_runner.record_ledger_outcome` records outcomes but does not independently verify delivery |
+
+## v0.12.0 additions
+
+| Area | Local implementation | Verification and remaining boundary |
+|---|---|---|
+| Execution payload binding | Accepted Deliverable may carry `execution_payload`; materialize rejects mismatches and records `payload_binding.mode` plus `payload_sha256` | Binding proves request/content consistency, not platform permission |
+| Legacy unbound path | `allow_unbound` + `binding_note`, recorded as `unbound_explicit` | Explicit risk acceptance is visible in provenance; not recommended |
+| Data receipts | `data_receipts` with source/connected/event/window/sample/receipt_id; `verifiable` requires event receipts | Receipts are declarations with IDs; live connection verification is still external |
+| Motion fit | Proposal fit scores order motions; missing evidence marks a hypothesis and appears in `combination.evidence_gaps` | Fit is an agent judgement, not measured audience response |
+| Safe policy API default | `authorize(actions=None)` grants only `email:message`; `policy show` audits broad legacy scopes | Existing broad policies are not rewritten automatically; the warning asks for review |
 
 ## v0.11.0 additions
 

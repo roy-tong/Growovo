@@ -102,18 +102,23 @@ def run_work_demo(base: Path | str) -> int:
                                  dod_results=dod, by="demo-operator", approval=approval)
     print("[4/8] SOP 证据门     PASS — 每步有产物、DoD 和所需人审，已到授权执行步骤")
 
+    demo_strategy = {"primary": {"id": "github", "name": "GitHub"}}
+    demo_targets = [{"target": "issue:demo/repo#1", "body": "demo：已验收教程评论，不会发送"}]
+    distribution_fields = _fields("T07", "demo-distribution", order["work_order_id"])
+    distribution_fields["execution_payload"] = {
+        "strategy": demo_strategy, "targets": demo_targets}
     deliverables.create({
         "deliverable_id": "demo-distribution", "version": "1",
         "work_order_id": order["work_order_id"], "template_id": "T07", "template_version": "1.0.0",
         "deliverable_type": "distribution_and_followup_pack",
-        "fields": _fields("T07", "demo-distribution", order["work_order_id"]), "risk_class": "R3"}, by="demo-author")
+        "fields": distribution_fields, "risk_class": "R3"}, by="demo-author")
     deliverables.submit("demo-distribution", by="demo-author")
     deliverables.review("demo-distribution", results=_review("T07"), by="demo-channel-reviewer")
     action = materialize(
         data, work_order_id=order["work_order_id"], step_id="authorize-execution",
         deliverable_id="demo-distribution", deliverable_version="1",
-        strategy={"primary": {"id": "github", "name": "GitHub"}},
-        targets=[{"target": "issue:demo/repo#1", "body": "demo：已验收教程评论，不会发送"}],
+        strategy=demo_strategy,
+        targets=demo_targets,
         campaign="work-demo-action", account="demo-account", by="demo-operator")
     print("[5/8] 执行桥         PASS — accepted 交付物生成既有 plan/queue；尚未发送")
 

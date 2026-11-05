@@ -133,11 +133,15 @@ class WorkActionCase(unittest.TestCase):
         self.runs = SOPRunStore(self.data)
         self.run = self.runs.start(self.order["work_order_id"], by="human")
         self.deliverables = DeliverableStore(self.data)
+        self.strategy = {"primary": {"id": "github", "name": "GitHub"}}
+        self.targets = [{"target": "issue:example/repo#1", "body": "经审批的教程评论"}]
+        fields = fields_for("T30", "del-action")
+        fields["execution_payload"] = {"strategy": self.strategy, "targets": self.targets}
         self.deliverable_spec = {
             "deliverable_id": "del-action", "version": "1",
             "work_order_id": self.order["work_order_id"], "template_id": "T30",
             "template_version": "1.0.0", "deliverable_type": "distribution_and_followup_pack",
-            "fields": fields_for("T30", "del-action"), "risk_class": "R3"}
+            "fields": fields, "risk_class": "R3"}
 
     def _advance_to_authorization(self):
         sop = SOPRegistry(self.data).get(self.run["sop_id"], self.run["sop_version"])
@@ -154,8 +158,7 @@ class WorkActionCase(unittest.TestCase):
         return materialize(
             self.data, work_order_id=self.order["work_order_id"], step_id="authorize-execution",
             deliverable_id="del-action", deliverable_version="1",
-            strategy={"primary": {"id": "github", "name": "GitHub"}},
-            targets=[{"target": "issue:example/repo#1", "body": "经审批的教程评论"}],
+            strategy=self.strategy, targets=self.targets,
             campaign="work-action-demo", account="demo-account", by="operator")
 
     def test_accepted_deliverable_materializes_plan_queue_without_sending(self):
@@ -172,6 +175,41 @@ class WorkActionCase(unittest.TestCase):
         plan["provenance"]["deliverable_ref"]["content_sha256"] = "tampered"
         after = execution_fingerprint(plan, data_dir=self.data)
         self.assertNotEqual(before, after)
+
+    def test_payload_mismatch_is_rejected(self):
+        self._advance_to_authorization()
+        self.deliverables.create(self.deliverable_spec, by="author")
+        self.deliverables.submit("del-action", by="author")
+        self.deliverables.review("del-action", results=review_results("T30"), by="reviewer")
+        with self.assertRaisesRegex(WorkActionError, "不一致"):
+            materialize(
+                self.data, work_order_id=self.order["work_order_id"], step_id="authorize-execution",
+                deliverable_id="del-action", deliverable_version="1",
+                strategy={"primary": {"id": "x", "name": "X"}},
+                targets=self.targets, campaign="work-action-mismatch",
+                account="demo-account", by="operator")
+
+    def test_unbound_payload_requires_explicit_flag(self):
+        self._advance_to_authorization()
+        spec = copy.deepcopy(self.deliverable_spec)
+        spec["deliverable_id"] = "del-unbound"
+        spec["fields"] = fields_for("T30", "del-unbound")
+        self.deliverables.create(spec, by="author")
+        self.deliverables.submit("del-unbound", by="author")
+        self.deliverables.review("del-unbound", results=review_results("T30"), by="reviewer")
+        with self.assertRaisesRegex(WorkActionError, "execution_payload"):
+            materialize(
+                self.data, work_order_id=self.order["work_order_id"], step_id="authorize-execution",
+                deliverable_id="del-unbound", deliverable_version="1",
+                strategy=self.strategy, targets=self.targets, campaign="work-action-unbound",
+                account="demo-account", by="operator")
+        result = materialize(
+            self.data, work_order_id=self.order["work_order_id"], step_id="authorize-execution",
+            deliverable_id="del-unbound", deliverable_version="1",
+            strategy=self.strategy, targets=self.targets, campaign="work-action-unbound-ok",
+            account="demo-account", by="operator", allow_unbound=True, binding_note="legacy fixture")
+        self.assertEqual("unbound_explicit",
+                         result["request"]["payload_binding"]["mode"])
 
     def test_unaccepted_deliverable_cannot_materialize(self):
         self._advance_to_authorization()
