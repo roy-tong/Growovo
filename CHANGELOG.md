@@ -1,5 +1,39 @@
 # Changelog
 
+## 0.12.0 - 2026-11-05
+
+This release turns declared execution and verification inputs into traceable
+ones. It responds to the 2026-11-05 competitiveness review: design intent must
+reach the execution payload, and result verification must rest on receipts
+rather than booleans.
+
+### Added
+
+- **Execution payload binding** (`core/work_actions.py`): an accepted
+  Deliverable may declare `execution_payload` {strategy, targets}. Materialize
+  requires a byte-identical payload; legacy deliverables without it need an
+  explicit `allow_unbound` and are recorded as `unbound_explicit` in
+  provenance. Every request stores `payload_sha256` and binding mode.
+- **Data receipts for verification** (`core/gtm_design.py`): `data_receipts`
+  carry source, connection, event, window, sample and receipt id. `verifiable`
+  now requires an event/window/sample receipt for event objectives; booleans
+  (`data_connected`, `events_verified`) alone can only reach `declared_only`.
+- **Motion hypotheses with fit** (`gtm_design`): proposals may carry
+  `fit.audience_fit`, `fit.resource_fit` and `evidence`; accepted motions are
+  ordered by fit, and motions without evidence are marked as hypotheses and
+  listed in `combination.evidence_gaps`.
+- **Policy audit**: `authorize(actions=None)` now grants only `email:message`
+  at the API level too; `mkt policy show` warns about non-default actions in
+  legacy policies and about missing expiry.
+
+### Boundaries
+
+- Payload binding proves the execution request matches the accepted content; it
+  does not prove platform permission or business outcome.
+- Receipts are operator-supplied records; the module does not verify a live
+  database connection.
+- Motion fit is an explicit planning judgement, not measured channel effect.
+
 ## 0.11.0 - 2026-11-05
 
 This release merges the P0 execution-integrity work and fixes the design-layer

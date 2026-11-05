@@ -433,6 +433,25 @@ def normalize_constraints(raw: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     not_declared = [item for item in connected if item not in sources]
     if not_declared:
         raise GTMDesignError(f"data_connected 必须先出现在 data_sources 中: {', '.join(not_declared)}")
+    receipts_raw = raw.get("data_receipts") or []
+    if not isinstance(receipts_raw, list):
+        raise GTMDesignError("data_receipts 必须是对象列表")
+    receipts = []
+    for item in receipts_raw:
+        if not isinstance(item, dict):
+            raise GTMDesignError("data_receipts 每一项必须是对象")
+        source = str(item.get("source") or "")
+        if source not in sources:
+            raise GTMDesignError(f"data_receipts.source 必须先出现在 data_sources 中: {source!r}")
+        receipts.append({
+            "source": source,
+            "connected": bool(item.get("connected", False)),
+            "event": str(item.get("event") or ""),
+            "window": str(item.get("window") or ""),
+            "sample": item.get("sample"),
+            "receipt_id": str(item.get("receipt_id") or ""),
+            "observed_at": str(item.get("observed_at") or ""),
+        })
     return {
         "budget": budget,
         "region": region,
@@ -441,6 +460,7 @@ def normalize_constraints(raw: Optional[Dict[str, Any]]) -> Dict[str, Any]:
         "data_sources": sorted(set(sources)),
         "data_connected": sorted(set(connected)),
         "events_verified": bool(raw.get("events_verified", False)),
+        "data_receipts": receipts,
         "notes": str(raw.get("notes") or "").strip(),
     }
 
@@ -538,13 +558,18 @@ def _motion_status(motion_id: str, object_id: str, objective_id: str,
 
 
 def _verification(objective_id: str, constraints: Dict[str, Any]) -> Dict[str, Any]:
-    """区分「声明了数据源」「连接成功」「事件可核验」三层，不把声明当证据。"""
+    """区分「声明」「连接」「回执可核验」；布尔声明不足以升级为 verifiable。"""
     spec = OBJECTIVES[objective_id]
     declared = list(constraints["data_sources"])
-    connected = list(constraints["data_connected"])
+    receipts = {row["source"]: row for row in constraints.get("data_receipts") or []}
     available = [item for item in spec["sources"] if item in declared]
-    connected_available = [item for item in available if item in connected]
     missing = [item for item in spec["sources"] if item not in declared]
+    connected_available = [item for item in available
+                           if (receipts.get(item) or {}).get("connected")]
+    verified = [item for item in connected_available
+                if receipts[item].get("event")
+                and receipts[item].get("window")
+                and receipts[item].get("sample") is not None]
     if not declared:
         level = "unverified"
         limit = "未提供数据渠道：只能拿到平台回执，不能声称业务结果"
@@ -554,18 +579,30 @@ def _verification(objective_id: str, constraints: Dict[str, Any]) -> Dict[str, A
                  "平台回执不能替代业务结果")
     elif not connected_available:
         level = "declared_only"
-        limit = ("已声明数据源但未确认连接：不能把「类型匹配」当成可核验；"
-                 f"需要确认 {', '.join(available)} 的实际连接与口径")
-    elif objective_id in EVENT_OBJECTIVES and not constraints["events_verified"]:
+        limit = ("只声明了数据源，没有连接回执：不能把「类型匹配」当成可核验；"
+                 f"需要 {', '.join(available)} 的连接与口径回执")
+    elif objective_id in EVENT_OBJECTIVES and not verified:
         level = "declared_only"
-        limit = ("数据源已连接，但关键事件与身份关联未核验："
-                 "分母、事件定义和身份合并仍可能使结果不可复算")
+        limit = ("数据源声称已连接，但没有事件/时间窗/样本回执："
+                 "无法复算分母、事件定义与身份合并")
+    elif objective_id in EVENT_OBJECTIVES and any(
+            item not in verified for item in connected_available):
+        level = "declared_only"
+        limit = ("部分数据源缺少事件级回执："
+                 + "、".join(item for item in connected_available if item not in verified))
     else:
         level = "verifiable"
-        limit = f"数据源已连接：{', '.join(connected_available)}；仍需人工确认口径与时间窗"
-    return {"level": level, "available_sources": available,
-            "connected_sources": connected_available, "missing_sources": missing,
-            "events_verified": bool(constraints["events_verified"]), "limit": limit}
+        limit = f"已提供连接与口径回执：{', '.join(verified or connected_available)}；仍建议人工复核"
+    return {
+        "level": level,
+        "available_sources": available,
+        "connected_sources": connected_available,
+        "verified_sources": verified,
+        "missing_sources": missing,
+        "receipt_count": len(receipts),
+        "events_verified": bool(verified),
+        "limit": limit,
+    }
 
 
 def _outcome_contract(objective_id: str, constraints: Dict[str, Any]) -> Dict[str, Any]:
@@ -615,7 +652,18 @@ def _validate_proposal(proposal: Optional[Dict[str, Any]], object_id: str,
         if objective_id not in spec["objectives"]:
             rejected.append({"id": mid, "reason": f"不常用于 {OBJECTIVES[objective_id]['label']}"})
             continue
-        accepted.append({"id": mid, "why": why})
+        fit = item.get("fit") if isinstance(item.get("fit"), dict) else {}
+        audience = fit.get("audience_fit")
+        resource = fit.get("resource_fit")
+        values = [float(v) for v in (audience, resource) if isinstance(v, (int, float))]
+        accepted.append({
+            "id": mid,
+            "why": why,
+            "fit": fit,
+            "fit_score": round(sum(values) / len(values), 3) if values else None,
+            "evidence": str(item.get("evidence") or ""),
+            "hypothesis": not bool(item.get("evidence")),
+        })
     compatible = {row["id"] for row in _object_channels(object_id)}
     channels_accepted: List[str] = []
     for cid in proposal.get("channels") or []:
@@ -664,7 +712,9 @@ def design(task: str, *, object_id: Optional[str] = None,
     inferred_ids = [mid for mid in OBJECTS[obj["id"]]["motions"]
                     if target["id"] in MOTIONS[mid]["objectives"]]
     if prop["has_motions"]:
-        motion_ids = [item["id"] for item in prop["motions"]]
+        ordered = sorted(enumerate(prop["motions"]),
+                         key=lambda pair: (-(pair[1].get("fit_score") or 0.0), pair[0]))
+        motion_ids = [item["id"] for _, item in ordered]
         if not motion_ids:
             motion_ids = []
     else:
@@ -719,6 +769,12 @@ def design(task: str, *, object_id: Optional[str] = None,
         }
         if role == "primary" and row.get("agent_reason"):
             entry["agent_reason"] = row["agent_reason"]
+        proposal_row = next((item for item in prop["motions"] if item["id"] == row["id"]), None)
+        if proposal_row:
+            entry["fit"] = proposal_row.get("fit") or {}
+            entry["fit_score"] = proposal_row.get("fit_score")
+            entry["evidence"] = proposal_row.get("evidence") or ""
+            entry["hypothesis"] = proposal_row.get("hypothesis", True)
         selected_motions.append(entry)
 
     # 渠道：按所选机制取并集；主机制渠道优先，保留每个渠道服务的机制。
@@ -773,6 +829,8 @@ def design(task: str, *, object_id: Optional[str] = None,
         unknowns.append(f"不确定这轮要的结果是「{target['label']}」；请明确目标")
     if target_note:
         unknowns.append(target_note)
+    if primary and primary.get("agent_reason") and selected_motions[0].get("hypothesis"):
+        unknowns.append("主机制仍是 Agent 假设：需要受众证据、资源条件或历史效果验证后再扩大执行")
     if not primary:
         design_status = "blocked"
         if prop["has_motions"]:
@@ -822,6 +880,9 @@ def design(task: str, *, object_id: Optional[str] = None,
         "supporting": [item["id"] for item in selected_motions[1:]],
         "why": ("支持机制先补齐认知/需求，主机制对结果契约负责；"
                 "组合不是并列承诺，也不新增授权") if len(selected_motions) > 1 else "单一机制",
+        "evidence_gaps": [item["id"] for item in selected_motions
+                          if item.get("hypothesis") and item["id"] in
+                          {row["id"] for row in prop["motions"]}],
     }
 
     return {
