@@ -658,7 +658,9 @@ def cmd_policy(args):
             print("警告：--days 0 表示常驻授权不过期；仅在你有明确理由时使用。", file=sys.stderr)
         try:
             policy = execution_policy.authorize(DATA, by=args.by, actions=actions,
-                                                accounts=accounts, days=days)
+                                                accounts=accounts, days=days,
+                                                identities=args.identity or None,
+                                                require_identity=args.require_identity)
         except ValueError as exc:
             print(f"授权失败：{exc}", file=sys.stderr)
             return 2
@@ -668,7 +670,9 @@ def cmd_policy(args):
     if args.action == "list-actions":
         return _emit({"routine_actions": execution_policy.list_routine_actions()})
     if args.action == "check":
-        allowed = execution_policy.allows(DATA, args.channel, args.action_name, account=args.account)
+        allowed = execution_policy.allows(DATA, args.channel, args.action_name,
+                                          account=args.account,
+                                          platform_user_id=args.platform_user_id or None)
         _emit({"allowed": allowed, "channel": args.channel, "action": args.action_name,
                "account": args.account})
         return 0 if allowed else 2
@@ -2308,7 +2312,8 @@ def cmd_action(args):
             allow_unverified=args.allow_unverified, target=args.target,
             text=text, title=args.title, url=args.url,
             subreddit=args.subreddit, number=args.number,
-            extra=args.extra, routine=args.routine, account=args.account)
+            extra=args.extra, routine=args.routine, account=args.account,
+            platform_user_id=args.platform_user_id or None)
     except ActionError as exc:
         raise SystemExit(f"动作拒跑：{exc}")
     print(json.dumps(rec, ensure_ascii=False, indent=1))
@@ -2433,6 +2438,8 @@ def build_parser():
     sp.add_argument("--account", default="", help="执行账号；routine policy 按此精确匹配")
     sp.add_argument("--go", action="store_true")
     sp.add_argument("--routine", action="store_true", help="使用日常营销常驻授权；付款/合同等不适用")
+    sp.add_argument("--platform-user-id", default="",
+                    help="平台用户 ID；策略声明 identity 时用于核对账号身份")
     sp.add_argument("--allow-unverified", dest="allow_unverified", action="store_true")
     sp.add_argument("--extra", nargs="*", help="透传 vendor（x message/engage）")
     sp.set_defaults(fn=cmd_action)
@@ -2583,9 +2590,14 @@ def build_parser():
     a.add_argument("--accounts", default="", help="可选：授权账号逗号列表")
     a.add_argument("--days", type=int, default=30,
                    help="授权有效天数（默认 30；0 表示不过期，需显式声明）")
+    a.add_argument("--identity", action="append", default=[],
+                   help="账号身份 account=platform:user_id，可重复")
+    a.add_argument("--require-identity", action="store_true",
+                   help="执行时必须提供匹配的平台用户 ID；未提供则拒绝")
     a = psub.add_parser("disable"); a.add_argument("--by", required=True)
     a = psub.add_parser("check"); a.add_argument("--channel", required=True); a.add_argument("--action-name", required=True)
     a.add_argument("--account", default="")
+    a.add_argument("--platform-user-id", default="", help="用于核对策略声明的账号身份")
     sp.set_defaults(fn=cmd_policy)
 
     sp = sub.add_parser("orchestrate", help="按产品/目标/任务选择最小岗位组合、交付物与表达方式")

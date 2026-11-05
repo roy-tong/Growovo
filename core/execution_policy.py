@@ -81,6 +81,32 @@ def _normalise_actions(actions):
     return sorted(selected)
 
 
+def _normalise_identities(identities):
+    """Map account -> platform user identity records.
+
+    Accepts ``account=platform:user_id`` strings or dicts.  Identity records are
+    audit evidence for policy checks; they do not change channel permissions.
+    """
+    result = {}
+    for item in identities or []:
+        if isinstance(item, str):
+            account, _, binding = item.partition("=")
+            platform, _, user_id = binding.partition(":")
+            record = {"platform": platform.strip(), "user_id": user_id.strip()}
+        elif isinstance(item, dict):
+            account = str(item.get("account") or "")
+            record = {"platform": str(item.get("platform") or "").strip(),
+                      "user_id": str(item.get("user_id") or "").strip()}
+        else:
+            raise ValueError("identities 必须是 account=platform:user_id 或对象列表")
+        account = str(account).strip()
+        if not account or not record["platform"] or not record["user_id"]:
+            raise ValueError("identity 必须包含 account、platform 与 user_id")
+        record["verified_at"] = _now().isoformat(timespec="seconds")
+        result.setdefault(account, []).append(record)
+    return result
+
+
 def _normalise_accounts(accounts):
     if accounts is None:
         return []
@@ -105,7 +131,8 @@ def _write(data_dir, policy):
     return policy
 
 
-def authorize(data_dir, by, actions=None, accounts=None, days=None, now=None):
+def authorize(data_dir, by, actions=None, accounts=None, days=None, now=None,
+              identities=None, require_identity=False):
     """Create/replace the workspace routine policy and return its dict.
 
     ``actions=None`` grants only ``email:message``, never the full routine set.
@@ -124,6 +151,8 @@ def authorize(data_dir, by, actions=None, accounts=None, days=None, now=None):
         "enabled": True,
         "allow_actions": _normalise_actions(actions),
         "scope_defaulted": actions is None,
+        "account_identities": _normalise_identities(identities),
+        "require_identity": bool(require_identity),
         "allow_accounts": _normalise_accounts(accounts),
         "authorized_by": by.strip(),
         "authorized_at": current.isoformat(timespec="seconds"),
@@ -199,7 +228,7 @@ def _valid_policy(policy):
     return policy, expiry
 
 
-def allows(data_dir, channel, action, account=''):
+def allows(data_dir, channel, action, account='', platform_user_id=None):
     """Return whether an active policy covers exactly this action/account.
 
     Missing, malformed, disabled, expired, revoked, broadened, or otherwise
@@ -229,5 +258,19 @@ def allows(data_dir, channel, action, account=''):
     elif not isinstance(account, str):
         return False
     if allowed_accounts:
-        return account in allowed_accounts
-    return account in ("", "default")
+        if account not in allowed_accounts:
+            return False
+    elif account not in ("", "default"):
+        return False
+    records = (policy.get("account_identities") or {}).get(account) or []
+    required = bool(policy.get("require_identity"))
+    if required and not records:
+        return False
+    if required and not platform_user_id:
+        return False
+    if platform_user_id and records:
+        wanted = str(platform_user_id).strip()
+        if not any(rec.get("platform") == channel and str(rec.get("user_id")) == wanted
+                   for rec in records):
+            return False
+    return True
