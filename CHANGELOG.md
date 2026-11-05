@@ -1,5 +1,44 @@
 # Changelog
 
+## 0.11.0 - 2026-11-05
+
+This release merges the P0 execution-integrity work and fixes the design-layer
+gaps found in the v0.10.0 review. The safety fixes are the priority: they were
+developed on an integration branch and are now part of the released version.
+
+### Security and execution integrity
+
+- **MCP cannot raise channel permissions**: `allow_unverified` is removed from
+  the tool surface and bypass attempts are rejected.
+- **Unknown external results are first-class**: X execution claims intent
+  atomically, records unknown outcomes, and requires human adjudication instead
+  of blind retries.
+- **Ledger integrity fails closed**: append is locked and atomic; corrupt lines
+  raise instead of being silently dropped.
+- **DNC suppression fails closed**: damaged or wrongly typed suppression data
+  stops sending rather than skipping the broken record.
+
+### GTM design fixes
+
+- **User objective wins over Agent proposal**: `--objective` is never silently
+  overwritten by `proposal.objective`.
+- **Partial proposals no longer block**: object/objective/motion/channel are
+  overridden independently; a proposal containing only channels keeps the
+  inferred motions.
+- **Motion combinations**: up to three motions with one primary and supporting
+  motions that supply upstream conditions; `selected_motion` remains for
+  compatibility.
+- **Three readiness states**: `design_status`, `execution_readiness` and
+  `measurement_readiness` are separate; `ready` no longer means executable.
+- **Stricter verification**: `verifiable` requires a connected source; event
+  objectives additionally require `events_verified`. Declared-only sources are
+  marked `declared_only`.
+- **Handoff binds the design**: `handoff` refuses `blocked` designs, passes the
+  mapped orchestration recipe instead of re-inferring, and emits an
+  `execution_plan` with a design SHA-256 fingerprint.
+- **Narrower routine default**: `mkt policy enable` without `--actions` now
+  authorizes only `email:message`; other actions must be listed explicitly.
+
 ## 0.10.0 - 2026-11-04
 
 This release adds a GTM design layer above role orchestration: a task is

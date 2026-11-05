@@ -32,8 +32,9 @@ class ObjectAndObjectiveTests(unittest.TestCase):
         self.assertEqual("hardware", plan["object"]["id"])
         self.assertEqual("revenue", plan["objective"]["id"])
         self.assertEqual("commerce_led", plan["selected_motion"])
-        self.assertEqual("needs_preparation", plan["status"])
-        gaps = {item["id"] for item in plan["motions"][0]["missing"]}
+        self.assertEqual("ready", plan["design_status"])
+        self.assertFalse(plan["execution_readiness"]["ready"])
+        gaps = {item["id"] for item in plan["execution_readiness"]["missing_assets"]}
         self.assertIn("supply", gaps)
         self.assertIn("预售订单数", plan["outcome_contract"]["not_success"])
 
@@ -82,11 +83,13 @@ class ConstraintTests(unittest.TestCase):
         plan = gtm_design.design(
             "增长一个小红书摄影账号",
             constraints={"authorized_channels": ["xiaohongshu"], "assets": ["content"],
-                         "data_sources": ["platform_insights"], "region": "cn"},
+                         "data_sources": ["platform_insights"],
+                         "data_connected": ["platform_insights"], "region": "cn"},
         )
         self.assertEqual(["xiaohongshu"], [row["id"] for row in plan["channels"]["primary"]])
         self.assertTrue(plan["motions"][0]["executable"])
-        self.assertEqual("observable", plan["outcome_contract"]["verification"]["level"])
+        self.assertEqual("verifiable", plan["outcome_contract"]["verification"]["level"])
+        self.assertTrue(plan["measurement_readiness"]["ready"])
 
     def test_region_filters_out_global_platforms(self):
         plan = gtm_design.design(
@@ -102,7 +105,7 @@ class ConstraintTests(unittest.TestCase):
         plan = gtm_design.design("增长我们的 SaaS 产品，提高付费转化",
                                  constraints={"authorized_channels": ["seo"]})
         self.assertEqual("unverified", plan["outcome_contract"]["verification"]["level"])
-        self.assertTrue(any("未提供任何数据渠道" in item for item in plan["unknowns"]))
+        self.assertTrue(any("结果核验未就绪" in item for item in plan["unknowns"]))
 
     def test_budget_and_unknown_assets_are_validated(self):
         with self.assertRaises(gtm_design.GTMDesignError):
@@ -172,6 +175,105 @@ class LintAndRenderTests(unittest.TestCase):
         self.assertIn("不证明渠道有效", text)
 
 
+class ReviewFixTests(unittest.TestCase):
+    def test_explicit_objective_beats_proposal(self):
+        plan = gtm_design.design(
+            "增长我们的 SaaS，提高付费转化",
+            objective_id="revenue",
+            proposal={"objective": "awareness"},
+        )
+        self.assertEqual("revenue", plan["objective"]["id"])
+        self.assertEqual("explicit", plan["objective"]["source"])
+
+    def test_proposal_with_only_channels_keeps_inferred_motion(self):
+        plan = gtm_design.design(
+            "增长一个小红书摄影账号，目标是目标粉丝",
+            proposal={"channels": ["xiaohongshu"]},
+        )
+        self.assertFalse(plan["proposal"]["has_motions"])
+        self.assertEqual("content_led", plan["selected_motion"])
+        self.assertNotEqual("blocked", plan["design_status"])
+
+    def test_proposal_with_only_objective_keeps_inferred_motions(self):
+        plan = gtm_design.design(
+            "增长一个小红书摄影账号",
+            proposal={"objective": "acquisition"},
+        )
+        self.assertEqual("acquisition", plan["objective"]["id"])
+        self.assertTrue(plan["selected_motions"])
+        self.assertNotEqual("blocked", plan["design_status"])
+
+    def test_all_rejected_motions_block_the_design(self):
+        plan = gtm_design.design(
+            "增长一个小红书摄影账号",
+            proposal={"motions": [{"id": "sales_led", "why": "直接卖"}]},
+        )
+        self.assertEqual("blocked", plan["design_status"])
+        self.assertTrue(any("均不适用" in item for item in plan["unknowns"]))
+
+    def test_three_readiness_states_are_independent(self):
+        plan = gtm_design.design("增长一个小红书摄影账号")
+        self.assertEqual("ready", plan["design_status"])
+        self.assertFalse(plan["execution_readiness"]["ready"])
+        self.assertEqual("unverified", plan["measurement_readiness"]["level"])
+        self.assertFalse(plan["measurement_readiness"]["ready"])
+
+    def test_revenue_verification_needs_connection_and_events(self):
+        base = {"authorized_channels": ["taobao"], "assets": ["content", "supply", "purchase"]}
+        declared = gtm_design.design(
+            "推广智能硬件，目标预售订单",
+            constraints={**base, "data_sources": ["order_system"]},
+        )
+        self.assertEqual("declared_only", declared["measurement_readiness"]["level"])
+        connected = gtm_design.design(
+            "推广智能硬件，目标预售订单",
+            constraints={**base, "data_sources": ["order_system"],
+                         "data_connected": ["order_system"]},
+        )
+        self.assertEqual("declared_only", connected["measurement_readiness"]["level"])
+        verified = gtm_design.design(
+            "推广智能硬件，目标预售订单",
+            constraints={**base, "data_sources": ["order_system"],
+                         "data_connected": ["order_system"], "events_verified": True},
+        )
+        self.assertEqual("verifiable", verified["measurement_readiness"]["level"])
+        self.assertTrue(verified["measurement_readiness"]["ready"])
+
+    def test_hardware_combines_content_and_commerce(self):
+        plan = gtm_design.design(
+            "推广一款新上市的智能硬件，目标预售订单和实际履约",
+            constraints={"authorized_channels": ["taobao", "xiaohongshu"],
+                         "assets": ["content", "supply", "purchase"],
+                         "data_sources": ["order_system"],
+                         "data_connected": ["order_system"], "events_verified": True},
+        )
+        roles = {item["id"]: item["role"] for item in plan["selected_motions"]}
+        self.assertEqual("primary", roles["commerce_led"])
+        self.assertEqual("supporting", roles["content_led"])
+        self.assertEqual("content_led", plan["combination"]["order"][0])
+
+    def test_handoff_refuses_blocked_design(self):
+        plan = gtm_design.design(
+            "增长一个小红书摄影账号",
+            proposal={"motions": [{"id": "sales_led"}]},
+        )
+        with self.assertRaises(gtm_design.GTMDesignError):
+            gtm_design.handoff(plan)
+
+    def test_handoff_keeps_selected_recipe(self):
+        plan = gtm_design.design(
+            "增长我们的开发者工具，让开发者首次成功",
+            constraints={"authorized_channels": ["github"],
+                         "assets": ["content", "technical"],
+                         "data_sources": ["product_events"]},
+        )
+        result = gtm_design.handoff(plan, product={"product_type": "devtool", "name": "X"})
+        self.assertEqual("app_growth", result["workstream"]["motion"])
+        self.assertEqual(result["execution_plan"]["design_sha256"],
+                         result["workstream"]["design_ref"])
+        self.assertTrue(result["execution_plan"]["instruction"])
+
+
 class HandoffTests(unittest.TestCase):
     def test_handoff_without_product_returns_contract_only(self):
         plan = gtm_design.design("增长一个小红书摄影账号，目标是目标粉丝",
@@ -193,7 +295,10 @@ class HandoffTests(unittest.TestCase):
         self.assertTrue(result["workstream"]["validation"]["ok"])
         self.assertEqual("adoption", result["goal_hint"]["goal_id"])
         orders = result["workstream"]["workstream"]["work_orders"]
-        self.assertGreaterEqual(len(orders), 3)
+        self.assertGreaterEqual(len(orders), 2)
+        self.assertEqual("app_growth", result["workstream"]["motion"])
+        self.assertEqual(result["execution_plan"]["design_sha256"],
+                         result["workstream"]["design_ref"])
 
     def test_inconsistent_design_refuses_handoff(self):
         plan = gtm_design.design("增长一个小红书账号")

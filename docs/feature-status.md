@@ -1,18 +1,18 @@
 # Growovo: implementation status
 
-Reviewed 2026-11-04. **Working baseline: v0.10.0 (2026-11-04).** Available means local implementation and local tests, not production validation on every platform or proof of business outcomes.
+Reviewed 2026-11-05. **Working baseline: v0.11.0 (2026-11-05).** Available means local implementation and local tests, not production validation on every platform or proof of business outcomes.
 
 > Business architecture: [GTM 业务操作系统 v5](gtm-os/README.md) covers role families 07–46, work-order/SOP/deliverable/handoff contracts, KPI definitions and templates. R0/R1 are now locally implemented; see [implementation and remaining boundaries](gtm-os/05-implementation.md). Registry coverage is not equivalent to all 40 professional SOPs being executable or externally effective.
 
 ## Verification snapshot
 
-- `python3 -m unittest discover -s tests`: **631 tests pass**.
+- `python3 -m unittest discover -s tests`: **676 tests pass**.
 - `python3 mkt.py demo`: plan validation, human approval, write pipeline and ledger pass.
 - `python3 mkt.py work-demo`: context → objective → WorkOrder → SOP → accepted deliverables → receiver handoff → approved plan/queue → independent KPI observation passes; no queue execution or send ledger.
-- Isolated wheel build and target install: v0.9.0 was verified; the 0.10.0 wheel rebuild is not yet re-run in this snapshot.
+- Isolated wheel build and target install: v0.9.0 was verified; v0.10.0 shipped through the release workflow; the v0.11.0 wheel is rebuilt by the release workflow.
 - Real CLI checks also cover email queue approval and dry-run, X reply queue contract, manual work sheets, campaign isolation, opportunity discovery, value artifacts, journeys, account lifecycle and pricing experiments. No real account sends in tests.
 
-## Baseline capabilities (through v0.10.0)
+## Baseline capabilities (through v0.11.0)
 
 | Area | Local implementation | Verification and remaining boundary |
 |---|---|---|
@@ -48,6 +48,18 @@ Reviewed 2026-11-04. **Working baseline: v0.10.0 (2026-11-04).** Available means
 | Pricing experiments | `core/billing.py` + `mkt billing` | Action/outcome remains a candidate; explicit subscription/hybrid experiments and acceptance logs are supported. Accepted quote is not payment or product value |
 | Follow-up | `core/followups.py` + `mkt followup` | Optional campaign field supports scoped projections. Due follow-ups stay ahead of new actions; local records never send |
 | Measurement | `core/task_outcome.py` + GitHub benchmark | 33 synthetic keyword-baseline fixtures remain a failure-mode benchmark, not expert triage proof. `action_runner.record_ledger_outcome` records outcomes but does not independently verify delivery |
+
+## v0.11.0 additions
+
+| Area | Local implementation | Verification and remaining boundary |
+|---|---|---|
+| Execution integrity | Merge of the P0 integration branch: MCP `allow_unverified` removed and bypass rejected; X intent claimed atomically with unknown-result adjudication; ledger append locked/atomic and corrupt lines fail loud; DNC suppression fails closed on damaged or wrongly typed records | Local adversarial tests plus the integration suite. No live sends; platform permission is still external to the repository |
+| Design precedence | User `--objective`/`--object` wins over `proposal`; proposal dimensions are applied independently | Agent may still suggest a different objective, but it is recorded as rejected/replaced, not silently applied |
+| Motion combination | Up to three motions, one primary plus supporting motions that supply upstream conditions; `selected_motion` kept for compatibility | Combination is an editorial plan, not a claim that several mechanisms will compound; support motions keep their own capability gaps |
+| Readiness split | `design_status`, `execution_readiness`, `measurement_readiness` are separate; `ready` is design-only | Execution readiness requires capabilities and an authorized channel per motion; it is not platform permission |
+| Verification levels | `verifiable` requires a connected source; event objectives also require `events_verified`; otherwise `declared_only` or `unverified` | Connection flags are operator declarations. The module cannot verify a real PostHog/Stripe/order-system connection |
+| Handoff binding | `handoff` refuses blocked designs, maps the primary motion to an orchestration recipe, emits an `execution_plan` and a SHA-256 design fingerprint | The downstream `orchestrate` plan is still a candidate; it is not an approved execution |
+| Routine default scope | `mkt policy enable` without `--actions` authorizes only `email:message`; other actions must be explicit | Empty account scope remains default-account-only; platform identity binding is still a string match, not OAuth identity |
 
 ## v0.10.0 additions
 
