@@ -20,6 +20,7 @@ v4.0 的核心变化不是再加一套行业模板，而是把「给谁增长、
 """
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -30,6 +31,30 @@ from .platforms import BY_ID as PLATFORM_BY_ID
 SCHEMA = "growovo.gtm-design/1"
 MAX_PRIMARY = 1
 MAX_SUPPORT = 3
+MAX_MOTIONS = 3
+
+# 支持机制服务于主目标的上游条件（例如交易需要认知与需求），但不替代主机制。
+SUPPORT_OBJECTIVES: Dict[str, List[str]] = {
+    "awareness": ["acquisition"],
+    "acquisition": ["awareness"],
+    "activation": ["acquisition", "awareness"],
+    "revenue": ["awareness", "acquisition", "activation"],
+    "retention": ["awareness", "activation"],
+    "contribution": ["awareness", "acquisition"],
+}
+
+# 只有事件级目标才要求“关键事件与身份关联”已核验；平台认知只需连接与导出。
+EVENT_OBJECTIVES = {"activation", "revenue", "retention", "contribution"}
+
+# 设计机制 → 既有岗位编排 recipe。下游不得重新推断机制。
+ORCHESTRATION_MOTION = {
+    "content_led": "content_awareness",
+    "community_led": "developer_adoption",
+    "product_led": "app_growth",
+    "sales_led": "b2b_pipeline",
+    "commerce_led": "commerce",
+    "partnership_led": "partner_growth",
+}
 
 # ---------------------------------------------------------------------------
 # 对象：先确定「增长谁」，而不是先选渠道
@@ -401,12 +426,21 @@ def normalize_constraints(raw: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     if unknown_sources:
         raise GTMDesignError(
             f"未知数据源: {', '.join(unknown_sources)}；只允许 {', '.join(sorted(DATA_SOURCES))}")
+    connected_raw = raw.get("data_connected") or []
+    if isinstance(connected_raw, str):
+        connected_raw = [connected_raw]
+    connected = [str(item).strip() for item in connected_raw if str(item).strip()]
+    not_declared = [item for item in connected if item not in sources]
+    if not_declared:
+        raise GTMDesignError(f"data_connected 必须先出现在 data_sources 中: {', '.join(not_declared)}")
     return {
         "budget": budget,
         "region": region,
         "authorized_channels": sorted(set(channels)),
         "assets": sorted(set(assets)),
         "data_sources": sorted(set(sources)),
+        "data_connected": sorted(set(connected)),
+        "events_verified": bool(raw.get("events_verified", False)),
         "notes": str(raw.get("notes") or "").strip(),
     }
 
@@ -469,13 +503,16 @@ def _channel_rows(object_id: str, motion_id: str,
 
 def _motion_status(motion_id: str, object_id: str, objective_id: str,
                    constraints: Dict[str, Any],
-                   authorized_ids: set) -> Dict[str, Any]:
+                   authorized_ids: set, *, as_support: bool = False) -> Dict[str, Any]:
     motion = MOTIONS[motion_id]
     problems: List[str] = []
     missing: List[Dict[str, Any]] = []
     if object_id not in motion["objects"]:
         problems.append(f"{motion['label']} 不适用于 {OBJECTS[object_id]['label']}")
-    if objective_id not in motion["objectives"]:
+    objective_ok = objective_id in motion["objectives"]
+    if not objective_ok and as_support:
+        objective_ok = bool(set(motion["objectives"]) & set(SUPPORT_OBJECTIVES.get(objective_id, [])))
+    if not objective_ok:
         problems.append(f"{motion['label']} 不常用来达成 {OBJECTIVES[objective_id]['label']}")
     available = set(constraints["assets"]) | set(constraints["data_sources"])
     for req in motion["requires"]:
@@ -500,25 +537,40 @@ def _motion_status(motion_id: str, object_id: str, objective_id: str,
     }
 
 
-def _verification(objective_id: str, data_sources: List[str]) -> Dict[str, Any]:
+def _verification(objective_id: str, constraints: Dict[str, Any]) -> Dict[str, Any]:
+    """区分「声明了数据源」「连接成功」「事件可核验」三层，不把声明当证据。"""
     spec = OBJECTIVES[objective_id]
-    available = [item for item in spec["sources"] if item in data_sources]
-    if not data_sources:
+    declared = list(constraints["data_sources"])
+    connected = list(constraints["data_connected"])
+    available = [item for item in spec["sources"] if item in declared]
+    connected_available = [item for item in available if item in connected]
+    missing = [item for item in spec["sources"] if item not in declared]
+    if not declared:
         level = "unverified"
         limit = "未提供数据渠道：只能拿到平台回执，不能声称业务结果"
-    elif available:
-        level = "observable" if len(available) >= 1 else "partially_observable"
-        limit = f"可用数据源：{', '.join(available)}；口径仍需人工确认"
-    else:
+    elif not available:
         level = "unverified"
         limit = (f"缺少 {spec['label']} 需要的数据源（{', '.join(spec['sources'])}）："
                  "平台回执不能替代业务结果")
-    return {"level": level, "available_sources": available, "limit": limit}
+    elif not connected_available:
+        level = "declared_only"
+        limit = ("已声明数据源但未确认连接：不能把「类型匹配」当成可核验；"
+                 f"需要确认 {', '.join(available)} 的实际连接与口径")
+    elif objective_id in EVENT_OBJECTIVES and not constraints["events_verified"]:
+        level = "declared_only"
+        limit = ("数据源已连接，但关键事件与身份关联未核验："
+                 "分母、事件定义和身份合并仍可能使结果不可复算")
+    else:
+        level = "verifiable"
+        limit = f"数据源已连接：{', '.join(connected_available)}；仍需人工确认口径与时间窗"
+    return {"level": level, "available_sources": available,
+            "connected_sources": connected_available, "missing_sources": missing,
+            "events_verified": bool(constraints["events_verified"]), "limit": limit}
 
 
 def _outcome_contract(objective_id: str, constraints: Dict[str, Any]) -> Dict[str, Any]:
     spec = OBJECTIVES[objective_id]
-    verification = _verification(objective_id, constraints["data_sources"])
+    verification = _verification(objective_id, constraints)
     return {
         "objective": objective_id,
         "label": spec["label"],
@@ -541,7 +593,9 @@ def _outcome_contract(objective_id: str, constraints: Dict[str, Any]) -> Dict[st
 def _validate_proposal(proposal: Optional[Dict[str, Any]], object_id: str,
                        objective_id: str) -> Dict[str, Any]:
     if not proposal:
-        return {"used": False, "motions": [], "channels": [], "rejected": []}
+        return {"used": False, "has_objective": False, "has_object": False,
+                "has_motions": False, "has_channels": False,
+                "motions": [], "channels": [], "rejected": []}
     if not isinstance(proposal, dict):
         raise GTMDesignError("proposal 必须是 JSON 对象")
     accepted: List[Dict[str, Any]] = []
@@ -571,26 +625,34 @@ def _validate_proposal(proposal: Optional[Dict[str, Any]], object_id: str,
             rejected.append({"id": cid, "reason": f"不适合 {OBJECTS[object_id]['label']}"})
         else:
             channels_accepted.append(cid)
-    return {"used": True, "motions": accepted,
-            "channels": channels_accepted, "rejected": rejected}
+    return {"used": True,
+            "has_objective": bool(proposal.get("objective")),
+            "has_object": bool(proposal.get("object")),
+            "has_motions": bool(proposal.get("motions")),
+            "has_channels": bool(proposal.get("channels")),
+            "motions": accepted, "channels": channels_accepted, "rejected": rejected}
 
 
 def design(task: str, *, object_id: Optional[str] = None,
            objective_id: Optional[str] = None,
            constraints: Optional[Dict[str, Any]] = None,
            proposal: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    """把一个增长任务拆成对象/目标/机制/渠道，并给出结果契约与未知项。"""
+    """把一个增长任务拆成对象/目标/机制/渠道，并给出结果契约与三层就绪状态。"""
     if not str(task or "").strip():
         raise GTMDesignError("task 不能为空")
     cons = normalize_constraints(constraints)
     object_ranked = _rank(task, OBJECTS)
     objective_ranked = _rank(task, OBJECTIVES)
-    obj = _pick(object_ranked, object_id, "object")
-    target = _pick(objective_ranked, objective_id, "objective")
-    if proposal and proposal.get("objective"):
-        target = _pick(objective_ranked, str(proposal["objective"]), "objective")
+
+    # 覆盖顺序：用户显式 > Agent proposal > 文本推断 > 默认。Agent 不能悄悄改用户目标。
+    proposal = proposal or {}
+    explicit_object = object_id or (str(proposal.get("object") or "") or None if not object_id else None)
+    explicit_objective = objective_id or (
+        str(proposal.get("objective") or "") or None if not objective_id else None)
+    obj = _pick(object_ranked, explicit_object, "object")
+    target = _pick(objective_ranked, explicit_objective, "objective")
     target_note = ""
-    if target["source"] == "default" and not (proposal and proposal.get("objective")):
+    if target["source"] == "default" and not explicit_objective:
         default_id = OBJECT_DEFAULT_OBJECTIVE[obj["id"]]
         target = {"id": default_id, "label": OBJECTIVES[default_id]["label"],
                   "confidence": 0.3, "source": "object_default", "signals": [],
@@ -599,11 +661,14 @@ def design(task: str, *, object_id: Optional[str] = None,
                        f"「{target['label']}」；可用 --objective 覆盖")
 
     prop = _validate_proposal(proposal, obj["id"], target["id"])
-    if prop["used"]:
+    inferred_ids = [mid for mid in OBJECTS[obj["id"]]["motions"]
+                    if target["id"] in MOTIONS[mid]["objectives"]]
+    if prop["has_motions"]:
         motion_ids = [item["id"] for item in prop["motions"]]
+        if not motion_ids:
+            motion_ids = []
     else:
-        motion_ids = [mid for mid in OBJECTS[obj["id"]]["motions"]
-                      if target["id"] in MOTIONS[mid]["objectives"]]
+        motion_ids = inferred_ids
 
     authorized_ids = set(cons["authorized_channels"])
     motions: List[Dict[str, Any]] = []
@@ -613,7 +678,7 @@ def design(task: str, *, object_id: Optional[str] = None,
             continue
         seen.add(mid)
         motions.append(_motion_status(mid, obj["id"], target["id"], cons, authorized_ids))
-    if prop["used"]:
+    if prop["has_motions"]:
         for row in motions:
             override = next((item for item in prop["motions"] if item["id"] == row["id"]), None)
             if override:
@@ -622,74 +687,170 @@ def design(task: str, *, object_id: Optional[str] = None,
     motions.sort(key=lambda row: row["status"] == "rejected")
 
     viable = [row for row in motions if row["status"] != "rejected"]
-    chosen = viable[0] if viable else None
-    channels: List[Dict[str, Any]] = []
+    primary = viable[0] if viable else None
+
+    # 支持机制：补主目标的上游条件；只补少量，不枚举组合。
+    support_candidates: List[Dict[str, Any]] = [row for row in viable if row is not primary]
+    if primary:
+        for mid in OBJECTS[obj["id"]]["motions"]:
+            if mid in seen:
+                continue
+            row = _motion_status(mid, obj["id"], target["id"], cons, authorized_ids,
+                                 as_support=True)
+            if row["status"] != "rejected":
+                support_candidates.append(row)
+        support_candidates.sort(
+            key=lambda row: (row["status"] == "needs_preparation", row["id"]))
+    selected: List[Dict[str, Any]] = ([primary] if primary else []) + support_candidates[:MAX_MOTIONS - 1]
+
+    selected_motions: List[Dict[str, Any]] = []
+    for index, row in enumerate(selected):
+        role = "primary" if index == 0 else "supporting"
+        entry = {
+            "id": row["id"],
+            "label": row["label"],
+            "role": role,
+            "why": row["why"] if role == "primary" else
+                   f"为主机制补{OBJECTIVES[target['id']]['label']}所需的上游条件，不单独承诺结果",
+            "status": row["status"],
+            "executable": row["executable"],
+            "missing": row["missing"],
+            "sequence": row["sequence"],
+        }
+        if role == "primary" and row.get("agent_reason"):
+            entry["agent_reason"] = row["agent_reason"]
+        selected_motions.append(entry)
+
+    # 渠道：按所选机制取并集；主机制渠道优先，保留每个渠道服务的机制。
+    channels_by_id: Dict[str, Dict[str, Any]] = {}
     excluded: List[Dict[str, Any]] = []
-    if chosen:
-        channels, excluded = _channel_rows(obj["id"], chosen["id"], cons)
-    if prop["used"] and prop["channels"]:
+    per_motion_channels: Dict[str, List[str]] = {}
+    for row in selected:
+        rows, excluded_rows = _channel_rows(obj["id"], row["id"], cons)
+        per_motion_channels[row["id"]] = [item["id"] for item in rows]
+        for candidate in rows:
+            existing = channels_by_id.get(candidate["id"])
+            if existing:
+                existing["motions"].append(row["id"])
+                existing["score"] = max(existing["score"], candidate["score"])
+            else:
+                item = dict(candidate)
+                item["motions"] = [row["id"]]
+                channels_by_id[candidate["id"]] = item
+        for candidate in excluded_rows:
+            excluded.append({**candidate, "motion": row["id"]})
+    channels = list(channels_by_id.values())
+    primary_channel_ids = set(per_motion_channels.get(selected[0]["id"], [])) if selected else set()
+    if prop["has_channels"]:
         order = {cid: idx for idx, cid in enumerate(prop["channels"])}
-        channels.sort(key=lambda row: (order.get(row["id"], 99), -row["score"]))
+        channels.sort(key=lambda row: (order.get(row["id"], 99),
+                                       row["id"] not in primary_channel_ids,
+                                       -row["score"], row["id"]))
+    else:
+        channels.sort(key=lambda row: (row["id"] not in primary_channel_ids,
+                                       -row["score"], row["id"]))
 
     authorized_rows = [row for row in channels if row["authorized"]]
-    primary = authorized_rows[:MAX_PRIMARY]
-    support = authorized_rows[MAX_PRIMARY:MAX_PRIMARY + MAX_SUPPORT]
+    primary_channels = authorized_rows[:MAX_PRIMARY]
+    support_channels = authorized_rows[MAX_PRIMARY:MAX_PRIMARY + MAX_SUPPORT]
     unauthorized = [row for row in channels if not row["authorized"]]
     for row in channels:
         row["proposed"] = row["id"] in set(prop["channels"])
     unauthorized.sort(key=lambda row: (not row["proposed"], -row["score"], row["id"]))
 
-    status = "ready"
+    contract = _outcome_contract(target["id"], cons)
+    verification = contract["verification"]
+
+    design_status = "ready"
     unknowns: List[str] = []
     if obj["source"] == "text" and obj["confidence"] < 0.6:
-        unknowns.append(f"对象判定置信度较低（{obj['confidence']}，{obj['label']}），请用 --object 确认；低置信度不改变设计，但会改变执行判断")
+        unknowns.append(f"对象判定置信度较低（{obj['confidence']}，{obj['label']}），请用 --object 确认")
     if obj["confidence"] < 0.4:
-        status = "needs_clarification"
+        design_status = "needs_clarification"
         unknowns.append(f"不确定要增长的对象是不是「{obj['label']}」；请明确对象类型")
     if target["confidence"] < 0.4 and target["source"] == "text":
-        status = "needs_clarification"
+        design_status = "needs_clarification"
         unknowns.append(f"不确定这轮要的结果是「{target['label']}」；请明确目标")
     if target_note:
         unknowns.append(target_note)
-    if not viable:
-        status = "blocked"
-        unknowns.append("当前对象/目标下没有可用机制；需要补充对象或目标信息")
-    elif chosen and any(not item["producible"] for item in chosen["missing"]) and status == "ready":
-        status = "needs_preparation"
-    if not cons["authorized_channels"]:
-        unknowns.append("未提供已授权渠道：方案可设计，但现在不能执行任何发布")
-    if cons["data_sources"]:
-        missing_sources = [s for s in OBJECTIVES[target["id"]]["sources"]
-                           if s not in cons["data_sources"]]
-        if missing_sources:
-            unknowns.append(f"结果核验缺少数据源：{', '.join(missing_sources)}")
-    else:
-        unknowns.append("未提供任何数据渠道：只能观察平台回执，业务结果无法验证")
-    for item in (chosen["missing"] if chosen else []):
-        if not item["producible"]:
-            unknowns.append(f"缺少不可临时补齐的能力：{item['label']}")
+    if not primary:
+        design_status = "blocked"
+        if prop["has_motions"]:
+            unknowns.append("提供的机制均不适用于当前对象/目标；请补充或修正机制")
+        else:
+            unknowns.append("当前对象/目标下没有可用机制；需要补充对象或目标信息")
 
-    contract = _outcome_contract(target["id"], cons)
+    missing_assets: Dict[str, Dict[str, Any]] = {}
+    missing_channel_motions: List[str] = []
+    for row in selected:
+        for item in row["missing"]:
+            missing_assets[item["id"]] = item
+        if not any(c["id"] in per_motion_channels.get(row["id"], []) for c in authorized_rows):
+            missing_channel_motions.append(row["id"])
+    execution_ready = bool(selected) and not missing_assets and not missing_channel_motions
+    missing_labels = [item["label"] for item in missing_assets.values()]
+    reason = "所选机制的能力与授权渠道齐备"
+    if not execution_ready:
+        parts = []
+        if missing_labels:
+            parts.append("缺少" + "、".join(missing_labels))
+        if missing_channel_motions:
+            parts.append("机制未确认已授权渠道：" + "、".join(missing_channel_motions))
+        reason = "执行未就绪：" + "；".join(parts)
+    execution_readiness = {
+        "ready": execution_ready,
+        "missing_assets": sorted(missing_assets.values(), key=lambda item: item["id"]),
+        "missing_authorized_channels": missing_channel_motions,
+        "reason": reason,
+    }
+    measurement_readiness = {
+        "ready": verification["level"] == "verifiable",
+        "level": verification["level"],
+        "missing_sources": verification["missing_sources"],
+        "reason": verification["limit"],
+    }
+    if not execution_ready:
+        unknowns.append("执行未就绪：" + "、".join(
+            [item["label"] for item in missing_assets.values()] + missing_channel_motions))
+    if not measurement_readiness["ready"]:
+        unknowns.append(f"结果核验未就绪（{verification['level']}）：{verification['limit']}")
+
+    combination = {
+        "order": [item["id"] for item in selected_motions[1:]] + [selected_motions[0]["id"]]
+        if selected_motions else [],
+        "primary": selected_motions[0]["id"] if selected_motions else None,
+        "supporting": [item["id"] for item in selected_motions[1:]],
+        "why": ("支持机制先补齐认知/需求，主机制对结果契约负责；"
+                "组合不是并列承诺，也不新增授权") if len(selected_motions) > 1 else "单一机制",
+    }
+
     return {
         "schema": SCHEMA,
         "task": task,
-        "status": status,
+        "status": design_status,
+        "design_status": design_status,
         "object": obj,
         "objective": target,
         "motions": motions,
-        "selected_motion": chosen["id"] if chosen else None,
-        "channels": {"primary": primary, "supporting": support,
+        "selected_motion": primary["id"] if primary else None,
+        "selected_motions": selected_motions,
+        "combination": combination,
+        "channels": {"primary": primary_channels, "supporting": support_channels,
                      "unauthorized": unauthorized[:8],
                      "unauthorized_total": len(unauthorized),
-                     "excluded": excluded[:8]},
+                     "excluded": excluded[:8],
+                     "by_motion": per_motion_channels},
         "constraints": cons,
-        "constraint_checks": _constraint_checks(cons, chosen, obj["id"]),
+        "execution_readiness": execution_readiness,
+        "measurement_readiness": measurement_readiness,
+        "constraint_checks": _constraint_checks(cons, primary, obj["id"]),
         "outcome_contract": contract,
         "proposal": prop,
         "unknowns": list(dict.fromkeys(unknowns)),
-        "next_steps": _next_steps(chosen, primary, cons),
+        "next_steps": _next_steps(primary, primary_channels, cons),
         "handoff": {
-            "role_orchestration": f"mkt orchestrate --motion {chosen['id']}" if chosen else "",
+            "role_orchestration": (f"mkt orchestrate --motion {ORCHESTRATION_MOTION.get(primary['id'], '')}"
+                                   if primary else ""),
             "execution": "mkt plan/queue + 人审后执行；本设计不发送",
         },
         "boundary": ("对象/目标由信号推断，机制由兼容性与约束筛选；"
@@ -760,8 +921,32 @@ def lint(payload: Dict[str, Any]) -> List[str]:
             problems.append(f"{bucket} 渠道重复")
     if len(channels.get("primary") or []) > MAX_PRIMARY:
         problems.append("主渠道超过上限")
-    if payload.get("status") == "blocked" and not payload.get("unknowns"):
+    status = payload.get("design_status", payload.get("status"))
+    if status not in {"ready", "needs_clarification", "blocked"}:
+        problems.append("design_status 非法")
+    if status == "blocked" and not payload.get("unknowns"):
         problems.append("blocked 但没有说明未知项")
+    selected = payload.get("selected_motions") or []
+    motion_ids = {row.get("id") for row in motions}
+    selected_ids = [row.get("id") for row in selected]
+    if len(selected_ids) > MAX_MOTIONS:
+        problems.append("组合机制超过上限")
+    if len(selected_ids) != len(set(selected_ids)):
+        problems.append("组合机制重复")
+    if any(mid not in motion_ids for mid in selected_ids):
+        problems.append("selected_motions 含未评估的机制")
+    if selected and selected[0].get("role") != "primary":
+        problems.append("selected_motions 第一个必须是 primary")
+    readiness = payload.get("execution_readiness") or {}
+    measurement = payload.get("measurement_readiness") or {}
+    if "ready" not in readiness:
+        problems.append("缺少 execution_readiness")
+    if "ready" not in measurement:
+        problems.append("缺少 measurement_readiness")
+    if measurement.get("level") != (contract.get("verification") or {}).get("level"):
+        problems.append("measurement_readiness 与结果契约验证等级不一致")
+    if status == "blocked" and readiness.get("ready"):
+        problems.append("blocked 设计不应标记执行就绪")
     return problems
 
 
@@ -780,7 +965,14 @@ def render(payload: Dict[str, Any]) -> str:
     lines.append(f"**任务**：{payload['task']}")
     lines.append(f"**对象**：{obj['label']}（置信度 {obj['confidence']}，来源 {obj['source']}）")
     lines.append(f"**目标**：{target['label']}（置信度 {target['confidence']}，来源 {target['source']}）")
-    lines.append(f"**状态**：{payload['status']}")
+    design_status = payload.get("design_status", payload.get("status"))
+    readiness = payload.get("execution_readiness") or {}
+    measurement = payload.get("measurement_readiness") or {}
+    lines.append(f"**设计状态**：{design_status}")
+    lines.append(f"**执行就绪**：{'是' if readiness.get('ready') else '否'}"
+                 + ("" if readiness.get("ready") else f"（{readiness.get('reason', '')}）"))
+    lines.append(f"**结果核验**：{measurement.get('level', 'unknown')}"
+                 + ("（可核验）" if measurement.get("ready") else f"（{measurement.get('reason', '')}）"))
     lines.append("")
     lines.append("## 候选机制")
     rows = []
@@ -791,11 +983,20 @@ def render(payload: Dict[str, Any]) -> str:
                      missing, problems])
     lines.append(_table(["机制", "状态", "可执行", "缺口", "不适用原因"], rows))
     lines.append("")
-    chosen = payload.get("selected_motion")
-    if chosen:
-        motion = next(row for row in payload["motions"] if row["id"] == chosen)
-        lines.append(f"选择机制：**{motion['label']}** —— {motion['why']}")
-        lines.extend([f"{idx + 1}. {step}" for idx, step in enumerate(motion["sequence"])])
+    selected = payload.get("selected_motions") or []
+    if selected:
+        lines.append("## 组合机制")
+        rows = [[item["role"], item["label"], item["status"],
+                 "是" if item["executable"] else "否"] for item in selected]
+        lines.append(_table(["角色", "机制", "状态", "可执行"], rows))
+        combination = payload.get("combination") or {}
+        if combination.get("order"):
+            lines.append(f"顺序：{' → '.join(combination['order'])}")
+            lines.append(f"说明：{combination.get('why', '')}")
+        primary = next(item for item in selected if item["role"] == "primary")
+        lines.append("")
+        lines.append(f"主机制：**{primary['label']}**")
+        lines.extend([f"{idx + 1}. {step}" for idx, step in enumerate(primary["sequence"])])
         lines.append("")
     ch = payload["channels"]
     lines.append("## 渠道")
@@ -850,46 +1051,84 @@ GOAL_HINTS: Dict[str, Dict[str, str]] = {
 }
 
 
+def design_sha256(payload: Dict[str, Any]) -> str:
+    """设计内容的稳定指纹，供交接与执行侧绑定。"""
+    blob = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(blob.encode("utf-8")).hexdigest()
+
+
 def handoff(payload: Dict[str, Any], *, product: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """把设计交给岗位编排与目标契约；不执行、不写工作区。"""
     problems = lint(payload)
     if problems:
         raise GTMDesignError("设计不自洽，先运行 lint：" + "；".join(problems))
+    if payload.get("design_status", payload.get("status")) == "blocked":
+        raise GTMDesignError("设计状态为 blocked，拒绝交接；先补齐对象/目标/机制")
     objective = payload["objective"]["id"]
     hint = GOAL_HINTS[objective]
+    selected = payload.get("selected_motions") or []
+    primary = selected[0] if selected else None
+    recipe = ORCHESTRATION_MOTION.get(primary["id"]) if primary else None
+    plan = {
+        "design_sha256": design_sha256(payload),
+        "design_status": payload.get("design_status", payload.get("status")),
+        "object": payload["object"]["id"],
+        "objective": objective,
+        "motions": [{"id": item["id"], "role": item["role"],
+                     "recipe": ORCHESTRATION_MOTION.get(item["id"])}
+                    for item in selected],
+        "channels": [row["id"] for row in (payload.get("channels") or {}).get("primary") or []],
+        "constraints": payload.get("constraints") or {},
+        "outcome_contract": payload["outcome_contract"],
+        "instruction": "下游必须使用本计划的对象/目标/机制/渠道；不得重新推断或替换。",
+    }
     result: Dict[str, Any] = {
         "schema": "growovo.gtm-handoff/1",
         "design_schema": payload.get("schema"),
         "task": payload["task"],
         "object": payload["object"],
         "objective": payload["objective"],
-        "selected_motion": payload.get("selected_motion"),
+        "selected_motion": primary["id"] if primary else None,
+        "selected_motions": selected,
+        "design_status": payload.get("design_status", payload.get("status")),
+        "execution_plan": plan,
         "outcome_contract": payload["outcome_contract"],
         "goal_hint": hint,
         "workstream": None,
         "notes": [],
         "next_commands": [],
     }
-    if payload.get("status") == "blocked":
-        result["notes"].append("设计状态为 blocked：先补对象/目标/机制，再交接")
+    if result["design_status"] == "needs_clarification":
+        result["notes"].append("设计仍有待澄清项：可以生成候选编排，但不得当作已确认策略执行")
     if not product:
-        result["notes"].append("未提供产品事实包：只返回目标契约与岗位编排命令，不生成 Workstream")
+        result["notes"].append("未提供产品事实包：只返回执行计划与岗位编排命令，不生成 Workstream")
     else:
         from . import orchestration
-        plan = orchestration.orchestrate(
-            product,
-            OBJECTIVES[objective]["label"],
-            payload["task"],
-        )
-        errors = orchestration.lint_orchestration(plan)
-        plan["validation"] = {"ok": not errors, "errors": errors}
-        result["workstream"] = plan
+        if recipe:
+            plan_json = orchestration.orchestrate(
+                product,
+                OBJECTIVES[objective]["label"],
+                payload["task"],
+                motion=recipe,
+            )
+        else:
+            plan_json = orchestration.orchestrate(
+                product,
+                OBJECTIVES[objective]["label"],
+                payload["task"],
+            )
+            result["notes"].append("主机制没有直接对应的岗位 recipe：编排使用任务推断，仅作候选")
+        errors = orchestration.lint_orchestration(plan_json)
+        plan_json["validation"] = {"ok": not errors, "errors": errors}
+        plan_json["design_ref"] = plan["design_sha256"]
+        result["workstream"] = plan_json
         result["notes"].append(
-            "Workstream 是按产品事实与任务推断的候选岗位组合；它不是发布批准，也不代表设计选中的机制已被执行"
+            "Workstream 固定按设计主机制 recipe 生成（若存在）；它仍是候选组合，"
+            "不是发布批准，也不代表机制已执行"
         )
-    motion = payload.get("selected_motion") or ""
+    motion = primary["id"] if primary else ""
     result["next_commands"] = [
-        f"mkt orchestrate --product <facts.json> --goal \"{OBJECTIVES[objective]['label']}\" --task \"{payload['task']}\"",
+        f"mkt orchestrate --product <facts.json> --goal \"{OBJECTIVES[objective]['label']}\" --task \"{payload['task']}\" --motion {recipe or ''}".strip(),
         f"mkt goal plan --facts <facts.json> --goal {hint['goal_id']}",
         "mkt plan / mkt queue：人审后执行；本交接不发送",
     ] if motion else ["补充机制后重新设计"]

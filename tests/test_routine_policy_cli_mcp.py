@@ -37,6 +37,13 @@ class TestRoutinePolicyCLI(unittest.TestCase):
         self.cli("policy", "disable", "--by", "human-owner")
         self.cli("policy", "check", "--channel", "email", "--action-name", "message", expected=2)
 
+    def test_enable_without_actions_defaults_to_email_only(self):
+        policy = self.cli("policy", "enable", "--by", "human-owner")
+        self.assertEqual(["email:message"], policy["allow_actions"])
+        self.cli("policy", "check", "--channel", "x", "--action-name", "publish", expected=2)
+        self.assertTrue(self.cli("policy", "check", "--channel", "email",
+                                 "--action-name", "message")["allowed"])
+
     def test_enable_defaults_to_30_day_expiry(self):
         policy = self.cli("policy", "enable", "--by", "human-owner", "--actions", "email:message")
         self.assertTrue(policy["expires_at"], policy)

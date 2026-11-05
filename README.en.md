@@ -17,6 +17,8 @@ Goal selection comes first: awareness, real adoption, or a first payment are dif
 
 **New in v0.10 — GTM design layer:** `mkt gtm design` decomposes a growth task into object × objective × motion × channel, filters candidates with real constraints (authorized channels, assets, budget, region, data sources) and emits an outcome contract with an explicit verification level. Agents may propose motions with reasons; rules only check compatibility and boundaries, and rejected candidates keep their reasons. Without a data source, platform receipts are not business outcomes — plays, stars, pre-orders and sign-ups are not success by default. See [object × objective × motion × channel](docs/gtm-os/07-object-motion-design.md).
 
+**New in v0.11 — execution integrity merged, design layer corrected:** the P0 integration branch is now part of the release: MCP can no longer raise unverified channel permissions, unknown external results require human adjudication, ledger appends are atomic and fail loud, and damaged DNC suppression data stops sending. The design layer fixes Agent proposals overriding user objectives, partial proposals causing false `blocked`, single-motion selection, mixed `ready` semantics and optimistic verification. Handoff now emits an execution plan bound to the selected recipe and a design fingerprint.
+
 [![tests](https://github.com/roy-tong/Growovo/actions/workflows/tests.yml/badge.svg)](https://github.com/roy-tong/Growovo/actions/workflows/tests.yml)
 
 **Try one result now:** `python3 mkt.py demo` runs plan validation, approval, dry-run, and a ledger demo locally. `python3 mkt.py work-demo` adds the full WorkOrder → SOP → deliverable acceptance → handoff → KPI → approved plan/queue flow, with no accounts, network, queue execution or sends. Verification levels for live platform commands are in the table below. See [feature status & trade-offs](docs/feature-status.md).
@@ -106,7 +108,7 @@ python3 mkt.py check              # verify the CDP session and X/Gmail login sta
 | `mkt gtm design` | **GTM design**: object × objective × motion × channel with constraint checks, outcome contract, unknowns and verification level | Local design only; no execution |
 | `mkt gtm handoff` | **Design handoff**: objective-contract mapping + candidate Workstream via orchestrate | Candidate orchestration, not release approval |
 | `mkt orchestrate` | **Task-specific orchestration**: minimum roles, deliverables, handoffs, required content and audience/channel expression | Local candidate plan |
-| `mkt policy` + `--routine` | **Standing routine authorization**: direct routine touches within account/action scope; 30-day default expiry (`--days 0` opt-in permanent); payments excluded; other gates retained | Local; no live-send validation |
+| `mkt policy` + `--routine` | **Standing routine authorization**: direct routine touches within account/action scope; 30-day default expiry (`--days 0` opt-in permanent); payments excluded; other gates retained | Default: email:message only; local; no live-send validation |
 | `mkt capability` / `mkt template` | **GTM registries**: 18 domains, 40 role families and 32 templates with cross-reference lint | Local |
 | `mkt context` / `objective` / `work` / `sop` | **Business work**: immutable context, objectives, WorkOrders and evidence-gated SOP runs | One full SOP; remaining roles are registry summaries |
 | `mkt deliverable` / `handoff` / `metric` | **Acceptance and results**: template QA, named-receiver handoffs and deterministic KPI measurement | Local; not enterprise IdP or general BI |

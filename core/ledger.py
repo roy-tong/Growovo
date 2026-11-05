@@ -18,6 +18,7 @@ result 终态约定（与写路径状态机对齐）：
 谁在不重试名单里（no-dm / bounced / suppressed）。
 """
 import json
+import os
 from datetime import datetime
 from pathlib import Path
 
@@ -25,6 +26,71 @@ OK_RESULTS = ("committed",)
 # indeterminate = 可能已发送但未能确认。自动重发会造成重复触达，必须先由人
 # 通过 ledger.resolve 覆盖为 committed/failed；不能在未知状态上再发一次。
 NO_RETRY_CODES = frozenset({"indeterminate", "no-dm", "bounced", "suppressed"})
+
+
+class LedgerCorruptError(RuntimeError):
+    """账本/裁决文件出现坏行：静默跳过会把 committed 记录变成"没发过"，
+    重跑队列即重复发送。读侧显式报错，发送门禁按 fail-closed 拒绝。"""
+
+
+class LedgerLockError(RuntimeError):
+    """账本文件锁不可用：并发安全是账本可靠性的前置条件，
+    锁获取失败不得静默降级为无锁写入（review 2026-11-04 复核）。"""
+
+
+def _append_line(path: Path, line: str) -> None:
+    """O_APPEND + flock + 单次 write：与 event_store 同一追加纪律，
+    多进程（MCP + CLI）并发追加不撕裂、不交错。锁不可用时 fail closed。"""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = line.encode("utf-8")
+    fd = os.open(str(path), os.O_CREAT | os.O_APPEND | os.O_WRONLY, 0o644)
+    locked = False
+    try:
+        try:
+            import fcntl
+            fcntl.flock(fd, fcntl.LOCK_EX)
+            locked = True
+        except ImportError as exc:
+            raise LedgerLockError(
+                "平台缺少 fcntl（%s）；无法保证 %s 的并发追加安全，拒绝无锁写入。"
+                % (exc, path)) from exc
+        except OSError as exc:
+            raise LedgerLockError(
+                "获取账本文件锁失败（%s：%s）；拒绝无锁写入 %s。"
+                % (path, exc, path)) from exc
+        written = os.write(fd, payload)
+        if written != len(payload):  # 极端短写也按失败处理，不留半行
+            raise OSError("short write to %s (%d/%d bytes)"
+                          % (path, written, len(payload)))
+    finally:
+        if locked:
+            try:
+                import fcntl
+                fcntl.flock(fd, fcntl.LOCK_UN)
+            except OSError:
+                pass
+        os.close(fd)
+
+
+def _read_jsonl_fail_loud(path: Path, *, kind: str):
+    """读 JSONL；空行/注释行跳过，坏行报 LedgerCorruptError（带行号）。"""
+    if not path.exists():
+        return []
+    out = []
+    with path.open(encoding="utf-8") as handle:
+        for number, raw in enumerate(handle, 1):
+            line = raw.strip()
+            if not line or line.startswith("#"):
+                continue
+            try:
+                out.append(json.loads(line))
+            except json.JSONDecodeError as exc:
+                raise LedgerCorruptError(
+                    "%s 第 %d 行不是合法 JSON：%s。静默跳过会把已发送记录当成"
+                    "未发送（重跑即重复触达）；请修复该行或人工裁决后重试，"
+                    "发送门禁在此之前按 fail-closed 拒绝。" % (path, number, exc)
+                ) from exc
+    return out
 
 
 class Ledger:
@@ -46,38 +112,16 @@ class Ledger:
             "ref": ref or "",
         }
         rec.update(extra)
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        with self.path.open("a", encoding="utf-8") as f:
-            f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+        _append_line(self.path, json.dumps(rec, ensure_ascii=False) + "\n")
         return rec
 
     def _raw(self):
-        if not self.path.exists():
-            return []
-        out = []
-        for line in self.path.read_text(encoding="utf-8").splitlines():
-            line = line.strip()
-            if not line or line.startswith("#"):
-                continue
-            try:
-                out.append(json.loads(line))
-            except json.JSONDecodeError:
-                continue  # 坏行不炸账本，跳过并保持只读语义
-        return out
+        return _read_jsonl_fail_loud(self.path, kind="账本")
 
     def _resolutions(self):
         """ref → 最新裁决（append-only 覆盖，不改原账本行）。"""
-        if not self.resolutions_path.exists():
-            return {}
         out = {}
-        for line in self.resolutions_path.read_text(encoding="utf-8").splitlines():
-            line = line.strip()
-            if not line or line.startswith("#"):
-                continue
-            try:
-                rec = json.loads(line)
-            except json.JSONDecodeError:
-                continue
+        for rec in _read_jsonl_fail_loud(self.resolutions_path, kind="裁决"):
             if rec.get("ref"):
                 out[rec["ref"]] = rec
         return out
@@ -110,9 +154,7 @@ class Ledger:
             raise ValueError(f"账本里没有 ref={ref!r} 的记录")
         rec = {"ts": datetime.now().isoformat(timespec="seconds"),
                "ref": ref, "result": result, "by": by, "note": note}
-        self.resolutions_path.parent.mkdir(parents=True, exist_ok=True)
-        with self.resolutions_path.open("a", encoding="utf-8") as fh:
-            fh.write(json.dumps(rec, ensure_ascii=False) + "\n")
+        _append_line(self.resolutions_path, json.dumps(rec, ensure_ascii=False) + "\n")
         return rec
 
     def indeterminate(self):

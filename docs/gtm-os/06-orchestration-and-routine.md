@@ -92,8 +92,11 @@ mkt orchestrate \
 其他工作区由人通过 CLI 设置：
 
 ```bash
-# 授权全部内置日常动作，但仅限默认账号
+# 默认只授权 email:message，仅限默认账号
 mkt policy enable --by <授权人>
+
+# 显式授权多个日常动作
+mkt policy enable --by <授权人> --actions x:publish,x:reply,email:message
 
 # 或严格限定动作、命名账号和有效期
 mkt policy enable --by <授权人> \

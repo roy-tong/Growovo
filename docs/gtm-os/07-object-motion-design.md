@@ -63,7 +63,7 @@ mkt orchestrate（岗位与交付物） → mkt plan/queue（人审） → 执�
 | `commerce_led` | 商业/交易增长 | 硬件、内容账号、服务 | 购买路径 + 供应履约 |
 | `partnership_led` | 合作增长 | 开源、硬件、B2B、内容、服务、软件 | 合作方名单 |
 
-机制可以组合（硬件常用 `content_led` + `commerce_led`），但不是互斥行业模板，也不要求每次全跑。
+机制可以组合：最多 3 个，1 个 primary + 最多 2 个 supporting；supporting 只补主目标的上游条件（认知、需求、承接），不单独承诺结果。`selected_motions` 记录角色与理由，`combination.order` 给出建议顺序；`selected_motion` 保留为主机制，兼容旧调用。
 
 ### 2.4 Channel
 
@@ -98,7 +98,11 @@ mkt orchestrate（岗位与交付物） → mkt plan/queue（人审） → 执�
 |---|---|
 | `observable` | 声明的数据源能直接观察到该目标（如产品事件 + 激活） |
 | `partially_observable` | 只有部分信号可观察，口径待人工确认 |
+| `verifiable` | 数据源已连接，且事件级目标已核验关键事件与身份关联 |
+| `declared_only` | 只声明了数据源类型或连接未确认；不能把类型匹配当可核验 |
 | `unverified` | 没有数据渠道或缺少该目标必需的数据源；只能拿到平台回执 |
+
+验证等级由 `data_sources`、`data_connected`、`events_verified` 三者共同决定。`data_connected` 必须是 `data_sources` 的子集；事件级目标（activation / revenue / retention / contribution）还要求 `events_verified=true` 才能升级为 `verifiable`。这些都是操作者声明，本模块不能替代真实连接检测。
 
 数据源用固定词表：`platform_insights`、`product_events`、`billing`、`order_system`、`crm`、`repo_events`。写错会被拒绝，而不是被当成一个看起来合理的自由文本。
 
@@ -136,9 +140,10 @@ MCP 侧对应只读工具 `mkt_gtm_design`（`task` + 可选 `object/objective/c
 
 `mkt gtm handoff` 做三件事，仍然不执行：
 
-1. 校验设计自洽，不自洽直接拒绝；
+1. 校验设计自洽；`blocked` 设计直接拒绝交接；
 2. 把设计目标映射到既有目标族（声量 `awareness` / 使用 `adoption` / 商业 `commercial`），并给出 `mkt goal plan` 命令；
-3. 提供产品事实包时，调用 `core/orchestration.py` 生成候选 Workstream（岗位族、工作单、依赖、交接），并跑编排 lint。
+3. 生成 `execution_plan`：对象、目标、机制（含 recipe）、渠道、约束、结果契约与设计 SHA-256 指纹，下游不得重新推断；
+4. 提供产品事实包时，按**已选主机制的 recipe** 调用 `core/orchestration.py`，而不是让编排重新猜机制；Workstream 带回 `design_ref`。
 
 Workstream 是按产品事实与任务推断的候选组合，不是发布批准，也不证明设计选中的机制已被执行。
 
@@ -154,6 +159,7 @@ Workstream 是按产品事实与任务推断的候选组合，不是发布批准
 
 ## 7. 边界
 
+- `design_status`、`execution_readiness`、`measurement_readiness` 三者独立：设计完成不等于可执行，可执行不等于可验证；
 - 设计不是执行结果，也不是渠道有效性证明；
 - 对象与目标由信号推断，可能误判；低置信度会显式要求澄清；
 - 机制兼容性是编辑口径，不是统计结论；

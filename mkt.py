@@ -648,6 +648,10 @@ def cmd_policy(args):
     from core import execution_policy
     if args.action == "enable":
         actions = [x.strip() for x in args.actions.split(",") if x.strip()] or None
+        if actions is None:
+            actions = ["email:message"]
+            print("提示：未指定 --actions，默认只授权 email:message；其他动作请显式列出。",
+                  file=sys.stderr)
         accounts = [x.strip() for x in args.accounts.split(",") if x.strip()] or None
         days = None if args.days == 0 else args.days
         if days is None:
@@ -2565,7 +2569,8 @@ def build_parser():
     a = psub.add_parser("show")
     a = psub.add_parser("list-actions")
     a = psub.add_parser("enable"); a.add_argument("--by", required=True)
-    a.add_argument("--actions", default="", help="可选：channel:action 逗号列表；默认内置日常动作")
+    a.add_argument("--actions", default="",
+                   help="channel:action 逗号列表；不填只授权 email:message，其他动作必须显式列出")
     a.add_argument("--accounts", default="", help="可选：授权账号逗号列表")
     a.add_argument("--days", type=int, default=30,
                    help="授权有效天数（默认 30；0 表示不过期，需显式声明）")
@@ -2917,7 +2922,7 @@ def build_parser():
     dg.add_argument("--objective", default="",
                     help="显式目标：awareness/acquisition/activation/revenue/retention/contribution")
     dg.add_argument("--constraints", default="",
-                    help="约束 JSON 文件或内联 JSON：budget/region/authorized_channels/assets/data_sources")
+                    help="约束 JSON：budget/region/authorized_channels/assets/data_sources/data_connected/events_verified")
     dg.add_argument("--proposal", default="",
                     help="Agent 候选 JSON：{objective, motions:[{id,why}], channels:[…]}")
     dg.add_argument("--json", action="store_true")
