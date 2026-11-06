@@ -11,6 +11,19 @@ Growovo is a GTM/User Growth operator for **indie developers and one-person comp
 
 Goal selection comes first: awareness, real adoption, or a first payment are different plays, platforms, and pass lines for the same product. The product combines **Demand / Execution / Learning** with an **Operator Engine and Playbooks**: Signal Interpretation validates host-supplied semantics before Opportunity Discovery checks product-value fit. Value Artifacts move through local reproduction, authorized delivery and user-completion readback; Journey diagnoses activation and retention breakpoints without treating multi-touch order as causation. GitHub Inbox is one Playbook, not the product definition. CLI, MCP, and Skill share approval, budget, read-back, and ledger mechanisms; activation, retained use, and payment are verified independently.
 
+**Start here.** Growovo turns one growth goal into an approved plan, runs only the actions you authorized, and records every outcome as success, failure, or unknown. It is built for one-person companies and small teams that cannot afford to guess whether a campaign actually happened.
+
+```bash
+git clone https://github.com/roy-tong/Growovo.git && cd Growovo
+python3 mkt.py demo        # zero network, zero accounts, returns in under a second
+python3 mkt.py next        # what to do now, and why
+```
+
+**See the receipts first:** [Launch autopsy: 73 tweets in 11 hours, 0 new stars](docs/launch-autopsy-20261105.md) — the campaign we ran with this tool, the numbers it produced, and the ledger gap it exposed in our own process.
+
+<details>
+<summary>What's new (v0.8 – v0.13): Work OS, orchestration, design layer, execution integrity</summary>
+
 **New in v0.8 — GTM Work OS:** validated registries for 18 capability domains, 40 role families and 32 templates, plus immutable context, objectives, WorkOrders, evidence-gated SOPs, deliverable acceptance, receiver handoffs and deterministic KPI measurement. `work-action` only materialises accepted work into the existing plan/queue path; it adds no send bypass. One developer SOP is executable end to end today; registry coverage does not mean all 40 professional automations are complete. See the [implementation notes](docs/gtm-os/05-implementation.md).
 
 **New in v0.9 — task-specific orchestration and standing routine authorization:** `mkt orchestrate` selects only the roles required by the product, goal and task, then chooses the content structure and expression for each deliverable. Routine posts, replies, DMs and email can execute directly under an existing workspace `routine-policy`; payments, contracts and discounts remain human-only. Dry-run, pause, DNC, quota, read-back and unknown-result protections remain intact. See [orchestration and routine authorization](docs/gtm-os/06-orchestration-and-routine.md).
@@ -18,6 +31,8 @@ Goal selection comes first: awareness, real adoption, or a first payment are dif
 **New in v0.10 — GTM design layer:** `mkt gtm design` decomposes a growth task into object × objective × motion × channel, filters candidates with real constraints (authorized channels, assets, budget, region, data sources) and emits an outcome contract with an explicit verification level. Agents may propose motions with reasons; rules only check compatibility and boundaries, and rejected candidates keep their reasons. Without a data source, platform receipts are not business outcomes — plays, stars, pre-orders and sign-ups are not success by default. See [object × objective × motion × channel](docs/gtm-os/07-object-motion-design.md).
 
 **New in v0.11 — execution integrity merged, design layer corrected:** the P0 integration branch is now part of the release: MCP can no longer raise unverified channel permissions, unknown external results require human adjudication, ledger appends are atomic and fail loud, and damaged DNC suppression data stops sending. The design layer fixes Agent proposals overriding user objectives, partial proposals causing false `blocked`, single-motion selection, mixed `ready` semantics and optimistic verification. Handoff now emits an execution plan bound to the selected recipe and a design fingerprint.
+
+</details>
 
 [![tests](https://github.com/roy-tong/Growovo/actions/workflows/tests.yml/badge.svg)](https://github.com/roy-tong/Growovo/actions/workflows/tests.yml)
 

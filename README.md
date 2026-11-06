@@ -11,6 +11,19 @@ Growovo 面向**独立开发者与一人公司**，提供 GTM/User Growth 的需
 
 先选目标（声量 / 使用 / 商业），再选渠道（具体的地方，不是平台），然后按阶段做转化。同一个产品换目标就换打法。产品由 **Demand / Execution / Learning 三层能力**与 **Operator Engine + Playbooks** 组成：Signal Interpretation 先校验宿主语义候选，Opportunity Discovery 再判断需求与产品匹配；Value Artifact 经本地复现、授权交付和用户读回形成完整价值链，Journey 诊断真实使用断点并保留多触点非因果边界。GitHub Inbox 只是其中一个 Playbook，而不是产品总定义。CLI、MCP、Skill 共用审批、预算、回读和账本。发送成功只代表操作完成，激活、持续使用和付费分别核验。
 
+**从这里开始。** 给 Growovo 一个增长目标和一份授权边界，它产出可审批的计划，只执行你授权的动作，并把每个结果记成成功、失败或待人工核实。面向没有余量去赌"这次推广到底有没有发生"的一人公司和小团队。
+
+```bash
+git clone https://github.com/roy-tong/Growovo.git && cd Growovo
+python3 mkt.py demo        # 零网络零账号，一秒内返回
+python3 mkt.py next        # 现在该做什么，以及为什么
+```
+
+**先看证据再决定信不信：** [发布尸检：11 小时 73 条推文，0 个新 star](docs/launch-autopsy-20261105.md)——用这个工具跑的一次真实 campaign、拿到的数字，以及它暴露出的我们自己的账本缺口。
+
+<details>
+<summary>版本更新（v0.8 – v0.13）：GTM Work OS、编排与授权、设计层、执行完整性、内容运营</summary>
+
 **v0.8 新增 GTM Work OS**：18 个能力域、40 个岗位族和 32 个模板进入可校验注册表；不可变上下文、运营目标、WorkOrder、专业 SOP、交付物验收、跨岗位 Handoff 和 KPI 形成业务主链。`work-action` 只把 accepted 交付物物化为既有 plan/queue，不新增发送旁路。当前有一条完整开发者 SOP 运行链，不把注册覆盖说成 40 个专业自动化全部完成。详见[实现说明](docs/gtm-os/05-implementation.md)。
 
 **v0.9 新增按需编排与常驻营销授权**：`mkt orchestrate` 根据产品、目标和任务只选择必要岗位，并逐份决定交付物的内容与表达；日常发帖、回复、私信和邮件可在工作区已有明确 `routine-policy` 时直接执行，不再一律逐次人审。付款、合同、折扣等仍需人工，dry-run、暂停、DNC、配额、回读和未知结果保护不降级。详见[编排与授权](docs/gtm-os/06-orchestration-and-routine.md)。
@@ -18,6 +31,10 @@ Growovo 面向**独立开发者与一人公司**，提供 GTM/User Growth 的需
 **v0.10 新增 GTM 设计层**：`mkt gtm design` 把增长任务拆成对象×目标×机制×渠道，先用约束（授权渠道/素材/预算/地区/数据源）筛可行性，再按目标生成结果契约与验证等级。Agent 可以提交候选机制与理由，规则只负责兼容性与边界，并保留拒绝理由；没有数据渠道时只承认平台回执，不把播放量、Star、预售订单或注册数当业务结果。详见[对象×目标×机制×渠道](docs/gtm-os/07-object-motion-design.md)。
 
 **v0.11 合并执行完整性修复并修正设计层**：P0 集成分支进入正式版——MCP 不能自行提高未验证渠道权限，外部发送的未知结果必须人工裁决，账本追加原子化且损坏即拒绝，DNC 抑制数据损坏时停发而不是静默跳过。设计层修正用户目标被 Agent 覆盖、部分 Proposal 误判 blocked、单一 Motion 限制、`ready` 语义混杂和验证等级过宽；交接现在按已选机制生成执行计划并带设计指纹。详见 [执行完整性](docs/gtm-os/06-orchestration-and-routine.md) 与 [设计层](docs/gtm-os/07-object-motion-design.md)。
+
+**内容运营能力（2026-11-05）**：`core/content_ops.py` + `mkt content rules|brief|audit|plan` + MCP `mkt_content` 把小红书/公众号/博客的渠道规则、定位、A/B/C CTA、产品出场、审稿和 14 天排期做成可测试能力。审稿只检查本地写作契约，不发布、不定时、不证明平台效果。详见[内容运营](docs/content-ops.md)。
+
+</details>
 
 [![tests](https://github.com/roy-tong/Growovo/actions/workflows/tests.yml/badge.svg)](https://github.com/roy-tong/Growovo/actions/workflows/tests.yml)
 
@@ -113,6 +130,7 @@ python3 mkt.py check              # 确认 CDP 会话与 X/Gmail 登录态
 | `mkt network bind/list/export` | **代理引用**：只存环境变量名与账号绑定，不读凭据、不提高配额、不绕封禁 | — |
 | `mkt exp show/coverage/stale/assess` | **用户经验与资格**：正式策略要求权利依据、确认人/时间/记录和覆盖来源域的可追溯复核；内部自报只进实验，旧布尔字段不自动合资格 | — |
 | `mkt voice show/draft/lint <平台>` | **平台语气**：37 个平台各自的语气、句式、三条开头、禁忌与黑话；`lint` 查出会被当成广告的句子 | — |
+| `mkt voice plain --file/--text` | **表达检查**：查出普通人要翻译才能懂的生造词（如「发射开关」），`--fix` 出机械替换稿；JSON 与服务端同源 | — |
 | `mkt result` / `mkt revise` | **结果与回流**：按 campaign/subject/time_window 统一过滤动作/任务/业务结果，真实 OutcomeLedger 与动态价值事件可核验；候选解释与已验证机制分开，不做自动渠道生死判决 | — |
 | `mkt progress daily/weekly` | **进度**：日报问「今天有什么该动没动」，周报问「这周比上周好还是差」；没有动作就写停摆，不编数字 | — |
 | `mkt retro scan/analyze/report` | **复盘引擎**：扫本地日志→带出处的事实→渠道账→业务结论。比率只从人工钉定的 `--facts` 算，机器不替你选口径；每条结论必须带数字、出处、因果机制和可执行动作，缺一项拒绝出报告 | — |
