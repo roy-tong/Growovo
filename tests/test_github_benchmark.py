@@ -16,6 +16,7 @@ sys.path.insert(0, str(ROOT / "scripts"))
 import github_benchmark as gb  # noqa: E402
 
 CASES_PATH = ROOT / "tests" / "fixtures" / "github_benchmark" / "cases.jsonl"
+HOLDOUT_PATH = ROOT / "tests" / "fixtures" / "github_benchmark" / "holdout.jsonl"
 
 
 def synthetic(case_id, title, body, expected):
@@ -37,13 +38,25 @@ class BenchmarkFixtureTests(unittest.TestCase):
         cls.cases = gb.load_cases(CASES_PATH)
 
     def test_size_splits_and_ids(self):
-        self.assertGreaterEqual(len(self.cases), 24)
-        self.assertEqual({"dev", "holdout"}, {case["split"] for case in self.cases})
-        holdout = [case for case in self.cases if case["split"] == "holdout"]
+        # G-9：dev 与 holdout 物理分文件；默认 fixture（dev）看不到 holdout。
+        self.assertGreaterEqual(len(self.cases), 21)
+        self.assertEqual({"dev"}, {case["split"] for case in self.cases})
+        holdout = gb.load_cases(HOLDOUT_PATH)
         self.assertGreaterEqual(len(holdout), 6)
-        self.assertGreaterEqual(len(self.cases) - len(holdout), 6)
-        ids = [case["id"] for case in self.cases]
-        self.assertEqual(len(ids), len(set(ids)))
+        self.assertEqual({"holdout"}, {case["split"] for case in holdout})
+        dev_ids = {case["id"] for case in self.cases}
+        holdout_ids = {case["id"] for case in holdout}
+        self.assertFalse(dev_ids & holdout_ids, dev_ids & holdout_ids)
+        all_ids = list(dev_ids) + list(holdout_ids)
+        self.assertEqual(len(all_ids), len(set(all_ids)))
+
+    def test_dev_default_fixture_cannot_see_holdout(self):
+        # 机制隔离：默认加载路径（无参 load_cases）只含 dev；对它评 holdout 必然空。
+        default_cases = gb.load_cases()
+        self.assertTrue(default_cases)
+        self.assertEqual({"dev"}, {case["split"] for case in default_cases})
+        with self.assertRaises(gb.BenchmarkError):
+            gb.evaluate(default_cases, split="holdout")
 
     def test_every_case_matches_the_schema(self):
         for case in self.cases:
@@ -64,18 +77,20 @@ class BenchmarkFixtureTests(unittest.TestCase):
                     self.assertEqual("hold_unknown", case["expected"]["action"])
 
     def test_required_scenario_coverage(self):
-        categories = {case["expected"]["category"] for case in self.cases}
+        # 覆盖保证针对整个 benchmark（dev+holdout，G-9 后物理分文件）
+        all_cases = self.cases + gb.load_cases(HOLDOUT_PATH)
+        categories = {case["expected"]["category"] for case in all_cases}
         self.assertEqual(set(gb.CATEGORIES), categories)
-        risks = {case["expected"]["risk_class"] for case in self.cases}
+        risks = {case["expected"]["risk_class"] for case in all_cases}
         self.assertIn("high", risks)
         self.assertIn("irreversible", risks)
-        unknown = [case for case in self.cases
+        unknown = [case for case in all_cases
                    if case["expected"]["category"] == "unknown_result"]
         self.assertGreaterEqual(len(unknown), 2)
         # Normal, ambiguous and high-risk cases must all be present.
-        self.assertGreaterEqual(sum(1 for case in self.cases
+        self.assertGreaterEqual(sum(1 for case in all_cases
                                     if case["expected"]["risk_class"] == "low"), 10)
-        self.assertGreaterEqual(sum(1 for case in self.cases
+        self.assertGreaterEqual(sum(1 for case in all_cases
                                     if case["expected"]["category"] in ("security", "abuse")), 6)
 
     def test_invalid_fixture_is_rejected(self):
@@ -173,11 +188,11 @@ class BenchmarkMetricTests(unittest.TestCase):
 
     def test_dev_and_holdout_are_disjoint_and_complete(self):
         dev = gb.evaluate(self.cases, split="dev")
-        holdout = gb.evaluate(self.cases, split="holdout")
+        holdout_cases = gb.load_cases(HOLDOUT_PATH)
+        holdout = gb.evaluate(holdout_cases, split="holdout")
         dev_ids = {case["id"] for case in dev["per_case"]}
         holdout_ids = {case["id"] for case in holdout["per_case"]}
         self.assertFalse(dev_ids & holdout_ids)
-        self.assertEqual({case["id"] for case in self.cases}, dev_ids | holdout_ids)
         self.assertGreaterEqual(len(holdout_ids), 6)
         self.assertEqual(len(holdout_ids), holdout["n_cases"])
         for case in holdout["per_case"]:
@@ -201,7 +216,7 @@ class BenchmarkCliTests(unittest.TestCase):
         self.assertEqual(first.stdout, second.stdout)
         payload = json.loads(first.stdout)
         self.assertEqual("holdout", payload["split"])
-        expected = sum(1 for case in self.cases if case["split"] == "holdout")
+        expected = len(gb.load_cases(HOLDOUT_PATH))  # G-9：holdout 独立文件
         self.assertEqual(expected, payload["n_cases"])
 
     def test_both_format_contains_markdown_and_json(self):
