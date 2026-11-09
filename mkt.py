@@ -54,6 +54,21 @@ def _ledger():
     return Ledger(DATA / "ledger.jsonl")
 
 
+def _load_facts(path, what="产品事实包"):
+    """读 facts JSON；文件缺失/格式错给可行动的报错，而不是裸 traceback。"""
+    p = Path(path)
+    try:
+        text = p.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        raise SystemExit(f"找不到{what}文件：{p}\n"
+                         "样例：data/verovo-finops/facts.json"
+                         "（product/icp/baseline/goals/value_events/constraints/owned_assets）")
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError as e:
+        raise SystemExit(f"{what}文件不是有效 JSON：{p}（第 {e.lineno} 行: {e.msg}）")
+
+
 def _throttle():
     from core.throttle import Throttle
     return Throttle(DATA / "state")
@@ -135,7 +150,8 @@ def cmd_pause(args):
         set_pause(DATA, False)
         print("已恢复（全局暂停解除）。")
     elif args.on:
-        set_pause(DATA, True, reason=args.reason or "")
+        inline = args.on if isinstance(args.on, str) else ""
+        set_pause(DATA, True, reason=args.reason or inline or "")
         print(f"已暂停一切写操作（{pause_file(DATA)}）。恢复: mkt pause --off")
     else:
         p = is_paused(DATA)
@@ -332,7 +348,7 @@ def cmd_retro(args):
                   "机器只负责把证据摊开；动作数/回应数用哪个口径，必须人来钉，"
                   "否则算出来的比率是假的。", file=sys.stderr)
             return 2
-        facts = json.loads(Path(args.facts).read_text(encoding="utf-8"))
+        facts = _load_facts(args.facts)
         rows = retro.rates_from_facts(facts)
         for r in rows:
             r["sources"] = [f"{args.facts}#{r['channel']}"]
@@ -547,7 +563,7 @@ def _journey_summary(payload):
 
 def cmd_opportunity(args):
     from core import opportunity
-    facts = json.loads(Path(args.facts).read_text(encoding="utf-8"))
+    facts = _load_facts(args.facts)
     signals = json.loads(Path(args.signals).read_text(encoding="utf-8"))
     payload = opportunity.discover(facts, signals)
     if args.json:
@@ -989,8 +1005,24 @@ def cmd_revise(args):
 def cmd_execute(args):
     import csv as _csv
     from core import execute
-    strat = json.loads(Path(args.strategy_file).read_text(encoding="utf-8"))
-    rows = list(_csv.DictReader(Path(args.targets).read_text(encoding="utf-8").splitlines()))
+    try:
+        strat = json.loads(Path(args.strategy_file).read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        print(f"不能生成：找不到策略文件 {args.strategy_file}", file=sys.stderr)
+        return 2
+    except json.JSONDecodeError as e:
+        print(f"不能生成：策略文件不是有效 JSON（{args.strategy_file}，第 {e.lineno} 行: {e.msg}）。\n"
+              f"生成方式：python3 mkt.py strategy build --facts <facts.json> [--selection <selection.json>] --json --out {args.strategy_file}",
+              file=sys.stderr)
+        return 2
+    if str(args.targets).endswith(".json"):
+        print(f"不能生成：--targets 是发送对象 CSV（列：target,body[,subject]），不是产品事实包 JSON：{args.targets}", file=sys.stderr)
+        return 2
+    try:
+        rows = list(_csv.DictReader(Path(args.targets).read_text(encoding="utf-8").splitlines()))
+    except FileNotFoundError:
+        print(f"不能生成：找不到目标清单 {args.targets}", file=sys.stderr)
+        return 2
     targets = [{"target": r.get("target", ""), "body": r.get("body", ""),
                 "subject": r.get("subject", "")} for r in rows]
     try:
@@ -1028,7 +1060,7 @@ def cmd_strategy(args):
     act = args.action
 
     if act == "build":
-        facts = json.loads(Path(args.facts).read_text(encoding="utf-8"))
+        facts = _load_facts(args.facts)
         goal_plan = None
         if getattr(args, "selection", ""):
             goal_plan = _goal_plan_from_selection(args.selection, facts)
@@ -1046,7 +1078,13 @@ def cmd_strategy(args):
                                         "actions_per_week": args.actions_per_week},
                            goal_plan=goal_plan)
         if getattr(args, "json", False):
-            print(json.dumps(s, ensure_ascii=False, indent=1))
+            payload = json.dumps(s, ensure_ascii=False, indent=1)
+            if args.out:
+                out = Path(args.out); out.parent.mkdir(parents=True, exist_ok=True)
+                out.write_text(payload + "\n", encoding="utf-8")
+                print(f"策略 JSON 已生成：{out}（供 mkt execute --strategy-file 用）")
+            else:
+                print(payload)
             return 0
         md = strategy.render(s)
         if args.out:
@@ -1058,7 +1096,7 @@ def cmd_strategy(args):
         return 0
 
     if act == "cadence":
-        facts = json.loads(Path(args.facts).read_text(encoding="utf-8")) if args.facts else None
+        facts = _load_facts(args.facts) if args.facts else None
         goal_plan = None
         if getattr(args, "selection", ""):
             if not facts:
@@ -1291,7 +1329,7 @@ def cmd_plan(args):
             raise SystemExit(f"{path} 已存在（加 --force 覆盖）")
         approval.save_plan(plan, path)
         print(f"已写入 {path}")
-        print(f"下一步：mkt plan approve {pid} --by <你的名字>")
+        print(f"下一步：mkt plan approve --id {pid} --by <你的名字>")
         return 0
 
     if act == "lint":
@@ -1664,13 +1702,13 @@ def cmd_reddit(args):
         text = Path(args.text_file).read_text(encoding="utf-8").strip() \
             if args.text_file else args.text
         rec = reddit.reply(args.url, text, go=args.go, adhoc=args.adhoc,
-                           campaign=args.campaign, ledger=_ledger())
+                           campaign=args.campaign, ledger=_ledger(), data_dir=DATA)
         return 0 if rec["result"] in ("committed", "dry-run") else 1
     if args.action == "publish":
         body = Path(args.body_file).read_text(encoding="utf-8").strip() \
             if args.body_file else (args.body or "")
         rec = reddit.publish(args.sub, args.title, body, go=args.go, adhoc=args.adhoc,
-                             campaign=args.campaign, ledger=_ledger())
+                             campaign=args.campaign, ledger=_ledger(), data_dir=DATA)
         return 0 if rec["result"] in ("committed", "dry-run") else 1
     return 2
 
@@ -1684,7 +1722,7 @@ def cmd_linkedin(args):
         note = Path(args.note_file).read_text(encoding="utf-8").strip() \
             if args.note_file else args.note
         rec = linkedin.message(args.url, note, go=args.go, adhoc=args.adhoc,
-                               campaign=args.campaign, ledger=_ledger())
+                               campaign=args.campaign, ledger=_ledger(), data_dir=DATA)
         return 0 if rec["result"] in ("committed", "dry-run") else 1
     return 2
 
@@ -1704,7 +1742,7 @@ def cmd_github(args):
         text = Path(args.text_file).read_text(encoding="utf-8").strip() \
             if args.text_file else args.text
         rec = github.reply(args.repo, args.number, text, go=args.go, adhoc=args.adhoc,
-                           campaign=args.campaign, ledger=_ledger())
+                           campaign=args.campaign, ledger=_ledger(), data_dir=DATA)
         detail = rec.get("detail", "")
         print(f"github reply -> {rec['result']}"
               + (f"（{detail}）" if detail else "")
@@ -1726,10 +1764,10 @@ def cmd_hn(args):
     if args.action == "publish":
         rec = hn.publish(args.title, url=args.url, text=text or None,
                          go=args.go, adhoc=args.adhoc, campaign=args.campaign,
-                         ledger=_ledger())
+                         ledger=_ledger(), data_dir=DATA)
     else:  # reply
         rec = hn.reply(args.item, text, go=args.go, adhoc=args.adhoc,
-                       campaign=args.campaign, ledger=_ledger())
+                       campaign=args.campaign, ledger=_ledger(), data_dir=DATA)
     detail = rec.get("detail", "")
     print(f"hn {args.action} -> {rec['result']}"
           + (f"（{detail}）" if detail else "")
@@ -1792,7 +1830,7 @@ def cmd_gtm(args):
     cmd = getattr(args, "gtm_cmd", None)
     if cmd == "diagnose":
         from core import gtm
-        facts = json.loads(Path(args.facts).read_text(encoding="utf-8"))
+        facts = _load_facts(args.facts)
         payload = gtm.diagnose(facts)
         if args.json:
             print(json.dumps(payload, ensure_ascii=False, indent=2))
@@ -1891,7 +1929,7 @@ def cmd_gtm(args):
 def cmd_goal(args):
     from core import goals
     try:
-        facts = json.loads(Path(args.facts).read_text(encoding="utf-8"))
+        facts = _load_facts(args.facts)
     except (OSError, ValueError) as e:
         print(f"事实包读不了：{e}", file=sys.stderr)
         return 2
@@ -1955,10 +1993,10 @@ def cmd_sprint(args):
     from core import goals, sprint
     try:
         if getattr(args, "selection", ""):
-            facts = json.loads(Path(args.facts).read_text(encoding="utf-8"))
+            facts = _load_facts(args.facts)
             goal_plan = _goal_plan_from_selection(args.selection, facts)
         else:
-            facts = json.loads(Path(args.facts).read_text(encoding="utf-8"))
+            facts = _load_facts(args.facts)
             platforms = _split_platforms(getattr(args, "platforms", ""))
             goal_plan = goals.build_plan(
                 facts, args.goal, platforms=platforms,
@@ -2012,7 +2050,7 @@ def cmd_channel(args):
                      for r in rows]))
         return 0
 
-    facts = json.loads(Path(args.facts).read_text(encoding="utf-8"))
+    facts = _load_facts(args.facts)
     try:
         goal_plan = (_goal_plan_for(args, facts)
                      if getattr(args, "goal", "") or getattr(args, "selection", "")
@@ -2291,7 +2329,7 @@ def cmd_playbook(args):
             print(json.dumps(result, ensure_ascii=False, indent=1))
             return 1
         print(f"已生成 {out}（{meta.get('items', 0)} 条候选回复）")
-        print(f"下一步：mkt queue lint {out}；mkt plan approve <plan_id> --by <人>；"
+        print(f"下一步：mkt queue lint {out}；mkt plan approve --id <plan_id> --by <人>；"
               f"mkt queue run {out}（先 dry-run，再 --go）")
     if args.json:
         print(json.dumps(result, ensure_ascii=False, indent=1))
@@ -2368,7 +2406,8 @@ def build_parser():
     sp = sub.add_parser("check", help="CDP 会话检查（X/Gmail/Reddit/LinkedIn/HN 登录态）")
     sp.set_defaults(fn=cmd_check)
     sp = sub.add_parser("pause", help="全局暂停总闸（一切写操作拒跑）")
-    sp.add_argument("--on", action="store_true", help="暂停（可 --reason '原因'）")
+    sp.add_argument("--on", nargs="?", const=True, default=False,
+                    help="暂停；可直接跟原因 `--on '原因'`，或 `--on --reason '原因'`")
     sp.add_argument("--off", action="store_true", help="恢复")
     sp.add_argument("--reason", default="")
     sp.set_defaults(fn=cmd_pause)

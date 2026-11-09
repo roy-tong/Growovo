@@ -1,5 +1,42 @@
 # Changelog
 
+## Unreleased
+
+End-to-end user-journey fixes from the 2026-11-09 walkthrough: every command
+the tool itself suggests must run as printed, and file contracts between
+commands must not break silently.
+
+### Fixed
+
+- **strategy → execute contract**: `strategy build --json --out <file>` now
+  writes JSON to the file (previously `--out` was ignored and only stdout got
+  JSON); `mkt execute` reports a friendly error with the regenerating command
+  when the strategy file is not valid JSON, and tells the user `--targets` is
+  a recipient CSV when a JSON facts file is passed.
+- **Guided commands are copy-pasteable**: `review`, `execute`, `next`, queue
+  build and work-action outputs now print `mkt plan approve --id <pid>` (was a
+  positional form the parser rejects) and `mkt queue run <queue>` (was a
+  nonexistent `--queue` form for channel subcommands).
+- **`pause --on 'reason'`**: the README-documented syntax now works; the reason
+  can follow `--on` directly or use `--reason`.
+- **Pause gate covers dry-run**: a paused workspace now refuses write actions
+  in dry-run too (dry-run writes evidence and ledger records); previously only
+  `--go` was blocked, which contradicted the documented "all write operations
+  refuse while paused".
+- **Workspace isolation for evidence**: `github/hn/reddit/linkedin` CLI write
+  paths now pass the resolved workspace (`MKT_HOME`/`--workspace`) so evidence
+  lands in the workspace `shots/` instead of leaking into the repository's
+  `data/shots/`.
+- **`goal list` shows goal ids**: the table now includes the `--goal` id column
+  so users no longer need an error message to discover them; unknown-goal
+  errors point to that column.
+- **cadence placeholder**: single-platform goal selections no longer render
+  "在 目标社区 各做 2 次"; the action becomes "pick 2 communities where the
+  audience actually gathers" with the same acceptance criteria.
+- **Friendly input errors**: missing/invalid `--facts` files point to the
+  sample facts file; `gtm design --constraints` explains the accepted formats
+  (JSON file path or inline JSON) instead of a bare FileNotFoundError.
+
 ## 0.13.0 - 2026-11-05
 
 This release adds account-identity binding to standing authorization, closing

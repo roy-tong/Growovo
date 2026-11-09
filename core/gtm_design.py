@@ -1096,7 +1096,13 @@ def load_json_arg(value: str) -> Dict[str, Any]:
         return {}
     if text.startswith("{"):
         return json.loads(text)
-    return json.loads(Path(text).read_text(encoding="utf-8"))
+    p = Path(text)
+    if not p.exists():
+        raise GTMDesignError(
+            "--constraints 要么是 JSON 文件路径，要么是内联 JSON（以 { 开头，"
+            "例如 '{\"authorized_channels\":[\"github\"]}'）；"
+            f"收到的 {text!r} 不是存在的文件")
+    return json.loads(p.read_text(encoding="utf-8"))
 
 
 # ---------------------------------------------------------------------------

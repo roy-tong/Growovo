@@ -56,10 +56,11 @@ def precheck(channel, action, data_dir, campaign, go, allow_unverified, target=N
         variants = {value, value.lstrip("@"), "@" + value.lstrip("@")}
         if any(v in suppressed for v in variants):
             raise ActionError(f"目标在抑制名单（DNC/bounced/suppressed）: {value}")
-    if not go:
-        return
+    # 暂停总闸拦一切写路径（含 dry-run：干跑也会写 evidence/账本留痕）。
     if is_paused(data_dir):
         raise ActionError("全局暂停中（mkt pause --off 恢复）——写操作拒跑")
+    if not go:
+        return
     if reg[channel].get("status") == "UNVERIFIED" and not allow_unverified:
         raise ActionError(f"{channel} 渠道为 UNVERIFIED，拒绝实跑（人工首跑校准后加 allow_unverified=true）")
     try:

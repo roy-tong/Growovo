@@ -268,7 +268,8 @@ def get(goal_id: str) -> Dict[str, Any]:
     spec = BY_ID.get(goal_id)
     if spec is None:
         raise GoalError(
-            f"没有这个目标：{goal_id}；可选：{', '.join(sorted(BY_ID))}")
+            f"没有这个目标：{goal_id}；可选（`goal list` 表格里的 goal id 列）："
+            f"{', '.join(sorted(BY_ID))}")
     return spec
 
 
@@ -600,7 +601,7 @@ def _actions(spec: Dict[str, Any], roles: Dict[str, Any],
     """前两周动作：按目标族给不同动作，不按平台复制一套。"""
     family = spec["family"]
     primary = roles["primary"]["name"]
-    support = "、".join(r["name"] for r in roles["support"]) or "目标社区"
+    support = "、".join(r["name"] for r in roles["support"])
     launch = roles["launch"]["name"] if roles.get("launch") else ""
 
     if family == "awareness":
@@ -613,7 +614,8 @@ def _actions(spec: Dict[str, Any], roles: Dict[str, Any],
              "human", 120, "发布链接 + 一段可复现的命令"),
             (3, f"在 {launch or primary} 发一次，只换反馈，不背获客指标",
              "human", 30, "发布记录 + 首日评论/阅读数"),
-            (4, f"在 {support} 各做 2 次有效回应/讨论，一条产品都不提",
+            (4, (f"在 {support} 各做 2 次有效回应/讨论，一条产品都不提" if support
+                 else "挑 2 个目标人群真实聚集的社区，各做 2 次有效回应/讨论，一条产品都不提"),
              "human", 60, "回应记录，带链接"),
             (7, "把首周四个数记下来：访问、clone、star、外部 issue",
              "machine", 10, "四个数入账，注明来源"),
@@ -628,7 +630,8 @@ def _actions(spec: Dict[str, Any], roles: Dict[str, Any],
              "human", 120, "样例链接 + 一条命令"),
             (2, "找 10 个真实问题（issue/评论/论坛），按出现频率排序",
              "machine", 30, "10 条问题，带出处"),
-            (3, f"在 {support} 各做 2 次有效回应/讨论，附上样例链接",
+            (3, (f"在 {support} 各做 2 次有效回应/讨论，附上样例链接" if support
+                 else "挑 2 个目标人群真实聚集的社区，各做 2 次有效回应/讨论，附上样例链接"),
              "human", 60, "回应记录，带样例"),
             (5, "请 3 个用户跑一遍，只记录卡点，不解释",
              "human", 90, "3 份卡点记录，每份至少 1 个具体位置"),
@@ -681,7 +684,7 @@ def _actions_pair(primary_spec: Dict[str, Any], secondary_spec: Dict[str, Any],
     """两个目标的前两周动作。声量+使用共用一份内容，不重复写两套。"""
     if {primary_spec["family"], secondary_spec["family"]} == {"awareness", "adoption"}:
         launch = (roles.get("launch") or {}).get("name") or "Hacker News"
-        support = "、".join(r["name"] for r in roles["support"]) or "目标社区"
+        support = "、".join(r["name"] for r in roles["support"])
         rows = [
             (0, "把仓库首屏改成一句话定位 + 一个 60 秒能看懂的演示",
              "human", 60, "陌生人 10 秒内能说出你是做什么的", "both"),
@@ -691,7 +694,8 @@ def _actions_pair(primary_spec: Dict[str, Any], secondary_spec: Dict[str, Any],
              "human", 150, "发布链接 + 一条可复现命令", "both"),
             (3, f"在 {launch} 发一次，只换反馈，不背获客指标",
              "human", 30, "发布记录 + 首日评论/阅读", "声量"),
-            (4, f"在 {support} 答 5 个真问题，附样例；一条产品都不提",
+            (4, (f"在 {support} 答 5 个真问题，附样例；一条产品都不提" if support
+                 else "挑 2 个目标人群真实聚集的社区，答 5 个真问题，附样例；一条产品都不提"),
              "human", 60, "5 条回答链接", "both"),
             (6, "请 3 个用户跑样例，只记录卡点，不解释",
              "human", 90, "3 份卡点记录，每份至少 1 个具体位置", "使用"),
@@ -963,8 +967,8 @@ def render_list(payload: Dict[str, Any]) -> str:
     lines.append("先定这一轮要什么，再谈打哪个平台。同一个产品，追 star、追使用、追付费是三套动作。")
     lines.append("")
     lines.append(table(
-        ["目标", "指标", "6 周判据", "首选平台", "人工", "适配"],
-        [[f"{g['family_name']}·{g['name']}", g["metric_label"], g["target_text"],
+        ["目标", "goal id（--goal 用）", "指标", "6 周判据", "首选平台", "人工", "适配"],
+        [[f"{g['family_name']}·{g['name']}", g["id"], g["metric_label"], g["target_text"],
           (g["primary"] or {}).get("name", "—"), f"{g['cost_minutes']} 分钟",
           g["fit"]["level"]] for g in payload["goals"]]))
     lines.append("")
@@ -992,9 +996,9 @@ def render_list(payload: Dict[str, Any]) -> str:
         group.sort(key=lambda g: (0 if g["fit"]["level"] == "推荐" else 1,
                                   g["cost_minutes"]))
         for g in group[:2]:
-            pick_rows.append([g["family_name"], g["name"], g["target_text"],
+            pick_rows.append([g["family_name"], g["name"], g["id"], g["target_text"],
                               (g["primary"] or {}).get("name", "—")])
-    lines.append(table(["路", "目标", "6 周判据", "首选平台"], pick_rows))
+    lines.append(table(["路", "目标", "goal id", "6 周判据", "首选平台"], pick_rows))
     lines.append("")
     lines.append("## 怎么选")
     lines.append("")
