@@ -5,16 +5,21 @@
 本封装接入框架管道后未整跑，首跑清单见 03 渠道文档 §5。
 
 凭据只走环境变量：MKT_EMAIL_USER / MKT_EMAIL_APP_PASSWORD（App Password）。
-事务语义：SMTP 协议层 sendmail 无异常 = COMMITTED；异常 = FAILED。
-（协议通道不产生 INDETERMINATE——这正是选 SMTP 做写通道的原因。）
+事务语义（G-5 修正，review 2026-11-09）：
+  send 无异常 = SMTP 服务器已受理（DATA 后收到 2xx）→ COMMITTED，
+  并落回执工件（message_id + accepted_at；投递不可回读验证，回执里明说）；
+  send 抛异常（含服务器已受理但连接在应答前中断）= INDETERMINATE，交人工裁决。
+  回读为同构构造文本：VERIFIED 关只校验队列解析一致性，不校验协议层内容。
 """
 import json
 import os
 import smtplib
 import time
+from datetime import datetime
 from email.header import Header
+from email.message import Message
 from email.mime.text import MIMEText
-from email.utils import formataddr
+from email.utils import formataddr, make_msgid
 from pathlib import Path
 
 from core.evidence import Evidence, log
@@ -115,7 +120,9 @@ def send_queue(queue_file, *, go=False, only=None, campaign=None, ledger=None,
             def _readback(item, _e=expect):
                 return _e  # 协议通道：读回=构造的全文本身
 
-            def _send(item, _it=it, _ch=ch, _go=go):
+            message_id = make_msgid(domain="growovo-send.local")  # 发前生成，回执可追溯到本条
+
+            def _send(item, _it=it, _ch=ch, _go=go, _mid=message_id):
                 if not _go:
                     return  # dry-run 管道在 send 前已拦截，这里兜底
                 msg = MIMEText(_it["_body"], "plain", "utf-8")
@@ -123,10 +130,28 @@ def send_queue(queue_file, *, go=False, only=None, campaign=None, ledger=None,
                 msg["From"] = formataddr(
                     (str(Header(_it.get("from_name", ""), "utf-8")), _ch.user))
                 msg["To"] = _it.get("target") or _it.get("to")
+                msg["Message-ID"] = _mid
                 _ch._client().send_message(msg)
 
-            def _confirm(item, timeout=0):
-                return True  # 协议层无异常即 committed
+            receipt_path: Path | None = None
+
+            def _confirm(item, _ev=ev, _c=campaign, _it=it, _mid=message_id):
+                # 只在 send 无异常后到达：即服务器已受理（DATA 后 2xx）。
+                # 回执如实记录"受理"而非"已投递"——协议层无法验证投递。
+                nonlocal receipt_path
+                receipt_path = _ev.write_json(
+                    f"email-receipt-{_it.get('id', 'item')}",
+                    {
+                        "message_id": _mid,
+                        "accepted_at": datetime.now().isoformat(timespec="seconds"),
+                        "transport": "smtp_ssl",
+                        "server": "smtp.gmail.com",
+                        "stage": "smtp_accepted",
+                        "delivery_verified": False,
+                        "meaning": "SMTP 服务器受理回执；投递（收件箱/垃圾箱分级）协议不可回读验证",
+                    },
+                )
+                return True
 
             def _shot(item, _it=it, _ev=ev):
                 p = _ev.shot_path(f"{_it.get('id', 'item')}.txt")
@@ -142,6 +167,8 @@ def send_queue(queue_file, *, go=False, only=None, campaign=None, ledger=None,
                 compose=lambda item: None, fill=_fill, readback=_readback,
                 send=_send, confirm=_confirm, shot=_shot, dry_run=not go,
             )
+            if receipt_path is not None:
+                rec["receipt"] = str(receipt_path)  # 结果工件携带回执位置；账本行不含（后续经管道 API 扩展）
             results.append(rec)
             log(f"[{idx + 1}/{len(items)}] {target}: {rec['result']}"
                 + (f" ({rec.get('detail', '')})" if rec.get("detail") else ""))
