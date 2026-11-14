@@ -15,6 +15,11 @@
   verification back to UNVERIFIED and never extend to other metrics. Before
   this fix, any seven consecutive successful submissions — same-day repeats or
   entries without a human reading — promoted readings to PROVEN.
+  Adversarial-review follow-ups: the streak is anchored to the submission day
+  (an invalid same-day submission reports 0 instead of resurrecting a month-old
+  run across a gap), and consecutive counting restarts from the current day
+  whenever the scope credential is missing or changes, so a downgraded run
+  cannot re-promote from historical valid days.
 
 ## 0.14.0 - 2026-11-14
 

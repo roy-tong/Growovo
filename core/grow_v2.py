@@ -1999,8 +1999,10 @@ done
         有效对数 = 当日自动与人工读数均为非负整数且严格相等、署名非空、
         且与当前 measurement.readers 的账号（handle）一致。
         · 同日重复提交只追加审计记录，不重复计日；同日冲突则该日作废；
-        · 缺数日或不一致日中断连续（streak 按日历日回溯）；
-        · 账号/读数口径变化后，旧 PROVEN 降级 UNVERIFIED 重新累计；
+        · 缺数日或不一致日中断连续：连续段锚定本次提交日，当日无效即归零，
+          搁置后的旧连续段不能隔着缺数日复活；
+        · 账号/读数口径变化（或 scope 凭据缺失）后，旧 PROVEN 降级
+          UNVERIFIED，且连续计数从当日重新开始；
         · PROVEN 只覆盖本次 scope（metric+handle+解析器），不外推其他指标。
         """
         on = on or _today()
@@ -2047,27 +2049,6 @@ done
                        "note": (note or "")[:200], "by": by,
                        "at": datetime.now().isoformat(timespec="seconds")})
 
-        # 每日一计：同日全部条目均有效才算有效日；历史条目按同一规则重演。
-        day_states: Dict[str, bool] = {}
-        for check in checks:
-            day = str(check.get("on") or "")
-            a = self._valid_count(check.get("auto"))
-            h = self._valid_count(check.get("human"))
-            ok = (day and a is not None and h is not None and a == h
-                  and bool(check.get("match"))
-                  and str(check.get("by") or "").strip()
-                  and str(check.get("handle") or "") == handle)
-            day_states[day] = day_states.get(day, True) and ok
-        valid_days = {d for d, ok in day_states.items() if ok}
-        streak_days, last_valid = 0, None
-        if valid_days:
-            last_valid = max(valid_days)
-            anchor = date.fromisoformat(last_valid)
-            streak_days = 1
-            while ((anchor - timedelta(days=streak_days)).isoformat()
-                   in valid_days):
-                streak_days += 1
-
         scope = {"metric": "followers", "handle": handle,
                  "parser": "followers-v1"}
         if (measurement.get("verification") == "PROVEN"
@@ -2075,6 +2056,39 @@ done
             # 账号/解析器/口径变化（或旧 PROVEN 无 scope 凭据）：降级重计
             measurement["verification"] = "UNVERIFIED"
             calibration["downgraded_at"] = on
+        if (calibration.get("scope") != scope
+                or calibration.get("counted_from") is None):
+            # 口径新建/变化/凭据缺失：连续计数从今天重新开始——历史有效日
+            # 只留审计，不再参与升级，防止旧连续段借降级或迁移复活。
+            calibration["counted_from"] = on
+        counted_from = str(calibration.get("counted_from") or on)
+
+        # 每日一计：同日全部条目均有效才算有效日；counted_from 之前的
+        # 历史条目按同一规则重演但只作审计，不参与本次连续段。
+        day_states: Dict[str, bool] = {}
+        for check in checks:
+            day = str(check.get("on") or "")
+            if not day or day < counted_from:
+                continue
+            a = self._valid_count(check.get("auto"))
+            h = self._valid_count(check.get("human"))
+            ok = (a is not None and h is not None and a == h
+                  and bool(check.get("match"))
+                  and str(check.get("by") or "").strip()
+                  and str(check.get("handle") or "") == handle)
+            day_states[day] = day_states.get(day, True) and ok
+        valid_days = {d for d, ok in day_states.items() if ok}
+
+        # 连续段锚定「本次提交日」：当日无效（缺数/读数不等/冲突）则连续段
+        # 归零；长期搁置后的旧连续段不能隔着缺数日复活。
+        streak_days = 1 if day_states.get(on) else 0
+        if streak_days:
+            anchor = date.fromisoformat(on)
+            while ((anchor - timedelta(days=streak_days)).isoformat()
+                   in valid_days):
+                streak_days += 1
+        last_valid = max(valid_days) if valid_days else None
+
         promoted = (streak_days >= 7
                     and measurement.get("verification") != "PROVEN")
         if promoted:

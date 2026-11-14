@@ -101,8 +101,8 @@ class CalibrationG02Tests(unittest.TestCase):
         result = self._cal("2026-11-02", 121)  # 自动读数 122
         self.assertFalse(result["match"])
         self.assertFalse(result["valid_day"])
-        # 不一致日中断连续：连续段只剩 11-01 一天，不得继续向 7 累计
-        self.assertEqual(1, result["streak_days"])
+        # 不一致日中断连续：连续段锚定本次提交日，当日无效即归零
+        self.assertEqual(0, result["streak_days"])
 
     def test_gap_day_resets_streak(self):
         """缺一个日历日即中断：1,2,[3缺],4,5,6,7,8 → 只剩 5 个连续日。"""
@@ -163,6 +163,40 @@ class CalibrationG02Tests(unittest.TestCase):
         self.assertEqual("followers", result["scope"]["metric"])
         self.assertEqual("acct-a", result["scope"]["handle"])
         self.assertEqual("2026-11-07", result["last_valid_date"])
+
+    # ---- 复审反例（第二评审者复现，2026-11-15 追加冻结） -----------
+
+    def test_invalid_day_after_long_gap_reports_zero_streak(self):
+        """复审 S2：搁置多月后一条无效对数，不得沿用旧连续段报 7。"""
+        for d in range(1, 8):
+            day = f"2026-10-{d:02d}"
+            v = 110 + d
+            self._set_auto(day, v)
+            self._cal(day, v)
+        self.assertEqual(
+            "PROVEN", self.run.load()["measurement"]["verification"])
+        self._set_auto("2026-11-12", 999)
+        result = self._cal("2026-11-12", 111)  # 读数不等 → 当日无效
+        self.assertEqual(0, result["streak_days"])
+        self.assertFalse(result["promoted"])
+
+    def test_downgrade_without_scope_evidence_restarts_counting(self):
+        """复审 S1：PROVEN 被外部重置且 scope 凭据缺失（迁移场景），
+        下一次有效对数必须从 1 重新累计，不得凭旧连续段直接复活。"""
+        for d in range(1, 8):
+            day = f"2026-11-{d:02d}"
+            v = 120 + d
+            self._set_auto(day, v)
+            self._cal(day, v)
+        data = self.run.load()
+        data["measurement"]["verification"] = "UNVERIFIED"
+        del data["measurement"]["calibration"]["scope"]
+        self.run.save(data)
+        self._set_auto("2026-11-08", 128)
+        result = self._cal("2026-11-08", 128)
+        self.assertEqual("UNVERIFIED", result["verification"])
+        self.assertEqual(1, result["streak_days"])
+        self.assertFalse(result["promoted"])
 
 
 if __name__ == "__main__":
