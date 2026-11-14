@@ -182,5 +182,98 @@ class IdentityGateG01Tests(unittest.TestCase):
         self.assertIn("identity_mismatch", str(ctx.exception))
 
 
+class IdentityRealPathIntegrationTests(unittest.TestCase):
+    """不 mock run_action 的真实路径集成（复审问题 1/2 的回归）。
+
+    - 队列：require_identity 授权 + 观测身份匹配 → 逐条执行必须真的跑通。
+      此前队列级门禁通过后，逐条 precheck 因缺 platform_user_id 被人审
+      门禁全拒（被 mock 掩盖）。
+    - CLI adhoc（mkt x --go）：绑定身份授权下必须先过身份门禁，未绑定
+      授权不介入。
+    """
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.dir = Path(self.tmp.name)
+        authorize(self.dir, by="owner", actions=["x:reply"], days=30,
+                  accounts=["acct-a"], identities=["acct-a=x:uid-a"],
+                  require_identity=True)
+        account_identity.reset_reader()
+        self.addCleanup(account_identity.reset_reader)
+        self.queue_path = _queue_file(self.dir)
+        login = mock.patch("core.session_gate.check_login",
+                           return_value={"status": "logged_in"})
+        login.start()
+        self.addCleanup(login.stop)
+
+    def _vendor(self, calls):
+        def fake_run(*args, **kwargs):
+            calls.append((args, kwargs))
+            return 0
+        return fake_run
+
+    def _x_args(self, *, account="acct-a"):
+        from types import SimpleNamespace
+        return SimpleNamespace(action="reply", extra=[], file=None,
+                               thread=False, go=True, adhoc=True,
+                               campaign="c1", account=account,
+                               handle="", record=False)
+
+    def test_require_identity_queue_real_path_commits(self):
+        """复审问题 1 回归：require_identity 下队列真实路径可发送且回执带身份。"""
+        account_identity.set_reader(lambda ch: _proof("uid-a"))
+        calls = []
+        with mock.patch("channels.x.adapter.run",
+                        side_effect=self._vendor(calls)):
+            results = run_queue(self.queue_path, data_dir=self.dir, go=True,
+                                routine=True, log=lambda *a, **k: None)
+        self.assertEqual(1, len(calls))  # vendor 真实到达（不是 mock 断言）
+        self.assertEqual("committed", results[0]["result"])
+        self.assertEqual("acct-a",
+                         results[0]["identity"]["authorized_account"])
+        self.assertEqual("uid-a",
+                         results[0]["identity"]["observed_platform_identity"])
+
+    def test_cli_adhoc_go_blocked_when_identity_unknown(self):
+        """复审问题 2 回归：mkt x --go --adhoc 不得绕过身份门禁。"""
+        import mkt
+        account_identity.set_reader(lambda ch: None)
+        calls = []
+        with mock.patch.object(mkt, "DATA", self.dir), \
+             mock.patch("channels.x.adapter.run",
+                        side_effect=self._vendor(calls)):
+            rc = mkt.cmd_x(self._x_args())
+        self.assertEqual(1, rc)
+        self.assertEqual(0, len(calls))  # vendor 未到达
+
+    def test_cli_adhoc_go_allowed_with_matching_identity(self):
+        import mkt
+        account_identity.set_reader(lambda ch: _proof("uid-a"))
+        calls = []
+        with mock.patch.object(mkt, "DATA", self.dir), \
+             mock.patch("channels.x.adapter.run",
+                        side_effect=self._vendor(calls)):
+            rc = mkt.cmd_x(self._x_args())
+        self.assertEqual(0, rc)
+        self.assertEqual(1, len(calls))
+
+    def test_cli_adhoc_unbound_policy_untouched(self):
+        import mkt
+        authorize(self.dir, by="owner", actions=["x:reply"], days=30)  # 无绑定
+
+        def must_not_probe(channel):
+            raise AssertionError("未绑定授权不应探测身份")
+
+        account_identity.set_reader(must_not_probe)
+        calls = []
+        with mock.patch.object(mkt, "DATA", self.dir), \
+             mock.patch("channels.x.adapter.run",
+                        side_effect=self._vendor(calls)):
+            rc = mkt.cmd_x(self._x_args(account=""))
+        self.assertEqual(0, rc)
+        self.assertEqual(1, len(calls))
+
+
 if __name__ == "__main__":
     unittest.main()

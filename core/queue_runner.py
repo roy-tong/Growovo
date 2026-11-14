@@ -147,6 +147,12 @@ def run_queue(queue_path, *, data_dir=None, go=False, allow_unverified=False,
         }
         if routine is True:
             action_kwargs.update(routine=True, account=account)
+            if identity_evidence:
+                # G-01：把队列级观测到的实际 user_id 传给逐条执行——
+                # 审批校验（allows）在 require_identity 下需要它；传的是
+                # 观测值，不是调用方自报值。
+                action_kwargs["platform_user_id"] = identity_evidence[
+                    "observed_platform_identity"]
         try:
             rec = run_action(**action_kwargs)
         except SystemExit as exc:

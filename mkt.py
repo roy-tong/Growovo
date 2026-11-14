@@ -2736,6 +2736,15 @@ def cmd_x(args):
             print("默认只读不落账；人工核对数字后加 --record 才写入 outcome 计数")
         return 0
     from channels.x.adapter import run as x_run
+    if args.go:
+        # G-01：CLI adhoc 直通路径同样过账号身份门禁——绑定身份的授权下，
+        # 浏览器实际账号必须与授权一致；未绑定授权不介入（legacy 语义不变）。
+        from core.action_runner import ActionError, gate_account_identity
+        try:
+            gate_account_identity("x", DATA, getattr(args, "account", "") or "")
+        except ActionError as exc:
+            print(f"拒绝执行：{exc}")
+            return 1
     extra = list(args.extra or [])
     if getattr(args, "file", None):
         extra += ["--file", args.file]
@@ -4264,8 +4273,10 @@ def build_parser():
     sp.add_argument("--record", action="store_true", help="stats：人工对数后落 outcome 计数")
     sp.add_argument("--go", action="store_true")
     sp.add_argument("--campaign")
+    sp.add_argument("--account", default="",
+                   help="G-01：绑定身份授权下实跑时声明的账号 ID（配合身份观测校验）")
     sp.add_argument("--adhoc", action="store_true",
-                       help="实跑无 plan 管辖时的显式放行（账本记 adhoc=true）")
+                   help="实跑无 plan 管辖时的显式放行（账本记 adhoc=true）")
     sp.set_defaults(fn=cmd_x)
 
     sp = sub.add_parser("email", help="Email 渠道（SMTP 写 + CDP 读，PORTED）")

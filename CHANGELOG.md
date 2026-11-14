@@ -23,6 +23,12 @@
   keep their previous behaviour. The default CDP identity reader deliberately
   returns None (fail closed) until live wiring after the X campaign window
   (2026-11-19); email sender identity is not yet covered by this gate.
+  Adversarial-review follow-ups: run_queue now forwards the observed user_id
+  into every per-item run_action call (a require_identity queue previously
+  passed the queue-level gate and then failed every item at approval), and the
+  `mkt x <action> --go` CLI path (including `--adhoc`) runs the same identity
+  gate with a new `--account` option — it can no longer bypass identity-bound
+  authorizations. A no-mock queue integration test freezes the real path.
 
 ## 0.14.0 - 2026-11-14
 
