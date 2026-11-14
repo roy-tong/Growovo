@@ -8,10 +8,12 @@
   minutes   预计人工分钟
   accept    验收物（没有验收物就不算做完）
 """
+
 from __future__ import annotations
 
 from datetime import date, timedelta
 from typing import Any, Dict, List, Optional
+from .expression import plain_output
 
 
 # 第一周按渠道类型给不同动作：内容型要先有内容，搜索型要先有页面。
@@ -28,7 +30,7 @@ FIRST_WEEK_BY_KIND = {
              "把主页做成能承接的：一句话定位 + 一个入口"],
     "社区": ["读目标社区的规则与置顶，记下三条会踩雷的",
              "先答 10 个真问题，一条产品都不提"],
-    "发射": ["把物料备齐：一句话定位、演示、三张真实截图",
+    "集中发布": ["把物料备齐：一句话定位、演示、三张真实截图",
              "定好发布窗口（当地时间 + 北京时间）"],
     "直连": ["把名单按「他最近在做什么」筛一遍，剔除对不上的",
              "写三版开头，删掉所有客套"],
@@ -204,6 +206,7 @@ def _build_from_goal(strategy: Dict[str, Any], start: str,
     }
 
 
+@plain_output
 def render(plan: Dict[str, Any]) -> str:
     from .narrative import table
     title = f"# 四周动作表 · {plan['primary']}"

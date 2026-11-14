@@ -350,7 +350,7 @@ class CliTests(unittest.TestCase):
              "--goal", "commercial.first_paid", "--platforms", "hackernews"],
             cwd=ROOT, env=self.env, text=True, capture_output=True)
         self.assertNotEqual(proc.returncode, 0)
-        self.assertIn("发射平台", proc.stderr)
+        self.assertIn("集中发布不能单独作为主渠道", proc.stderr)
 
 
 class McpTests(unittest.TestCase):

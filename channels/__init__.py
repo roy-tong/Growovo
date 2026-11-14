@@ -9,8 +9,9 @@ status 三级（02 §6.2，诚实交付）：
 REGISTRY = {
     "x": {
         "status": "PROVEN",
-        "note": "vendor 引入 x-ops-automation，选择器与纪律为真实账号实测",
-        "actions": {"publish", "reply", "message", "engage", "search", "inbox"},
+        "note": "vendor 引入 x-ops-automation，选择器与纪律为真实账号实测；"
+                "stats 为 UNVERIFIED 读原语（read_stats：截图留证、首周人工对数后升级）",
+        "actions": {"publish", "reply", "message", "engage", "search", "inbox", "stats"},
         "transports": {"cdp"},
     },
     "email": {

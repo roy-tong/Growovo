@@ -288,7 +288,7 @@ class VoicePreservationTests(unittest.TestCase):
     def test_stale_experience_is_not_rendered_as_current_playbook(self):
         self.assertEqual(voice.current_experience("xiaohongshu"), [])
         md = voice.render("xiaohongshu")
-        self.assertIn("不能写成这个平台的当前打法", md)
+        self.assertIn("不能写成这个平台的当前做法", md)
         self.assertNotIn("当前有", md)
 
 

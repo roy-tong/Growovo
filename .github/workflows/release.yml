@@ -97,6 +97,7 @@ jobs:
           /tmp/smoke/bin/pip install --no-deps dist/*.whl
           /tmp/smoke/bin/mkt --help >/dev/null
           /tmp/smoke/bin/mkt doctor
+          /tmp/smoke/bin/python -I scripts/wheel_smoke.py
       - name: Publish growovo to PyPI
         if: ${{ env.pypi_skip != 'true' }}
         uses: pypa/gh-action-pypi-publish@release/v1

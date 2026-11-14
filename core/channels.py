@@ -13,13 +13,14 @@
 3. **经济学是假设，不是预测**：触达→回复→合格→样本→付费，每一层都是区间；
    没有实测之前，不许当成 forecast。
 
-输出：渠道组合（主/发射/辅助/旁听）、容量、经济学区间、预注册实验、红线。
+输出：渠道组合（主/集中发布/辅助/旁听）、容量、经济学区间、预注册实验、红线。
 只读，不写平台、不发消息。
 """
 from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
+from .expression import plain_output
 from . import gtm
 
 SCHEMA = "growovo.channel-plan/1"
@@ -69,7 +70,7 @@ VENUES: List[Dict[str, Any]] = [
         "formats": ["show hn", "comment"],
         "signal_density": 2, "competition": 3, "speed": 3, "risk": 3,
         "role_hint": "launch",
-        "evidence": "Show HN 是自有项目的一次性发射；不背获客指标",
+        "evidence": "Show HN 是自有项目的一次性集中发布；不背获客指标",
         "notes": "一次机会；标题具体、首评给方法；被 flag 不重发。",
     },
     {
@@ -218,7 +219,7 @@ VENUE_STORIES: Dict[str, Dict[str, Any]] = {
         "scene": "开发者/创始人刷 Show HN，找新工具/新方法。",
         "pain": "「AI 账单对不上，不知道从哪查」「想知道别人怎么处理」。",
         "substitute": "自己写脚本、看供应商 dashboard、问同事。",
-        "why_here": "一次性发射能带来最大曝光；技术受众能判断 checker 真假；Show HN 允许自有项目。",
+        "why_here": "一次性集中发布能带来最大曝光；技术受众能判断 checker 真假；Show HN 允许自有项目。",
         "what_to_say": "标题具体、首评给 3 个最意外的差异、请对方拿一个账期来试。",
         "proof": "可复现 checker + 合成样例。",
         "signal": "≥20 条评论或 ≥20 star；≥1 个数据意愿。",
@@ -441,7 +442,7 @@ def _economics(roles: Dict[str, Any], facts: Dict[str, Any]) -> Dict[str, Any]:
                       assumptions["comment_count"] * assumptions["comment_reach"],
                       assumptions["comment_reply_rate"]))
     if launch:
-        steps.append(("发射：1 帖",
+        steps.append(("集中发布：1 帖",
                       min(launch["size"] * assumptions["launch_reach_rate"],
                           assumptions["launch_reach_cap"]),
                       assumptions["launch_reply_rate"]))
@@ -498,7 +499,7 @@ def _experiments(roles: Dict[str, Any]) -> List[Dict[str, Any]]:
     if roles.get("launch"):
         out.append({
             "venue": roles["launch"]["name"], "role": "launch",
-            "action": "1 次发射，2 小时内回完评论",
+            "action": "1 次集中发布，2 小时内回完评论",
             "metric": "comments", "pass": ">=20 条评论或 >=20 star",
             "stop": "被 flag → 不重发，转 Reddit/X",
         })
@@ -551,6 +552,7 @@ def plan(facts: Dict[str, Any],
 EVIDENCE_PLAIN = {"observed": "● 已观察到", "clue": "◐ 有线索", "hypothesis": "○ 假设"}
 
 
+@plain_output
 def render(plan: Dict[str, Any]) -> str:
     from .narrative import table
     g = plan.get("goal") or {}
@@ -573,13 +575,13 @@ def render(plan: Dict[str, Any]) -> str:
                  "**人在、痛在、规则允许、我们能给东西**。少一个，就不值得投。")
     lines.append("")
     lines.append("这四个角色也不是四个渠道，是一条路径：**主渠道持续遇到人，"
-                 "发射把人一次性聚过来，辅助接住主渠道覆盖不到的人，旁听让我们知道同行在说什么。**"
+                 "集中发布把人一次性聚过来，辅助接住主渠道覆盖不到的人，旁听让我们知道同行在说什么。**"
                  "缺一个，路径就断一截。")
     lines.append("")
     lines.append("## 为什么是这几处")
     lines.append("")
     for role_label, items in (("主渠道", [primary] if primary else []),
-                              ("发射", [launch] if launch else []),
+                              ("集中发布", [launch] if launch else []),
                               ("辅助", support),
                               ("旁听", ambient)):
         for item in items:
@@ -635,14 +637,14 @@ def render(plan: Dict[str, Any]) -> str:
     lines.append("## 节奏")
     lines.append("")
     lines.append("- 主渠道：1 帖/天、5 条回答/天；同一段不跨 venue 复制。")
-    lines.append("- 发射：1 次，不重发；2 小时内回完评论。")
+    lines.append("- 集中发布：1 次，不重发；2 小时内回完评论。")
     lines.append("- 私信：5 条/天；同一对象 3 天内最多 2 次动作。")
     lines.append("- 旁听：只答不问、不发链接；被问再给。")
     lines.append("")
     lines.append("## 什么情况下这条路不成立")
     lines.append("")
     lines.append("- 主渠道 10 条动作 0 回复：不是渠道问题，是话术/名单问题；换话术，不换 venue。")
-    lines.append("- 发射 2 小时 <20 分或被 flag：不重发；把同一篇换开头去 Reddit/X。")
+    lines.append("- 集中发布后 2 小时 <20 分或被 flag：不重发；把同一篇换开头去 Reddit/X。")
     lines.append("- 连续 2 周 0 份数据：offer 或人群不对；改「我帮你跑」的问法，不加曝光。")
     lines.append("- 只有浏览没有对话：这是曝光，不是渠道；停，别自我安慰。")
     lines.append("")

@@ -54,6 +54,21 @@ def _ledger():
     return Ledger(DATA / "ledger.jsonl")
 
 
+def _load_facts(path, what="产品事实包"):
+    """读 facts JSON；文件缺失/格式错给可行动的报错，而不是裸 traceback。"""
+    p = Path(path)
+    try:
+        text = p.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        raise SystemExit(f"找不到{what}文件：{p}\n"
+                         "样例：data/verovo-finops/facts.json"
+                         "（product/icp/baseline/goals/value_events/constraints/owned_assets）")
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError as e:
+        raise SystemExit(f"{what}文件不是有效 JSON：{p}（第 {e.lineno} 行: {e.msg}）")
+
+
 def _throttle():
     from core.throttle import Throttle
     return Throttle(DATA / "state")
@@ -109,20 +124,15 @@ def cmd_check(args):
         print("先跑 ./launch.command 启动带调试端口的 Chrome。")
         return 2
     try:
-        checks = [
-            ("X", "https://x.com/home", "/login"),
-            ("Gmail", "https://mail.google.com", "accounts.google.com"),
-            ("Reddit", "https://old.reddit.com", "login"),
-            ("LinkedIn", "https://www.linkedin.com/feed/", "login"),
-            ("HN", "https://news.ycombinator.com/submitted", "login"),
-        ]
+        from core.session_gate import LOGGED_IN, LOGGED_OUT, check_login
+        names = {"x": "X", "gmail": "Gmail", "reddit": "Reddit",
+                 "linkedin": "LinkedIn", "hn": "HN", "zhihu": "知乎"}
         results = []
-        for name, url, bad in checks:
-            try:
-                page.goto(url, wait_until="domcontentloaded", timeout=30000)
-                results.append((name, "OK" if bad not in page.url else "未登录"))
-            except Exception:
-                results.append((name, "检查失败"))
+        for key in names:
+            state = check_login(key, connect=lambda: (browser, page))
+            status = state.get("status")
+            label = "OK" if status == LOGGED_IN else ("未登录" if status == LOGGED_OUT else "检查失败")
+            results.append((names[key], label))
         print("CDP 会话正常。登录态: " + "；".join(f"{n}={s}" for n, s in results))
         return 0
     finally:
@@ -135,7 +145,8 @@ def cmd_pause(args):
         set_pause(DATA, False)
         print("已恢复（全局暂停解除）。")
     elif args.on:
-        set_pause(DATA, True, reason=args.reason or "")
+        inline = args.on if isinstance(args.on, str) else ""
+        set_pause(DATA, True, reason=args.reason or inline or "")
         print(f"已暂停一切写操作（{pause_file(DATA)}）。恢复: mkt pause --off")
     else:
         p = is_paused(DATA)
@@ -277,6 +288,994 @@ def cmd_intent(args):
 
 
 
+def cmd_tactic(args):
+    from core import tactics as reg
+    from core.tactic_run import TacticRun, TacticRuleError, check_candidate
+    from core.gates import GateError
+    from core.queue import lint_queue
+    act = args.action
+    path = DATA / "tactics" / f"{args.id}.json" if getattr(args, "id", "") else None
+
+    if act == "list":
+        rows = reg.suggest(channel=args.channel or "", mechanism=args.mechanism or "",
+                           risk_max=args.risk_max, status=args.status or "",
+                           include_stale=getattr(args, "include_stale", False))
+        if not rows:
+            print("没有符合条件的战术（放宽 --risk-max 或加 --include-stale 再试）")
+            return 0
+        for t in rows:
+            mech = reg.MECHANISMS[t["mechanism"]]["name"]
+            print(f"- {t['id']}：{t['name']}（{t['channel']}｜{mech}｜{t['risk']}｜{t['status']}）")
+            print(f"  {t['idea']}")
+        print(f"\n共 {len(rows)} 条。看参数：mkt tactic show <id>；开跑：mkt tactic start <run> --tactic <id>")
+        return 0
+
+    if act == "show":
+        spec = reg.spec(args.id)
+        if spec is None:
+            print(f"没有这个战术：{args.id}（先 mkt tactic list）")
+            return 2
+        mech = reg.MECHANISMS[spec["mechanism"]]
+        print(f"{spec['name']}（{spec['id']}）")
+        print(f"  渠道 {spec['channel']}｜机制 {mech['name']}｜风险 {spec['risk']}｜状态 {spec['status']}")
+        print(f"  做法：{spec['idea']}")
+        for i, s in enumerate(spec["steps"], 1):
+            print(f"    {i}. {s}")
+        if spec.get("quota"):
+            print(f"  配额：{json.dumps(spec['quota'], ensure_ascii=False)}")
+        if spec.get("formulas"):
+            print(f"  内容公式：{'、'.join(spec['formulas'])}")
+        if spec.get("verdict_metrics"):
+            print(f"  判定指标：{'、'.join(spec['verdict_metrics'])}")
+        for e in spec["evidence"]:
+            print(f"  证据：{e}")
+        print(f"  注意：{spec['caution']}")
+        print(f"  证据日期 {spec['evidence_date']}｜{spec['revalidate_days']} 天内须复核"
+              "（机会随采用人数衰减，到期先复核再用）")
+        return 0
+
+    if act == "start":
+        data = TacticRun.start(path, args.id, args.tactic, owner=args.owner or "",
+                               started=args.on or None, weeks=args.weeks,
+                               target_list=getattr(args, "target_list", "") or "")
+        print(f"战术执行已建：{data['id']}（{data['tactic']['name']}，"
+              f"{data['started']} → {data['ends']}）")
+        if data.get("target_list"):
+            print(f"  关联目标清单：{data['target_list']}（mkt target summary 看信任节点进度）")
+        print("  第 1 周是准备周：建目标清单、过账号门槛，先记录不行动")
+        return 0
+
+    if act == "draft":
+        run = TacticRun(path)
+        run.add_draft(args.target, args.text, formula=args.formula or "",
+                      post_age_min=args.post_age, hour=args.hour, on=args.on or None)
+        data = run.load()
+        pending = sum(1 for e in data.get("drafts") or []
+                      for it in e.get("items") or [] if not it.get("queued"))
+        print(f"候选已入（{args.id}）：待导出 {pending} 条"
+              + (f"｜纪律提醒 {len(data['violations'])} 条（mkt tactic show-run 查看）"
+                 if data["violations"] else ""))
+        return 0
+
+    if act == "check":
+        spec = reg.spec(args.tactic)
+        if spec is None:
+            print(f"没有这个战术：{args.tactic}")
+            return 2
+        try:
+            warns = check_candidate(spec, target=args.target, body=args.text,
+                                    formula=args.formula or "", post_age_min=args.post_age)
+        except (GateError, TacticRuleError, ValueError) as exc:
+            print(f"拒绝：{exc}")
+            return 2
+        print("通过：可以加入候选（mkt tactic draft）")
+        for w in warns:
+            print(f"  提醒：{w}")
+        return 0
+
+    if act == "log":
+        run = TacticRun(path)
+        metrics = None
+        if getattr(args, "metrics", ""):
+            try:
+                metrics = json.loads(args.metrics)
+            except json.JSONDecodeError as exc:
+                print(f"--metrics 不是合法 JSON：{exc}")
+                return 2
+        run.log(sent=args.sent or 0, deleted=args.deleted or 0, replied=args.replied or 0,
+                moved=args.moved or 0, note=args.note or "", on=args.on or None,
+                metrics=metrics)
+        s = run.summary(args.on or None)
+        print(f"已记录（{args.id}）：累计 {s['sent']} 条，回应率 {s['response_rate']:.0%}"
+              f"｜第 {s['week']} 周·{s['phase']}")
+        return 0
+
+    if act == "show-run":
+        run = TacticRun(path)
+        s = run.summary(args.on or None)
+        print(f"{args.id}（{s['tactic']}）｜第 {s['week']} 周·{s['phase']}：{s['todo']}")
+        print(f"  触达 {s['sent']}｜被删 {s['deleted']}（{s['deleted_rate']:.0%}）"
+              f"｜回应 {s['replied']}（{s['response_rate']:.0%}）｜转一对一 {s['moved']}")
+        print(f"  待导出候选 {s['drafts_pending']} 条｜纪律提醒 {s['violations']} 条")
+        if s.get("targets"):
+            t = s["targets"]
+            print(f"  目标清单 {t['list']}：KOC 甜区 {t['koc_window']}/{t['total']}"
+                  f"｜近 7 天互动 {t['engaged_last_7d']}｜累计再传播 {t['amplified_total']}")
+        if s.get("last_metrics"):
+            m = ", ".join(f"{k}={v}" for k, v in s["last_metrics"].items() if k != "on")
+            print(f"  周指标：{m}")
+        if s.get("ledger_sync"):
+            print(f"  账本核对：committed {s['ledger_sync']['committed_total']} 条"
+                  f"（campaign {s['ledger_sync']['campaign']}）")
+        if s["violations"]:
+            for v in run.load()["violations"][-3:]:
+                print(f"  ⚠ [{v['on']}] {v['detail'][:80]}")
+        return 0
+
+    if act == "verdict":
+        v = TacticRun(path).verdict(args.on or None)
+        print(f"判定：{v['verdict']}")
+        print(f"  {v['reason']}")
+        print(f"  数据：触达 {v['sent']}｜被删率 {v['deleted_rate']:.0%}"
+              f"｜回应率 {v['response_rate']:.0%}｜转一对一 {v['moved']}｜纪律提醒 {v['violations']}")
+        return 0
+
+    if act == "export":
+        run = TacticRun(path)
+        try:
+            queue = run.as_queue_items(args.campaign or "")
+        except TacticRuleError as exc:
+            print(f"不能导出：{exc}")
+            return 2
+        errs = lint_queue(queue)
+        if errs:
+            print("队列未通过编辑期检查，不落盘：")
+            for e in errs:
+                print(f"  - {e}")
+            return 2
+        out = DATA / "queues" / f"{queue['campaign']}.json"
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(json.dumps(queue, ensure_ascii=False, indent=1) + "\n",
+                       encoding="utf-8")
+        print(f"队列已写：{out}（{len(queue['items'])} 条，已过编辑期检查）")
+        print("  发送走既有路径：人审与 dry-run 之后再实跑（mkt queue run 先看 dry-run）")
+        return 0
+
+    if act == "sync":
+        try:
+            summary = TacticRun(path).sync_from_ledger(DATA)
+        except TacticRuleError as exc:
+            print(f"不能核对：{exc}")
+            return 2
+        print(f"账本核对：campaign {summary['campaign']} 共 committed {summary['committed_total']} 条")
+        for d, n in sorted(summary["by_date"].items()):
+            print(f"  {d}：{n}")
+        return 0
+
+    if act == "stale":
+        rows = reg.stale(args.on or None)
+        if not rows:
+            print("没有到期战术：全部在复核期内")
+            return 0
+        for r in rows:
+            print(f"- {r['id']}（{r['name']}）：证据 {r['evidence_date']}，"
+                  f"已 {r['days_since']} 天未复核（配 {r['revalidate_days']} 天）")
+        print("到期战术先复核证据再继续用：机会随采用人数衰减，老参数可能已失效")
+        return 0
+
+    if act == "forbidden":
+        for f in reg.FORBIDDEN:
+            print(f"- {f['name']}：{f['why']}")
+            print(f"  证据：{f['evidence']}")
+        return 0
+
+    if act == "recommend":
+        facts_file = Path(args.facts)
+        if not facts_file.is_file():
+            print(f"找不到产品事实包：{facts_file}")
+            return 2
+        facts = json.loads(facts_file.read_text(encoding="utf-8"))
+        rec = reg.recommend(facts, args.goal or "", phase=args.phase,
+                            risk_max=args.risk_max, max_picks=args.top,
+                            include_stale=args.include_stale)
+        print(f"战术组合（目标族 {rec['family']}｜阶段 {rec['phase']}｜风险上限 {rec['risk_max']}）：")
+        for i, p in enumerate(rec["picks"], 1):
+            print(f"{i}. {p['name']}（{p['id']}｜{p['mechanism_name']}｜{p['channel']}｜{p['risk']}）")
+            print(f"   {p['idea']}")
+            print(f"   入选理由：{'；'.join(p['why'])}")
+        for n in rec["notes"]:
+            print(f"  注：{n}")
+        print("看全文与执行参数：mkt tactic show <id>；开跑：mkt tactic start <run> --tactic <id>")
+        return 0
+
+    if act == "lint":
+        errs = reg.lint()
+        if errs:
+            for e in errs:
+                print(e)
+            return 2
+        print(f"注册表自检通过：{len(reg.TACTICS)} 条战术、{len(reg.MECHANISMS)} 个机制族、"
+              f"{len(reg.FORBIDDEN)} 条已证伪做法")
+        return 0
+    return 0
+
+
+
+
+def cmd_watch(args):
+    from core.watch import KIND_TACTICS, WatchError, WatchList
+    act = args.action
+    path = DATA / "watch" / f"{args.id}.json" if getattr(args, "id", "") else None
+
+    if act == "start":
+        try:
+            WatchList.start(path, args.id, owner=args.owner or "")
+        except WatchError as exc:
+            print(f"不能创建监控：{exc}")
+            return 2
+        print(f"监控清单已建：{args.id}")
+        print("  加监控项：mkt watch add <id> --url <对手页面> --kind price|status|changelog"
+              " --competitor <名称>（加时即抓基线快照）")
+        print("  cron 定期跑：mkt watch check <id>（变化自动产出事件并联动承接战术）")
+        return 0
+
+    if act == "add":
+        try:
+            entry = WatchList(path).add(args.url, args.kind, args.competitor,
+                                        note=args.note or "")
+        except WatchError as exc:
+            print(f"不能加入：{exc}")
+            return 2
+        print(f"已监控 {entry['competitor']} 的 {entry['kind']} 页"
+              f"（基线快照 {entry['baseline_len']} 字符）")
+        print(f"  变化时建议承接：{'、'.join(KIND_TACTICS[entry['kind']])}")
+        return 0
+
+    if act == "remove":
+        try:
+            WatchList(path).remove(args.url)
+        except WatchError as exc:
+            print(f"不能移除：{exc}")
+            return 2
+        print(f"已移除：{args.url}")
+        return 0
+
+    if act == "check":
+        result = WatchList(path).check()
+        print(f"检查 {result['checked']} 项：{len(result['events'])} 个变化")
+        for e in result["events"]:
+            print(f"  ⚡ [{e['kind']}] {e['competitor']}（{e['on']}）：{e['diff'] or '内容已变化'}")
+            print(f"     建议承接：{'、'.join(e['tactics'])}（mkt tactic show 看打法）")
+        if not result["events"]:
+            print("  无变化；下次 cron 再查")
+        return 0
+
+    if act == "events":
+        rows = WatchList(path).events(limit=args.n or 20)
+        if not rows:
+            print("还没有变化事件")
+            return 0
+        for e in rows:
+            print(f"- [{e['on']}] {e['competitor']} {e['kind']}：{e['diff'] or '变化'}"
+                  f" → {'、'.join(e['tactics'])}")
+        return 0
+
+    if act == "summary":
+        s = WatchList(path).summary()
+        print(f"监控清单 {s['list']}：{s['entries']} 项（{s['by_kind']}），"
+              f"已变化 {s['changed']} 项，累计事件 {s['events_total']} 条")
+        return 0
+    return 0
+
+
+
+
+def cmd_target(args):
+    from core.targeting import TargetList, TargetingError, score_candidate
+    act = args.action
+    path = DATA / "targets" / f"{args.id}.json" if getattr(args, "id", "") else None
+
+    if act == "start":
+        try:
+            data = TargetList.start(path, args.id, niche=args.niche or "",
+                                    owner=args.owner or "")
+        except TargetingError as exc:
+            print(f"不能创建清单：{exc}")
+            return 2
+        print(f"目标清单已建：{data['id']}"
+              + (f"（{data['niche']}）" if data["niche"] else ""))
+        print("  加入候选：mkt target add <id> --platform x --handle <账号> --followers <数>"
+              " [--engagement-rate 0.032] [--sponsored-recent 0] [--niche-match]")
+        print("  先打谁由信任价格决定（KOC 甜区=1 千-5 万粉、商单少于 3、互动率高于同档基准）")
+        return 0
+
+    if act == "score":
+        try:
+            s = score_candidate({
+                "followers": args.followers,
+                "engagement_rate": float(args.engagement_rate) if args.engagement_rate else None,
+                "sponsored_recent": args.sponsored_recent if args.sponsored_recent is not None else None,
+                "niche_match": args.niche_match or None,   # 不传=未知（1.0），不是不匹配
+            })
+        except TargetingError as exc:
+            print(f"不能评分：{exc}")
+            return 2
+        print(f"信任价格评分：{s['score']} 分（档位 {s['tier']}）")
+        for r in s["reasons"]:
+            print(f"  - {r}")
+        return 0
+
+    if act == "add":
+        tl = TargetList(path)
+        try:
+            t = tl.add(args.platform, args.handle, args.followers,
+                       engagement_rate=float(args.engagement_rate) if args.engagement_rate else None,
+                       sponsored_recent=args.sponsored_recent if args.sponsored_recent is not None else None,
+                       niche_match=args.niche_match or None,
+                       note=args.note or "", on=args.on or None)
+        except TargetingError as exc:
+            print(f"不能加入：{exc}")
+            return 2
+        print(f"已入清单 {args.id}：{t['key']}（{t['score']} 分·{t['tier']}）")
+        for r in t["reasons"][:2]:
+            print(f"  - {r}")
+        return 0
+
+    if act == "list":
+        data = TargetList(path).load()
+        rows = sorted(data["targets"], key=lambda t: (-t["score"], t["key"]))
+        for t in rows:
+            mark = "★" if t.get("in_koc_window") else " "
+            print(f"{mark} {t['score']:>3} {t['key']:<28} {t['stage']:<11} 粉丝 {t['followers']:,}")
+        print(f"\n共 {len(rows)} 个（★=KOC 甜区）；下一步接触：mkt target next {args.id}")
+        return 0
+
+    if act == "next":
+        rows = TargetList(path).next_batch(args.n or 5)
+        if not rows:
+            print("没有待接触的候选（全部已接触或清单为空）")
+            return 0
+        for i, t in enumerate(rows, 1):
+            print(f"{i}. {t['key']}（{t['score']} 分·{t['tier']}）：{t['reasons'][0] if t['reasons'] else ''}")
+        print("接触原则：先给价值（引用其观点并署名/用其内容做案例），共创而非投放")
+        return 0
+
+    if act == "advance":
+        tl = TargetList(path)
+        try:
+            t = tl.advance(args.handle, args.stage, note=args.note or "", on=args.on or None)
+        except TargetingError as exc:
+            print(f"不能推进：{exc}")
+            return 2
+        print(f"{t['key']} → {t['stage']}（阶段只进不退；engaged/amplified 会进战术判定）")
+        return 0
+
+    if act == "summary":
+        print(TargetList(path).render_summary(args.on or None))
+        return 0
+    return 0
+
+
+
+
+def cmd_grow(args):
+    from core.grow import GrowError as V1Error, GrowRun
+    try:
+        from core.grow_v2 import GrowError as V2Error
+    except Exception:  # noqa: BLE001 兼容旧安装
+        V2Error = V1Error
+    GrowErrors = (V1Error, V2Error)
+    act = args.action
+    path = DATA / "grow" / f"{getattr(args, 'id', '')}.json" if getattr(args, "id", "") else None
+
+    def _open():
+        """按 run 文件 schema 选 v1 / v2 实现；缺文件给友好错误。"""
+        if not path.exists():
+            raise FileNotFoundError(f"没有这个闭环：{path}")
+        raw = json.loads(path.read_text(encoding="utf-8"))
+        if raw.get("schema") == "growovo.grow-run/2":
+            from core.grow_v2 import GrowRunV2
+            return GrowRunV2(path), raw
+        return GrowRun(path), raw
+
+    if act == "platforms":
+        from core import platform_caps
+        print("第一期自动执行平台（只有这些能承诺全自动）：")
+        for row in platform_caps.matrix():
+            if row["tier"] != platform_caps.AUTO:
+                continue
+            write = row.get("write") or []
+            print(f"  ✅ {row['platform']:<12} {row['status']:<8} "
+                  f"动作 {'/'.join(write[1:]) or '—'}｜{row['reason']}")
+        print("\n需人工首跑解锁（不纳入第一期承诺）：")
+        for row in platform_caps.matrix():
+            if row["tier"] != platform_caps.GATED:
+                continue
+            print(f"  ⚠️  {row['platform']:<12} {row['status']:<8} {row['reason']}")
+        print("\n只能出人工作业单（不假装自动）：其余平台。")
+        return 0
+
+    if act == "start":
+        channels = [c.strip() for c in (args.channels or "").split(",") if c.strip()]
+        try:
+            data = GrowRun.start(path, args.id, args.facts, args.goal, channels,
+                                 target=args.target, window_days=args.window,
+                                 started=args.on or None,
+                                 actions_per_week=args.actions_per_week,
+                                 go=args.go, data_dir=DATA, owner=args.owner or "")
+        except GrowErrors as exc:
+            print(f"不能开始：{exc}")
+            return 2
+        goal = data["goal"]
+        print(f"闭环已建：{data['id']}（{data['started']} 起，渠道 {'、'.join(data['channels'])}）")
+        print(f"  目标：{goal.get('target_text') or goal.get('metric')}"
+              f"（基线 {goal.get('baseline')}）")
+        print(f"  实跑开关 go={data['go']}（默认只 dry-run；确认后 mkt grow arm {data['id']}）")
+        print(f"  暂存队列放 data/queues/{data['id']}-<名字>.json（campaign 用 {data['id']} 开头），"
+              f"cron 每小时跑：mkt grow tick {data['id']}")
+        print(f"  读数：每天一次 mkt x stats --handle <账号>（首周人工对数后加 --record）")
+        return 0
+
+    if act == "launch":
+        from core.grow_v2 import GrowRunV2
+        channels = [c.strip() for c in (args.channels or "x,email").split(",") if c.strip()]
+        actions = [a.strip() for a in (getattr(args, "actions", "") or "").split(",") if a.strip()]
+        probe = None
+        if not getattr(args, "skip_probe", False):
+            def probe(spec):
+                from core.session_gate import CDP_UNAVAILABLE, LOGGED_OUT, check_login
+                login = check_login("x")
+                if login.get("status") == LOGGED_OUT:
+                    raise RuntimeError("X 浏览器登录态缺失：请在调试 Chrome 里登录 X 后重试（引擎只检测登录态，不管理账号）")
+                if login.get("status") == CDP_UNAVAILABLE:
+                    raise RuntimeError("调试 Chrome 未就绪：先运行 ./launch.command（X 读数依赖浏览器登录态）")
+                from channels.x import read_stats
+                readers = spec.get("measurement", {}).get("readers") or []
+                handle = next((str(r.get("handle") or "") for r in readers
+                               if r.get("metric") == "x_followers"), "")
+                if not handle:
+                    raise RuntimeError("启动预检需要 --handle <X账号>（或加 --skip-probe 只建计划）")
+                stats = read_stats.read(handle, DATA / "shots" / "x-stats", log=lambda *a, **k: None)
+                return {"followers": stats.get("followers"),
+                        "impressions": stats.get("impressions_yesterday")}
+        try:
+            result = GrowRunV2.launch(
+                path, run_id=args.id, facts_path=args.facts, goal_id=args.goal,
+                channels=channels, target=args.target, window_days=args.window,
+                actions_per_week=args.actions_per_week, started=args.on or None,
+                owner=args.owner or "", account=getattr(args, "account", "") or "",
+                handle=getattr(args, "handle", "") or "",
+                audience=getattr(args, "audience", "us-west") or "us-west",
+                actions=actions or None, data_dir=DATA,
+                probe=probe, skip_probe=getattr(args, "skip_probe", False))
+        except GrowErrors as exc:
+            print(f"不能启动：{exc}")
+            return 2
+        run = result["run"]
+        print(f"闭环已启动：{run['id']}（{run['started']} 起，自动执行渠道 "
+              f"{'、'.join(run['channels'])}）")
+        for line in result["summary"]:
+            print(f"  {line}")
+        for warn in result.get("warnings") or []:
+            print(f"  ⚠ {warn}")
+        print(f"  策略指纹 {run['strategy']['fingerprint']}｜"
+              f"下一步：mkt grow arm {run['id']}")
+        return 0
+
+    if act in ("agent", "produce"):
+        from core.grow_agent import AgentError
+        from core.grow_lock import BusyRun
+        try:
+            run, raw = _open()
+            if raw.get("schema") != "growovo.grow-run/2":
+                raise V2Error("自动供给需要 v2 闭环")
+            if act == "agent":
+                result = run.configure_agent(enabled=not args.disable)
+            else:
+                result = run.produce(DATA, on=args.on or None, max_items=args.max_items)
+            print(json.dumps(result, ensure_ascii=False, indent=2))
+            return 0
+        except (V2Error, AgentError, BusyRun, FileNotFoundError) as exc:
+            print(f"自动供给未完成：{exc}")
+            return 2
+
+    if act == "briefs":
+        try:
+            run, raw = _open()
+        except FileNotFoundError as exc:
+            print(str(exc))
+            return 2
+        if raw.get("schema") != "growovo.grow-run/2":
+            print("briefs 只支持 v2 闭环（先 mkt grow launch）")
+            return 2
+        briefs = run.briefs()
+        if not briefs:
+            print("（本闭环没有内容需求单）")
+            return 0
+        for brief in briefs:
+            print(f"{brief['id']}（{brief['channel']}/{brief['action']}）："
+                  f"每周 {brief.get('count_per_week')} 条"
+                  f"｜公式 {brief.get('formula')}")
+            print(f"  受众 {brief.get('audience')}｜上限 {brief.get('max_len')} 字符"
+                  f"｜门 {'、'.join(brief.get('gates') or [])}")
+        print(f"\n完整需求单：{DATA / 'grow' / args.id / 'briefs.md'}")
+        return 0
+
+    if act == "stage":
+        try:
+            run, raw = _open()
+        except FileNotFoundError as exc:
+            print(str(exc))
+            return 2
+        if raw.get("schema") != "growovo.grow-run/2":
+            print("stage 只支持 v2 闭环（先 mkt grow launch）")
+            return 2
+        from core.grow_v2 import GrowRunV2
+        try:
+            items = GrowRunV2.load_drafts(args.from_file)
+            result = run.stage(DATA, items, scheduled_for=args.date or None,
+                               channel=args.channel or None,
+                               action=args.queue_action or None,
+                               window=args.window or "",
+                               by=args.by or "agent",
+                               resolve_target_text=bool(args.resolve_target),
+                               strict=bool(args.strict))
+        except GrowErrors as exc:
+            print(f"不能暂存：{exc}")
+            return 2
+        supply = result.get("supply") or {}
+        print(f"已暂存 {result['added']} 条 → {result['path']}"
+              f"（队列共 {result['total']} 条）")
+        print(f"  供给：已暂存 {supply.get('staged', 0)} 条"
+              + (f"｜未来 {supply.get('horizon_days')} 天缺 {supply['gap']}"
+                 if supply.get("gap") else "｜未来 3 天充足"))
+        quality = result.get("quality") or {}
+        if quality.get("average") is not None:
+            print(f"  内容结构分：均值 {quality['average']}｜低于 55 的 {quality['low']} 条")
+            if quality["low"]:
+                print("  低分内容照发也可能有效，但先按 mkt grow formulas 重写更稳")
+        return 0
+
+    if act == "arm":
+        try:
+            run, raw = _open()
+            data = run.arm()
+        except FileNotFoundError as exc:
+            print(str(exc))
+            return 2
+        except GrowErrors as exc:
+            print(f"不能开闸：{exc}")
+            return 2
+        print(f"{args.id} 实跑已开闸。急停随时可用：mkt pause --on '原因'"
+              "（暂停闸优先于一切写操作）")
+        return 0
+
+    if act == "resume":
+        try:
+            run, raw = _open()
+            data = run.resume(note=args.note or "", by=args.by or "")
+        except FileNotFoundError as exc:
+            print(str(exc))
+            return 2
+        except GrowErrors as exc:
+            print(f"不能恢复：{exc}")
+            return 2
+        if data.get("status") != "active":
+            print(f"{args.id} 当前不是 needs_attention（status={data.get('status')}），无需恢复")
+            return 0
+        print(f"{args.id} 已恢复：status=active，go={data.get('go')}（暂停闸与执行门照旧）")
+        return 0
+
+    if act == "tick":
+        try:
+            run, raw = _open()
+        except FileNotFoundError as exc:
+            print(str(exc))
+            return 2
+        if raw.get("schema") == "growovo.grow-run/2":
+            summary = run.tick(DATA, on=args.on or None,
+                               deliver=getattr(args, "deliver", False))
+            if summary.get("skipped"):
+                print(f"tick（{summary.get('on') or '今天'}）：跳过（{summary['skipped']}）")
+                return 0
+            readings = summary.get("readings") or {}
+            supply = summary.get("supply") or {}
+            published = sum(int(r.get("published") or 0) for r in summary.get("ran") or [])
+            print(f"tick（{summary.get('on')}）：状态 {summary.get('status')}"
+                  f"｜发布 {published} 条｜读数 粉丝 "
+                  f"{readings.get('followers') if readings.get('followers') is not None else '取不到'}"
+                  f" / 曝光 {readings.get('impressions') if readings.get('impressions') is not None else '取不到'}"
+                  f"｜供给 已暂存 {supply.get('staged', 0)} 条"
+                  + (f"（缺 {supply['gap']}）" if supply.get("gap") else ""))
+            for r in summary.get("ran") or []:
+                line = f"  {Path(r['queue']).name}：{r.get('records', 0)} 条"
+                if r.get("error"):
+                    line += f"｜⚠ {r['error']}"
+                elif r.get("note"):
+                    line += f"｜{r['note']}"
+                print(line)
+            weekly = summary.get("weekly")
+            if weekly:
+                print(f"  周结果单：第 {weekly.get('week')} 周 "
+                      f"（{weekly.get('week_start')}~{weekly.get('week_end')}）"
+                      f"发布 {weekly['published']['total']}")
+            if summary.get("status") == "needs_attention":
+                print("  有队列需要人工处理（needs_attention 不自动重试）。"
+                      f"处理完恢复：mkt grow resume {args.id} "
+                      "--by \"$USER\" --note '处理了什么'")
+                return 3
+            return 0
+        summary = run.tick(DATA, on=args.on or None)
+        if summary.get("skipped"):
+            print(f"tick（{summary.get('on') or '今天'}）：跳过（{summary['skipped']}）")
+            return 0
+        print(f"tick（{summary.get('on')}）：跑了 {len(summary.get('ran') or [])} 个队列"
+              f"｜状态 {summary.get('status')}")
+        for r in summary.get("ran") or []:
+            line = f"  {Path(r['queue']).name}：{r['records']} 条"
+            if r.get("error"):
+                line += f"｜⚠ {r['error']}"
+            elif r.get("note"):
+                line += f"｜{r['note']}"
+            print(line)
+        card = summary.get("card")
+        if card:
+            print(f"  周结果卡：第 {card['week']} 周（{card['start']}~{card['end']}）"
+                  f"发布 {card['published']}｜日均曝光 {card['avg_daily_impressions']}"
+                  f"｜新增粉丝 {card['new_followers']}（取不到=该日无读数）")
+        if summary.get("status") == "needs_attention":
+            print("  有队列需要人工处理（needs_attention 不自动重试）。"
+                  f"查完最后一轮结果后恢复：mkt grow resume {args.id} "
+                  "--by \"$USER\" --note '处理了什么'")
+            return 3
+        return 0
+
+    if act == "daily":
+        try:
+            run, raw = _open()
+        except FileNotFoundError as exc:
+            print(str(exc))
+            return 2
+        if raw.get("schema") != "growovo.grow-run/2":
+            print("daily 只支持 v2 闭环（先 mkt grow launch）")
+            return 2
+        card = run.daily(DATA, on=args.on or None)
+        from core.grow_v2 import GrowRunV2
+        print(GrowRunV2.render_daily(card))
+        return 0
+
+    if act == "decide":
+        try:
+            run, raw = _open()
+        except FileNotFoundError as exc:
+            print(str(exc))
+            return 2
+        if raw.get("schema") != "growovo.grow-run/2":
+            print("decide 只支持 v2 闭环（先 mkt grow launch）")
+            return 2
+        try:
+            result = run.decide(action=args.decision or "", note=args.note or "",
+                                by=args.by or "", on=args.on or None,
+                                dry_run=bool(getattr(args, "dry_run", False)),
+                                data_dir=DATA)
+        except GrowErrors as exc:
+            print(f"不能记录决定：{exc}")
+            return 2
+        decision = result["decision"]
+        print(f"已记录决定：{decision['action']}（{decision['on']}）")
+        if decision.get("note"):
+            print(f"  说明：{decision['note']}")
+        proposal = result.get("proposal") or {}
+        for line in proposal.get("rationale") or []:
+            print(f"  理由：{line}")
+        for change in decision.get("changes") or []:
+            print(f"  调整：{change.get('detail') or change}")
+        if getattr(args, "dry_run", False):
+            print("  （dry-run：只出提案，未落盘）")
+        return 0
+
+    if act == "formulas":
+        from core import grow_content
+        print(grow_content.render_formulas())
+        return 0
+
+    if act == "prospects":
+        try:
+            run, raw = _open()
+        except FileNotFoundError as exc:
+            print(str(exc))
+            return 2
+        if raw.get("schema") != "growovo.grow-run/2":
+            print("prospects 只支持 v2 闭环（先 mkt grow launch）")
+            return 2
+        queries = list(getattr(args, "query", None) or [])
+        from core import grow_fit
+        enricher = None if not getattr(args, "no_enrich", False) else (
+            lambda handle: {"handle": handle})
+        try:
+            result = run.prospects(DATA, queries, limit=args.limit, top=args.top,
+                                   max_age_hours=args.max_age_hours,
+                                   min_likes=args.min_likes, pages=args.pages,
+                                   on=args.on or None, enricher=enricher,
+                                   koc_only=(True if args.koc_only else
+                                             (False if args.all_accounts else None)),
+                                   min_followers=args.min_followers or None,
+                                   max_followers=args.max_followers or None,
+                                   include_engaged=args.include_engaged)
+        except Exception as exc:  # noqa: BLE001
+            print(f"账号发现失败：{exc}")
+            return 2
+        if args.json:
+            print(json.dumps(result, ensure_ascii=False, indent=1))
+        else:
+            print(grow_fit.render(result["prospects"], limit=args.top))
+            print(f"已存：{result['path']}（候选帖 {result['targets']} 条 / "
+                  f"账号 {result['count']} 个 / KOC {result['koc']} 个 / "
+                  f"读主页 {result['enriched']} 个 / 排除已触达 "
+                  f"{result.get('excluded_engaged', 0)} 个）")
+            print(f"  搜索词：{'；'.join(result.get('queries') or [])}")
+            print(f"  KOC 名单已更新：{result.get('watchlist')}")
+            if result.get("koc_only"):
+                print("筛选：只看 KOC（1k–50k）；要放宽加 --all-accounts")
+            if result.get("near_misses"):
+                print("本轮没筛到 KOC；接近的账号：")
+                for row in result["near_misses"]:
+                    print(f"  @{row['handle']}（{row.get('koc_tier')}｜"
+                          f"{row.get('followers')} 粉丝｜{row['score']} 分｜"
+                          f"{row.get('why_not', '')}）")
+            print("下一步：选 A/B 级账号的最佳帖子 → 按内容公式写回复 → mkt grow stage")
+        return 0
+
+    if act == "koc":
+        try:
+            run, raw = _open()
+        except FileNotFoundError as exc:
+            print(str(exc))
+            return 2
+        if raw.get("schema") != "growovo.grow-run/2":
+            print("koc 只支持 v2 闭环（先 mkt grow launch）")
+            return 2
+        result = run.watchlist(DATA)
+        if args.json:
+            print(json.dumps(result, ensure_ascii=False, indent=1))
+        else:
+            print(result["rendered"])
+        return 0
+
+    if act == "metrics":
+        try:
+            run, raw = _open()
+        except FileNotFoundError as exc:
+            print(str(exc))
+            return 2
+        if raw.get("schema") != "growovo.grow-run/2":
+            print("metrics 只支持 v2 闭环（先 mkt grow launch）")
+            return 2
+        result = run.metrics(DATA, days=args.days, limit=args.limit,
+                             on=args.on or None, resolve=bool(args.resolve))
+        if args.json:
+            print(json.dumps(result, ensure_ascii=False, indent=1))
+        else:
+            print(f"帖子指标：待采 {result['pending']} 条｜已写 {result['written']} 条")
+            for item in result.get("items") or []:
+                print(f"  {item.get('url')}：查看 {item.get('views')}｜喜欢 "
+                      f"{item.get('likes')}｜回复 {item.get('replies')}"
+                      + (f"｜{item['note']}" if item.get("note") else ""))
+        return 0
+
+    if act == "learn":
+        try:
+            run, raw = _open()
+        except FileNotFoundError as exc:
+            print(str(exc))
+            return 2
+        if raw.get("schema") != "growovo.grow-run/2":
+            print("learn 只支持 v2 闭环（先 mkt grow launch）")
+            return 2
+        result = run.learn(DATA, on=args.on or None)
+        if args.json:
+            print(json.dumps(result, ensure_ascii=False, indent=1))
+        else:
+            print(result["rendered"])
+            print(f"已存：{result['path']}")
+            if result.get("changes"):
+                print("可用：mkt grow decide %s --action optimize --dry-run 查看提案" % args.id)
+        return 0
+
+    if act == "targets":
+        try:
+            run, raw = _open()
+        except FileNotFoundError as exc:
+            print(str(exc))
+            return 2
+        if raw.get("schema") != "growovo.grow-run/2":
+            print("targets 只支持 v2 闭环（先 mkt grow launch）")
+            return 2
+        queries = list(getattr(args, "query", None) or [])
+        if not queries:
+            print("至少给一个 --query（可重复）")
+            return 2
+        from core import grow_targets
+        try:
+            result = run.targets(DATA, queries,
+                                 limit=args.limit, max_age_hours=args.max_age_hours,
+                                 min_likes=args.min_likes,
+                                 min_replies=args.min_replies,
+                                 pages=args.pages, on=args.on or None)
+        except Exception as exc:  # noqa: BLE001 搜索失败要给人话
+            print(f"目标发现失败：{exc}")
+            return 2
+        if args.json:
+            print(json.dumps(result, ensure_ascii=False, indent=1))
+        else:
+            print(grow_targets.render(result["candidates"]))
+            print(f"已存：{result['path']}（排除已发/已暂存/自己 {result['excluded_urls']} 个目标）")
+            print("下一步：按 brief 写回复 → mkt grow stage 入队（不要因为搜到就直接发）")
+        return 0
+
+    if act == "review":
+        try:
+            run, raw = _open()
+        except FileNotFoundError as exc:
+            print(str(exc))
+            return 2
+        if raw.get("schema") != "growovo.grow-run/2":
+            print("review 只支持 v2 闭环（先 mkt grow launch）")
+            return 2
+        result = run.review(DATA, days=args.days, on=args.on or None)
+        if args.json:
+            print(json.dumps(result["summary"], ensure_ascii=False, indent=1))
+        else:
+            print(result["markdown"])
+            if result.get("paths"):
+                print(f"已存：{result['paths'].get('html') or result['paths'].get('markdown')}")
+        return 0
+
+    if act == "daemon":
+        try:
+            run, raw = _open()
+        except FileNotFoundError as exc:
+            print(str(exc))
+            return 2
+        if raw.get("schema") != "growovo.grow-run/2":
+            print("daemon 只支持 v2 闭环（先 mkt grow launch）")
+            return 2
+        try:
+            run.daemon(DATA, interval_minutes=args.interval,
+                       deliver=not args.no_deliver, once=args.once)
+        except V1Error as exc:
+            print(f"daemon 未启动：{exc}")
+            return 2
+        return 0
+
+    if act == "calibrate":
+        try:
+            run, raw = _open()
+        except FileNotFoundError as exc:
+            print(str(exc))
+            return 2
+        if raw.get("schema") != "growovo.grow-run/2":
+            print("calibrate 只支持 v2 闭环（先 mkt grow launch）")
+            return 2
+        result = run.calibrate(followers=getattr(args, "followers", None),
+                               match=not getattr(args, "mismatch", False),
+                               note=args.note or "", by=args.by or "",
+                               on=args.on or None)
+        bar = "一致" if result["match"] else "不一致"
+        print(f"人工对数：{result['on']} 自动 {result['auto']} / 人工 {result['human']}"
+              f" → {bar}｜连续 {result['streak']}/7｜当前级别 {result['verification']}")
+        if result["promoted"]:
+            print("读数已升级 PROVEN：后续结果单仍保留 approximated 快照口径")
+        return 0
+
+    if act == "status":
+        try:
+            run, raw = _open()
+        except FileNotFoundError as exc:
+            print(str(exc))
+            return 2
+        if raw.get("schema") == "growovo.grow-run/2":
+            s = run.status(DATA, on=args.on or None)
+            goal = s.get("goal") or {}
+            heartbeat = s.get("heartbeat") or {}
+            supply = s.get("supply") or {}
+            print(f"{s['run']}｜第 {s['week']} 周｜状态 {s['status']}｜实跑 go={s['go']}")
+            print(f"  目标进度：{goal.get('target_text') or goal.get('metric')}"
+                  f"｜当前 {goal.get('current') if goal.get('current') is not None else '取不到'}"
+                  f"｜基线 {goal.get('baseline') if goal.get('baseline') is not None else '取不到'}"
+                  + (f"｜{goal['progress']}%" if goal.get("progress") is not None else ""))
+            print(f"  今日配额 {s.get('today_quota')}｜已发 {s['committed_today']} 条"
+                  f"｜本周计划 {s['plan_actions_per_week']} 条")
+            print(f"  供给：已暂存 {supply.get('staged', 0)} 条"
+                  + (f"（未来 {supply.get('horizon_days')} 天缺 {supply['gap']}）"
+                     if supply.get("gap") else "（充足）"))
+            today_read = s.get("readings") or {}
+            has_reading = (today_read.get("followers") is not None
+                           or today_read.get("impressions") is not None)
+            print(f"  读数：今天 {'有' if has_reading else '无（' + str(today_read.get('error') or '未读')[:40] + '）'}"
+                  f"｜心跳 {'正常' if not heartbeat.get('stale', True) else '过期/未记录'}"
+                  f"｜今日决策 {'已记录' if not s['pending_decision'] else '未记录（默认继续）'}")
+            print(f"  队列 {s['queues']} 个｜已出周卡 {len(s['result_cards'])} 张"
+                  f"｜日卡 {s['daily_cards']} 张｜调整记录 {s['adjustments']} 条")
+            return 0
+        s = run.status(DATA, on=args.on or None)
+        goal = s.get("goal") or {}
+        print(f"{s['run']}｜第 {s['week']} 周｜状态 {s['status']}｜实跑 go={s['go']}")
+        print(f"  目标进度：{goal.get('metric')} 当前 {goal.get('current')}"
+              f"（基线 {goal.get('baseline')} → 目标 {goal.get('target')}）"
+              + (f" {goal['progress']}%" if goal.get("progress") is not None else ""))
+        if goal.get("note"):
+            print(f"  {goal['note']}")
+        print(f"  本周计划量 {s['plan_actions_per_week']} 条"
+              f"｜今日待跑队列 {len(s['pending_queues_today'])} 个"
+              f"｜已出结果卡 {len(s['result_cards'])} 张｜调整记录 {s['adjustments']} 条")
+        return 0
+
+    if act == "report":
+        try:
+            run, raw = _open()
+        except FileNotFoundError as exc:
+            print(str(exc))
+            return 2
+        if raw.get("schema") == "growovo.grow-run/2":
+            if getattr(args, "json", False):
+                data = run.load()
+                cards = data.get("result_cards") or []
+                if args.week is not None:
+                    cards = [c for c in cards if int(c.get("week") or 0) == int(args.week)]
+                print(json.dumps(cards[-1] if cards else {}, ensure_ascii=False, indent=1))
+            else:
+                print(run.report(DATA, week=getattr(args, "week", None),
+                                 on=args.on or None))
+        else:
+            print(run.report(DATA, on=args.on or None))
+        return 0
+
+    if act == "doctor":
+        try:
+            run, raw = _open()
+        except FileNotFoundError as exc:
+            print(str(exc))
+            return 2
+        if raw.get("schema") != "growovo.grow-run/2":
+            print("doctor 只支持 v2 闭环（旧版请重新 mkt grow launch）")
+            return 2
+        result = run.doctor(DATA)
+        print(f"体检：{'通过' if result.get('ok') else '有阻断项'}")
+        for check in result.get("checks") or []:
+            mark = "✅" if check.get("ok") else ("⛔" if check.get("level") == "blocker" else "⚠️")
+            print(f"  {mark} {check.get('name')}：{check.get('detail')}")
+            if not check.get("ok") and check.get("fix"):
+                print(f"     修法：{check['fix']}")
+        return 0 if result.get("ok") else 2
+
+    if act == "install":
+        try:
+            run, raw = _open()
+        except FileNotFoundError as exc:
+            print(str(exc))
+            return 2
+        if raw.get("schema") != "growovo.grow-run/2":
+            print("install 只支持 v2 闭环（旧版请重新 mkt grow launch）")
+            return 2
+        result = run.install(DATA, interval_minutes=int(getattr(args, "interval", 30) or 30),
+                             load=bool(getattr(args, "load", False)))
+        print(f"定时任务已生成：{result['path']}")
+        if result.get("fallback"):
+            print(f"  前台常驻脚本：{result['fallback']}（双击运行，Ctrl-C 停止）")
+        print(f"  安装命令：{result.get('command')}")
+        if result.get("installed"):
+            print(f"  launchd：{result['installed']}")
+        if result.get("verified") is False:
+            print(f"  ⚠ {result.get('reason')}")
+            return 2
+        if result.get("error"):
+            print(f"  ⚠ {result['error']}")
+        return 0
+
+    return 0
+
+
 def cmd_retro(args):
     from core import logscan, retro, narrative
     act = args.action
@@ -332,7 +1331,7 @@ def cmd_retro(args):
                   "机器只负责把证据摊开；动作数/回应数用哪个口径，必须人来钉，"
                   "否则算出来的比率是假的。", file=sys.stderr)
             return 2
-        facts = json.loads(Path(args.facts).read_text(encoding="utf-8"))
+        facts = _load_facts(args.facts)
         rows = retro.rates_from_facts(facts)
         for r in rows:
             r["sources"] = [f"{args.facts}#{r['channel']}"]
@@ -493,6 +1492,79 @@ def cmd_voice(args):
         for p in problems:
             print(f"  - {p}")
         return 2
+    elif args.action == "plain":
+        from core import expression
+        text = args.text or ""
+        if args.file:
+            text = Path(args.file).read_text(encoding="utf-8")
+        if args.fix:
+            fixed, _hits = expression.fix(text)
+            print(fixed)
+            return 0
+        res = expression.check(text)
+        if args.json:
+            print(json.dumps(res, ensure_ascii=False, indent=1))
+        else:
+            print(expression.render(res))
+        return 0 if res["ok"] else 2
+    return 0
+
+
+def cmd_content(args):
+    from core import content_ops
+    if args.action == "rules":
+        print(content_ops.render_rules(args.channel))
+        return 0
+    if args.action == "brief":
+        b = content_ops.brief(
+            args.channel, args.topic, audience=args.audience or "",
+            product=args.product or "", evidence=args.evidence or "",
+            cta=args.cta, title=args.title or "")
+        if args.json:
+            print(json.dumps(b, ensure_ascii=False, indent=1))
+        else:
+            print(content_ops.render_brief(b))
+        return 0
+    if args.action == "review":
+        from core import editorial_review
+        text = Path(args.file).read_text(encoding="utf-8") if args.file else (args.text or "")
+        result = (editorial_review.validate(args.channel, text,
+                    json.loads(Path(args.record).read_text(encoding="utf-8")))
+                  if args.record else editorial_review.packet(args.channel, text, args.title))
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+        return 0 if result.get("ok", True) else 2
+    if args.action == "audit":
+        if args.file:
+            text = Path(args.file).read_text(encoding="utf-8")
+        else:
+            text = args.text or ""
+        titles = None
+        if args.titles:
+            titles = json.loads(Path(args.titles).read_text(encoding="utf-8"))
+        if args.file and "## D2-" in text:
+            res = content_ops.audit_file(args.channel, text, strict=args.strict, titles=titles)
+        else:
+            res = content_ops.audit_text(args.channel, text, title=args.title or "",
+                                         strict=args.strict)
+        if args.json:
+            print(json.dumps(res, ensure_ascii=False, indent=1))
+        else:
+            print(content_ops.render_audit(res))
+        return 0 if res["ok"] else 2
+    if args.action == "plan":
+        channels = [x.strip() for x in (args.channels or "").split(",") if x.strip()]
+        p = content_ops.plan(start=args.start, days=args.days, channels=channels)
+        if args.json:
+            text = json.dumps(p, ensure_ascii=False, indent=1)
+        else:
+            text = content_ops.render_plan(p)
+        if args.out:
+            Path(args.out).write_text(text + "\n", encoding="utf-8")
+            print(f"已写入 {args.out}")
+            if not args.json:
+                return 0
+        print(text)
+        return 0
     return 0
 
 
@@ -547,7 +1619,7 @@ def _journey_summary(payload):
 
 def cmd_opportunity(args):
     from core import opportunity
-    facts = json.loads(Path(args.facts).read_text(encoding="utf-8"))
+    facts = _load_facts(args.facts)
     signals = json.loads(Path(args.signals).read_text(encoding="utf-8"))
     payload = opportunity.discover(facts, signals)
     if args.json:
@@ -989,8 +2061,24 @@ def cmd_revise(args):
 def cmd_execute(args):
     import csv as _csv
     from core import execute
-    strat = json.loads(Path(args.strategy_file).read_text(encoding="utf-8"))
-    rows = list(_csv.DictReader(Path(args.targets).read_text(encoding="utf-8").splitlines()))
+    try:
+        strat = json.loads(Path(args.strategy_file).read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        print(f"不能生成：找不到策略文件 {args.strategy_file}", file=sys.stderr)
+        return 2
+    except json.JSONDecodeError as e:
+        print(f"不能生成：策略文件不是有效 JSON（{args.strategy_file}，第 {e.lineno} 行: {e.msg}）。\n"
+              f"生成方式：python3 mkt.py strategy build --facts <facts.json> [--selection <selection.json>] --json --out {args.strategy_file}",
+              file=sys.stderr)
+        return 2
+    if str(args.targets).endswith(".json"):
+        print(f"不能生成：--targets 是发送对象 CSV（列：target,body[,subject]），不是产品事实包 JSON：{args.targets}", file=sys.stderr)
+        return 2
+    try:
+        rows = list(_csv.DictReader(Path(args.targets).read_text(encoding="utf-8").splitlines()))
+    except FileNotFoundError:
+        print(f"不能生成：找不到目标清单 {args.targets}", file=sys.stderr)
+        return 2
     targets = [{"target": r.get("target", ""), "body": r.get("body", ""),
                 "subject": r.get("subject", "")} for r in rows]
     try:
@@ -1028,7 +2116,7 @@ def cmd_strategy(args):
     act = args.action
 
     if act == "build":
-        facts = json.loads(Path(args.facts).read_text(encoding="utf-8"))
+        facts = _load_facts(args.facts)
         goal_plan = None
         if getattr(args, "selection", ""):
             goal_plan = _goal_plan_from_selection(args.selection, facts)
@@ -1046,7 +2134,13 @@ def cmd_strategy(args):
                                         "actions_per_week": args.actions_per_week},
                            goal_plan=goal_plan)
         if getattr(args, "json", False):
-            print(json.dumps(s, ensure_ascii=False, indent=1))
+            payload = json.dumps(s, ensure_ascii=False, indent=1)
+            if args.out:
+                out = Path(args.out); out.parent.mkdir(parents=True, exist_ok=True)
+                out.write_text(payload + "\n", encoding="utf-8")
+                print(f"策略 JSON 已生成：{out}（供 mkt execute --strategy-file 用）")
+            else:
+                print(payload)
             return 0
         md = strategy.render(s)
         if args.out:
@@ -1058,7 +2152,7 @@ def cmd_strategy(args):
         return 0
 
     if act == "cadence":
-        facts = json.loads(Path(args.facts).read_text(encoding="utf-8")) if args.facts else None
+        facts = _load_facts(args.facts) if args.facts else None
         goal_plan = None
         if getattr(args, "selection", ""):
             if not facts:
@@ -1291,7 +2385,7 @@ def cmd_plan(args):
             raise SystemExit(f"{path} 已存在（加 --force 覆盖）")
         approval.save_plan(plan, path)
         print(f"已写入 {path}")
-        print(f"下一步：mkt plan approve {pid} --by <你的名字>")
+        print(f"下一步：mkt plan approve --id {pid} --by <你的名字>")
         return 0
 
     if act == "lint":
@@ -1627,6 +2721,20 @@ def cmd_outcome(args):
 
 
 def cmd_x(args):
+    if args.action == "stats":
+        from channels.x import read_stats
+        stats = read_stats.read(args.handle or "", DATA / "shots" / "x-stats", log=print)
+        print(f"读数（UNVERIFIED，首周请人工对数）：@{stats['handle']}")
+        print(f"  粉丝：{stats['followers'] if stats['followers'] is not None else '取不到'}"
+              f"｜昨日曝光：{stats['impressions_yesterday'] if stats['impressions_yesterday'] is not None else '取不到'}")
+        print(f"  证据：{stats['saved']}"
+              + (f"｜截图 {len(stats['screenshots'])} 张" if stats["screenshots"] else "（无截图）"))
+        if args.record:
+            written = read_stats.record(DATA, stats)
+            print(f"已落账：{written or '（没有可落的数字）'}（approximated 口径，来源指向快照）")
+        else:
+            print("默认只读不落账；人工核对数字后加 --record 才写入 outcome 计数")
+        return 0
     from channels.x.adapter import run as x_run
     extra = list(args.extra or [])
     if getattr(args, "file", None):
@@ -1664,13 +2772,13 @@ def cmd_reddit(args):
         text = Path(args.text_file).read_text(encoding="utf-8").strip() \
             if args.text_file else args.text
         rec = reddit.reply(args.url, text, go=args.go, adhoc=args.adhoc,
-                           campaign=args.campaign, ledger=_ledger())
+                           campaign=args.campaign, ledger=_ledger(), data_dir=DATA)
         return 0 if rec["result"] in ("committed", "dry-run") else 1
     if args.action == "publish":
         body = Path(args.body_file).read_text(encoding="utf-8").strip() \
             if args.body_file else (args.body or "")
         rec = reddit.publish(args.sub, args.title, body, go=args.go, adhoc=args.adhoc,
-                             campaign=args.campaign, ledger=_ledger())
+                             campaign=args.campaign, ledger=_ledger(), data_dir=DATA)
         return 0 if rec["result"] in ("committed", "dry-run") else 1
     return 2
 
@@ -1684,7 +2792,7 @@ def cmd_linkedin(args):
         note = Path(args.note_file).read_text(encoding="utf-8").strip() \
             if args.note_file else args.note
         rec = linkedin.message(args.url, note, go=args.go, adhoc=args.adhoc,
-                               campaign=args.campaign, ledger=_ledger())
+                               campaign=args.campaign, ledger=_ledger(), data_dir=DATA)
         return 0 if rec["result"] in ("committed", "dry-run") else 1
     return 2
 
@@ -1704,7 +2812,7 @@ def cmd_github(args):
         text = Path(args.text_file).read_text(encoding="utf-8").strip() \
             if args.text_file else args.text
         rec = github.reply(args.repo, args.number, text, go=args.go, adhoc=args.adhoc,
-                           campaign=args.campaign, ledger=_ledger())
+                           campaign=args.campaign, ledger=_ledger(), data_dir=DATA)
         detail = rec.get("detail", "")
         print(f"github reply -> {rec['result']}"
               + (f"（{detail}）" if detail else "")
@@ -1726,10 +2834,10 @@ def cmd_hn(args):
     if args.action == "publish":
         rec = hn.publish(args.title, url=args.url, text=text or None,
                          go=args.go, adhoc=args.adhoc, campaign=args.campaign,
-                         ledger=_ledger())
+                         ledger=_ledger(), data_dir=DATA)
     else:  # reply
         rec = hn.reply(args.item, text, go=args.go, adhoc=args.adhoc,
-                       campaign=args.campaign, ledger=_ledger())
+                       campaign=args.campaign, ledger=_ledger(), data_dir=DATA)
     detail = rec.get("detail", "")
     print(f"hn {args.action} -> {rec['result']}"
           + (f"（{detail}）" if detail else "")
@@ -1792,7 +2900,7 @@ def cmd_gtm(args):
     cmd = getattr(args, "gtm_cmd", None)
     if cmd == "diagnose":
         from core import gtm
-        facts = json.loads(Path(args.facts).read_text(encoding="utf-8"))
+        facts = _load_facts(args.facts)
         payload = gtm.diagnose(facts)
         if args.json:
             print(json.dumps(payload, ensure_ascii=False, indent=2))
@@ -1891,7 +2999,7 @@ def cmd_gtm(args):
 def cmd_goal(args):
     from core import goals
     try:
-        facts = json.loads(Path(args.facts).read_text(encoding="utf-8"))
+        facts = _load_facts(args.facts)
     except (OSError, ValueError) as e:
         print(f"事实包读不了：{e}", file=sys.stderr)
         return 2
@@ -1955,10 +3063,10 @@ def cmd_sprint(args):
     from core import goals, sprint
     try:
         if getattr(args, "selection", ""):
-            facts = json.loads(Path(args.facts).read_text(encoding="utf-8"))
+            facts = _load_facts(args.facts)
             goal_plan = _goal_plan_from_selection(args.selection, facts)
         else:
-            facts = json.loads(Path(args.facts).read_text(encoding="utf-8"))
+            facts = _load_facts(args.facts)
             platforms = _split_platforms(getattr(args, "platforms", ""))
             goal_plan = goals.build_plan(
                 facts, args.goal, platforms=platforms,
@@ -2012,7 +3120,7 @@ def cmd_channel(args):
                      for r in rows]))
         return 0
 
-    facts = json.loads(Path(args.facts).read_text(encoding="utf-8"))
+    facts = _load_facts(args.facts)
     try:
         goal_plan = (_goal_plan_for(args, facts)
                      if getattr(args, "goal", "") or getattr(args, "selection", "")
@@ -2291,7 +3399,7 @@ def cmd_playbook(args):
             print(json.dumps(result, ensure_ascii=False, indent=1))
             return 1
         print(f"已生成 {out}（{meta.get('items', 0)} 条候选回复）")
-        print(f"下一步：mkt queue lint {out}；mkt plan approve <plan_id> --by <人>；"
+        print(f"下一步：mkt queue lint {out}；mkt plan approve --id <plan_id> --by <人>；"
               f"mkt queue run {out}（先 dry-run，再 --go）")
     if args.json:
         print(json.dumps(result, ensure_ascii=False, indent=1))
@@ -2368,7 +3476,8 @@ def build_parser():
     sp = sub.add_parser("check", help="CDP 会话检查（X/Gmail/Reddit/LinkedIn/HN 登录态）")
     sp.set_defaults(fn=cmd_check)
     sp = sub.add_parser("pause", help="全局暂停总闸（一切写操作拒跑）")
-    sp.add_argument("--on", action="store_true", help="暂停（可 --reason '原因'）")
+    sp.add_argument("--on", nargs="?", const=True, default=False,
+                    help="暂停；可直接跟原因 `--on '原因'`，或 `--on --reason '原因'`")
     sp.add_argument("--off", action="store_true", help="恢复")
     sp.add_argument("--reason", default="")
     sp.set_defaults(fn=cmd_pause)
@@ -2548,7 +3657,45 @@ def build_parser():
     a.add_argument("--hook", default=""); a.add_argument("--what", default=""); a.add_argument("--ask", default="")
     a = vsub.add_parser("lint", help="检查一段文字会不会被当成广告")
     a.add_argument("platform"); a.add_argument("--text", default=""); a.add_argument("--file", default="")
+    a = vsub.add_parser("plain", help="检查有没有生造词：普通人第一次看到能不能看懂")
+    a.add_argument("--text", default=""); a.add_argument("--file", default="")
+    a.add_argument("--json", action="store_true"); a.add_argument("--fix", action="store_true")
     sp.set_defaults(fn=cmd_voice)
+
+    sp = sub.add_parser("content", help="内容运营：渠道规则、brief、审稿与多渠道路排期")
+    csub = sp.add_subparsers(dest="action", required=True)
+    a = csub.add_parser("rules", help="看某个渠道的内容规则")
+    a.add_argument("channel", choices=["xiaohongshu", "wechat", "blog"])
+    a = csub.add_parser("brief", help="生成渠道原生内容 brief")
+    a.add_argument("channel", choices=["xiaohongshu", "wechat", "blog"])
+    a.add_argument("--topic", required=True)
+    a.add_argument("--audience", default="")
+    a.add_argument("--product", default="")
+    a.add_argument("--evidence", default="")
+    a.add_argument("--cta", default="B", choices=["A", "B", "C"])
+    a.add_argument("--title", default="")
+    a.add_argument("--json", action="store_true")
+    a = csub.add_parser("review", help="整篇审稿：生成版本绑定清单，或校验填写后的记录")
+    a.add_argument("channel", choices=["xiaohongshu", "wechat", "blog"])
+    a.add_argument("--file", default="")
+    a.add_argument("--text", default="")
+    a.add_argument("--title", default="")
+    a.add_argument("--record", default="", help="填写后的审稿 JSON；省略时生成待填写清单")
+    a = csub.add_parser("audit", help="审稿：元叙述、产品出场、标题、CTA、证据与联系方式")
+    a.add_argument("channel", choices=["xiaohongshu", "wechat", "blog"])
+    a.add_argument("--file", default="")
+    a.add_argument("--text", default="")
+    a.add_argument("--title", default="")
+    a.add_argument("--titles", default="", help="可选 JSON：{D2-01: 发布短标题}；用于多篇稿件标题检查")
+    a.add_argument("--strict", action="store_true", help="把提醒也提升为阻断项")
+    a.add_argument("--json", action="store_true")
+    a = csub.add_parser("plan", help="生成多渠道路排期骨架")
+    a.add_argument("--start", default="2026-11-07")
+    a.add_argument("--days", type=int, default=14)
+    a.add_argument("--channels", default="xiaohongshu,wechat,blog")
+    a.add_argument("--out", default="")
+    a.add_argument("--json", action="store_true")
+    sp.set_defaults(fn=cmd_content)
 
     sp = sub.add_parser("result", help="执行结果：平台动作/任务结果/业务结果三层")
     sp.add_argument("--campaign", default=""); sp.add_argument("--intent", default="")
@@ -2827,6 +3974,241 @@ def build_parser():
     a.add_argument("id"); a.add_argument("--on", default="")
     sp.set_defaults(fn=cmd_intent)
 
+    sp = sub.add_parser("tactic", help="非常规增长战术：注册表、候选检查、执行记录与四周判定")
+    tsub = sp.add_subparsers(dest="action", required=True)
+    a = tsub.add_parser("list", help="列出战术（可按渠道/机制/风险筛选；证据过期默认排除）")
+    a.add_argument("--channel", default=""); a.add_argument("--mechanism", default="")
+    a.add_argument("--risk-max", default="gray", choices=["white", "light_gray", "gray"])
+    a.add_argument("--status", default="", choices=["", "usable", "proposed"])
+    a.add_argument("--include-stale", action="store_true",
+                   help="包含证据过期未复核的战术（mkt tactic stale 可查）")
+    a = tsub.add_parser("show", help="看一条战术的全部参数与证据")
+    a.add_argument("id")
+    a = tsub.add_parser("start", help="开一条战术执行记录（默认四周）")
+    a.add_argument("id"); a.add_argument("--tactic", required=True)
+    a.add_argument("--owner", default=""); a.add_argument("--on", default="")
+    a.add_argument("--weeks", type=int, default=4)
+    a.add_argument("--target-list", default="",
+                   help="关联目标清单 id（koc-first 类战术：mkt target 先建）")
+    a = tsub.add_parser("draft", help="加一条候选回复（发出前检查：禁链/占位符/重复/上限）")
+    a.add_argument("id"); a.add_argument("--target", required=True)
+    a.add_argument("--text", required=True)
+    a.add_argument("--formula", default="", help="内容公式（mkt tactic show 可见）")
+    a.add_argument("--post-age", type=int, default=None, help="目标帖子已发布分钟数")
+    a.add_argument("--hour", type=int, default=None, help="准备回复的小时（节奏核算用）")
+    a.add_argument("--on", default="")
+    a = tsub.add_parser("check", help="只检查不落盘：一条候选是否可发")
+    a.add_argument("--tactic", required=True); a.add_argument("--target", required=True)
+    a.add_argument("--text", required=True); a.add_argument("--formula", default="")
+    a.add_argument("--post-age", type=int, default=None)
+    a = tsub.add_parser("log", help="记录当日实际发生数")
+    a.add_argument("id")
+    a.add_argument("--sent", type=int, default=0); a.add_argument("--deleted", type=int, default=0)
+    a.add_argument("--replied", type=int, default=0); a.add_argument("--moved", type=int, default=0)
+    a.add_argument("--metrics", default="",
+                   help="周指标 JSON，如 '{\"profile_visits\": 210, \"new_followers\": 31}'")
+    a.add_argument("--note", default=""); a.add_argument("--on", default="")
+    a = tsub.add_parser("show-run", help="看执行进度、配额与纪律提醒")
+    a.add_argument("id"); a.add_argument("--on", default="")
+    a = tsub.add_parser("verdict", help="学习观察判定（人判，不自动判渠道生死）")
+    a.add_argument("id"); a.add_argument("--on", default="")
+    a = tsub.add_parser("export", help="把候选导出成队列文件，走既有审批发送路径")
+    a.add_argument("id"); a.add_argument("--campaign", default="")
+    a = tsub.add_parser("sync", help="回读账本核对实际发出数（committed 才算发出）")
+    a.add_argument("id")
+    a = tsub.add_parser("stale", help="证据到期未复核的战术（机会随采用人数衰减）")
+    a.add_argument("--on", default="")
+    a = tsub.add_parser("forbidden", help="已证伪的做法清单：证据齐全，不要碰")
+    a = tsub.add_parser("recommend", help="按产品事实包+目标选战术组合（带入选理由）")
+    a.add_argument("--facts", required=True, help="产品事实包 JSON 路径")
+    a.add_argument("--goal", default="", help="目标 id（如 awareness.followers）")
+    a.add_argument("--phase", default="cold_start", choices=["cold_start", "scale"])
+    a.add_argument("--risk-max", default="white", choices=["white", "light_gray", "gray"])
+    a.add_argument("--top", type=int, default=6)
+    a.add_argument("--include-stale", action="store_true")
+    a = tsub.add_parser("lint", help="注册表不变量自检")
+    sp.set_defaults(fn=cmd_tactic)
+
+    sp = sub.add_parser("watch", help="对手事件监控：价格/status/changelog diff → 套利事件与承接战术")
+    wsub = sp.add_subparsers(dest="action", required=True)
+    a = wsub.add_parser("start", help="建一个监控清单")
+    a.add_argument("id"); a.add_argument("--owner", default="")
+    a = wsub.add_parser("add", help="加监控项（加时即抓基线快照；死链拒收）")
+    a.add_argument("id"); a.add_argument("--url", required=True)
+    a.add_argument("--kind", required=True, choices=["price", "status", "changelog"])
+    a.add_argument("--competitor", required=True)
+    a.add_argument("--note", default="")
+    a = wsub.add_parser("remove", help="移除监控项")
+    a.add_argument("id"); a.add_argument("--url", required=True)
+    a = wsub.add_parser("check", help="抓取并 diff（cron 调用；变化产出事件）")
+    a.add_argument("id")
+    a = wsub.add_parser("events", help="看变化事件（新在前）")
+    a.add_argument("id"); a.add_argument("--n", type=int, default=20)
+    a = wsub.add_parser("summary", help="清单概况")
+    a.add_argument("id")
+    sp.set_defaults(fn=cmd_watch)
+
+    sp = sub.add_parser("target", help="信任节点目标库：KOC 评分、先打谁、阶段推进（研究 II）")
+    tgsub = sp.add_subparsers(dest="action", required=True)
+    a = tgsub.add_parser("start", help="建一个目标清单（Dream-100 式）")
+    a.add_argument("id"); a.add_argument("--niche", default="")
+    a.add_argument("--owner", default="")
+    a = tgsub.add_parser("score", help="只评分不入库：一个候选账号的信任价格")
+    a.add_argument("--followers", type=int, required=True)
+    a.add_argument("--engagement-rate", default="", help="如 0.032（3.2%）")
+    a.add_argument("--sponsored-recent", type=int, default=None, help="近 90 天商单数")
+    a.add_argument("--niche-match", action="store_true")
+    a = tgsub.add_parser("add", help="加入候选（自动评分、同账号去重）")
+    a.add_argument("id"); a.add_argument("--platform", required=True)
+    a.add_argument("--handle", required=True)
+    a.add_argument("--followers", type=int, required=True)
+    a.add_argument("--engagement-rate", default="")
+    a.add_argument("--sponsored-recent", type=int, default=None)
+    a.add_argument("--niche-match", action="store_true")
+    a.add_argument("--note", default=""); a.add_argument("--on", default="")
+    a = tgsub.add_parser("list", help="按信任价格排序看全清单")
+    a.add_argument("id")
+    a = tgsub.add_parser("next", help="下一批该接触谁（候选里分数最高）")
+    a.add_argument("id"); a.add_argument("--n", type=int, default=5)
+    a = tgsub.add_parser("advance", help="阶段推进（只进不退：candidate→contacted→engaged→amplified→partner）")
+    a.add_argument("id"); a.add_argument("--handle", required=True)
+    a.add_argument("--stage", required=True,
+                   choices=["contacted", "engaged", "amplified", "partner"])
+    a.add_argument("--note", default=""); a.add_argument("--on", default="")
+    a = tgsub.add_parser("summary", help="清单进度：阶段分布、近 7 天互动、累计再传播")
+    a.add_argument("id"); a.add_argument("--on", default="")
+    sp.set_defaults(fn=cmd_target)
+
+    sp = sub.add_parser("grow", help="结果闭环：给事实和目标，自动执行、读数、交付日/周结果")
+    gsub = sp.add_subparsers(dest="action", required=True)
+
+    a = gsub.add_parser("platforms", help="第一期能自动执行的平台白名单")
+    a = gsub.add_parser("launch", help="一条命令：预检→编译策略→生成执行计划与内容需求单")
+    a.add_argument("id"); a.add_argument("--facts", required=True, help="产品事实包 JSON")
+    a.add_argument("--goal", required=True, help="目标 id，如 awareness.followers")
+    a.add_argument("--channels", default="x,email")
+    a.add_argument("--target", type=float, default=None)
+    a.add_argument("--window", type=int, default=None, help="目标窗口天数")
+    a.add_argument("--actions-per-week", type=int, default=20)
+    a.add_argument("--actions", default="", help="主渠道动作，逗号分隔：reply,publish（默认 reply）")
+    a.add_argument("--account", default="", help="账号 id（账号库里的 id，用于健康闸）")
+    a.add_argument("--handle", default="", help="X 账号 handle，用于每日自动读数")
+    a.add_argument("--audience", default="us-west", help="受众时区目录 id")
+    a.add_argument("--owner", default="", help="结果单收件邮箱")
+    a.add_argument("--on", default="", help="启动日（默认今天）")
+    a.add_argument("--skip-probe", action="store_true",
+                   help="跳过环境探针，只建计划（首次实跑前先 doctor）")
+
+    a = gsub.add_parser("agent", help="启用本机 Codex 自动找目标、生成、审稿和补队列")
+    a.add_argument("id"); a.add_argument("--disable", action="store_true")
+    a = gsub.add_parser("produce", help="立即生成并审稿补队列，不发送")
+    a.add_argument("id"); a.add_argument("--on", default="")
+    a.add_argument("--max-items", type=int, default=3)
+
+    a = gsub.add_parser("start", help="兼容旧版：开一个 v1 闭环（不做策略编译）")
+    a.add_argument("id"); a.add_argument("--facts", required=True, help="产品事实包 JSON")
+    a.add_argument("--goal", required=True, help="目标 id，如 awareness.followers")
+    a.add_argument("--channels", default="x,email")
+    a.add_argument("--target", type=int, default=None)
+    a.add_argument("--window", type=int, default=None, help="目标窗口天数")
+    a.add_argument("--actions-per-week", type=int, default=20)
+    a.add_argument("--owner", default=""); a.add_argument("--on", default="")
+    a.add_argument("--go", action="store_true", help="建完直接开实跑（默认 dry-run）")
+
+    a = gsub.add_parser("tick", help="一步日循环：配额执行+自动读数+日结果+周结算（供 cron）")
+    a.add_argument("id"); a.add_argument("--on", default="")
+    a.add_argument("--deliver", action="store_true", help="同时投递周结果单（默认只落盘）")
+    a = gsub.add_parser("arm", help="把实跑开关打开（人工确认动作）")
+    a.add_argument("id")
+    a = gsub.add_parser("resume", help="人工裁决后恢复 needs_attention 的闭环（必须写处理说明）")
+    a.add_argument("id"); a.add_argument("--by", required=True)
+    a.add_argument("--note", required=True, help="处理了什么：哪条队列、结论、谁修的")
+    a = gsub.add_parser("daily", help="今天的日结果（发布量/读数/供给/护栏）")
+    a.add_argument("id"); a.add_argument("--on", default="")
+    a = gsub.add_parser("decide", help="看完日结果后决定：继续任务 或 优化策略")
+    a.add_argument("id"); a.add_argument("--action", dest="decision", required=True,
+                                        choices=["continue", "optimize"])
+    a.add_argument("--note", default="", help="为什么这样决定")
+    a.add_argument("--by", default=""); a.add_argument("--on", default="")
+    a.add_argument("--dry-run", action="store_true", help="只出提案，不落盘")
+    a = gsub.add_parser("briefs", help="看内容需求单（agent 按这个生产）")
+    a.add_argument("id")
+    a = gsub.add_parser("stage", help="把内容写进按日队列（agent 供给入口，过门禁才落盘）")
+    a.add_argument("id"); a.add_argument("--from", dest="from_file", required=True,
+                                         help="内容文件：JSON 数组 / items / CSV(target,body)")
+    a.add_argument("--date", default="", help="排期日 YYYY-MM-DD（默认今天）")
+    a.add_argument("--channel", default="")
+    a.add_argument("--action", dest="queue_action", default="")
+    a.add_argument("--window", default="", help="如 20:00-23:00@us-west，缺省用全局窗口")
+    a.add_argument("--by", default="agent")
+    a.add_argument("--resolve-target", action="store_true",
+                   help="target_text 缺失时打开原帖自动读取（只读）")
+    a.add_argument("--strict", action="store_true",
+                   help="结构分 <55 或未知公式时拒绝入队")
+    a = gsub.add_parser("formulas", help="内容公式与配比（回复层/证明层）")
+    a = gsub.add_parser("prospects", help="账号级候选：帖子契合度+作者主页+排序")
+    a.add_argument("id")
+    a.add_argument("--query", action="append", default=[],
+                   help="搜索词，可重复；支持 since:/until: 操作符")
+    a.add_argument("--limit", type=int, default=20)
+    a.add_argument("--top", type=int, default=8)
+    a.add_argument("--max-age-hours", type=float, default=48)
+    a.add_argument("--min-likes", type=int, default=0)
+    a.add_argument("--pages", type=int, default=1)
+    a.add_argument("--no-enrich", action="store_true", help="不读作者主页（快，但账号分弱）")
+    a.add_argument("--koc-only", action="store_true", help="只看 KOC（1k–50k 粉丝）")
+    a.add_argument("--all-accounts", action="store_true", help="不限 KOC，按总契合度排序")
+    a.add_argument("--include-engaged", action="store_true",
+                   help="包含已触达账号（默认排除，避免重复打扰）")
+    a.add_argument("--min-followers", type=int, default=0)
+    a.add_argument("--max-followers", type=int, default=0)
+    a.add_argument("--on", default=""); a.add_argument("--json", action="store_true")
+    a = gsub.add_parser("koc", help="KOC 名单：已触达/未触达、分数与量级")
+    a.add_argument("id"); a.add_argument("--json", action="store_true")
+    a = gsub.add_parser("metrics", help="采集已发帖子的公开指标（查看/喜欢/回复）")
+    a.add_argument("id"); a.add_argument("--days", type=int, default=7)
+    a.add_argument("--limit", type=int, default=20)
+    a.add_argument("--resolve", action="store_true",
+                   help="先回原帖解析自己的帖子 URL 再采集")
+    a.add_argument("--on", default=""); a.add_argument("--json", action="store_true")
+    a = gsub.add_parser("learn", help="按公式/窗口归因，给出次日调参建议")
+    a.add_argument("id"); a.add_argument("--on", default="")
+    a.add_argument("--json", action="store_true")
+    a = gsub.add_parser("targets", help="只读发现回复目标（X 搜索），产出候选清单")
+    a.add_argument("id")
+    a.add_argument("--query", action="append", default=[],
+                   help="搜索词，可重复；支持 since:/until: 操作符")
+    a.add_argument("--limit", type=int, default=10)
+    a.add_argument("--max-age-hours", type=float, default=48)
+    a.add_argument("--min-likes", type=int, default=0)
+    a.add_argument("--min-replies", type=int, default=0)
+    a.add_argument("--pages", type=int, default=1)
+    a.add_argument("--on", default=""); a.add_argument("--json", action="store_true")
+    a = gsub.add_parser("review", help="最近 N 天业务复盘（发布/读数/供给/决策/建议）")
+    a.add_argument("id"); a.add_argument("--days", type=int, default=7)
+    a.add_argument("--on", default=""); a.add_argument("--json", action="store_true")
+    a = gsub.add_parser("daemon", help="前台常驻 tick（单实例锁；Ctrl-C 停止）")
+    a.add_argument("id"); a.add_argument("--interval", type=int, default=30)
+    a.add_argument("--no-deliver", action="store_true")
+    a.add_argument("--once", action="store_true", help="只跑一轮（供测试/手动）")
+    a = gsub.add_parser("calibrate", help="读数人工对数：连续 7 次一致后升级 PROVEN")
+    a.add_argument("id"); a.add_argument("--followers", type=int, default=None,
+                                         help="人在 X 后台手读到的粉丝数")
+    a.add_argument("--mismatch", action="store_true", help="本次不一致")
+    a.add_argument("--note", default=""); a.add_argument("--by", default="")
+    a.add_argument("--on", default="")
+    a = gsub.add_parser("status", help="看进度：目标、今日配额、供给、心跳、待决策")
+    a.add_argument("id"); a.add_argument("--on", default="")
+    a = gsub.add_parser("report", help="结果单（默认最新一周）")
+    a.add_argument("id"); a.add_argument("--week", type=int, default=None)
+    a.add_argument("--on", default=""); a.add_argument("--json", action="store_true")
+    a = gsub.add_parser("doctor", help="体检：环境/授权/读数/供给/心跳/队列")
+    a.add_argument("id")
+    a = gsub.add_parser("install", help="生成定时任务（launchd/cron），让 tick 自动跑")
+    a.add_argument("id"); a.add_argument("--interval", type=int, default=30)
+    a.add_argument("--load", action="store_true", help="同时装进 launchd（默认只生成文件）")
+    sp.set_defaults(fn=cmd_grow)
+
     sp = sub.add_parser("account", help="授权账号资产：登记/养号/健康度/人工接管/审计")
     asub = sp.add_subparsers(dest="action", required=True)
     for name in ("add", "list", "check", "warm", "eligible", "pause", "takeover", "resolve", "audit"):
@@ -2873,11 +4255,13 @@ def build_parser():
     sp.add_argument("--json", action="store_true")
     sp.set_defaults(fn=cmd_billing)
 
-    sp = sub.add_parser("x", help="X 渠道（vendor，PROVEN）")
-    sp.add_argument("action", choices=["publish", "reply", "message", "engage", "search", "inbox"])
+    sp = sub.add_parser("x", help="X 渠道（vendor，PROVEN；stats 为 UNVERIFIED 读原语）")
+    sp.add_argument("action", choices=["publish", "reply", "message", "engage", "search", "inbox", "stats"])
     sp.add_argument("extra", nargs="*", help="透传 vendor 参数（如搜索词、@handle、tweet url）")
     sp.add_argument("--file", help="publish 内容文件（默认 thread.json）")
     sp.add_argument("--thread", action="store_true")
+    sp.add_argument("--handle", default="", help="stats：要读数的账号")
+    sp.add_argument("--record", action="store_true", help="stats：人工对数后落 outcome 计数")
     sp.add_argument("--go", action="store_true")
     sp.add_argument("--campaign")
     sp.add_argument("--adhoc", action="store_true",
@@ -2973,7 +4357,7 @@ def build_parser():
     a = gsub.add_parser("plan", help="生成一个目标（+平台）的完整方案")
     a.add_argument("--facts", required=True)
     a.add_argument("--goal", required=True, help="目标 id，例如 commercial.first_paid")
-    a.add_argument("--platforms", default="", help="逗号分隔：主渠道,发射点,辅助1,辅助2；不填用推荐组合")
+    a.add_argument("--platforms", default="", help="逗号分隔：主渠道,集中发布渠道,辅助1,辅助2；不填用推荐组合")
     a.add_argument("--target", type=float, default=None, help="覆盖默认目标；不填用建议形状")
     a.add_argument("--window-days", type=int, default=None)
     a.add_argument("--secondary", default="", help="可选辅目标 id，例如 adoption.real_data")
@@ -2983,7 +4367,7 @@ def build_parser():
     a = gsub.add_parser("select", help="写入「目标 + 平台」选择契约，供 strategy/cadence 使用")
     a.add_argument("--facts", required=True)
     a.add_argument("--goal", required=True)
-    a.add_argument("--platforms", required=True, help="逗号分隔：主渠道,发射点,辅助1,辅助2")
+    a.add_argument("--platforms", required=True, help="逗号分隔：主渠道,集中发布渠道,辅助1,辅助2")
     a.add_argument("--target", type=float, default=None)
     a.add_argument("--window-days", type=int, default=None)
     a.add_argument("--secondary", default="", help="可选辅目标 id")
@@ -3006,7 +4390,7 @@ def build_parser():
     a.add_argument("--days", type=int, default=3, help="冲刺天数，默认 3")
     a.add_argument("--start", default="", help="开始日期 YYYY-MM-DD，默认今天")
     a.add_argument("--hours-per-day", type=float, default=8.0)
-    a.add_argument("--launch-hour", default="21:00", help="发射时间（北京时间），默认 21:00")
+    a.add_argument("--launch-hour", default="21:00", help="集中发布时间（北京时间），默认 21:00")
     a.add_argument("--json", action="store_true")
     a.add_argument("--out", default="")
     sp.set_defaults(fn=cmd_sprint)
@@ -3017,7 +4401,7 @@ def build_parser():
     a = csub.add_parser("venues", help="列出渠道库；可按平台过滤")
     a.add_argument("--platform", default="")
     a.add_argument("--json", action="store_true")
-    a = csub.add_parser("plan", help="生成渠道组合：主/发射/辅助/旁听 + 经济学")
+    a = csub.add_parser("plan", help="生成渠道组合：主/集中发布/辅助/旁听 + 经济学")
     a.add_argument("--facts", required=True)
     a.add_argument("--selection", default="")
     a.add_argument("--goal", default="")

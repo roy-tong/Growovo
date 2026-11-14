@@ -253,7 +253,7 @@ def wins(analysis):
             out.append({
                 "channel": r["channel"], "name": r["name"],
                 "why": (f"{int(a)} 次动作产出 {r.get('outcomes')} 个可核验结果"
-                        f"（每百次 {outc}），是唯一有硬产出的打法"),
+                        f"（每百次 {outc}），是唯一有硬产出的做法"),
                 "kind": "产出率",
             })
         elif a >= 20 and resp is not None and resp >= 3:

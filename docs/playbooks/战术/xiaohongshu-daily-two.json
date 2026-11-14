@@ -1,0 +1,181 @@
+{
+  "schema_version": "1.1",
+  "id": "xiaohongshu-daily-two",
+  "status": "proposed",
+  "goal": "fast_follower_growth",
+  "primary_metric": "net_followers_7d_14d",
+  "positioning": {
+    "reader": "硬件产品经理、电商运营、产品/内容从业者；不要求会写代码",
+    "statement": "AI工具使用说明，不是AI新闻，也不是产品广告",
+    "per_post_questions": [
+      "它替你做的是哪一步工作",
+      "怎么在10—30分钟内验证有没有用",
+      "哪一步它做不到"
+    ],
+    "structure": [
+      "场景",
+      "旧办法的代价",
+      "它改哪一步（专业词括号解释）",
+      "3个验证动作",
+      "边界",
+      "今天能做的一步"
+    ],
+    "plain_language": "专业词首次自然解释；每篇建议300—700字，按任务选择结构，不强凑三步骤"
+  },
+  "cadence": {
+    "minimum_per_day": 2,
+    "minimum_per_week": 14,
+    "timezone": "Asia/Shanghai",
+    "suggested_times": [
+      "12:15",
+      "20:30"
+    ]
+  },
+  "variants": [
+    {
+      "id": "A",
+      "name": "关注并私信，送可用免费产品",
+      "weekly_slots": 4,
+      "status": "proposed",
+      "steps": [
+        "展示一个真实任务",
+        "说明产品作用与入口条件",
+        "回应用户主动请求",
+        "记录关注和首次真实任务"
+      ]
+    },
+    {
+      "id": "B",
+      "name": "关注并私信，送完整方法",
+      "weekly_slots": 6,
+      "status": "proposed",
+      "steps": [
+        "正文给出可用判断",
+        "说明后续系列价值",
+        "交付完整方法",
+        "记录关注与方法使用"
+      ]
+    },
+    {
+      "id": "C",
+      "name": "公开说明工具，用户主动提出任务后协助",
+      "weekly_slots": 4,
+      "status": "proposed",
+      "steps": [
+        "说清任务与支持范围",
+        "按真实容量协助",
+        "交付可用结果",
+        "记录复用和自愿推荐"
+      ]
+    }
+  ],
+  "channels": {
+    "xiaohongshu": {
+      "minimum_per_day": 2,
+      "minimum_per_week": 14
+    },
+    "wechat": {
+      "per_week": 2
+    },
+    "blog": {
+      "per_week": 1
+    }
+  },
+  "title_policy": {
+    "goal": "用真实代价制造冲突，标题必须由正文兑现",
+    "variants_per_slot": 3,
+    "variants": [
+      "冲突版",
+      "利益版",
+      "好奇版"
+    ],
+    "must_match_body": true,
+    "forbidden_without_evidence": [
+      "全网首发",
+      "行业震惊",
+      "公司全裁了",
+      "月入十万",
+      "实测省了X小时",
+      "涨粉X万"
+    ],
+    "publish_title_max_chars": 20,
+    "length_note": "20字为编辑预算，平台硬上限未确认；超长标题拆到封面或正文第一句"
+  },
+  "offer_design": {
+    "free": "可用的完整功能/场景",
+    "rmb1": "较窄但端到端完整场景",
+    "rmb99_199": "更多已实现功能、场景、批量或支持",
+    "sales_priority": "secondary_not_north_star"
+  },
+  "evidence": "当前草稿和用户最新改稿反馈；本账号增长效果待真实回填。保留历史CTA定义供追溯，不自动沿用。",
+  "execution": {
+    "auto_execute": false,
+    "runtime_dispatch_added": false,
+    "approval_or_existing_policy_required": true,
+    "actual_publish_receipt_required": true
+  },
+  "sources": [
+    "https://school.xiaohongshu.com/rule/detail/2569",
+    "https://ad.xiaohongshu.com/next_help/docs/8dc5bd9c45c9a90cb9912f3400d43f92"
+  ],
+  "history": [
+    {
+      "version": "1.0",
+      "scope": "较早方案；不是当前草稿 CTA",
+      "variants": [
+        {
+          "id": "A",
+          "name": "关注点赞收藏后发口令",
+          "weekly_slots": 4,
+          "required_by_user": true,
+          "status": "needs_platform_eligibility",
+          "steps": [
+            "展示可用完整场景",
+            "核实账号与笔记类型可用机制",
+            "明示条件及发放内容",
+            "核对最少必要参与信息",
+            "回应参与者发放真实入口",
+            "记录关注与取关以及使用反馈"
+          ],
+          "caution": "交易笔记和广告规则对利益交换互动有限制；未核实不得当作允许，不规避，不假记执行"
+        },
+        {
+          "id": "B",
+          "name": "完整资料公开＋文末泛关注",
+          "weekly_slots": 6,
+          "required_by_user": true,
+          "status": "proposed",
+          "steps": [
+            "正文交付完整方法",
+            "公开真实可用入口",
+            "文末自愿关注",
+            "记录自然关注与取关"
+          ],
+          "caution": "不得附加隐藏领取门槛"
+        },
+        {
+          "id": "C",
+          "name": "公开工具＋首个真实任务协助",
+          "weekly_slots": 4,
+          "required_by_user": true,
+          "status": "proposed",
+          "steps": [
+            "明确完整场景与环境",
+            "用户主动提出真实任务",
+            "按实际容量支持",
+            "输出可用产物",
+            "记录关注、复用与自愿推荐"
+          ],
+          "caution": "服务容量真实，不强制转发解锁"
+        }
+      ]
+    }
+  ],
+  "editorial_review": {
+    "command": "mkt content review",
+    "record_bound_to_source_sha256": true,
+    "structural_pass_is_not_semantic_pass": true,
+    "policy": "reader-first-v1",
+    "source": "作者多轮改稿反馈；属于写作标准，不是已证实涨粉规律"
+  }
+}

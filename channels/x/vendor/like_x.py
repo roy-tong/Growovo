@@ -4,6 +4,7 @@
 用法:
   python3 like_x.py <tweet-url> [<tweet-url> ...]
 """
+from session_page import connect_browser
 import argparse
 import json
 import os
@@ -37,7 +38,7 @@ def main() -> int:
 
     records = []
     with sync_playwright() as p:
-        browser = p.chromium.connect_over_cdp(CDP_URL)
+        browser = connect_browser(p.chromium, CDP_URL)
         ctx = browser.contexts[0] if browser.contexts else browser.new_context()
         page = ctx.new_page()
         for url in args.urls:

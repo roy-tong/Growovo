@@ -13,6 +13,7 @@
 from __future__ import annotations
 
 import json
+import sysconfig
 import re
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
@@ -20,6 +21,8 @@ from typing import Any, Dict, Iterable, List, Optional, Union
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 DATA = Path(__file__).resolve().parents[1] / "docs" / "playbooks" / "经验库" / "experience.jsonl"
+if not DATA.is_file():
+    DATA = Path(sysconfig.get_path("data")) / "share" / "growovo" / "experience.jsonl"
 CORPUS = DATA.parent / "corpus"
 
 # 用户经验会过时：平台规则和玩法两三个月就变一轮。

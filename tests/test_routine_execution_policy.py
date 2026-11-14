@@ -31,6 +31,9 @@ class RoutineTestCase(unittest.TestCase):
         self.addCleanup(self.tmp.cleanup)
         self.data = Path(self.tmp.name) / "data"
         self.data.mkdir()
+        login = patch("core.session_gate.check_login", return_value={"status": "logged_in"})
+        login.start()
+        self.addCleanup(login.stop)
 
     def make_pipeline(self, *, routine=True, account="", approval=None):
         ledger = Ledger(self.data / "ledger.jsonl")

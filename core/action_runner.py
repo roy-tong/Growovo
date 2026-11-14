@@ -34,7 +34,7 @@ def _registry():
 
 
 def precheck(channel, action, data_dir, campaign, go, allow_unverified, target=None,
-             routine=False, account="", platform_user_id=None):
+             routine=False, account="", platform_user_id=None, login_probe=None):
     """Run shared write gates; return the approval mode for a real write.
 
     routine=False uses the original approval call verbatim.  routine=True only
@@ -56,23 +56,47 @@ def precheck(channel, action, data_dir, campaign, go, allow_unverified, target=N
         variants = {value, value.lstrip("@"), "@" + value.lstrip("@")}
         if any(v in suppressed for v in variants):
             raise ActionError(f"目标在抑制名单（DNC/bounced/suppressed）: {value}")
-    if not go:
-        return
+    # 暂停总闸拦一切写路径（含 dry-run：干跑也会写 evidence/账本留痕）。
     if is_paused(data_dir):
         raise ActionError("全局暂停中（mkt pause --off 恢复）——写操作拒跑")
+    if not go:
+        return
     if reg[channel].get("status") == "UNVERIFIED" and not allow_unverified:
         raise ActionError(f"{channel} 渠道为 UNVERIFIED，拒绝实跑（人工首跑校准后加 allow_unverified=true）")
     try:
         if routine is True:
-            return enforce_approval(
+            approval_mode = enforce_approval(
                 data_dir, campaign, routine=True,
                 channel=channel, action=action, account=account,
                 platform_user_id=platform_user_id)
-        enforce_approval(data_dir, campaign)
-        return None
+        else:
+            enforce_approval(data_dir, campaign)
+            approval_mode = None
     except Exception as exc:
         # 统一成 ActionError，让 CLI/MCP 的拒跑路径一致；原因保留原文。
         raise ActionError(f"人审门禁: {exc}") from exc
+    gate_browser_login(channel, reg[channel], login_probe=login_probe)
+    return approval_mode
+
+
+def gate_browser_login(channel, entry, *, login_probe=None):
+    """账号=浏览器登录态：CDP 渠道实跑前检测登录态，缺失明确报缺。
+
+    授权边界先过、再探浏览器（探测要开页，不该先于授权发生）；
+    dry-run 不进此门（保持零浏览器副作用）。缺失抛 ActionError →
+    账本记 rejected，而不是 vendor rc=3 之后的 indeterminate。
+    """
+    from .session_gate import CDP_UNAVAILABLE, LOGGED_IN, PROBES, check_login
+    # 只拦「声明了登录探测」的渠道：email 这类 smtp 主通道（cdp 仅降级）不按浏览器登录态门控。
+    if channel not in PROBES or "cdp" not in entry.get("transports", set()):
+        return
+    probe = login_probe or check_login
+    state = probe(channel) or {}
+    status = state.get("status")
+    if status == CDP_UNAVAILABLE:
+        raise ActionError(f"{channel} 浏览器通道不可用：先运行 ./launch.command 启动调试 Chrome，再重试")
+    if status != LOGGED_IN:
+        raise ActionError(f"{channel} 浏览器登录态缺失：请在浏览器登录该站点后重试（引擎只检测登录态，不管理账号）")
 
 
 def _parse_issue(target):
@@ -193,8 +217,9 @@ def _dispatch_action_inner(*, channel, action, data_dir=None, campaign="", go=Fa
                 raise ActionError(f"x {action} 需要 extra 参数（透传 vendor，如 "
                                   f"['--only','handle'] 或 ['follow','@a','@b']）")
             args = extra
+        publish_options = {"logical_target": target} if action == "publish" and target else {}
         code = xrun(action, args, go=go, campaign=campaign, ledger=ledger,
-                    data_dir=data, log=log)
+                    data_dir=data, log=log, **publish_options)
         fallback = {"channel": "x", "action": action, "campaign": campaign,
                     "target": target or "", "result":
                     ("committed" if go else "dry-run") if code == 0 else "failed",

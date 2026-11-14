@@ -130,6 +130,21 @@ class TestQueue(Tmp):
         errs = queue.lint_queue(q, path=Path("other.json"))
         self.assertTrue(any("文件名" in e for e in errs))
 
+    def test_single_brace_placeholder_is_rejected(self):
+        # 模板只渲染了一半就发出去，对方会收到字面量 {name}
+        q = {"campaign": "c1", "channel": "hn", "action": "reply",
+             "items": [{"id": "1", "target": "https://news.ycombinator.com/item?id=1",
+                        "body": "Hi {name}, saw your post"}]}
+        errs = queue.lint_queue(q)
+        self.assertTrue(any("占位符" in e for e in errs), msg=errs)
+
+    def test_double_brace_placeholder_is_rejected(self):
+        q = {"campaign": "c1", "channel": "hn", "action": "reply",
+             "items": [{"id": "1", "target": "https://news.ycombinator.com/item?id=1",
+                        "body": "Hi {{name}}, saw your post"}]}
+        errs = queue.lint_queue(q)
+        self.assertTrue(any("占位符" in e for e in errs), msg=errs)
+
     def test_build_renders_and_rejects_leftover_placeholders(self):
         tpl = self.dir / "t.md"
         tpl.write_text("你好 {name}，看到你在 {org} 做研究。", encoding="utf-8")

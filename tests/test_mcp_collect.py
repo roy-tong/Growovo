@@ -141,13 +141,17 @@ class TestQueueRunner(Tmp):
         res = run_queue(p, data_dir=self.dir, go=False, log=lambda *a, **k: None)
         self.assertEqual(["dry-run"], [r["result"] for r in res])
 
-    def test_x_queue_only_reply(self):
+    def test_x_publish_queue_delegates_to_shared_executor(self):
         p = self.dir / "queues" / "c1.json"
         p.write_text(json.dumps({"campaign": "c1", "channel": "x", "action": "publish",
                                  "items": [{"id": "1", "target": "https://x.com/a/status/1",
                                             "body": "hi"}]}), encoding="utf-8")
-        with self.assertRaises(QueueRunError):
-            run_queue(p, data_dir=self.dir)
+        from unittest.mock import patch
+        with patch("core.queue_runner.run_action", return_value={"result": "dry-run"}) as action:
+            records = run_queue(p, data_dir=self.dir)
+        self.assertEqual("dry-run", records[0]["result"])
+        self.assertEqual("publish", action.call_args.kwargs["action"])
+        self.assertFalse(action.call_args.kwargs["go"])
 
 
 class TestCollector(Tmp):

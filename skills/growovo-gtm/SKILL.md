@@ -11,6 +11,26 @@ CLI（`python3 mkt.py …`）或 MCP（mkt-server），本协议不发明新动�
 
 仓库位置：github.com/roy-tong/Growovo（克隆到本机的目录；MCP 配置里用其绝对路径）
 
+## 结果闭环 v2（2026-11-14 起推荐入口）：给事实和目标，自动执行
+
+用户给产品事实包 + 一个增长目标，Growovo 自己编译策略、按日配额执行、每天出结果。
+agent 在这条链路里的职责是**供给内容**，不是替用户做执行决策：
+
+```bash
+python3 mkt.py grow platforms            # 第一期只有 X + Email 能全自动
+python3 mkt.py grow launch g1 --facts facts.json \
+  --goal awareness.followers --target 200 --handle your_handle --owner you@example.com
+python3 mkt.py grow briefs g1            # 读内容需求单，按 brief 生产
+python3 mkt.py grow stage g1 --from drafts.json --date 2026-11-15   # 入队，过门禁才落盘
+```
+
+agent 不做：`arm`（人工开闸）、`resume`（人工裁决）、`decide`（用户决定继续/优化）。
+agent 可以做：读 `briefs`、`status`、`daily`、`report`，按需求单生产内容并 `stage`。
+MCP 已提供只读的 `mkt_grow`（platforms/briefs/status/daily/report/stage），没有 arm/resume。
+
+每日结果由 tick 自动生成并投递；用户据结果决定 `continue` 或 `optimize`，优化只改执行
+参数且带回滚。内容质量由 agent 自闭环（voice/tactic/编辑审稿 + 队列门禁），不承诺爆款。
+
 ## v0.8 默认主链：先验收工作，再决定执行
 
 不要把用户需求直接翻译成发帖或群发。先判断 18 个能力域 / 40 个岗位族中的责任位置，再按以下主链：
@@ -315,3 +335,8 @@ mkt campaign report <campaign>                     # 一页纸：计划/执行/�
 | 公司账号找人/换人 | b2b-account-mapping |
 | 客群需求研究（读侧深研究，研发前上游） | askovo |
 | GitHub 项目经营（体检/巡检/社区响应） | github-project-ops |
+
+
+## 内容写作与整篇审稿
+
+内容运营任务使用 `mkt content brief/audit/review`。先阅读 `docs/playbooks/战术/reader-first-editorial.md`：写作目标是读者能理解并做判断，博客也不能写成内部实验日志。`audit` 的结构通过不代表整篇合格；用 `review` 输出的十项清单逐篇审查并填写原文引用。修改正文后必须重做版本绑定审稿，发布状态继续以实际回执为准。

@@ -60,7 +60,7 @@ def _vendor_targets(action, data):
 
 
 def _log_to_ledger(action, campaign, ledger, before_lines, log=None, approval_mode=None,
-                   op_ref=None, before_time=None):
+                   op_ref=None, before_time=None, logical_target=None):
     """把 vendor 运行结果回写全局账本（审计 + 跨渠道幂等视图）。
 
     op_ref：本次执行意图的稳定引用，每条记录 ref=op_ref::target，
@@ -111,6 +111,7 @@ def _log_to_ledger(action, campaign, ledger, before_lines, log=None, approval_mo
                 data = {}
             if action == "publish":
                 for target, res in _vendor_targets(action, data):
+                    target = logical_target or target
                     ledger.append(channel="x", transport="cdp", action=action,
                                   campaign=campaign, target=target, result=res,
                                   ref=_ref(target), evidence=str(f), detail=detail)
@@ -234,7 +235,7 @@ def _acquire_claim(data_root, action, campaign, targets, op_ref):
 
 
 def run(action, extra_args, *, go=False, adhoc=False, campaign=None, ledger=None, log=print,
-        data_dir=None):
+        data_dir=None, logical_target=None):
     """执行 vendor 脚本并把结果记账。go=False 时写操作自动降级为 dry-run。
 
     go=True 的人审门禁与其他渠道同规：必须绑定已人审 plan（data/plans/），
@@ -250,6 +251,13 @@ def run(action, extra_args, *, go=False, adhoc=False, campaign=None, ledger=None
         if not script:
             raise SystemExit("engage 需要子动作: follow <@a @b> | like <url...>")
         extra_args = extra_args[1:]
+
+    if logical_target:
+        if action != "publish" or "--file" not in extra_args:
+            raise SystemExit("逻辑目标只支持单条 publish")
+        payload = json.loads(Path(extra_args[extra_args.index("--file") + 1]).read_text())
+        if len(payload.get("tweets") or []) != 1:
+            raise SystemExit("逻辑目标只支持单条 publish，不接受线程批次")
 
     # 全局暂停闸（core.safety）：写操作一律拒跑；人审门禁（core.planlint）：实跑前强制
     mode = None
@@ -280,10 +288,15 @@ def run(action, extra_args, *, go=False, adhoc=False, campaign=None, ledger=None
                 raise SystemExit(f"日预算门禁: {exc}")
             if ledger is not None:
                 _preflight_ledger(ledger, extra_args)
+                if logical_target:
+                    if ledger.already(channel="x", target=logical_target):
+                        raise SystemExit("防重发：已成功发过 " + logical_target)
+                    if logical_target in ledger.no_retry("x"):
+                        raise SystemExit("不重试名单：" + logical_target)
                 # Reserve：账本答案是"没发过"之后、触碰 vendor 之前，原子认领
                 # 同一意图，关闭 check-then-send 竞态窗口（G-2.3）。
                 claim_path = _acquire_claim(data_root, action, campaign or "",
-                                            _preflight_targets(extra_args), op_ref)
+                                            ([logical_target] if logical_target else _preflight_targets(extra_args)), op_ref)
 
     before_lines = {"xdm": _xdm_log_lines()}
     run_started = time.time()
@@ -301,7 +314,8 @@ def run(action, extra_args, *, go=False, adhoc=False, campaign=None, ledger=None
         try:
             _, recorded_targets, has_unknown = _log_to_ledger(
                 action, campaign or "", ledger, before_lines, log=log,
-                approval_mode=mode, op_ref=op_ref, before_time=run_started)
+                approval_mode=mode, op_ref=op_ref, before_time=run_started,
+                logical_target=logical_target)
         except Exception as exc:  # 记账失败不掩盖 vendor 结果
             log(f"账本回写失败（不影响本次执行）: {exc}", "WARN")
             has_unknown = True
@@ -327,7 +341,7 @@ def run(action, extra_args, *, go=False, adhoc=False, campaign=None, ledger=None
             # 禁止自动重发，人工核实后 ledger.resolve（G-2.1/G-2.2）。
             ledger.append(channel="x", transport="cdp", action=action,
                           campaign=campaign or "",
-                          target=sorted(visible)[0] if len(visible) == 1 else "?",
+                          target=logical_target or (sorted(visible)[0] if len(visible) == 1 else "?"),
                           result="indeterminate", ref=op_ref,
                           detail="go 实跑但无 vendor 结果可回写（rc=%d，目标不可见"
                                  "或无结果文件）；未知状态禁止自动重发，人工核实"

@@ -11,6 +11,8 @@
 前置: 双击 launch_x.command 重启 Chrome（带 --remote-debugging-port=9222），
 并确认 x.com 已登录。脚本不保存任何凭据。
 """
+from session_page import connect_browser, automation_page, release_page
+
 import argparse
 import json
 import os
@@ -255,15 +257,15 @@ def run_check() -> int:
         return 2
     with sync_playwright() as p:
         try:
-            browser = p.chromium.connect_over_cdp(CDP_URL)
+            browser = connect_browser(p.chromium, CDP_URL)
         except Exception as exc:
             log(f"无法连接 {CDP_URL}。先双击 launch_x.command 重启 Chrome。: {exc}", "ERROR")
             return 2
         ctx = browser.contexts[0] if browser.contexts else browser.new_context()
-        page = ctx.new_page()
+        page = automation_page(ctx)
         ok = verify_login(page)
         log("X 登录态正常，可以发布" if ok else "X 未登录或页面结构变化，请人工检查 x.com")
-        page.close()
+        release_page(page)
         return 0 if ok else 3
 
 
@@ -302,23 +304,23 @@ def main() -> int:
     records = []
     with sync_playwright() as p:
         try:
-            browser = p.chromium.connect_over_cdp(CDP_URL)
+            browser = connect_browser(p.chromium, CDP_URL)
         except Exception as exc:
             log(f"无法连接 {CDP_URL}。先双击 launch_x.command 重启 Chrome。: {exc}", "ERROR")
             return 2
         ctx = browser.contexts[0] if browser.contexts else browser.new_context()
-        page = ctx.new_page()
+        page = automation_page(ctx)
 
         if args.check:
             ok = verify_login(page)
             log("X 登录态正常，可以发布" if ok else "X 未登录或页面结构变化，请人工检查 x.com")
-            page.close()
+            release_page(page)
             return 0 if ok else 3
 
         log("检查登录态…")
         if not verify_login(page):
             log("X 未登录，中止。请在浏览器里登录后重试。", "ERROR")
-            page.close()
+            release_page(page)
             return 3
         log("登录态正常。")
 
@@ -383,7 +385,7 @@ def main() -> int:
                             else:
                                 log(f"[{idx + 1}/{len(tweets)}] 未检测到发布成功（可能被限流/字符超限）", "WARN")
                             if not args.continue_on_error:
-                                page.close()
+                                release_page(page)
                                 write_result(records)
                                 return 1
                         # 发布后停留一下，再关闭可能残留的弹层
@@ -402,7 +404,7 @@ def main() -> int:
                 if not args.continue_on_error:
                     rec["finished_at"] = datetime.now().isoformat()
                     records.append(rec)
-                    page.close()
+                    release_page(page)
                     write_result(records)
                     return 1
             finally:
@@ -414,7 +416,7 @@ def main() -> int:
                 log(f"等待 {wait}s 后发下一条…")
                 time.sleep(wait)
 
-        page.close()
+        release_page(page)
 
     write_result(records)
     log("完成。" + ("（dry-run，未发布任何内容）" if args.dry_run else ""))
