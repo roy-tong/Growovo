@@ -1,5 +1,21 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- **Calibration streak integrity (G-02)**: `mkt grow calibrate` now counts one
+  valid calibration per calendar day. A valid day requires a same-day auto
+  reading and a human reading that are both non-negative integers and strictly
+  equal, a non-empty `--by` reviewer, and the current account handle; explicit
+  `--mismatch` submissions and same-day conflicts void the day, seven
+  submissions on the same day count as one, a missing calendar day resets the
+  streak, and future `--on` dates are rejected. PROVEN is scoped to
+  metric+handle+parser: account or reading-definition changes downgrade the
+  verification back to UNVERIFIED and never extend to other metrics. Before
+  this fix, any seven consecutive successful submissions — same-day repeats or
+  entries without a human reading — promoted readings to PROVEN.
+
 ## 0.14.0 - 2026-11-14
 
 ### Added
