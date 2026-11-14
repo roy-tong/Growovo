@@ -32,7 +32,7 @@ footer{border-top:1px solid var(--line);margin-top:56px;padding-top:18px;color:v
 <main>
 <h1>Growovo</h1>
 <p class="tagline">给产品事实和一个增长目标，它自己定策略、自己执行，每天交付业务结果。</p>
-<span class="badge">开源 MIT</span><span class="badge">CLI / MCP / Agent Skill</span><span class="badge">Python 标准库</span>
+<span class="badge">开源 MIT</span><span class="badge">CLI / MCP / Agent Skill</span><span class="badge">v0.14.0</span>
 
 <h2>这是什么</h2>
 <p>Growovo 面向<strong>独立开发者与一人公司</strong>：你把产品事实和一个增长目标交给它，它自己定策略、自己执行，每天交付业务结果——发布多少条、日均曝光多少、新增多少关注者。策略、计划、周报都是中间产物，不是交付物。</p>
@@ -47,7 +47,12 @@ footer{border-top:1px solid var(--line);margin-top:56px;padding-top:18px;color:v
 </table>
 <p>不承诺平台算法给多少曝光，也不把未验证渠道包装成全自动。</p>
 
-<h2>30 秒验证（零网络零账号）</h2>
+<h2>安装与验证</h2>
+<pre><code>pipx install growovo
+mkt demo</code></pre>
+<p>v0.14.0 集成目标驱动执行、本机 Codex 生产与审稿、相关 KOC 排序、82 条战术及只读对手监控。真实执行需要已授权的动作、登录态与设备在线；读数缺失会明确显示。</p>
+<p><a href="https://github.com/roy-tong/Growovo/releases/tag/v0.14.0">版本说明</a> · <a href="https://pypi.org/project/growovo/">PyPI</a> · <a href="https://github.com/roy-tong/Growovo/blob/main/docs/grow-autonomous-operations.md">自动运营配置</a></p>
+<h2>源码验证（demo 零网络零账号）</h2>
 <pre><code>git clone https://github.com/roy-tong/Growovo.git &amp;&amp; cd Growovo
 python3 mkt.py demo                 # 一秒内返回，不需要任何账号
 python3 mkt.py grow platforms       # 看第一期哪些平台能全自动</code></pre>
