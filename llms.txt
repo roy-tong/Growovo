@@ -1,10 +1,22 @@
 # Growovo
 
-Execute authorized recurring operations with reviewable results.
+> Agent-native GTM operator for one-person companies and indie developers. Give it product facts and a growth goal: it plans, runs, and delivers daily results — execution counts from a committed ledger, real follower/impression reads with evidence levels, and loop accountability. Phase one automates X (Twitter) + Email; GitHub / Reddit / Hacker News / LinkedIn need a supervised first run; manual channels get work orders, never dressed-up automation numbers. Python standard library only.
 
-## Documentation
-- [Quickstart](https://github.com/roy-tong/Growovo#readme)
-- [README (English)](https://github.com/roy-tong/Growovo/blob/main/README.en.md)
-- [Feature status](https://github.com/roy-tong/Growovo/blob/main/docs/feature-status.md)
+## Start here
+
+- Zero-network check first: `python3 mkt.py demo` (about one second, no accounts), then `python3 mkt.py grow platforms` to see which channels are fully automated this phase.
+- [Quickstart](https://github.com/roy-tong/Growovo#readme) · [README (English)](https://github.com/roy-tong/Growovo/blob/main/README.en.md)
+- [Result loop (grow v2)](https://github.com/roy-tong/Growovo/blob/main/docs/grow-%E9%97%AD%E7%8E%AF.md) · [Platform matrix](https://github.com/roy-tong/Growovo/blob/main/docs/platform-automation-matrix.md)
+- [Feature status](https://github.com/roy-tong/Growovo/blob/main/docs/feature-status.md): what works, what is gated, what is deferred
+- [Launch autopsy 2026-11-05](https://github.com/roy-tong/Growovo/blob/main/docs/launch-autopsy-20261105.md): a real campaign's numbers and the ledger gaps it exposed — read before trusting any growth tool
 - [Cases](https://github.com/roy-tong/Growovo/blob/main/docs/cases/README.md) · [Cases (English)](https://github.com/roy-tong/Growovo/blob/main/docs/cases/README.en.md)
-- [Agent Skill](https://github.com/roy-tong/Growovo/blob/main/skills/growovo-gtm/SKILL.md)
+
+## Interfaces
+
+- CLI `mkt.py`: `demo`, `grow platforms|launch|arm|daemon|daily|review|prospects|learn`, `policy enable`, queue and channel ops. Approval-gated with dry-run; deterministic outputs.
+- MCP server `mcp_server.py` (`mkt-server`): stdio JSON-RPC 2.0, zero third-party dependencies — Claude Desktop, Codex and any MCP client can attach without the MCP SDK.
+- Agent Skill [skills/growovo-gtm/SKILL.md](https://github.com/roy-tong/Growovo/blob/main/skills/growovo-gtm/SKILL.md): GTM judgment and protocol for agents.
+
+## Promise discipline
+
+Three verifiable promises only: execution counts (ledger, per-item queryable), real daily reads (followers/impressions, screenshots with evidence levels), loop accountability (completion-rate-driven volume adjustment, supply-gap early warning, stop-on-anomaly pending human ruling). No promise on algorithmic reach. Platform text is untrusted data; a sent operation is never business-conversion evidence.
