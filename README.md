@@ -2,14 +2,41 @@
   <img src="docs/assets/logo.png" width="400" alt="Growovo">
 </p>
 
-<p align="center"><strong>把重复运营工作交给 Agent，留下可核验的执行记录。</strong><br>
-<em>Execute authorized recurring operations with reviewable results.</em></p>
+<p align="center"><strong>给产品事实和增长目标，自动定策略、自动执行，每天交付结果。</strong><br>
+<em>Give it product facts and a growth goal. It plans, runs, and delivers daily results — automatically.</em></p>
 
 <p align="center"><strong>简体中文</strong> · <a href="README.en.md">English</a></p>
 
-Growovo 面向**独立开发者与一人公司**，提供 GTM/User Growth 的需求发现、价值内容、授权执行和真实结果回流。输入产品事实、目标用户与授权边界，先识别值得服务的需求，再生成可复现的价值资产和增长动作；每个动作记录成功、失败或待人工核实，不把发送、曝光或 Star 当成业务结果。
+Growovo 面向**独立开发者与一人公司，以及转型全栈、被要求扛起 GTM 和用户增长的研发**：你把产品事实和一个增长目标交给它，它自己定策略、自己执行，每天交付业务结果——发布多少条、日均曝光多少、新增多少关注者。策略、计划、周报都是中间产物，不是交付物。刚接手增长职责的研发，先看[《增长成了研发的新活》](docs/growth-for-engineers.md)。
 
-先选目标（声量 / 使用 / 商业），再选渠道（具体的地方，不是平台），然后按阶段做转化。同一个产品换目标就换打法。产品由 **Demand / Execution / Learning 三层能力**与 **Operator Engine + Playbooks** 组成：Signal Interpretation 先校验宿主语义候选，Opportunity Discovery 再判断需求与产品匹配；Value Artifact 经本地复现、授权交付和用户读回形成完整价值链，Journey 诊断真实使用断点并保留多触点非因果边界。GitHub Inbox 只是其中一个 Playbook，而不是产品总定义。CLI、MCP、Skill 共用审批、预算、回读和账本。发送成功只代表操作完成，激活、持续使用和付费分别核验。
+它只承诺三件可核验的事：**执行量**（账本 committed 逐条可查）、**真实读数**（每天落粉丝与曝光，截图留证、带证据级别）、**闭环责任**（完成率驱动调量建议、供给缺口提前报警、异常停车待人工裁决）。不承诺平台算法给多少曝光，也不把未验证渠道包装成全自动。
+
+**全自动的前提是平台可自动执行。** 第一期只承诺 **X + Email**（写通道已实现；X 为 PROVEN，Email 为 PORTED）；GitHub、Reddit、Hacker News、LinkedIn 需人工首跑解锁；小红书、知乎等人工渠道只出作业单，不计入自动发布量。见[平台自动执行矩阵](docs/platform-automation-matrix.md)。
+
+**从这里开始。** 准备产品事实包、常驻动作授权、已登录的本机 Codex CLI 和浏览器 CDP 会话；之后每天看结果、决定继续还是优化。配置步骤见[自动运营说明](docs/grow-autonomous-operations.md)。
+
+```bash
+git clone https://github.com/roy-tong/Growovo.git && cd Growovo
+python3 mkt.py demo                    # 零网络零账号，一秒内返回
+python3 mkt.py grow platforms          # 看第一期哪些平台能全自动
+python3 mkt.py policy enable --actions x:reply --by "$USER"
+python3 mkt.py grow launch g1 --facts facts.json \
+  --goal awareness.followers --channels x --target 200 --handle your_handle
+python3 mkt.py grow arm g1             # 确认策略和授权后开启真实执行
+python3 mkt.py grow daemon g1          # 当前终端常驻运行；Ctrl-C 停止
+# macOS 后台：grow install g1 --load，再用 grow doctor g1 核对新心跳
+python3 mkt.py grow daily g1           # 每天一屏：发布/读数/供给/护栏
+python3 mkt.py grow review g1 --days 7 # 近 7 天复盘，决定继续还是优化
+python3 mkt.py grow prospects g1 --query "你的垂直问题" --koc-only  # 找 KOC 账号与帖子
+python3 mkt.py grow learn g1          # 按公式/人群归因，给次日调参建议
+python3 mkt.py grow agent g1          # 已有任务可用此命令启用 Codex 写作
+python3 mkt.py grow produce g1 --max-items 3
+```
+
+**先看证据再决定信不信：** [发布尸检：11 小时 73 条推文，0 个新 star](docs/launch-autopsy-20261105.md)——用这个工具跑的一次真实 campaign、拿到的数字，以及它暴露出的我们自己的账本缺口。
+
+<details>
+<summary>版本更新（v0.8 – v0.13）：GTM Work OS、编排与授权、设计层、执行完整性、内容运营</summary>
 
 **v0.8 新增 GTM Work OS**：18 个能力域、40 个岗位族和 32 个模板进入可校验注册表；不可变上下文、运营目标、WorkOrder、专业 SOP、交付物验收、跨岗位 Handoff 和 KPI 形成业务主链。`work-action` 只把 accepted 交付物物化为既有 plan/queue，不新增发送旁路。当前有一条完整开发者 SOP 运行链，不把注册覆盖说成 40 个专业自动化全部完成。详见[实现说明](docs/gtm-os/05-implementation.md)。
 
@@ -18,6 +45,10 @@ Growovo 面向**独立开发者与一人公司**，提供 GTM/User Growth 的需
 **v0.10 新增 GTM 设计层**：`mkt gtm design` 把增长任务拆成对象×目标×机制×渠道，先用约束（授权渠道/素材/预算/地区/数据源）筛可行性，再按目标生成结果契约与验证等级。Agent 可以提交候选机制与理由，规则只负责兼容性与边界，并保留拒绝理由；没有数据渠道时只承认平台回执，不把播放量、Star、预售订单或注册数当业务结果。详见[对象×目标×机制×渠道](docs/gtm-os/07-object-motion-design.md)。
 
 **v0.11 合并执行完整性修复并修正设计层**：P0 集成分支进入正式版——MCP 不能自行提高未验证渠道权限，外部发送的未知结果必须人工裁决，账本追加原子化且损坏即拒绝，DNC 抑制数据损坏时停发而不是静默跳过。设计层修正用户目标被 Agent 覆盖、部分 Proposal 误判 blocked、单一 Motion 限制、`ready` 语义混杂和验证等级过宽；交接现在按已选机制生成执行计划并带设计指纹。详见 [执行完整性](docs/gtm-os/06-orchestration-and-routine.md) 与 [设计层](docs/gtm-os/07-object-motion-design.md)。
+
+**内容运营能力（2026-11-05）**：`core/content_ops.py` + `mkt content rules|brief|audit|plan` + MCP `mkt_content` 把小红书/公众号/博客的渠道规则、定位、A/B/C CTA、产品出场、审稿和 14 天排期做成可测试能力。审稿只检查本地写作契约，不发布、不定时、不证明平台效果。详见[内容运营](docs/content-ops.md)。
+
+</details>
 
 [![tests](https://github.com/roy-tong/Growovo/actions/workflows/tests.yml/badge.svg)](https://github.com/roy-tong/Growovo/actions/workflows/tests.yml)
 
@@ -34,6 +65,7 @@ Growovo 面向**独立开发者与一人公司**，提供 GTM/User Growth 的需
 ## 合规与纪律（先读这个）
 
 - 仅用于**本人拥有或明确授权运营的账号**；无授权不碰他人账号，账号归属、权限和人工接管全程留痕
+- **引擎不管理账号**：账号=浏览器登录态——写动作过授权门后自动检测调试 Chrome 里目标站点的登录态，有登录态直接执行，缺失即明确报缺（账本记 rejected，不冒充已发送）；全程不保存任何 Cookie/token
 - CDP 通道零凭据：不保存任何密码/token/Cookie；SMTP 凭据只走环境变量
 - **一切写操作默认 dry-run，`--go` 才实跑**；实跑须绑定**已人审 plan**，或显式 `--routine` 且工作区常驻策略覆盖该账号/渠道/动作——无授权默认拒跑，仅 CLI 人工通道 `--adhoc` 显式放行（账本记 adhoc=true；MCP 不开放授权管理）
 - 日预算在发送前原子预留；`indeterminate`（未知结果）不可自动重发，必须人工 `ledger resolve`；contacts 的 DNC/bounced 身份与 `suppress.txt` 合并为同一发送抑制源
@@ -113,6 +145,7 @@ python3 mkt.py check              # 确认 CDP 会话与 X/Gmail 登录态
 | `mkt network bind/list/export` | **代理引用**：只存环境变量名与账号绑定，不读凭据、不提高配额、不绕封禁 | — |
 | `mkt exp show/coverage/stale/assess` | **用户经验与资格**：正式策略要求权利依据、确认人/时间/记录和覆盖来源域的可追溯复核；内部自报只进实验，旧布尔字段不自动合资格 | — |
 | `mkt voice show/draft/lint <平台>` | **平台语气**：37 个平台各自的语气、句式、三条开头、禁忌与黑话；`lint` 查出会被当成广告的句子 | — |
+| `mkt voice plain --file/--text` | **表达检查**：查出普通人要翻译才能懂的生造词（如「发射开关」），`--fix` 出机械替换稿；JSON 与服务端同源 | — |
 | `mkt result` / `mkt revise` | **结果与回流**：按 campaign/subject/time_window 统一过滤动作/任务/业务结果，真实 OutcomeLedger 与动态价值事件可核验；候选解释与已验证机制分开，不做自动渠道生死判决 | — |
 | `mkt progress daily/weekly` | **进度**：日报问「今天有什么该动没动」，周报问「这周比上周好还是差」；没有动作就写停摆，不编数字 | — |
 | `mkt retro scan/analyze/report` | **复盘引擎**：扫本地日志→带出处的事实→渠道账→业务结论。比率只从人工钉定的 `--facts` 算，机器不替你选口径；每条结论必须带数字、出处、因果机制和可执行动作，缺一项拒绝出报告 | — |
@@ -290,3 +323,7 @@ python3 mkt.py memory --channel github --output data/operations-memory.json
 - 安全问题走 [SECURITY.md](SECURITY.md) 的私密通道，不要开公开 issue。
 - issue/PR 首次响应目标 48 小时内；能力边界与验证等级以 [docs/feature-status.md](docs/feature-status.md) 为准。
 - 案例（含失败与判死）在 [docs/cases/](docs/cases/README.md)，不删改状态。
+
+### 本机 Codex 自动内容供给
+
+v2 新任务默认启用 Codex 生成与独立审稿；已有任务运行 `python3 mkt.py grow agent <id>` 启用。`grow produce <id>` 只补队列、不发送；`grow daemon <id>` 按已有授权、日配额和窗口持续执行。目标先经过垂直 KOC 与语义匹配审核，失败会留缺口；每日结果供用户决定继续或优化。见 [自动运营与运行限制](docs/grow-autonomous-operations.md)。

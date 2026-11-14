@@ -263,3 +263,227 @@ CSV 导入：
 - 只有显式 `routine=True` 且策略有效才返回 `routine-policy`；非 routine 仍走原 plan/adhoc 逻辑。
 - routine 仅替代逐次 plan 审批；dry-run、pause、DNC、quota、readback、UNVERIFIED 和 indeterminate 人工裁决不变。
 - 授权管理只在 CLI 人工通道；MCP 仅接受执行时的 routine/account 参数，不能创建、扩大或撤销策略。
+
+## 战术执行记录（v0.13，2026-11-14）
+
+`data/tactics/<run_id>.json`：非常规增长战术（`core/tactics.py` 注册表）的一条
+四周执行记录。启动时把战术配额快照进文件，注册表后续改动不改写历史判定。
+
+```json
+{
+  "id": "xrg-1",
+  "tactic": {"id": "x-reply-guy", "name": "X 高价值回帖（四周）", "channel": "x",
+              "queue_action": "reply", "quota": {"daily_cap": 20, "...": "..."},
+              "formulas": ["数据型", "经验型"], "risk": "white"},
+  "account": "", "owner": "",
+  "started": "2026-11-14", "ends": "2026-12-11",
+  "experiment": {"weeks": 4},
+  "campaign": "xrg-1",
+  "drafts": [{"on": "2026-11-15", "items": [
+    {"target": "tweet:https://…", "body": "……", "formula": "数据型",
+     "post_age_min": 4, "hour": 9, "queued": false}]}],
+  "logs": [{"on": "2026-11-15", "sent": 18, "deleted": 0, "replied": 2,
+             "moved": 0, "note": "", "items": []}],
+  "metric_logs": [{"on": "2026-11-22", "profile_visits": 210, "new_followers": 31}],
+  "violations": [{"on": "2026-11-15", "kind": "warn", "detail": "回帖超窗：…"}],
+  "ledger_sync": {"on": "2026-11-16", "campaign": "xrg-1",
+                   "committed_total": 18, "by_date": {"2026-11-15": 18}},
+  "verdict": null
+}
+```
+
+强制规则：
+- 候选（drafts）入池前过全部硬检查：目标格式、占位符/长度/禁字符（复用
+  `core/gates.py`）、**回复禁外链**、与本次执行记录内已有话术去重；超日上限
+  （daily_cap）、超每小时上限（per_hour_max）、超每目标日上限
+  （per_target_daily_max）直接拒绝。
+- 回帖窗口超时（post_age_min > reply_within_minutes）、同一公式当日刷屏，记
+  `violations` 告警，不拒绝。
+- 已发生的事实（log）不拒收，但超限记违规，判定（`verdict`）时必须汇总；
+  结论人判（`mkt tactic verdict` 只给数据与建议）。
+- 队列导出（`mkt tactic export`）只生成既有 `queues/<campaign>.json` 并过
+  `lint_queue`，发送仍走 `plan approve` → `queue run` 既有审批路径；
+  `sync_from_ledger` 只统计 `committed` 行。
+
+## 结果闭环 grow run（v0.14，2026-11-14）
+
+`data/grow/<id>.json`：结果闭环执行记录。v1（`growovo.grow-run/1`，`mkt grow start`）
+是「跑现成队列 + 周卡」的旧版；v2（`growovo.grow-run/2`，`mkt grow launch`）在此之上
+增加策略编译、日配额、自动读数、日结果与决策。新闭环一律用 v2。
+
+```json
+{
+  "schema": "growovo.grow-run/2",
+  "id": "g1", "owner": "you@example.com", "started": "2026-11-14",
+  "status": "active", "go": false,
+  "facts_ref": "data/verovo-finops/facts.json", "facts_sha256": "…16位…",
+  "goal": {"id": "awareness.followers", "metric": "followers",
+            "target": 200, "target_kind": "delta", "baseline": 120,
+            "window_days": 42, "target_text": "…", "starts": "2026-11-14",
+            "ends": "2026-12-25"},
+  "strategy": {"primary": {"channel": "x", "actions": ["reply"],
+                            "why": "…", "residency_days": 14},
+                "support": [{"channel": "email", "actions": ["message"]}],
+                "not_doing": [], "tactics": ["x-reply-guy"],
+                "fingerprint": "…16位…", "compiled_at": "2026-11-14"},
+  "channels": ["x", "email"],
+  "actions": ["email:message", "x:reply"],
+  "quota": {"initial_actions_per_week": 20, "actions_per_week": 20,
+             "action_weights": {"reply": 0.85, "message": 0.15},
+             "daily_preview": {"2026-11-14": {"reply": 2, "message": 1}, "…": {}},
+             "max_per_run": 10, "interval_seconds": [60, 120]},
+  "windows": {"audience": "us-west", "timezone_offset": -8,
+               "local": [[20.0, 23.0], [8.0, 10.0], [12.0, 13.5]],
+               "dead_zone": [0.0, 6.0]},
+  "supply": {"briefs": [{"id": "b-x-reply", "channel": "x", "action": "reply",
+                          "count_per_week": 17, "formula": "…",
+                          "max_len": 280, "gates": ["voice", "tactic", "no-link"]}],
+              "min_cover_days": 3},
+  "measurement": {"readers": [{"metric": "x_followers", "handle": "verovo",
+                                "daily": true}],
+                   "business_campaign": "g1", "verification": "UNVERIFIED"},
+  "guards": {"account_id": "", "min_health": 60, "max_delete_rate": 0.1,
+              "pause_on": ["takeover", "limited"]},
+  "heartbeat": {"interval_minutes": 30, "last_tick": "…", "ok": true},
+  "plan": {"actions_per_week": 20, "initial_actions_per_week": 20},
+  "telemetry": {"days": {"2026-11-14": {"readings": {"followers": 121},
+                                         "counts": {"reply": {"published": 2,
+                                                              "duplicates": 0,
+                                                              "suppressed": 0,
+                                                              "failed": 0,
+                                                              "indeterminate": 0,
+                                                              "rejected": 0}}}},
+                 "weeks": {"2026-11-14": {"published": 17, "failed": 0,
+                                           "duplicates": 1, "readings_days": 6}}},
+  "supply_state": {"staged": 12, "gap": 5, "coverage_days": 2},
+  "daily_cards": [{"date": "2026-11-14", "published": {"total": 3, "planned": 3}}],
+  "decisions": [{"on": "2026-11-14", "action": "continue", "by": "roy",
+                  "note": "先观察", "changes": []}],
+  "result_cards": [{"week": 1, "week_start": "2026-11-14",
+                     "week_end": "2026-11-20", "published": {"total": 18},
+                     "impressions": {"avg_daily": 4200},
+                     "followers": {"new": 31},
+                     "business": {"available": false, "funnel": {}},
+                     "guardrails": {"failed": 0, "duplicates": 2},
+                     "supply": {}, "next_week": {"changes": []}}],
+  "adjustments": [{"on": "2026-11-20", "kind": "auto", "param": "actions_per_week",
+                    "from": 20, "to": 25, "rollback": 20, "detail": "…"}],
+  "history": []
+}
+```
+
+强制规则（v2）：
+
+- `launch` 先预检：facts 必填、渠道必须在 `core/platform_caps.py` 的 AUTO 白名单
+  （第一期 x/email）、常驻授权只覆盖计划动作并集、账号健康（注册过才校验）、
+  环境探针（`--skip-probe` 可跳过但要 doctor）。任一不过不落盘。
+- 执行：`data/queues/<id>-*.json`，条目可有 `scheduled_for`/`window`；tick 按
+  `quota.daily` 的日配额切片执行（`only_ids`），超过配额或窗口外顺延，受众本地
+  00:00–06:00 死区不发；账本幂等命中跳过并继续，真拒绝/失败/未知才停车。
+- 读数：tick 每日读一次并写 OutcomeLedger（approximated=true）；传感器失败只记
+  `readings.error`，不改 status；连续缺数由 doctor 提醒。
+- 结果：日结果卡每日生成；周卡在窗口结束后生成，含三件套、业务事件（有数据源才
+  有）、护栏、供给、下周动作；`data/grow/<id>/cards/` 落 md/html。
+- 决策：`decide continue` 只记录；`decide optimize` 生成提案并只改执行参数
+  （默认 `actions_per_week`），每条改动带 `rollback`；策略级变更只出提案。
+- 预算/暂停/DNC/回读/账本/人工开闸语义不变；needs_attention 不自动重试，恢复需
+  `mkt grow resume --by --note`。
+
+## 排期 schedules（v0.14 补文档；代码自 v0.12 已有）
+
+`data/schedules/<id>.json`（`core/scheduler.py`）：显式队列文件的定时波次。
+
+```json
+{
+  "schema_version": "1.0", "kind": "growovo.schedule",
+  "id": "s1", "queues": ["data/queues/c1.json"],
+  "interval_minutes": 60, "go": false,
+  "routine": false, "account": "",
+  "max_waves": null, "waves_done": 0,
+  "status": "active", "created_at": "…", "last_run_at": null,
+  "next_due_at": "…", "stop_reason": null, "history": []
+}
+```
+
+- 不是守护进程：`mkt schedule tick` 由 cron/launchd/人调用，状态文件幂等。
+- `routine: true`：波次按常驻授权跑（`run_queue(routine=True, account)`）；
+  policy 无效时在审批门 fail-closed 拒跑，不会伪装通过。
+- 每次至多一波；tick 发现 running=上次崩溃 → needs_review，人工 resume 才继续；
+  队列 failed/indeterminate/rejected → 整个排期 needs_review；暂停闸波前波中都查。
+
+## Growovo 自动内容供给（2026-11-14）
+
+`grow/<run>.json` 的 `automation` 包含 `enabled/provider/daily_budget`、按日 `days.attempts/retry_at` 与 `last_result`。预算在调用模型前持久化。`grow/<run>/production.jsonl` 记录尝试、入队及拒绝原因；队列项携带 `editorial_review.approved/reason/body_sha256` 和 `fit_review`。模型字段不能覆盖目标或动作。`grow/<run>/evidence/<date>-<status_id>.png` 与帖子指标 `source_ref` 对应；指标快照可按日追加，但分析每条帖子只算一个样本。
+
+## 信任节点目标库（v0.15，2026-11-14）
+
+`data/targets/<id>.json`（`core/targeting.py`，`mkt target`）：把「先打谁」变成
+评分与阶段——信任随粉丝量与商单密度衰减，目标选择=买在信任价格最低点。
+
+```json
+{
+  "schema": "growovo.target-list/1",
+  "id": "dream", "niche": "AI 独立开发者", "owner": "",
+  "created": "2026-11-14",
+  "targets": [{
+    "key": "x:koc_dev", "platform": "x", "handle": "koc_dev",
+    "followers": 12000, "engagement_rate": 0.04, "sponsored_recent": 0,
+    "niche_match": true, "note": "",
+    "score": 96, "tier": "koc_window", "in_koc_window": true,
+    "reasons": ["…"],
+    "stage": "engaged", "added_on": "2026-11-13",
+    "stage_history": [{"stage": "candidate", "on": "…", "note": ""}]
+  }],
+  "history": []
+}
+```
+
+强制规则：
+- 评分（score_candidate）：信任档位系数（KOC 甜区 1 千-5 万=1.0，50 万+=0.22）
+  × 同档互动溢价（0.5-2.0）× 商业化折价（每条商单 -20%，下限 0.2）× 领域匹配
+  （1.2/0.5）；0-100 分并输出理由。
+- 同 platform+handle 去重（防重复触达）；候选数据由运营 agent 从平台读入，
+  本模块不抓取任何平台。
+- 阶段只进不退且逐级推进：candidate → contacted → engaged → amplified → partner
+  （一步一证据）；engaged/amplified 是 koc-first 战术判定的输入
+  （TacticRun 关联 `--target-list` 后，summary/verdict 自动带目标进度）。
+- `mkt tactic list` 默认排除证据过期（超过 revalidate_days）的战术——衰减定律
+  进了建议路径；`--include-stale` 放开。
+
+## 对手事件监控（v0.16，2026-11-14）
+
+`data/watch/<id>.json`（`core/watch.py`，`mkt watch`）：对手公开页面的 diff 管线——
+对手涨价/故障/changelog 变化时自动产出事件并联动战术注册表的承接打法。
+
+```json
+{
+  "schema": "growovo.watch-list/1",
+  "id": "rivals", "owner": "",
+  "created": "2026-11-14T21:00:00",
+  "entries": [{
+    "url": "https://rival.example/pricing", "kind": "price",
+    "competitor": "Rival", "note": "",
+    "added_at": "…", "baseline_len": 4821,
+    "last_snapshot": "文本签名（去标签压空白后的 diff 基准）",
+    "last_checked": "…", "last_change": null, "changes": 0
+  }],
+  "history": []
+}
+```
+
+`data/watch/events.jsonl`（追加式变化事件）：
+```json
+{"on": "2026-11-14", "ts": "…", "list": "rivals", "competitor": "Rival",
+ "kind": "price", "url": "…", "before_len": 4821, "after_len": 4910,
+ "diff": "'…49 dollars…' → '…99 dollars…'",
+ "tactics": ["price-hike-harvest", "vs-page-matrix", "migration-narrative"]}
+```
+
+强制规则：
+- kind 三类：price/status/changelog，变化时事件自动带上对应承接战术 id。
+- add 时即抓基线快照：抓取失败或内容过少（<20 字符签名）拒收，不收死链。
+- check 时抓取失败的项跳过不误报（网络失败≠页面变化）；diff 比较的是文本签名。
+- 只读监控：本模块不发送任何东西，承接动作走既有战术执行与审批路径。
+- 事实包+目标的战术组合选择（`mkt tactic recommend` / MCP `mkt_tactics`）
+  无独立数据文件：纯函数，透明打分（目标族+3/usable+2/渠道+2/阶段+1），
+  同机制最多 2 条，过期证据默认排除。

@@ -6,6 +6,7 @@
 时间范围不需要单独参数——直接把 since:/until: 操作符写进 query 即可，如:
   python3 search_x.py "agent observability since:2026-08-18 until:2026-08-19"
 """
+from session_page import connect_browser
 import argparse
 import os
 import sys
@@ -36,7 +37,7 @@ def main() -> int:
         return 2
 
     with sync_playwright() as p:
-        browser = p.chromium.connect_over_cdp(CDP_URL)
+        browser = connect_browser(p.chromium, CDP_URL)
         ctx = browser.contexts[0] if browser.contexts else browser.new_context()
         page = ctx.new_page()
         q = args.query.replace(" ", "%20")

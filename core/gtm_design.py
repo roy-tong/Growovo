@@ -25,6 +25,7 @@ import json
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+from .expression import plain_output
 from .platforms import PLATFORMS
 from .platforms import BY_ID as PLATFORM_BY_ID
 
@@ -243,10 +244,10 @@ MOTIONS: Dict[str, Dict[str, Any]] = {
         "why": "让产品自己完成体验与价值证明，增长动作围绕激活路径而非曝光",
         "objects": ["software_saas", "oss_project", "content_account"],
         "objectives": ["acquisition", "activation", "retention", "revenue"],
-        "kinds": ["搜索", "目录", "发射", "社区"],
+        "kinds": ["搜索", "目录", "集中发布", "社区"],
         "requires": ["product_experience", "product_events"],
         "sequence": ["定义首次价值事件", "把入口到首次成功的路径做通",
-                     "在搜索/目录/发射渠道承接意图", "按队列看激活而不是注册"],
+                     "在搜索/目录/集中发布渠道承接意图", "按队列看激活而不是注册"],
     },
     "sales_led": {
         "label": "销售驱动",
@@ -263,7 +264,7 @@ MOTIONS: Dict[str, Dict[str, Any]] = {
         "why": "有明确购买路径与履约能力时，增长要直接对订单与交付负责",
         "objects": ["hardware", "content_account", "service"],
         "objectives": ["revenue", "acquisition", "awareness"],
-        "kinds": ["目录", "发射", "视频", "内容"],
+        "kinds": ["目录", "集中发布", "视频", "内容"],
         "requires": ["purchase_path", "supply"],
         "sequence": ["写清购买场景与交付承诺", "准备可展示的实拍/评测素材",
                      "把流量接到可下单页面", "按订单、取消、退货、履约复盘"],
@@ -273,7 +274,7 @@ MOTIONS: Dict[str, Dict[str, Any]] = {
         "why": "借合作方已有的信任与分发，换取单靠自己拿不到的覆盖",
         "objects": ["oss_project", "hardware", "b2b", "content_account", "service", "software_saas"],
         "objectives": ["awareness", "acquisition", "contribution", "revenue"],
-        "kinds": ["目录", "社区", "直连", "发射"],
+        "kinds": ["目录", "社区", "直连", "集中发布"],
         "requires": ["partner_list"],
         "sequence": ["列出能触达目标人群的合作方", "写清对对方的真实价值",
                      "用小规模联合动作验证", "按带来合格对象而非曝光结算"],
@@ -1019,6 +1020,7 @@ def _table(headers: List[str], rows: List[List[str]]) -> str:
     return "\n".join(lines)
 
 
+@plain_output
 def render(payload: Dict[str, Any]) -> str:
     lines = ["# GTM 设计", ""]
     obj = payload["object"]
@@ -1096,7 +1098,13 @@ def load_json_arg(value: str) -> Dict[str, Any]:
         return {}
     if text.startswith("{"):
         return json.loads(text)
-    return json.loads(Path(text).read_text(encoding="utf-8"))
+    p = Path(text)
+    if not p.exists():
+        raise GTMDesignError(
+            "--constraints 要么是 JSON 文件路径，要么是内联 JSON（以 { 开头，"
+            "例如 '{\"authorized_channels\":[\"github\"]}'）；"
+            f"收到的 {text!r} 不是存在的文件")
+    return json.loads(p.read_text(encoding="utf-8"))
 
 
 # ---------------------------------------------------------------------------
@@ -1198,6 +1206,7 @@ def handoff(payload: Dict[str, Any], *, product: Optional[Dict[str, Any]] = None
     return result
 
 
+@plain_output
 def render_handoff(payload: Dict[str, Any]) -> str:
     lines = ["# GTM 交接", ""]
     lines.append(f"**任务**：{payload['task']}")

@@ -6,6 +6,7 @@
 
 纪律: 每天 ≤10 个新关注；只关注真正相关且持续输出的账号。
 """
+from session_page import connect_browser
 import argparse
 import json
 import os
@@ -39,7 +40,7 @@ def main() -> int:
 
     records = []
     with sync_playwright() as p:
-        browser = p.chromium.connect_over_cdp(CDP_URL)
+        browser = connect_browser(p.chromium, CDP_URL)
         ctx = browser.contexts[0] if browser.contexts else browser.new_context()
         page = ctx.new_page()
         for h in args.handles:

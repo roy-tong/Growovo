@@ -60,7 +60,7 @@ KIND_VOICE: Dict[str, Dict[str, Any]] = {
         "memes": "平台内流行的表达可以用，但不追过时梗",
         "length": "3–10 分钟；脚本 800–2000 字",
     },
-    "发射": {
+    "集中发布": {
         "tone": "直接说明做了什么、为什么做、哪里不行",
         "sentences": "短句。标题写「你做了什么」，不写「为什么你该用」",
         "openers": ["Show HN: <你做了什么>，因为 <你被什么坑过>",
@@ -687,7 +687,7 @@ def render(pid: str) -> str:
         elif experience.for_platform(pid):
             lines.append("")
             lines.append("> 旧经验语料尚未通过资格或新鲜度校验，只能用于复核/生成实验，"
-                         "不能写成这个平台的当前打法。")
+                         "不能写成这个平台的当前做法。")
     except Exception:
         pass
     return "\n".join(lines)

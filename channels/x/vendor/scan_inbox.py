@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """扫描 Gmail：列出 to:me 的邮件线程概要。只读。"""
+from session_page import connect_browser
 import json
 import os
 import sys
@@ -25,7 +26,7 @@ def ensure_windows(browser):
 
 def main():
     with sync_playwright() as p:
-        browser = p.chromium.connect_over_cdp(CDP_URL)
+        browser = connect_browser(p.chromium, CDP_URL)
         ctx = browser.contexts[0]
         ensure_windows(browser)
         page = next((pg for pg in ctx.pages if "mail.google.com" in pg.url), None) or ctx.new_page()

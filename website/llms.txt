@@ -1,0 +1,7 @@
+# Growovo site
+
+> Agent-native GTM operator for one-person companies: give it product facts and a growth goal; it plans, runs, and delivers daily results (execution counts, real reads, loop accountability). Phase one automates X (Twitter) + Email; other channels are gated or manual. This site is the Chinese-facing landing; the repository is the canonical source.
+
+Pages: / (landing, three verifiable promises, 30-second zero-network verification, agent interfaces).
+
+Canonical repo and full agent entry: https://github.com/roy-tong/Growovo (see repo-root llms.txt for interfaces, promise discipline and launch autopsy). Synthetic demo proves loop structure only — never reach, conversion or business outcomes.

@@ -59,7 +59,7 @@ class SMTPChannel:
                 self._smtp = None
 
 
-def send_queue(queue_file, *, go=False, only=None, campaign=None, ledger=None,
+def send_queue(queue_file, *, go=False, only=None, only_ids=None, campaign=None, ledger=None,
                throttle=None, data_dir=None, adhoc=False, routine=False,
                account="", log=log):
     """跑一个邮件队列。go=False 全程 dry-run（不建 SMTP 连接、不碰网络）。
@@ -86,6 +86,11 @@ def send_queue(queue_file, *, go=False, only=None, campaign=None, ledger=None,
             _approval(campaign)  # 原 plan/adhoc fail-fast，行为不变
     if only:
         items = [i for i in items if i.get("id") == only or i.get("target") == only]
+    if only_ids:
+        wanted = {str(x) for x in only_ids}
+        items = [i for i in items
+                 if str(i.get("id") or "") in wanted
+                 or str(i.get("target") or "") in wanted]
 
     throttle.check_run("email", "message", len(items))
     if not throttle.daily_allows("email", "message", len(items)):

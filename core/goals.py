@@ -16,7 +16,7 @@
 设计约束：
 - 目标不是 KPI 许愿池：没有基线的目标必须写明「基线未提供」，不编数；
 - 平台匹配必须给出理由，且承认「受众标签不匹配」的情况；
-- 一次最多 1 个主渠道 + 1 个发射点 + 2 个辅助平台，防止「什么都做」；
+- 一次最多 1 个主渠道 + 1 个集中发布渠道 + 2 个辅助平台，防止「什么都做」；
 - 选择会写成一个契约文件，后续 strategy/cadence/result 都按它执行。
 """
 from __future__ import annotations
@@ -26,6 +26,7 @@ import json
 from datetime import date, timedelta
 from typing import Any, Dict, List, Optional, Tuple
 
+from .expression import plain_output
 from . import gtm
 from .platforms import BY_ID as PLATFORM_BY_ID
 from .platforms import PLATFORMS
@@ -268,7 +269,8 @@ def get(goal_id: str) -> Dict[str, Any]:
     spec = BY_ID.get(goal_id)
     if spec is None:
         raise GoalError(
-            f"没有这个目标：{goal_id}；可选：{', '.join(sorted(BY_ID))}")
+            f"没有这个目标：{goal_id}；可选（`goal list` 表格里的 goal id 列）："
+            f"{', '.join(sorted(BY_ID))}")
     return spec
 
 
@@ -468,7 +470,7 @@ def _assign_roles(ranked: List[Dict[str, Any]],
     if len(ids) != len(set(ids)):
         raise GoalError("平台不能重复选")
     if len(ids) > MAX_PLATFORMS:
-        raise GoalError(f"最多选 {MAX_PLATFORMS} 个平台（1 主 + 1 发射 + {MAX_SUPPORT} 辅助）")
+        raise GoalError(f"最多选 {MAX_PLATFORMS} 个平台（1 主 + 1 集中发布 + {MAX_SUPPORT} 辅助）")
     unknown = [i for i in ids if i not in PLATFORM_BY_ID]
     if unknown:
         raise GoalError(f"没有这个平台：{', '.join(unknown)}")
@@ -480,9 +482,9 @@ def _assign_roles(ranked: List[Dict[str, Any]],
     launches = [i for i in ids if i in gtm.LAUNCH_PLATFORMS]
     non_launch = [i for i in ids if i not in gtm.LAUNCH_PLATFORMS]
     if len(launches) > 1:
-        raise GoalError("一次只选一个发射平台——发射不是渠道")
+        raise GoalError("一次只能选一个集中发布渠道——集中发布不是渠道")
     if not non_launch:
-        raise GoalError("发射平台不能单独作为主渠道；至少加一个可重复触达的平台")
+        raise GoalError("集中发布不能单独作为主渠道；至少加一个可重复触达的平台")
     primary = non_launch[0]
     launch = launches[0] if launches else None
     support = [i for i in non_launch[1:]]
@@ -536,7 +538,7 @@ def _assign_roles_pair(merged: List[Dict[str, Any]], platform_ids: List[str],
     if len(ids) != len(set(ids)):
         raise GoalError("平台不能重复选")
     if len(ids) > MAX_PLATFORMS:
-        raise GoalError(f"最多选 {MAX_PLATFORMS} 个平台（1 主 + 1 发射 + {MAX_SUPPORT} 辅助）")
+        raise GoalError(f"最多选 {MAX_PLATFORMS} 个平台（1 主 + 1 集中发布 + {MAX_SUPPORT} 辅助）")
     unknown = [i for i in ids if i not in PLATFORM_BY_ID]
     if unknown:
         raise GoalError(f"没有这个平台：{', '.join(unknown)}")
@@ -548,9 +550,9 @@ def _assign_roles_pair(merged: List[Dict[str, Any]], platform_ids: List[str],
     launches = [i for i in ids if i in gtm.LAUNCH_PLATFORMS]
     non_launch = [i for i in ids if i not in gtm.LAUNCH_PLATFORMS]
     if len(launches) > 1:
-        raise GoalError("一次只选一个发射平台——发射不是渠道")
+        raise GoalError("一次只能选一个集中发布渠道——集中发布不是渠道")
     if not non_launch:
-        raise GoalError("发射平台不能单独作为主渠道；至少加一个可重复触达的平台")
+        raise GoalError("集中发布不能单独作为主渠道；至少加一个可重复触达的平台")
     primary = non_launch[0]
     if primary_spec["id"] not in by_id[primary].get("serves", []):
         raise GoalError(f"主渠道 {by_id[primary]['name']} 只服务辅目标，不服务主目标；"
@@ -600,7 +602,7 @@ def _actions(spec: Dict[str, Any], roles: Dict[str, Any],
     """前两周动作：按目标族给不同动作，不按平台复制一套。"""
     family = spec["family"]
     primary = roles["primary"]["name"]
-    support = "、".join(r["name"] for r in roles["support"]) or "目标社区"
+    support = "、".join(r["name"] for r in roles["support"])
     launch = roles["launch"]["name"] if roles.get("launch") else ""
 
     if family == "awareness":
@@ -613,7 +615,8 @@ def _actions(spec: Dict[str, Any], roles: Dict[str, Any],
              "human", 120, "发布链接 + 一段可复现的命令"),
             (3, f"在 {launch or primary} 发一次，只换反馈，不背获客指标",
              "human", 30, "发布记录 + 首日评论/阅读数"),
-            (4, f"在 {support} 各做 2 次有效回应/讨论，一条产品都不提",
+            (4, (f"在 {support} 各做 2 次有效回应/讨论，一条产品都不提" if support
+                 else "挑 2 个目标人群真实聚集的社区，各做 2 次有效回应/讨论，一条产品都不提"),
              "human", 60, "回应记录，带链接"),
             (7, "把首周四个数记下来：访问、clone、star、外部 issue",
              "machine", 10, "四个数入账，注明来源"),
@@ -628,7 +631,8 @@ def _actions(spec: Dict[str, Any], roles: Dict[str, Any],
              "human", 120, "样例链接 + 一条命令"),
             (2, "找 10 个真实问题（issue/评论/论坛），按出现频率排序",
              "machine", 30, "10 条问题，带出处"),
-            (3, f"在 {support} 各做 2 次有效回应/讨论，附上样例链接",
+            (3, (f"在 {support} 各做 2 次有效回应/讨论，附上样例链接" if support
+                 else "挑 2 个目标人群真实聚集的社区，各做 2 次有效回应/讨论，附上样例链接"),
              "human", 60, "回应记录，带样例"),
             (5, "请 3 个用户跑一遍，只记录卡点，不解释",
              "human", 90, "3 份卡点记录，每份至少 1 个具体位置"),
@@ -681,7 +685,7 @@ def _actions_pair(primary_spec: Dict[str, Any], secondary_spec: Dict[str, Any],
     """两个目标的前两周动作。声量+使用共用一份内容，不重复写两套。"""
     if {primary_spec["family"], secondary_spec["family"]} == {"awareness", "adoption"}:
         launch = (roles.get("launch") or {}).get("name") or "Hacker News"
-        support = "、".join(r["name"] for r in roles["support"]) or "目标社区"
+        support = "、".join(r["name"] for r in roles["support"])
         rows = [
             (0, "把仓库首屏改成一句话定位 + 一个 60 秒能看懂的演示",
              "human", 60, "陌生人 10 秒内能说出你是做什么的", "both"),
@@ -691,7 +695,8 @@ def _actions_pair(primary_spec: Dict[str, Any], secondary_spec: Dict[str, Any],
              "human", 150, "发布链接 + 一条可复现命令", "both"),
             (3, f"在 {launch} 发一次，只换反馈，不背获客指标",
              "human", 30, "发布记录 + 首日评论/阅读", "声量"),
-            (4, f"在 {support} 答 5 个真问题，附样例；一条产品都不提",
+            (4, (f"在 {support} 答 5 个真问题，附样例；一条产品都不提" if support
+                 else "挑 2 个目标人群真实聚集的社区，答 5 个真问题，附样例；一条产品都不提"),
              "human", 60, "5 条回答链接", "both"),
             (6, "请 3 个用户跑样例，只记录卡点，不解释",
              "human", 90, "3 份卡点记录，每份至少 1 个具体位置", "使用"),
@@ -956,6 +961,7 @@ def select(facts: Dict[str, Any], goal_id: str, platforms: List[str],
     return payload
 
 
+@plain_output
 def render_list(payload: Dict[str, Any]) -> str:
     from .narrative import table
     p = payload.get("product") or {}
@@ -963,8 +969,8 @@ def render_list(payload: Dict[str, Any]) -> str:
     lines.append("先定这一轮要什么，再谈打哪个平台。同一个产品，追 star、追使用、追付费是三套动作。")
     lines.append("")
     lines.append(table(
-        ["目标", "指标", "6 周判据", "首选平台", "人工", "适配"],
-        [[f"{g['family_name']}·{g['name']}", g["metric_label"], g["target_text"],
+        ["目标", "goal id（--goal 用）", "指标", "6 周判据", "首选平台", "人工", "适配"],
+        [[f"{g['family_name']}·{g['name']}", g["id"], g["metric_label"], g["target_text"],
           (g["primary"] or {}).get("name", "—"), f"{g['cost_minutes']} 分钟",
           g["fit"]["level"]] for g in payload["goals"]]))
     lines.append("")
@@ -975,7 +981,7 @@ def render_list(payload: Dict[str, Any]) -> str:
         for g in recommended[:3]:
             lines.append(f"- **{g['name']}**：{g['proves']}；但不证明{g['does_not_prove']}。"
                          f"首选 {(g['primary'] or {}).get('name', '—')}"
-                         + (f"，发射点 {g['launch']['name']}" if g.get("launch") else ""))
+                         + (f"，集中发布渠道 {g['launch']['name']}" if g.get("launch") else ""))
         lines.append("")
     lines.append("> 首选平台是按目标亲和度、受众标签和已有账号算出来的，不是唯一答案；"
                  "用 `goal select --platforms` 可以换主渠道，方案会保留你的选择。")
@@ -992,9 +998,9 @@ def render_list(payload: Dict[str, Any]) -> str:
         group.sort(key=lambda g: (0 if g["fit"]["level"] == "推荐" else 1,
                                   g["cost_minutes"]))
         for g in group[:2]:
-            pick_rows.append([g["family_name"], g["name"], g["target_text"],
+            pick_rows.append([g["family_name"], g["name"], g["id"], g["target_text"],
                               (g["primary"] or {}).get("name", "—")])
-    lines.append(table(["路", "目标", "6 周判据", "首选平台"], pick_rows))
+    lines.append(table(["路", "目标", "goal id", "6 周判据", "首选平台"], pick_rows))
     lines.append("")
     lines.append("## 怎么选")
     lines.append("")
@@ -1011,7 +1017,7 @@ def render_list(payload: Dict[str, Any]) -> str:
     lines.append("```")
     lines.append("python3 mkt.py goal plan --facts <facts.json> --goal <目标 id>")
     lines.append("python3 mkt.py goal select --facts <facts.json> --goal <目标 id> \\")
-    lines.append("  --platforms <主平台>,<发射平台>,<辅助平台> --out data/goals/selection.json")
+    lines.append("  --platforms <主平台>,<集中发布>,<辅助平台> --out data/goals/selection.json")
     lines.append("python3 mkt.py strategy build --facts <facts.json> --selection data/goals/selection.json")
     lines.append("```")
     lines.append("")
@@ -1038,6 +1044,7 @@ def _action_serves_label(value: Any) -> str:
     return str(value or "—")
 
 
+@plain_output
 def render_plan(plan: Dict[str, Any]) -> str:
     from .narrative import table
     g = plan["goal"]
@@ -1088,7 +1095,7 @@ def render_plan(plan: Dict[str, Any]) -> str:
                               _serves_label(p["primary"], g["id"], sec["id"], "primary"),
                               p["primary"]["why"], p["primary"]["channel_status"]])
         if p.get("launch"):
-            role_rows.append(["发射点", p["launch"]["name"],
+            role_rows.append(["集中发布渠道", p["launch"]["name"],
                               _serves_label(p["launch"], g["id"], sec["id"], "launch"),
                               p["launch"]["why"], p["launch"]["channel_status"]])
         for r in p.get("support") or []:
@@ -1101,13 +1108,13 @@ def render_plan(plan: Dict[str, Any]) -> str:
             role_rows.append(["主渠道", p["primary"]["name"], p["primary"]["why"],
                               p["primary"]["channel_status"]])
         if p.get("launch"):
-            role_rows.append(["发射点", p["launch"]["name"], p["launch"]["why"],
+            role_rows.append(["集中发布渠道", p["launch"]["name"], p["launch"]["why"],
                               p["launch"]["channel_status"]])
         for r in p.get("support") or []:
             role_rows.append(["辅助", r["name"], r["why"], r["channel_status"]])
         lines.append(table(["角色", "平台", "为什么", "当前状态"], role_rows))
     lines.append("")
-    lines.append("> 一次最多 1 主 + 1 发射 + 2 辅助。多一个平台，不是多一份产出，是多一份维护。")
+    lines.append("> 一次最多 1 主 + 1 集中发布 + 2 辅助。多一个平台，不是多一份产出，是多一份维护。")
     lines.append("")
     if p.get("not_now"):
         lines.append("## 还能换的平台")

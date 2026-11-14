@@ -240,11 +240,9 @@ def review_markdown(data_dir, ledger, campaign):
         lines += ["", "## 已有干跑留证", ""]
         for r in dry[:20]:
             lines.append(f"- `{r.get('ref')}` {r.get('target')} — {r.get('evidence') or '无截图'}")
-    ch = queue.get("channel") or "email"
-    act = queue.get("action") or "message"
     lines += ["", "## 批准与执行", "",
-              f"1. 批准：`mkt plan approve <plan_id> --by <你的名字>`（需先过 lint）",
-              f"2. 干跑：`mkt {ch} {act} --queue {queue['path']}`",
+              f"1. 批准：`mkt plan approve --id <plan_id> --by <你的名字>`（需先过 lint）",
+              f"2. 干跑：`mkt queue run {queue['path']}`",
               f"3. 实跑：同上加 `--go`（必须已有有效批准）"]
     return "\n".join(lines)
 
@@ -288,7 +286,7 @@ def next_step(data_dir, ledger, campaign=None, followups=None):
     pid = plan.get("plan_id", "")
     if not st["valid"]:
         return {"code": "approve", "title": "计划待审批（或批准已失效）",
-                "command": f"mkt plan approve {pid} --by <你的名字>",
+                "command": f"mkt plan approve --id {pid} --by <你的名字>",
                 "why": st.get("reason") or "人审是执行前置条件。"}
 
     queue, qpath = load_campaign_queue(data_dir, plan, campaign)
@@ -308,15 +306,14 @@ def next_step(data_dir, ledger, campaign=None, followups=None):
 
     records = ledger.results(campaign=campaign)
     results = [r.get("result") for r in records]
-    ch = queue.get("channel") or "email"
-    act = queue.get("action") or "message"
     if not records:
         return {"code": "dry-run", "title": "先干跑一遍，看截图再决定",
-                "command": f"mkt {ch} {act} --queue {qpath}",
+                "command": f"mkt queue run {qpath}",
                 "why": "写路径默认 dry-run：门禁、回读、留证都走一遍但不发送。"}
     if results.count("dry-run") and "committed" not in results:
         return {"code": "go", "title": "干跑已留证，可以人审后实跑",
-                "command": f"mkt review {campaign}", "why": "先看人审预览，再在同一队列加 --go。"}
+                "command": f"mkt review {campaign}",
+                "why": f"先看人审预览，确认后 mkt queue run {qpath} --go 实跑（必须已有有效批准）。"}
     if "committed" in results:
         from .attribution import OutcomeLedger
         ol = OutcomeLedger(data_dir)

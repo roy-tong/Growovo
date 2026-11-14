@@ -6,6 +6,8 @@
 
 前置: 同 publish_x.py（Chrome 调试端口 9222 + 已登录 X）。
 """
+from session_page import connect_browser, automation_page, release_page
+
 import argparse
 import json
 import os
@@ -64,19 +66,19 @@ def main() -> int:
     rec = {"url": args.tweet_url, "started_at": datetime.now().isoformat()}
     with sync_playwright() as p:
         try:
-            browser = p.chromium.connect_over_cdp(CDP_URL)
+            browser = connect_browser(p.chromium, CDP_URL)
         except Exception as exc:
             log(f"无法连接 {CDP_URL}: {exc}", "ERROR")
             return 2
         ctx = browser.contexts[0] if browser.contexts else browser.new_context()
-        page = ctx.new_page()
+        page = automation_page(ctx)
         page.goto(args.tweet_url, wait_until="domcontentloaded", timeout=45000)
         page.wait_for_timeout(5000)
 
         # 登录态检查
         if "x.com/login" in page.url:
             log("未登录，中止", "ERROR")
-            page.close()
+            release_page(page)
             return 3
 
         # 打开回复框
@@ -98,7 +100,7 @@ def main() -> int:
         norm = lambda s: re.sub(r"\n+", "\n", s)
         if norm(got) != norm(args.text.strip()):
             log(f"输入校验不一致: {len(got)}/{len(args.text)}，中止（防止发错内容）", "ERROR")
-            page.close()
+            release_page(page)
             return 4
 
         if args.dry_run:
@@ -107,7 +109,7 @@ def main() -> int:
             page.screenshot(path=str(shot))
             log(f"dry-run 已填好（截图 {shot.name}）")
             rec["dry_run"] = True
-            page.close()
+            release_page(page)
             (LOG_DIR / f"reply-{datetime.now().strftime('%Y%m%d-%H%M%S')}.json").write_text(
                 json.dumps({"record": rec}, ensure_ascii=False, indent=2), encoding="utf-8")
             return 0
@@ -121,7 +123,7 @@ def main() -> int:
             time.sleep(0.5)
         if not btn.is_enabled():
             log("回复按钮保持 disabled（可能超字符限制），中止", "ERROR")
-            page.close()
+            release_page(page)
             return 5
         btn.click()
         ok = wait_posted(page)
@@ -140,7 +142,7 @@ def main() -> int:
             except Exception:
                 log("点赞按钮未找到（可能已赞过）", "WARN")
 
-        page.close()
+        release_page(page)
     rec["finished_at"] = datetime.now().isoformat()
     (LOG_DIR / f"reply-{datetime.now().strftime('%Y%m%d-%H%M%S')}.json").write_text(
         json.dumps({"record": rec}, ensure_ascii=False, indent=2), encoding="utf-8")

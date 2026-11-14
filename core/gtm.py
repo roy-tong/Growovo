@@ -104,8 +104,8 @@ REQUIRED_FACTS = ("product", "icp", "value_events", "constraints", "owned_assets
 REQUIRED_PRODUCT = ("name", "what", "url", "stage")
 BANDS = ((5, "P0"), (3, "P1"), (1, "P2"))
 
-# 一次性发射平台：带来曝光与反馈，不是可重复的获客渠道。
-# 研究结论（2026-11-03）：一个小团队一次只够把一条渠道做完，主渠道不能选发射平台。
+# 一次性集中发布：带来曝光与反馈，不是可重复的获客渠道。
+# 研究结论（2026-11-03）：一个小团队一次只够把一条渠道做完，主渠道不能选集中发布。
 LAUNCH_PLATFORMS = {"product-hunt", "hackernews", "kickstarter", "instagram"}
 
 
@@ -251,7 +251,7 @@ def markdown(payload: Dict[str, Any]) -> str:
         if primary_row is not None:
             lines.append(f"  - 开跑前提：这个平台要有一个**能用的账号**（当前渠道状态：{_plain(primary_row['channel_status'])}）。没有账号就先补账号，别急着发。")
         if focus.get("launch_name"):
-            lines.append(f"- **一次性发射点**：{focus['launch_name']}——只算曝光和反馈，不算获客")
+            lines.append(f"- **一次性集中发布渠道**：{focus['launch_name']}——只算曝光和反馈，不算获客")
         if focus.get("deferred"):
             names = "、".join(focus["deferred"])
             lines.append(f"- **也值得做、但这一轮不碰**：{names}——人手只够一条渠道，排到下一轮再评估")

@@ -14,10 +14,12 @@
 冲刺是信号测试，不是市场验证。目标达成只说明这 3 天的动作有效，
 不证明需求、付费或可规模化。
 """
+
 from __future__ import annotations
 
 from datetime import date, datetime, time, timedelta
 from typing import Any, Dict, List, Optional
+from .expression import plain_output
 
 MIN_DAYS, MAX_DAYS = 1, 14
 DEFAULT_LAUNCH_HOUR = "21:00"  # 北京时间；美东 08:00（冬令时）≈ 北京 21:00
@@ -57,7 +59,7 @@ LEVERS = [
 ]
 
 CONTINGENCIES = [
-    {"trigger": "发射后 2 小时，HN < 20 分或 0 评论",
+    {"trigger": "集中发布后 2 小时，HN < 20 分或 0 评论",
      "action": "把同一篇内容换开头发 Reddit/X，不重复发 HN；HN 只回评论，不重发"},
     {"trigger": "第 2 天 12:00，真实数据仍为 0",
      "action": "把「给我数据」改成「我帮你跑，你只给脱敏导出」；再加 10 条私信"},
@@ -136,9 +138,9 @@ def _blocks(days: int, start: date, launch_hour: str) -> List[Dict[str, Any]]:
         (1, "08:00", "10:00", "资产", "定稿核心资产：一篇技术拆解 + 一个可复现样例 + 一页清单", "human", "资产链接 + 一条可复现命令"),
         (1, "10:00", "11:00", "资产", "发布到仓库/官网，自己从头跑一遍", "human", "发布记录 + 运行截图"),
         (1, "14:00", "15:00", "借场", "确认 3 个社区和 2 个群组的发帖规则与窗口", "human", "规则清单：能不能发、发在哪、什么时候"),
-        (1, "20:30", "21:00", "发射", "预热检查：标题、首评、链接、UTM、错别字", "human", "检查表全打勾"),
+        (1, "20:30", "21:00", "集中发布", "预热检查：标题、首评、链接、UTM、错别字", "human", "检查表全打勾"),
         (1, launch.strftime("%H:%M"), (datetime.combine(start, launch) + timedelta(minutes=30)).strftime("%H:%M"),
-         "发射", "在 Hacker News 发一次（Show HN），自己写首条作者评论", "human", "发布链接 + 首评"),
+         "集中发布", "在 Hacker News 发一次（Show HN），自己写首条作者评论", "human", "发布链接 + 首评"),
         (1, "21:30", "22:00", "放大", "X 线程 + LinkedIn 帖，同一份资产换开头", "human", "2 条发布记录"),
         (1, "22:00", "22:30", "放大", "Reddit 发帖或答 3 个相关帖（按版规，先答后提）", "human", "1 帖或 3 条回答"),
         (1, "22:30", "23:30", "直连", "10 条具名私信：引用原话 + 一个真问题 + 免费样本", "human", "10 条发出记录"),
@@ -265,7 +267,7 @@ def build(goal_plan: Dict[str, Any], days: int = 3,
         "daily_targets": daily,
         "workstreams": [
             {"name": "资产", "goal": "一份可复用的核心资产", "why": "没有资产，后面所有动作都是空转"},
-            {"name": "发射", "goal": "一次集中曝光", "why": "3 天只有一次发射窗口"},
+            {"name": "集中发布", "goal": "一次集中曝光", "why": "3 天只有一次发布窗口"},
             {"name": "放大", "goal": "同一资产的第二、第三个表面", "why": "单平台不够，换表面不换内容"},
             {"name": "直连", "goal": "30 条具名私信", "why": "回复率不会因为等而变高"},
             {"name": "承接", "goal": "评论、私信、样本 24h 内回", "why": "错过 24h，热度就凉了"},
@@ -285,6 +287,7 @@ def build(goal_plan: Dict[str, Any], days: int = 3,
     }
 
 
+@plain_output
 def render(plan: Dict[str, Any]) -> str:
     from .narrative import table
     g = plan["goal"]
@@ -292,7 +295,7 @@ def render(plan: Dict[str, Any]) -> str:
     lines = [f"# {plan['days']} 天冲刺 · {g['name']}"
              + (f" + {sec['name']}" if sec else ""), ""]
     lines.append(f"**{plan['starts']} → {plan['ends']}。** 这一轮不是把六周计划压扁，"
-                 f"是换一套打法：一个资产、多个表面、并行直连、到点判定。")
+                 f"是换一套做法：一个资产、多个表面、并行直连、到点判定。")
     lines.append("")
     lines.append(f"> {plan['timezone_note']}")
     lines.append("")

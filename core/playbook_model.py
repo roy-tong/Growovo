@@ -17,7 +17,7 @@ MOTIONS: Dict[str, Dict[str, Any]] = {
                           "observation": "复现与激活"},
     "direct_outreach": {"label": "直接获客", "artifact": "针对性问题解决方案",
                         "observation": "有效对话与后续跟进"},
-    "launch": {"label": "产品发射", "artifact": "发布包与真实演示",
+    "launch": {"label": "产品发布", "artifact": "发布包与真实演示",
                "observation": "真实讨论与试用"},
     "partnership": {"label": "合作传播", "artifact": "联合案例/上游交付",
                     "observation": "合作方采用与持续关系"},

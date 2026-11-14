@@ -9,7 +9,7 @@ permissions:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04  # Python 3.9 is unavailable on Ubuntu 26.04 runners
     strategy:
       fail-fast: false
       matrix:
@@ -25,3 +25,11 @@ jobs:
         run: python mkt.py demo
       - name: Doctor self-test
         run: python mkt.py doctor --selftest
+
+      - name: Build and accept the installed wheel
+        run: |
+          python -m pip install build
+          python -m build --wheel
+          python -m venv /tmp/growovo-smoke
+          /tmp/growovo-smoke/bin/pip install --no-deps dist/*.whl
+          /tmp/growovo-smoke/bin/python -I scripts/wheel_smoke.py

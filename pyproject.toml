@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "growovo"
-version = "0.13.0"
+version = "0.14.0"
 description = "Agent-native GTM operator kernel: reviewed playbooks, authorized accounts, quotas and verifiable operation records."
 readme = "README.md"
 requires-python = ">=3.9"
@@ -47,3 +47,7 @@ include-package-data = false
 # so they ship as package data next to the adapter that calls them.
 "channels.x" = ["vendor/*.py", "vendor/*.sh", "vendor/*.md"]
 "core" = ["*_data.json", "work_order_demo.json"]
+
+[tool.setuptools.data-files]
+# Reviewed experience records must also be available in pip/pipx installs.
+"share/growovo" = ["docs/playbooks/经验库/experience.jsonl"]

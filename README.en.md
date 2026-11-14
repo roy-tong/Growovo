@@ -2,14 +2,36 @@
   <img src="docs/assets/logo.png" width="400" alt="Growovo">
 </p>
 
-<p align="center"><strong>Execute authorized recurring operations with reviewable results.</strong><br>
-<em>把重复运营工作交给 Agent，留下可核验的执行记录。</em></p>
+<p align="center"><strong>Give it product facts and a growth goal. It plans, runs, and delivers daily results — automatically.</strong><br>
+<em>给产品事实和增长目标，自动定策略、自动执行，每天交付结果。</em></p>
 
 <p align="center"><a href="README.md">简体中文</a> · <strong>English</strong></p>
 
-Growovo is a GTM/User Growth operator for **indie developers and one-person companies**. Provide product facts, target users, and authorization boundaries: it identifies demand worth serving, produces reproducible value artifacts and growth actions, and records every action as success, failure, or indeterminate. Sending, impressions, and stars are not business outcomes.
+Growovo is for **indie developers and one-person companies — and for engineers who went full-stack and got handed GTM and user growth along with the codebase**. Give it product facts and one growth goal; it sets the strategy, runs it, and delivers a daily business result — how many pieces went out, daily impressions, new followers. Strategy, plans, and weekly reports are internal artifacts, not the deliverable. New to growth as an engineer? Start with [Growth is now your job](docs/growth-for-engineers.en.md).
 
-Goal selection comes first: awareness, real adoption, or a first payment are different plays, platforms, and pass lines for the same product. The product combines **Demand / Execution / Learning** with an **Operator Engine and Playbooks**: Signal Interpretation validates host-supplied semantics before Opportunity Discovery checks product-value fit. Value Artifacts move through local reproduction, authorized delivery and user-completion readback; Journey diagnoses activation and retention breakpoints without treating multi-touch order as causation. GitHub Inbox is one Playbook, not the product definition. CLI, MCP, and Skill share approval, budget, read-back, and ledger mechanisms; activation, retained use, and payment are verified independently.
+It commits to exactly three verifiable things: **execution volume** (every committed action is in the ledger), **honest readings** (daily follower and impression snapshots, screenshot-backed and labelled by evidence grade), and **closed-loop responsibility** (completion drives volume changes, supply gaps alert three days early, failures stop the loop for human adjudication). It does not promise platform reach, and it does not dress unverified channels up as full automation.
+
+**Full automation starts with platforms that can actually be automated.** Phase one commits to **X + Email** (verified write paths). GitHub, Reddit, Hacker News and LinkedIn are gated behind a supervised first run. Manual channels such as Xiaohongshu and Zhihu get work orders only and are excluded from automated volume. See the [platform automation matrix](docs/platform-automation-matrix.md).
+
+**Start here.** Prepare product facts, standing action authorization, an authenticated local Codex CLI and a browser CDP session. Read results daily and decide whether to continue or optimize. See [autonomous operations](docs/grow-autonomous-operations.md).
+
+```bash
+git clone https://github.com/roy-tong/Growovo.git && cd Growovo
+python3 mkt.py demo                    # zero network, zero accounts
+python3 mkt.py grow platforms          # what phase one can fully automate
+python3 mkt.py policy enable --actions x:reply --by "$USER"
+python3 mkt.py grow launch g1 --facts facts.json \
+  --goal awareness.followers --channels x --target 200 --handle your_handle
+python3 mkt.py grow arm g1             # enable live execution after checking strategy and authorization
+python3 mkt.py grow daemon g1          # foreground service; Ctrl-C stops it
+# macOS background: grow install g1 --load; verify fresh heartbeat with grow doctor g1
+python3 mkt.py grow daily g1           # one screen a day: volume/readings/supply/guardrails
+```
+
+**See the receipts first:** [Launch autopsy: 73 tweets in 11 hours, 0 new stars](docs/launch-autopsy-20261105.md) — the campaign we ran with this tool, the numbers it produced, and the ledger gap it exposed in our own process.
+
+<details>
+<summary>What's new (v0.8 – v0.13): Work OS, orchestration, design layer, execution integrity</summary>
 
 **New in v0.8 — GTM Work OS:** validated registries for 18 capability domains, 40 role families and 32 templates, plus immutable context, objectives, WorkOrders, evidence-gated SOPs, deliverable acceptance, receiver handoffs and deterministic KPI measurement. `work-action` only materialises accepted work into the existing plan/queue path; it adds no send bypass. One developer SOP is executable end to end today; registry coverage does not mean all 40 professional automations are complete. See the [implementation notes](docs/gtm-os/05-implementation.md).
 
@@ -18,6 +40,8 @@ Goal selection comes first: awareness, real adoption, or a first payment are dif
 **New in v0.10 — GTM design layer:** `mkt gtm design` decomposes a growth task into object × objective × motion × channel, filters candidates with real constraints (authorized channels, assets, budget, region, data sources) and emits an outcome contract with an explicit verification level. Agents may propose motions with reasons; rules only check compatibility and boundaries, and rejected candidates keep their reasons. Without a data source, platform receipts are not business outcomes — plays, stars, pre-orders and sign-ups are not success by default. See [object × objective × motion × channel](docs/gtm-os/07-object-motion-design.md).
 
 **New in v0.11 — execution integrity merged, design layer corrected:** the P0 integration branch is now part of the release: MCP can no longer raise unverified channel permissions, unknown external results require human adjudication, ledger appends are atomic and fail loud, and damaged DNC suppression data stops sending. The design layer fixes Agent proposals overriding user objectives, partial proposals causing false `blocked`, single-motion selection, mixed `ready` semantics and optimistic verification. Handoff now emits an execution plan bound to the selected recipe and a design fingerprint.
+
+</details>
 
 [![tests](https://github.com/roy-tong/Growovo/actions/workflows/tests.yml/badge.svg)](https://github.com/roy-tong/Growovo/actions/workflows/tests.yml)
 
@@ -34,6 +58,7 @@ Each can be used independently. The `mkt.py` and `growovo-gtm` identifiers are k
 ## Compliance and discipline (read this first)
 
 - Only for accounts **you own or are explicitly authorized to operate**; never touch unauthorized accounts. Ownership, scope, and human takeover are audited.
+- **The engine manages no accounts**: an account is the browser's logged-in session — after the approval gate, a real write automatically probes the target site's login state in the debugging Chrome and proceeds when present; when missing it reports the gap explicitly (ledger records rejected, never a fake send). No cookies or tokens are ever stored.
 - The CDP channel is zero-credential: no passwords, tokens, or cookies are ever stored; SMTP credentials come only from environment variables
 - **All write operations default to dry-run; `--go` runs for real** — real runs require a **human-approved plan**, or explicit `--routine` with a workspace policy matching the account/channel/action. Without authorization the default is refusal; only the manual CLI path `--adhoc` explicitly allows an unplanned run (ledger `adhoc=true`; MCP exposes no policy management)
 - Daily budgets are atomically reserved before sends; `indeterminate` (unknown outcome) can never be auto-resent — a human must run `ledger resolve`; DNC/bounced identities in contacts merge with `suppress.txt` into a single suppression source
@@ -280,3 +305,7 @@ The summary reports confirmed platform operations, unknown/failing receipts, and
 - Security issues go through the private channel in [SECURITY.md](SECURITY.md) — not a public issue.
 - First response target is 48 hours for issues and PRs; capability boundaries and verification levels live in [docs/feature-status.md](docs/feature-status.md).
 - Cases (including failures and dead ends) are in [docs/cases/](docs/cases/README.en.md); states are not rewritten.
+
+### Local Codex content production
+
+New v2 runs enable Codex drafting and independent editorial review by default. Enable it for existing runs with `python3 mkt.py grow agent <id>`. `grow produce <id>` stages content without sending; `grow daemon <id>` executes within existing authorization, daily quotas and time windows. Targets pass vertical KOC and semantic relevance review; failures leave an explicit supply gap. Users decide whether to continue or optimize from daily results. See [autonomous operations and limitations](docs/grow-autonomous-operations.md).

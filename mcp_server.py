@@ -367,6 +367,49 @@ TOOLS = [
             "required": ["platform", "text"]},
     },
     {
+        "name": "mkt_grow",
+        "description": "结果闭环：平台白名单、内容需求单、日结果、周结果、状态；stage 只写按日队列，不发送。开闸/恢复/决策是人工动作，MCP 不暴露。",
+        "inputSchema": {"type": "object", "properties": {
+            "action": {"type": "string",
+                       "enum": ["platforms", "briefs", "status", "daily", "report",
+                                "stage", "targets", "review", "formulas",
+                                "prospects", "metrics", "learn", "produce"]},
+            "id": {"type": "string"},
+            "on": {"type": "string"},
+            "week": {"type": "integer"},
+            "date": {"type": "string"},
+            "by": {"type": "string"},
+            "items": {"type": "array", "items": {"type": "object"},
+                      "description": "stage：内容数组，每项含 target 与 body"},
+            "query": {"type": "array", "items": {"type": "string"},
+                      "description": "targets：搜索词（可多个）"},
+            "limit": {"type": "integer"}, "top": {"type": "integer"},
+            "days": {"type": "integer"}},
+            "required": ["action"]},
+    },
+    {
+        "name": "mkt_content",
+        "description": "内容运营：渠道规则、brief、审稿与多渠道路排期；只读，不发布、不定时。",
+        "inputSchema": {"type": "object", "properties": {
+            "action": {"type": "string", "enum": ["rules", "brief", "audit", "review", "plan"]},
+            "channel": {"type": "string", "enum": ["xiaohongshu", "wechat", "blog"]},
+            "topic": {"type": "string"}, "audience": {"type": "string"},
+            "product": {"type": "string"}, "evidence": {"type": "string"},
+            "cta": {"type": "string", "enum": ["A", "B", "C"]},
+            "title": {"type": "string"}, "text": {"type": "string"},
+            "record": {"type": "object", "description": "可选：填写后的整篇审稿记录"},
+            "start": {"type": "string"}, "days": {"type": "integer"},
+            "channels": {"type": "array", "items": {"type": "string"}}},
+            "required": ["action"]},
+    },
+    {
+        "name": "mkt_plain_language",
+        "description": "检查一段文字有没有生造词（普通人第一次看到要翻译才能懂的名词）；返回问题列表与规则，空表示可用。",
+        "inputSchema": {"type": "object", "properties": {
+            "text": {"type": "string"}},
+            "required": ["text"]},
+    },
+    {
         "name": "mkt_experience",
         "description": "用户经验库：别人真跑过的平台做法，带出处与样本量；≥2 篇才算规律，1 篇只能当假设。",
         "inputSchema": {"type": "object", "properties": {"platform": {"type": "string"}},
@@ -376,6 +419,25 @@ TOOLS = [
         "name": "mkt_playbooks",
         "description": "可用 playbook 清单：每个都带证据来源与风险提示，没有证据的会自己承认。",
         "inputSchema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "mkt_tactics",
+        "description": "非常规增长战术知识库（82 条/19 机制族/11 红线，四轮研究沉淀）："
+                       "list 筛选、show 看全文、recommend 按产品事实与目标选战术组合、"
+                       "forbidden 已证伪做法、stale 证据过期。只读，执行走既有审批路径。",
+        "inputSchema": {"type": "object", "properties": {
+            "action": {"type": "string",
+                       "enum": ["list", "show", "recommend", "forbidden", "stale"]},
+            "id": {"type": "string", "description": "show：战术 id"},
+            "channel": {"type": "string"}, "mechanism": {"type": "string"},
+            "risk_max": {"type": "string", "enum": ["white", "light_gray", "gray"]},
+            "status": {"type": "string", "enum": ["", "usable", "proposed"]},
+            "include_stale": {"type": "boolean"},
+            "facts": {"type": "object", "description": "recommend：产品事实包"},
+            "goal_id": {"type": "string"},
+            "phase": {"type": "string", "enum": ["cold_start", "scale"]},
+            "on": {"type": "string", "description": "stale：查看日 YYYY-MM-DD"}},
+            "required": ["action"]},
     },
     {
         "name": "mkt_signal_interpretation",
@@ -852,11 +914,103 @@ def _call_tool(name, args):
         w = progress.weekly(fu, on=args.get("on"))
         return _text({"weekly": w, "rendered": progress.render_weekly(w)})
 
+    if name == "mkt_grow":
+        from core import platform_caps
+        action = args.get("action")
+        if action == "platforms":
+            return _text({"platforms": platform_caps.matrix(),
+                          "auto": platform_caps.auto_channels()})
+        run_id = str(args.get("id") or "").strip()
+        if not run_id:
+            return _text({"error": "需要 id（闭环 id）"})
+        from core.grow_v2 import GrowRunV2
+        run_path = DATA / "grow" / f"{run_id}.json"
+        if not run_path.is_file():
+            return _text({"error": f"没有这个闭环：{run_id}（先 CLI mkt grow launch）"})
+        run = GrowRunV2(run_path)
+        if action == "briefs":
+            return _text({"briefs": run.briefs()})
+        if action == "status":
+            return _text(run.status(DATA, on=args.get("on") or None))
+        if action == "daily":
+            card = run.daily(DATA, on=args.get("on") or None)
+            return _text({"card": card, "rendered": GrowRunV2.render_daily(card)})
+        if action == "report":
+            return _text({"rendered": run.report(
+                DATA, week=args.get("week"), on=args.get("on") or None)})
+        if action == "formulas":
+            from core import grow_content
+            return _text({"rendered": grow_content.render_formulas(),
+                          "formulas": grow_content.formulas_for()})
+        if action == "produce":
+            return _text(run.produce(DATA, on=args.get("on") or None,
+                                     max_items=min(10, max(0, int(args.get("limit", 3))))))
+        if action == "prospects":
+            queries = args.get("query") or []
+            return _text(run.prospects(DATA, queries, limit=int(args.get("limit") or 20),
+                                       top=int(args.get("top") or 8)))
+        if action == "metrics":
+            return _text(run.metrics(DATA, days=int(args.get("days") or 7),
+                                     limit=int(args.get("limit") or 20)))
+        if action == "learn":
+            return _text(run.learn(DATA, on=args.get("on") or None))
+        if action == "targets":
+            queries = args.get("query") or []
+            if not queries:
+                return _text({"error": "targets 需要 query 数组"})
+            return _text(run.targets(DATA, queries, limit=int(args.get("limit") or 10)))
+        if action == "review":
+            return _text(run.review(DATA, days=int(args.get("days") or 7),
+                                    on=args.get("on") or None))
+        if action == "stage":
+            items = args.get("items") or []
+            if not isinstance(items, list) or not items:
+                return _text({"error": "stage 需要 items 数组"})
+            return _text(run.stage(DATA, items,
+                                   scheduled_for=args.get("date") or None,
+                                   by=args.get("by") or "agent"))
+        return _text({"error": f"未知 action：{action}"})
+
+    if name == "mkt_content":
+        from core import content_ops
+        action = args.get("action")
+        if action == "rules":
+            return _text({"rules": content_ops.CHANNELS[args["channel"]],
+                          "rendered": content_ops.render_rules(args["channel"])})
+        if action == "brief":
+            b = content_ops.brief(args["channel"], args.get("topic", ""),
+                                  audience=args.get("audience", ""),
+                                  product=args.get("product", ""),
+                                  evidence=args.get("evidence", ""),
+                                  cta=args.get("cta", "B"), title=args.get("title", ""))
+            return _text({"brief": b, "rendered": content_ops.render_brief(b)})
+        if action == "review":
+            from core import editorial_review
+            result = (editorial_review.validate(args["channel"], args.get("text", ""), args["record"])
+                      if "record" in args else editorial_review.packet(args["channel"], args.get("text", ""), args.get("title", "")))
+            return _text(result)
+        if action == "audit":
+            res = content_ops.audit_text(args["channel"], args.get("text", ""),
+                                         title=args.get("title", ""))
+            return _text({"audit": res, "rendered": content_ops.render_audit(res)})
+        if action == "plan":
+            p = content_ops.plan(start=args.get("start", "2026-11-07"),
+                                 days=int(args.get("days", 14)),
+                                 channels=tuple(args.get("channels") or ("xiaohongshu", "wechat", "blog")))
+            return _text({"plan": p, "rendered": content_ops.render_plan(p)})
+        return _text({"error": "unknown action"})
+
     if name == "mkt_voice":
         from core import voice
         d = voice.draft(args["platform"], hook=args.get("hook", ""), what=args.get("what", ""))
         return _text({"profile": voice.profile(args["platform"]), "drafts": d["drafts"],
                       "rendered": voice.render(args["platform"])})
+
+    if name == "mkt_plain_language":
+        from core import expression
+        res = expression.check(args.get("text", ""))
+        return _text({"ok": res["ok"], "count": res["count"],
+                      "findings": res["findings"], "rule": res["rule"], "hint": res["hint"]})
 
     if name == "mkt_voice_lint":
         from core import voice
@@ -898,6 +1052,36 @@ def _call_tool(name, args):
         from core import playbooks
         return _text(playbooks.list_playbooks())
 
+    if name == "mkt_tactics":
+        from core import tactics as reg
+        action = str(args.get("action") or "list")
+        if action == "list":
+            return _text(reg.suggest(
+                channel=str(args.get("channel") or ""),
+                mechanism=str(args.get("mechanism") or ""),
+                risk_max=str(args.get("risk_max") or "gray"),
+                status=str(args.get("status") or ""),
+                include_stale=bool(args.get("include_stale"))))
+        if action == "show":
+            spec = reg.spec(str(args.get("id") or ""))
+            if spec is None:
+                return _err(f"未知战术: {args.get('id')}")
+            return _text(spec)
+        if action == "recommend":
+            facts = args.get("facts")
+            if not isinstance(facts, dict):
+                return _err("recommend 需要 facts（产品事实包对象）")
+            return _text(reg.recommend(
+                facts, str(args.get("goal_id") or ""),
+                phase=str(args.get("phase") or "cold_start"),
+                risk_max=str(args.get("risk_max") or "white"),
+                include_stale=bool(args.get("include_stale"))))
+        if action == "forbidden":
+            return _text(reg.FORBIDDEN)
+        if action == "stale":
+            return _text(reg.stale(str(args.get("on") or "") or None))
+        return _err(f"未知 action: {action}（list/show/recommend/forbidden/stale）")
+
     return _err(f"未知工具: {name}")
 
 
@@ -923,7 +1107,7 @@ def handle(msg):
         return {"jsonrpc": "2.0", "id": mid, "result": {
             "protocolVersion": PROTOCOL_VERSION,
             "capabilities": {"tools": {}},
-            "serverInfo": {"name": "mkt-server", "version": "0.13.0"},
+            "serverInfo": {"name": "mkt-server", "version": "0.14.0"},
         }}
     if method == "ping":
         return {"jsonrpc": "2.0", "id": mid, "result": {}}

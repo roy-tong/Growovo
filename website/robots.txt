@@ -1,0 +1,3 @@
+User-agent: *
+Allow: /
+Sitemap: https://roy-tong.github.io/Growovo/sitemap.xml

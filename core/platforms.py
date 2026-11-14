@@ -76,7 +76,7 @@ KIND_DEFAULTS: Dict[str, Dict[str, Any]] = {
         "risks": [("虚假互动", "播放与互动比例异常", "停一切刷量"),
                   ("内容判定", "视频被限流", "降频、提高制作质量")],
     },
-    "发射": {
+    "集中发布": {
         "account": ["账号有基本活跃历史", "物料齐全"],
         "residency": 7,
         "tier": "B 人改写 + 披露",
@@ -85,7 +85,7 @@ KIND_DEFAULTS: Dict[str, Dict[str, Any]] = {
                    ("被问到", "≥3 条实质评论", 2),
                    ("被用上", "≥5 个真实注册", 7),
                    ("被付费", "≥1 笔", 30)],
-        "scale": {"signal": "发射带来真实讨论而非只有票数",
+        "scale": {"signal": "集中发布带来真实讨论，而不只是票数",
                   "how": "不追加投放；把流量导进邮件列表"},
         "risks": [("拉票检测", "票数曲线异常", "停止一切求票，只回评"),
                   ("关联账号", "多号集中投票", "只用本人号")],
@@ -228,7 +228,7 @@ OVERRIDES: Dict[str, Dict[str, Any]] = {
    ]
   ],
   "scale": {
-   "signal": "一次发射带来 ≥10 条讨论且有人追问",
+   "signal": "一次集中发布带来 ≥10 条讨论且有人追问",
    "how": "不追加投放；转去承接渠道（GitHub）加人"
   },
   "risks": [
@@ -747,7 +747,7 @@ _NEW = [
      "aliases": ("邮件", "Gmail", "邮箱", "冷邮件", "发信", "求评"),
      "icp_tags": ["developers", "technical-founders", "b2b-buyers"], "product_types": ["devtool", "oss", "saas", "b2b-saas"],
      "channel_status": "PORTED",
-     "motions": [{"motion": "求评式 1:1（把对方放专家位，钩子用他公开的数字）", "label": "self_ab", "evidence": "一对一求评的候选打法；效果以自有实测为准"},
+     "motions": [{"motion": "求评式 1:1（把对方放专家位，钩子用他公开的数字）", "label": "self_ab", "evidence": "一对一求评的候选做法；效果以自有实测为准"},
                  {"motion": "批量群发 / 冷邮件报价", "label": "self_incident", "evidence": "批量冷邮件与无差别报价已有多起失败记录", "killed": True}],
      "cold_start": {"checklist": ["自有域名 + SPF/DKIM", "一封一封写，不群发"],
                     "expected": "求评式约 5% 回信；批量接近 0 [自家实测]"},
@@ -981,7 +981,7 @@ _CORE = [
             ],
             "expected": "launch 脉冲量级，方差极大 [假设·待测：本项目未验证]",
         },
-        "scale_gate": "Show HN 进前 30 或带 ≥10 个真实讨论 → 才规划第二次发射",
+        "scale_gate": "Show HN 进前 30 或带 ≥10 个真实讨论 → 才规划第二次集中发布",
         "risk": "中（官方指南亲核：禁 AI 文/禁自动发帖/禁拉票，见 docs/risk/hackernews.md）",
     },
     {
@@ -1367,7 +1367,7 @@ _KIND = {
     "zhihu": "内容", "juejin": "内容", "sspai": "内容", "wechat": "内容", "xiaohongshu": "内容",
     "youtube": "视频", "bilibili": "视频", "douyin": "视频", "channels": "视频",
     "kuaishou": "视频", "tiktok": "视频", "instagram": "视频",
-    "hackernews": "发射", "product-hunt": "发射", "kickstarter": "发射",
+    "hackernews": "集中发布", "product-hunt": "集中发布", "kickstarter": "集中发布",
     "email": "直连", "newsletter": "直连", "zhishixingqiu": "直连", "36kr": "直连",
     "seo": "搜索", "directory-sites": "目录", "taobao": "目录",
 }

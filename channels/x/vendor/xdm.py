@@ -14,6 +14,7 @@
   python3 xdm.py                      # 正式发送（读取 xdm-queue.json）
   python3 xdm.py --only <handle>
 """
+from session_page import connect_browser
 import argparse
 import json
 import os
@@ -353,7 +354,7 @@ def main() -> int:
 
     log(f"X DM 队列 {len(queue)} 条（dry-run={'是' if args.dry_run else '否'}）")
     with sync_playwright() as p:
-        browser = p.chromium.connect_over_cdp(CDP_URL)
+        browser = connect_browser(p.chromium, CDP_URL)
         page = browser.contexts[0].new_page()
         try:
             for idx, rec in enumerate(queue):

@@ -11,7 +11,11 @@ from pathlib import Path
 DEFAULT_FORBIDDEN = ["\u2014", "\u2013"]
 
 # 占位符残留 = 千人千面没做完，坚决不放行（449 事故同族风险）
-PLACEHOLDER_RE = re.compile(r"\{\{[^}{]*\}\}|\[NAME\]|\[TODO[^\]]*\]|\[COMPANY\]|<NAME>")
+PLACEHOLDER_RE = re.compile(
+    r"\{\{[^}{]*\}\}"          # {{name}} 双花括号
+    r"|\{[a-z][a-z0-9_]{1,19}\}"  # {name} 单花括号（模板没渲染就发出去，人会收到 {name}）
+    r"|\[NAME\]|\[TODO[^\]]*\]|\[COMPANY\]|<NAME>"
+)
 
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 

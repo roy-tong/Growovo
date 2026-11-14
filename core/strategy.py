@@ -5,7 +5,7 @@
 「这一轮具体怎么打」（动态：结合复盘结果、账号现状、人工预算）。
 
 输出四块，每一块都必须是能照着做的：
-  主渠道（1）+ 发射点（1）+ 不做（≥3，带理由）
+  主渠道（1）+ 集中发布渠道（1）+ 不做（≥3，带理由）
   冷启动五阶段：每阶段目标、判据、预计时长
   放大条件：什么信号出现才加量、加多少、往哪个方向加
   本周三件事：第一周具体做什么
@@ -17,6 +17,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
+from .expression import plain_output
 from . import gtm
 
 # 每个平台的运营参数。字段含义：
@@ -71,7 +72,7 @@ def build(product: Dict[str, Any], focus: Optional[Dict[str, Any]] = None,
     """生成这一轮的策略。focus 来自 gtm.diagnose；analysis 来自 retro。
 
     给了 goal_plan（mkt goal plan 的输出）时，平台分工以目标选择为准：
-    1 主渠道 + 1 发射点 + 最多 2 个辅助平台；旧复盘不再改写主渠道，
+    1 主渠道 + 1 集中发布渠道 + 最多 2 个辅助平台；旧复盘不再改写主渠道，
     因为旧数据的对象可能不是这一轮的目标人群。
     """
     constraints = constraints or {}
@@ -202,6 +203,7 @@ def _first_week(primary: str, pb: Dict[str, Any], constraints: Dict[str, Any]) -
     return tasks
 
 
+@plain_output
 def render(strategy: Dict[str, Any]) -> str:
     """业务语言渲染。不出现内部编码。"""
     from .narrative import table
@@ -234,12 +236,12 @@ def render(strategy: Dict[str, Any]) -> str:
         lines.append(f"**主渠道只有一个：{p['name']}。** {p['why']}。")
     lines.append("")
     if strategy.get("launch"):
-        lines.append(f"发射点：{strategy['launch']['name']}——{strategy['launch']['why']}。")
+        lines.append(f"集中发布渠道：{strategy['launch']['name']}——{strategy['launch']['why']}。")
         lines.append("")
     if g:
         rows = [["主渠道", p["name"], p["why"] or ""]]
         if strategy.get("launch"):
-            rows.append(["发射点", strategy["launch"]["name"], strategy["launch"]["why"]])
+            rows.append(["集中发布渠道", strategy["launch"]["name"], strategy["launch"]["why"]])
         for sup in strategy.get("support") or []:
             rows.append(["辅助", sup["name"], sup.get("why") or ""])
         lines.append("## 平台分工")
@@ -251,7 +253,7 @@ def render(strategy: Dict[str, Any]) -> str:
     if strategy.get("keep_small"):
         lines.append("## 保留但不主力")
         lines.append("")
-        lines.append(table(["打法", "为什么保留"],
+        lines.append(table(["做法", "为什么保留"],
                            [[x["name"], x["why"]] for x in strategy["keep_small"]]))
         lines.append("")
     if strategy["not_doing"]:

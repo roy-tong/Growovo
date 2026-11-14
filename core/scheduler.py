@@ -74,7 +74,8 @@ def save(data_dir: Path, schedule: Dict[str, Any]) -> Path:
 
 def add(data_dir: Path, *, schedule_id: str, queues: List[str], interval_minutes: int,
         go: bool = False, max_waves: Optional[int] = None,
-        start_at: Optional[datetime] = None) -> Dict[str, Any]:
+        start_at: Optional[datetime] = None,
+        routine: bool = False, account: str = "") -> Dict[str, Any]:
     if not str(schedule_id or "").strip():
         raise ScheduleError("schedule needs an id")
     if interval_minutes < 1 or interval_minutes > 7 * 24 * 60:
@@ -95,6 +96,10 @@ def add(data_dir: Path, *, schedule_id: str, queues: List[str], interval_minutes
         "queues": [str(Path(queue)) for queue in queues],
         "interval_minutes": interval_minutes,
         "go": bool(go),
+        # routine=True：波次按常驻授权跑（只替代逐次 plan 人审；policy 无效时
+        # run_queue 内部 fail-closed 回退原审批路径并拒跑，不会伪装通过）
+        "routine": bool(routine),
+        "account": str(account or ""),
         "max_waves": max_waves,
         "waves_done": 0,
         "status": "active",
@@ -177,8 +182,12 @@ def tick(data_dir: Path, *, now: Optional[datetime] = None,
             for queue_path in schedule.get("queues") or []:
                 if is_paused(data_dir):
                     raise ScheduleError("global pause turned on during the wave")
+                runner_kwargs = {}
+                if schedule.get("routine"):
+                    runner_kwargs = {"routine": True,
+                                     "account": schedule.get("account") or ""}
                 records = runner(Path(queue_path), data_dir=data_dir, go=bool(schedule.get("go")),
-                                 log=log)
+                                 log=log, **runner_kwargs)
                 records = list(records or [])
                 results = [str(record.get("result") or "") for record in records if isinstance(record, dict)]
                 wave["queues"].append({"queue": queue_path, "records": len(records),

@@ -116,7 +116,7 @@ def materialize(data_dir: Path | str, *, work_order_id: str, step_id: str,
         "queue": result["queue"],
         "next": [
             f"mkt review {campaign}",
-            f"mkt plan approve {campaign} --by <human>",
+            f"mkt plan approve --id {campaign} --by <human>",
             f"mkt queue run {result['queue']} --go  # 仅人工授权后",
         ],
         "boundary": "只生成计划与队列，未发送；执行审批指纹覆盖 plan.provenance 与实际 queue/account/workspace。",

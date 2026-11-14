@@ -265,6 +265,20 @@ def render_markdown(plan):
 # 结构是数据，不是流程——执行仍走 mkt intent 与 mkt queue 两条既有路径。
 # ---------------------------------------------------------------------------
 PLAYBOOKS: Dict[str, Dict[str, Any]] = {
+    "xiaohongshu-daily-two": {
+        "name": "小红书每天两篇：快速涨粉与完整场景产品",
+        "channel": "xiaohongshu",
+        "status": "proposed",
+        "evidence": "2026-11-05用户指定；经验研究形成试验候选，尚无本账号对照结果",
+        "caution": "策略注册不等于发布授权或平台允许；互动领取A须核实适用性，不自动执行；收入非北极星",
+        "steps": ["核对粉丝基线与账号条件", "7份母材料生成14篇不同切口", "A互动领取/B公开弱CTA/C首次任务协助分组",
+                  "完整场景产品验收", "经既有授权路径发布并回读", "观察净增粉丝、取关、真实使用与自愿推荐"],
+        "quota": {"posts_per_day_min": 2, "posts_per_week_min": 14},
+        "primary_metric": "net_followers_7d_14d",
+        "guide": "docs/playbooks/战术/xiaohongshu-daily-two.md",
+        "strategy_file": "docs/playbooks/战术/xiaohongshu-daily-two.json",
+        "auto_execute": False,
+    },
     "github-inbox": {
         "name": "GitHub Inbox 分流",
         "channel": "github",
@@ -288,6 +302,27 @@ PLAYBOOKS: Dict[str, Dict[str, Any]] = {
         "quota": {"actions_per_week": 20, "min_sample": 40, "deleted_max": 0.15,
                   "response_pass": 0.10, "response_maybe": 0.03},
         "caution": "AI 生成正文会被 AutoModerator 直接拦；被删不要重发",
+    },
+    "x-reply-guy": {
+        "name": "X 高价值回帖四周",
+        "channel": "x",
+        "evidence": ("自家实测（2026-11）：回帖触达明显大于原创帖；"
+                     "外部追踪 300 个小账号 84% 靠回帖涨到一万粉（teract.ai）；"
+                     "X 开源算法回复权重约 9 倍于点赞"),
+        "status": "usable",
+        "steps": ["第 1 周：建 10-15 个目标账号清单（自己粉丝量 5-20 倍），开通知",
+                  "第 2 周：每天 15-20 条高质量回复，只回 30 分钟内、回复数少于 20 的帖子",
+                  "第 3 周：不加新量，把回应过的人跟完",
+                  "第 4 周：三选一判定（继续/调参/停），人判不自动判"],
+        "quota": {"daily_min": 15, "daily_cap": 20, "per_target_daily_max": 2,
+                  "per_hour_max": 20, "reply_within_minutes": 30,
+                  "skip_if_post_replies_over": 20, "min_sample": 80,
+                  "deleted_max": 0.15, "response_pass": 0.10, "response_maybe": 0.03},
+        "primary_metric": "profile_visits_per_week",
+        "guide": "docs/playbooks/战术/x-reply-guy-4周.md",
+        "registry": "core/tactics.py",
+        "auto_execute": False,
+        "caution": "回复永不放外链；手写为主，X 反对自动化，批量脚本回复是封号路径",
     },
 }
 

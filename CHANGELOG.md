@@ -1,5 +1,109 @@
 # Changelog
 
+## 0.14.0 - 2026-11-14
+
+### Added
+
+- **Tactic portfolio recommender**: `mkt tactic recommend --facts <facts.json>
+  [--goal awareness.followers]` turns the 82-tactic registry into an input to
+  strategy design — transparent scoring (goal-family match +3, usable +2,
+  channel match +2, phase +1), at most 2 picks per mechanism, stale evidence
+  excluded by default. Every pick carries its full steps/quota/caution and a
+  human-readable "why".
+- **Competitor event watchline** (`core/watch.py` + `mkt watch
+  start/add/remove/check/events/summary`): snapshots competitor price/status/
+  changelog pages, diffs text signatures on a cron-friendly `check`, and emits
+  events to `data/watch/events.jsonl` with the matching counter-tactics
+  (price change → price-hike-harvest / vs-page-matrix / migration-narrative).
+  Read-only; dead links are refused at add time; fetch failures are skipped,
+  never mistaken for changes. Schema in `data/schemas.md`.
+- **MCP `mkt_tactics`** (read-only): agents can access the whole strategy
+  knowledge base at runtime — list/suggest with filters, show full entries,
+  recommend a portfolio from product facts + goal, forbidden list and stale
+  check. This is the on-demand access path for the four research rounds
+  (82 tactics / 19 mechanism families / 11 disproven approaches); the
+  human-readable index (now with per-family research-round provenance) lives
+  in `docs/playbooks/战术/非常规增长战术总表.md`.
+- Tests: `tests/test_tactic_capabilities.py` (11) — recommendation
+  goal-family dominance, channel scoping, diversity/staleness, watch
+  diff/failure/validate flows, MCP direct dispatch, CLI end-to-end with
+  local `file://` pages (zero real network).
+
+- **Goal-driven operations**: `mkt grow launch` compiles product facts and a
+  growth goal into channel strategy, quotas, audience time windows and content
+  briefs. Daily execution, results, weekly review and user decisions share one
+  persistent run. X and email are the automated write channels in this release.
+- **Session gate — an account is the browser's logged-in state**:
+  `core/session_gate.py` is the single source of per-site login probes (300s
+  cache, zero credentials). Real writes on CDP channels are gated after the
+  approval check: a missing login state is rejected explicitly instead of
+  surfacing as an indeterminate vendor failure. `mkt check` renders from the
+  same table, `grow launch` verifies X login before the first reading, and
+  `grow doctor` reports per-channel login state (logged-out is a blocker,
+  missing debugging Chrome a warning).
+- **Supply staging ahead of the day**: `grow_agent.produce` now fills deficits
+  across the `supply.min_cover_days` window (per-day, keyed by
+  `scheduled_for`) instead of only today — matching the doctor/grow_schedule
+  supply check, so the "缺 1 条" evening warning is actually fillable in
+  advance. Readings (`x stats`) report a missing login state explicitly
+  instead of a vague "取不到", and `mkt check` can now probe Zhihu login
+  state (manual-tier channel, visibility first). `grow_schedule.supply_status`
+  gained `done_today` so a day's already-committed quota counts as coverage —
+  the evening "缺 1 条" warning no longer fires when the day is actually done.
+- **Local Codex content production**: bounded candidate qualification, drafting,
+  independent review and queue replenishment using the locally authenticated
+  Codex CLI. Retry backoff, daily attempt limits and per-run locks protect the
+  execution loop. New runs configure the writer; live sending still requires
+  standing authorization and explicit arm.
+- **Relevant KOC discovery**: vertical evidence, precise queries, commercial
+  signal scoring, cross-day author deduplication and an auditable target list.
+  `mkt target` manages candidate → contacted → engaged → amplified → partner;
+  each transition requires an evidence note. Tactic runs consume KOC outcomes.
+- **Content operations and tactics**: editorial review, reader-first expression,
+  channel capability checks, executable tactic constraints and evidence expiry.
+- **Operations tools**: daemon, heartbeat, doctor, scheduler installation, daily
+  Markdown/HTML cards and weekly result cards. Card delivery generates local
+  files; sending email is a separate explicitly live operation.
+
+### Fixed and integrated
+
+- Integrated the evening iteration: 82 tactics, goal-based portfolio selection,
+  read-only competitor page monitoring and MCP tactic access. Goal compilation
+  embeds a white-risk advisory portfolio within the explicitly selected channels.
+- Browser login checks require a positive authenticated UI marker; an unchanged
+  URL is insufficient. Native Playwright `no_defaults` replaces dependence on a
+  locally patched driver when supported by the installed version.
+- Future supply crosses weekly quota boundaries. Competitor monitors ignore
+  scripts, empty/challenge pages and failed fetches, isolate event histories by
+  list and report changes as needing review rather than confirmed price hikes.
+
+- Applied target trust scoring to automatic prospect ranking; unknown sponsor
+  data stays unknown. Weekly target metrics count the correct event and time
+  window, and KOC metrics exclude large accounts.
+- Excluded stale queues from production inventory so expired content cannot
+  prevent replenishment. Preserved stale-content rejection and send pacing.
+- Bound generated launchd/cron/fallback scripts to their product workspace and
+  stored absolute product-facts paths. Included reviewed experience records in
+  installed distributions, with an isolated wheel acceptance check.
+- Added atomic persistence and concurrency guards, target-list overwrite
+  protection, normalized account deduplication and ambiguous-handle rejection.
+- Unified X reply/publish execution, stable logical post identities and browser
+  tab reuse. Readbacks select the actual published post, deduplicate daily
+  measurements and require sufficient samples before proposing adjustments.
+- Kept pause, suppression, budget, approval, identity and indeterminate-result
+  safeguards in the shared execution path. Sending does not prove conversion;
+  volume increases remain user decisions.
+
+### Validation and limits
+
+- 1,075 offline tests, zero-network demo, doctor self-test and isolated wheel
+  acceptance. CI verifies Python 3.9 and 3.11 before release.
+- X analytics readers remain UNVERIFIED until calibration is complete. Missing
+  metrics remain unknown; no business growth or conversion is claimed.
+- Existing live runs keep their authorization, quotas and model configuration.
+  Enable the writer with `mkt grow agent <id>` when needed. Scheduler scripts
+  generated before this release should be regenerated to bind the workspace.
+
 ## 0.13.0 - 2026-11-05
 
 This release adds account-identity binding to standing authorization, closing

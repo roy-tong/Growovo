@@ -1,16 +1,41 @@
 # Growovo: implementation status
 
-Reviewed 2026-11-05. **Working baseline: v0.13.0 (2026-11-05).** Available means local implementation and local tests, not production validation on every platform or proof of business outcomes.
+Reviewed 2026-11-14. **Working baseline: v0.14.0 (grow v2).** Available means local implementation and local tests, not production validation on every platform or proof of business outcomes.
 
 > Business architecture: [GTM 业务操作系统 v5](gtm-os/README.md) covers role families 07–46, work-order/SOP/deliverable/handoff contracts, KPI definitions and templates. R0/R1 are now locally implemented; see [implementation and remaining boundaries](gtm-os/05-implementation.md). Registry coverage is not equivalent to all 40 professional SOPs being executable or externally effective.
 
 ## Verification snapshot
 
-- `python3 -m unittest discover -s tests`: **681 tests pass**.
+- `python3 -m unittest discover -s tests`: **1075 tests pass**.
 - `python3 mkt.py demo`: plan validation, human approval, write pipeline and ledger pass.
 - `python3 mkt.py work-demo`: context → objective → WorkOrder → SOP → accepted deliverables → receiver handoff → approved plan/queue → independent KPI observation passes; no queue execution or send ledger.
-- Isolated wheel build and target install: v0.9.0 was verified; v0.10.0 shipped through the release workflow; the v0.11.0 wheel is rebuilt by the release workflow.
+- v0.14.0 wheel acceptance runs outside the source checkout, covering packaged experience records, target management, goal compilation and scheduler workspace binding.
+- Grow v2: launch → stage → tick (virtual clock, 7/14-day simulations) → daily → decide → weekly report → install; zero real sends.
 - Real CLI checks also cover email queue approval and dry-run, X reply queue contract, manual work sheets, campaign isolation, opportunity discovery, value artifacts, journeys, account lifecycle and pricing experiments. No real account sends in tests.
+
+## Feedback loop corrections (2026-11-14)
+
+See [requirements, implemented fixes and remaining gaps](grow-feedback-improvements-20261114.md). Live ticks now collect daily own-post snapshots and include learning in daily cards. Sampling deduplicates posts, validates rate sample counts and normalizes target keys. Reapplying the same learning evidence is a no-op. Mixed prospect lists consume the configured KOC share. Codex content-agent replenishment, semantic target review and independent editorial review are now integrated; see [autonomous operations](grow-autonomous-operations.md). No growth outcome claim is made.
+
+## Result loop v2 (2026-11-14, local implementation)
+
+| Area | Local implementation | Verification and remaining boundary |
+|---|---|---|
+| Strategy compilation | `core/grow_compile.py` turns facts + goal into RunSpec v2 (channel roles, quota, windows, supply briefs, readers, guards, fingerprint). Only AUTO channels (x/email) can be compiled; others are rejected with the platform matrix. | Deterministic and unit-tested; strategy choice reuses existing goals/strategy modules. |
+| Quota-driven execution | `core/grow_schedule.py` splits the weekly plan into 7 days; `grow_v2.tick` sends at most the daily quota, defers out-of-window and over-quota items, enforces dead-zone ban. | Unit + virtual-clock 7-day simulation; no production week yet. |
+| Supply pipeline | `mkt grow briefs` / `stage`; queue lint at stage time; supply coverage/gap in telemetry and daily status. | Agent still writes the copy; quality is agent-owned, not machine-guaranteed. |
+| Readings | tick runs a read primitive daily, records outcome counts, degrades on sensor failure instead of stopping the loop; 3-day silence surfaces in doctor. | X reader is UNVERIFIED until 7 human calibrations; email has no open tracking. |
+| Daily result + decision | `mkt grow daily` and `decide continue|optimize`; optimize only changes executor parameters with rollback. | Business-event funnel is only shown when a data source exists (`collector`). |
+| Weekly card + delivery | `core/result_card.py` v2 adds business events, guardrails, supply and next-week actions; `core/deliver.py` writes md/html and dry-run `.eml`. | Email delivery defaults to dry-run; live SMTP needs credentials. |
+| Supply discovery | `core/grow_targets.py` + `mkt grow targets`: read-only X search, engagement/age filters, excludes self/committed/staged. | Candidates are not content; no auto-reply, no auto-follow. |
+| Account selection (KOC) | `core/grow_fit.py` + `mkt grow prospects`: auto queries, two-stage selection, KOC tiers (1k–50k first), engagement exclusion, persistent `koc_watchlist.json`, near-miss explanations. | Heuristic scoring, not a promise of reach; profile reads are read-only. |
+| Content strategy | `core/grow_content.py` + `mkt grow formulas`: reply/post formulas, layer mix, 0–100 structural score, formula suggestion, `stage --resolve-target/--strict`, no links/product in replies. | Heuristic structure check, not a traffic predictor. |
+| Learning loop | `core/grow_learning.py` + `mkt grow metrics/learn`: own-post metrics, formula/window/tier buckets, n≥3 before proposals, rollback on apply. | Metrics are public proxies; correlation not causation. |
+| Reviews | `mkt grow review --days N`: published vs plan, reading coverage, failures, decisions, supply gap, advice; md+html+json. | Advice is directional; committed is not conversion. |
+| Auto supply (optional) | `core/grow_agent.py`: local Codex CLI writes body text only; target/formula/schedule/send stay in Growovo; structural gate + independent review; daily attempt budget, backoff, process lock, KOC-only early phase, one touch per author. | Requires a local authenticated Codex CLI; model output is untrusted text and never selects destinations. |
+| Send pacing & stale | `queue_runner` waits 60–120s between real sends; stale items (>2 days) are counted in tick/review, not silently resent. | Timing is a human-rhythm guard, not a platform guarantee. |
+| Operations | `core/grow_ops.py`: heartbeat, doctor, launchd/crontab generation (no auto-load), scheduler check; `mkt grow daemon` + `run-loop.command` fallback. | Installer writes files only; loading launchd is a human step; macOS Documents protection is detected, not bypassed. |
+| Platform boundary | `core/platform_caps.py`: AUTO = x/email only; gated = github/reddit/hn/linkedin; manual = everything else. | `mkt grow platforms` is the single source of truth for "full automation" claims. |
 
 ## Baseline capabilities (through v0.13.0)
 
@@ -24,6 +49,8 @@ Reviewed 2026-11-05. **Working baseline: v0.13.0 (2026-11-05).** Available means
 | Deep retrospective | `core/logscan.py` + `core/retro.py` + `core/narrative.py` + `mkt retro` | Large local scans work, including a 10,174-file case. Structured action→receipt→reply→outcome evidence is preferred; repeated prose is not independent proof |
 | Experience pipeline | `core/experience.py` + `mkt exp` + harvest/build/render scripts + `mkt_experience` | 129 raw records in the current snapshot. Raw records do not automatically become eligible. Official rules, reproducible methods, single-expert experience, short-term tactics and own tests have different eligibility rules. No fabricated fresh coverage |
 | Experience eligibility | `eligible()` / `assess_eligibility()` require canonical URL, access rights, relevance, independent support where applicable, human review, ASR status and type-specific freshness | `as_prompt_lines`, strategy and MCP use eligible records only. Expired, unreviewed, irrelevant, URL-less or single-source claims cannot be presented as general rules. Single-expert input can only generate an experiment |
+| Plain language | `core/expression.py` + `mkt voice plain` + `mkt_plain_language`: one rule (no coined metaphor nouns), a term map, find/fix, CLI exit 2 when it fires | A check is a spelling-level guard, not an editor: mechanical replacement can still produce a wrong sentence, so the writer must re-read. Machine keys (JSON field names) are out of scope |
+| Content operations | `core/content_ops.py` + `mkt content rules|brief|audit|plan` + `mkt_content`: three channel contracts (XHS/WeChat/blog), positioning, A/B/C CTA, product-intro checks, draft audit and a 14-day schedule skeleton | Audit checks the local writing contract only; it does not verify facts, platform distribution, images or audience response. 14 dedicated tests |
 | Voice and value content | `core/voice.py` has 37 platform profiles with tone, sentence style, openers and taboos; `mkt voice` and `mkt_voice_lint` | `check_preservation` checks facts, URLs, numbers and disclosures. Profile skeletons do not prove content value or platform acceptance |
 | Platform source | `core/platforms.py` has 37 unique platform entries and 6 write-action mappings | Registration is not research completion or execution verification. Every platform must pass strategy, cadence and manual-sheet contract tests; generic Verovo numbers, duplicate `_CORE` and Star gates were removed |
 | Platform × Motion × Vertical | `core/playbook_model.py` composes platform rules, reusable growth motions and vertical-specific value/acceptance constraints | A composed playbook is a candidate workflow, not evidence of channel effectiveness or platform permission |
