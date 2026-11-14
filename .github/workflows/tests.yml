@@ -9,7 +9,7 @@ permissions:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04  # Python 3.9 is unavailable on Ubuntu 26.04 runners
     strategy:
       fail-fast: false
       matrix:
