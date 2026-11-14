@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Growovo — the agent-native GTM operator</title>
+<meta name="description" content="Growovo is for indie developers and one-person companies: give it product facts and one growth goal; it sets the strategy, runs it, and delivers a daily business result. Phase one automates X + Email. Open source (MIT): CLI / MCP / Agent Skill.">
+<link rel="canonical" href="https://roy-tong.github.io/Growovo/en.html">
+<meta name="theme-color" content="#fafbfc">
+<!-- GSC/Bing verification meta goes on the line below this comment -->
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Growovo">
+<meta property="og:title" content="Growovo — the agent-native GTM operator">
+<meta property="og:description" content="Give it product facts and a growth goal. It plans, runs, and delivers daily results — automatically. Phase one automates X + Email. Open source (MIT).">
+<meta property="og:url" content="https://roy-tong.github.io/Growovo/en.html">
+<meta property="og:image" content="https://roy-tong.github.io/Growovo/assets/social-preview.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="Growovo: agent-native GTM operator (open source, MIT)">
+<meta property="og:locale" content="en_US">
+<meta property="og:locale:alternate" content="zh_CN">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Growovo — the agent-native GTM operator">
+<meta name="twitter:description" content="Give it product facts and a growth goal. It plans, runs, and delivers daily results — automatically. Open source (MIT).">
+<meta name="twitter:image" content="https://roy-tong.github.io/Growovo/assets/social-preview.png">
+<link rel="alternate" hreflang="en" href="https://roy-tong.github.io/Growovo/en.html">
+<link rel="alternate" hreflang="zh-CN" href="https://roy-tong.github.io/Growovo/">
+<link rel="alternate" hreflang="x-default" href="https://roy-tong.github.io/Growovo/">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  "name": "Growovo",
+  "applicationCategory": "BusinessApplication",
+  "operatingSystem": "macOS, Linux, Windows",
+  "description": "Agent-native GTM operator: give it product facts and one growth goal; it sets the strategy, runs it, and delivers a daily business result. Phase one automates X + Email. CLI / MCP / Agent Skill, MIT open source.",
+  "url": "https://roy-tong.github.io/Growovo/en.html",
+  "codeRepository": "https://github.com/roy-tong/Growovo",
+  "license": "https://opensource.org/license/mit",
+  "author": { "@type": "Person", "name": "Roy Tong", "url": "https://github.com/roy-tong" },
+  "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" }
+}
+</script>
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "FAQPage",
+  "mainEntity": [
+    { "@type": "Question", "name": "Which platforms can Growovo fully automate?", "acceptedAnswer": { "@type": "Answer", "text": "Phase one commits to X and Email only (X is PROVEN, Email is PORTED). GitHub, Reddit, Hacker News and LinkedIn are gated behind a supervised first run. Manual channels such as Xiaohongshu and Zhihu get work orders only and are excluded from automated volume. Check the current state any time with mkt grow platforms." } },
+    { "@type": "Question", "name": "Will it get my account banned?", "acceptedAnswer": { "@type": "Answer", "text": "It only operates accounts you own or are explicitly authorized to run. Every send goes through authorization gates and a dry-run, so you can see what it intends to do before allowing it; no bypasses around platform rules are provided. It also does not promise platform reach." } },
+    { "@type": "Question", "name": "How is this different from a scheduling tool?", "acceptedAnswer": { "@type": "Answer", "text": "A scheduler publishes content you already wrote. Growovo starts from your product facts and one growth goal: it sets the strategy, builds the plan, executes, and records execution volume and daily readings in a verifiable ledger. Strategy and weekly reports are internal artifacts; the deliverable is a daily business result." } },
+    { "@type": "Question", "name": "How do I verify the results it reports?", "acceptedAnswer": { "@type": "Answer", "text": "Every committed action is in the ledger; daily follower and impression readings are screenshot-backed and labelled by evidence grade; mkt demo runs the full loop locally in about a second with zero network and zero accounts. The counter-examples are public too: the launch autopsy documents a real campaign that produced 0 new stars." } },
+    { "@type": "Question", "name": "Does it cost money?", "acceptedAnswer": { "@type": "Answer", "text": "The tool itself is MIT open source with no paid tier. Local compute and model usage are billed by your own environment." } },
+    { "@type": "Question", "name": "What happens when something fails?", "acceptedAnswer": { "@type": "Answer", "text": "Failures stop the loop for human adjudication instead of pushing through; completion rates drive volume-change suggestions; supply gaps alert before they run out." } }
+  ]
+}
+</script>
+<style>
+:root{--ink:#1a1d21;--mut:#5b6470;--line:#e4e7ec;--bg:#fafbfc;--accent:#0d6b3f;--warn:#8a5a00}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font:16px/1.75 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:var(--ink);background:#fff}
+main{max-width:760px;margin:0 auto;padding:48px 20px 80px}
+h1{font-size:30px;line-height:1.3;letter-spacing:-.5px}
+h2{font-size:20px;margin:44px 0 12px}
+h3{font-size:16px;margin:22px 0 6px}
+p{margin:10px 0}
+a{color:var(--accent)}
+.tagline{font-size:18px;color:var(--mut);margin-top:10px}
+.badge{display:inline-block;font-size:13px;border:1px solid var(--line);border-radius:20px;padding:1px 12px;margin:14px 8px 0 0;color:var(--mut);background:var(--bg)}
+table{width:100%;border-collapse:collapse;margin:14px 0;font-size:15px}
+th,td{text-align:left;padding:9px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font-weight:600;background:var(--bg)}
+code,pre{font:13.5px/1.6 ui-monospace,SFMono-Regular,Menlo,monospace}
+code{background:var(--bg);border:1px solid var(--line);border-radius:4px;padding:1px 5px}
+pre{background:var(--ink);color:#e8edf2;border-radius:8px;padding:14px 16px;overflow-x:auto;margin:14px 0}
+pre code{background:none;border:none;color:inherit;padding:0}
+.note{border-left:3px solid var(--warn);background:#fffaf0;padding:10px 14px;border-radius:0 6px 6px 0;margin:14px 0;font-size:15px}
+footer{border-top:1px solid var(--line);margin-top:56px;padding-top:18px;color:var(--mut);font-size:14px}
+</style>
+</head>
+<body>
+<main>
+<h1>Growovo</h1>
+<p class="tagline">Give it product facts and a growth goal. It plans, runs, and delivers daily results — automatically.</p>
+<span class="badge">MIT open source</span><span class="badge">CLI / MCP / Agent Skill</span><span class="badge">v0.14.0</span>
+
+<h2>What it is</h2>
+<p>Growovo is for <strong>indie developers and one-person companies</strong> — and for engineers who went full-stack and got handed GTM along with the codebase. You give it product facts and one growth goal; it sets the strategy, runs it, and delivers a daily business result: how many pieces went out, daily impressions, new followers. Strategy, plans and weekly reports are internal artifacts, not the deliverable.</p>
+<p><strong>Full automation starts with platforms that can actually be automated.</strong> Phase one commits to X + Email (verified write paths). GitHub, Reddit, Hacker News and LinkedIn are gated behind a supervised first run; manual channels such as Xiaohongshu and Zhihu get work orders only. See the <a href="https://github.com/roy-tong/Growovo/blob/main/docs/platform-automation-matrix.md">platform automation matrix</a>.</p>
+
+<h2>Exactly three verifiable commitments</h2>
+<table>
+<tr><th>Commitment</th><th>Meaning</th></tr>
+<tr><td>Execution volume</td><td>every committed action is in the ledger</td></tr>
+<tr><td>Honest readings</td><td>daily follower and impression snapshots, screenshot-backed and labelled by evidence grade</td></tr>
+<tr><td>Closed-loop responsibility</td><td>completion drives volume changes, supply gaps alert early, failures stop the loop for human adjudication</td></tr>
+</table>
+<p>It does not promise platform reach, and does not dress unverified channels up as full automation.</p>
+
+<h2>Install and verify</h2>
+<pre><code>pipx install growovo
+mkt demo</code></pre>
+<p>v0.14.0 integrates goal-driven execution, local Codex production and review, KOC ranking, 82 tactics and read-only competitor monitoring. Real execution needs authorized actions, signed-in sessions and an online device; missing readings are shown as missing.</p>
+<p><a href="https://github.com/roy-tong/Growovo/releases/tag/v0.14.0">Release notes</a> · <a href="https://pypi.org/project/growovo/">PyPI</a> · <a href="https://github.com/roy-tong/Growovo/blob/main/docs/grow-autonomous-operations.md">Autonomous operations config</a></p>
+
+<h2>Verify from source (demo is zero-network, zero-account)</h2>
+<pre><code>git clone https://github.com/roy-tong/Growovo.git &amp;&amp; cd Growovo
+python3 mkt.py demo                 # returns in about a second, no accounts
+python3 mkt.py grow platforms       # what phase one can fully automate</code></pre>
+<p class="note">See the receipts before deciding whether to trust it: <a href="https://github.com/roy-tong/Growovo/blob/main/docs/launch-autopsy-20261105.md">Launch autopsy: 73 tweets in 11 hours, 0 new stars</a> — a real campaign run with this tool, the numbers it produced, and the ledger gap it exposed in our own process.</p>
+<p>New to growth as an engineer? Start with <a href="https://github.com/roy-tong/Growovo/blob/main/docs/growth-for-engineers.en.md">Growth is now your job</a>. Why not write your own script or use a general automation platform? <a href="https://github.com/roy-tong/Growovo/blob/main/docs/compare.md">How Growovo compares</a> says where it loses and where it wins.</p>
+
+<h2>Agent interfaces</h2>
+<table>
+<tr><th>Entry</th><th>Notes</th></tr>
+<tr><td>CLI <code>mkt.py</code></td><td><code>demo</code> / <code>grow launch·arm·daily·review</code> / <code>policy enable</code>, authorization gates + dry-run</td></tr>
+<tr><td>MCP <code>mcp_server.py</code></td><td>stdio JSON-RPC 2.0, zero third-party dependencies, Claude Desktop / Codex can connect directly</td></tr>
+<tr><td>Agent Skill</td><td><a href="https://github.com/roy-tong/Growovo/blob/main/skills/growovo-gtm/SKILL.md">growovo-gtm</a>: GTM judgment and protocols</td></tr>
+</table>
+
+<h2 id="faq">FAQ</h2>
+<h3>Which platforms can it fully automate?</h3>
+<p>Phase one: X and Email only (X is PROVEN, Email is PORTED). GitHub, Reddit, Hacker News and LinkedIn need one supervised first run. Manual channels such as Xiaohongshu and Zhihu get work orders only and never count toward automated volume. Check any time with <code>mkt grow platforms</code>.</p>
+<h3>Will it get my account banned?</h3>
+<p>It only operates accounts you own or are explicitly authorized to run. Sends go through authorization gates and a dry-run first; there are no bypasses around platform rules, and no promises about platform reach.</p>
+<h3>How is this different from a scheduling tool?</h3>
+<p>A scheduler publishes what you already wrote. Growovo starts from product facts and a growth goal — it sets strategy, builds the plan, executes, and records execution volume and daily readings in a verifiable ledger. The deliverable is a daily business result, not a queue of posts.</p>
+<h3>How do I verify the results?</h3>
+<p>Every committed action is in the ledger; daily readings are screenshot-backed with evidence grades; <code>mkt demo</code> runs the whole loop locally in about a second. Counter-examples are public — the launch autopsy above documents a campaign that got 0 new stars.</p>
+<h3>Does it cost money?</h3>
+<p>The tool is MIT open source with no paid tier. Local compute and model usage are billed by your own environment.</p>
+<h3>What happens when something fails?</h3>
+<p>Failures stop the loop for human adjudication; completion rates drive volume-change suggestions; supply gaps alert before they run out.</p>
+
+<h2>Links</h2>
+<ul>
+<li>Repo and docs: <a href="https://github.com/roy-tong/Growovo">GitHub roy-tong/Growovo</a> (<a href="https://github.com/roy-tong/Growovo/blob/main/README.md">中文 README</a> · <a href="https://github.com/roy-tong/Growovo/blob/main/docs/feature-status.md">feature status</a> · <a href="https://github.com/roy-tong/Growovo/blob/main/docs/platform-automation-matrix.md">platform automation matrix</a>)</li>
+<li>LLM entry: <a href="https://roy-tong.github.io/Growovo/llms.txt">/llms.txt</a> · <a href="https://raw.githubusercontent.com/roy-tong/Growovo/main/llms.txt">repo llms.txt</a> · <a href="./" hreflang="zh-CN">中文页面</a></li>
+<li>ovo family: research layer <a href="https://roy-tong.github.io/Askovo/">Askovo</a> (<a href="https://github.com/roy-tong/Askovo">repo</a>) · verification layer <a href="https://roy-tong.github.io/Verovo/">Verovo</a> (<a href="https://github.com/roy-tong/Verovo">repo</a>)</li>
+</ul>
+
+<footer>Growovo · MIT License · Execution volume, honest readings, closed-loop responsibility — only what can be verified.<br>
+ovo family: research <a href="https://roy-tong.github.io/Askovo/">Askovo</a> → execution Growovo → verification <a href="https://roy-tong.github.io/Verovo/">Verovo</a> · <a href="./">中文</a></footer>
+</main>
+</body>
+</html>

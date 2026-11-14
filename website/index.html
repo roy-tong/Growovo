@@ -6,6 +6,55 @@
 <title>Growovo — 给增长目标的自动 GTM 操作员</title>
 <meta name="description" content="Growovo 面向独立开发者与一人公司：给产品事实和一个增长目标，它自己定策略、自己执行，每天交付业务结果。第一期 X + Email 可全自动执行。开源（MIT），CLI / MCP / Agent Skill 三入口。">
 <link rel="canonical" href="https://roy-tong.github.io/Growovo/">
+<meta name="theme-color" content="#fafbfc">
+<!-- GSC/Bing 验证码插在这行下面：Search Console 与 Bing WMT 给的 <meta name=...> 标签原样粘贴即可 -->
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Growovo">
+<meta property="og:title" content="Growovo — 给增长目标的自动 GTM 操作员">
+<meta property="og:description" content="面向独立开发者与一人公司：给产品事实和一个增长目标，它自己定策略、自己执行，每天交付业务结果。第一期 X + Email。开源（MIT）。">
+<meta property="og:url" content="https://roy-tong.github.io/Growovo/">
+<meta property="og:image" content="https://roy-tong.github.io/Growovo/assets/social-preview.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="Growovo：给增长目标的自动 GTM 操作员（开源 MIT）">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:locale:alternate" content="en_US">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Growovo — 给增长目标的自动 GTM 操作员">
+<meta name="twitter:description" content="给产品事实和一个增长目标，它自己定策略、自己执行，每天交付业务结果。第一期 X + Email。开源（MIT）。">
+<meta name="twitter:image" content="https://roy-tong.github.io/Growovo/assets/social-preview.png">
+<link rel="alternate" hreflang="zh-CN" href="https://roy-tong.github.io/Growovo/">
+<link rel="alternate" hreflang="en" href="https://roy-tong.github.io/Growovo/en.html">
+<link rel="alternate" hreflang="x-default" href="https://roy-tong.github.io/Growovo/">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  "name": "Growovo",
+  "applicationCategory": "BusinessApplication",
+  "operatingSystem": "macOS, Linux, Windows",
+  "description": "Agent-native GTM 操作员：给产品事实和一个增长目标，自己定策略、自己执行，每天交付业务结果。第一期 X + Email。CLI / MCP / Agent Skill，MIT 开源。",
+  "url": "https://roy-tong.github.io/Growovo/",
+  "codeRepository": "https://github.com/roy-tong/Growovo",
+  "license": "https://opensource.org/license/mit",
+  "author": { "@type": "Person", "name": "Roy Tong", "url": "https://github.com/roy-tong" },
+  "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" }
+}
+</script>
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "FAQPage",
+  "mainEntity": [
+    { "@type": "Question", "name": "Growovo 能全自动发哪些平台？", "acceptedAnswer": { "@type": "Answer", "text": "第一期只有 X 和 Email（X 为 PROVEN，Email 为 PORTED）；GitHub、Reddit、Hacker News、LinkedIn 需要人工首跑一次才解锁；小红书、知乎这类人工渠道只出作业单，不计入自动发布量。用 mkt grow platforms 随时查看当前状态。" } },
+    { "@type": "Question", "name": "会不会把我的账号搞封？", "acceptedAnswer": { "@type": "Answer", "text": "只用于你拥有、或被明确授权操作的账号。发送前有授权闸门和 dry-run，可以先看它打算做什么再放行；平台规则之外的路径不提供绕过。同时明确：不承诺平台算法给多少曝光。" } },
+    { "@type": "Question", "name": "和定时发帖工具有什么区别？", "acceptedAnswer": { "@type": "Answer", "text": "定时发帖工具执行你写好的内容；Growovo 从产品事实和增长目标出发，自己定策略、排计划、执行，并把执行了多少、读数是多少落成可核验的账本。策略和周报是中间产物，交付的是每天的业务结果。" } },
+    { "@type": "Question", "name": "它说的结果怎么核实？", "acceptedAnswer": { "@type": "Answer", "text": "账本里每条执行记录逐条可查；每天落粉丝与曝光读数，截图留证、标证据级别；mkt demo 零网络零账号，本地一秒跑完完整闭环。反例也公开：发布尸检记录了一次 0 新增 star 的真实 campaign。" } },
+    { "@type": "Question", "name": "要花钱吗？", "acceptedAnswer": { "@type": "Answer", "text": "工具本身 MIT 开源，没有付费版。运行消耗的本机资源与模型调用按你自己的环境计。" } },
+    { "@type": "Question", "name": "出异常了怎么办？", "acceptedAnswer": { "@type": "Answer", "text": "异常停车待人工裁决，不会自行硬闯；完成率驱动调量建议；供给缺口提前报警，不会等用完了才说。" } }
+  ]
+}
+</script>
 <style>
 :root{--ink:#1a1d21;--mut:#5b6470;--line:#e4e7ec;--bg:#fafbfc;--accent:#0d6b3f;--warn:#8a5a00}
 *{box-sizing:border-box;margin:0;padding:0}
@@ -66,14 +115,29 @@ python3 mkt.py grow platforms       # 看第一期哪些平台能全自动</code
 <tr><td>Agent Skill</td><td><a href="https://github.com/roy-tong/Growovo/blob/main/skills/growovo-gtm/SKILL.md">growovo-gtm</a>：GTM 判断与协议</td></tr>
 </table>
 
+<h2 id="faq">常见问题</h2>
+<h3>能全自动发哪些平台？</h3>
+<p>第一期只有 X 和 Email（X 为 PROVEN，Email 为 PORTED）；GitHub、Reddit、Hacker News、LinkedIn 需要人工首跑一次才解锁；小红书、知乎这类人工渠道只出作业单，不计入自动发布量。用 <code>mkt grow platforms</code> 随时查看当前状态。</p>
+<h3>会不会把我的账号搞封？</h3>
+<p>只用于你拥有、或被明确授权操作的账号。发送前有授权闸门和 dry-run，可以先看它打算做什么再放行；平台规则之外的路径不提供绕过。同时明确：不承诺平台算法给多少曝光。</p>
+<h3>和定时发帖工具有什么区别？</h3>
+<p>定时发帖工具执行你写好的内容；Growovo 从产品事实和增长目标出发，自己定策略、排计划、执行，并把执行了多少、读数是多少落成可核验的账本。策略和周报是中间产物，交付的是每天的业务结果。更细的对照见<a href="https://github.com/roy-tong/Growovo/blob/main/docs/compare.md">对比页</a>。</p>
+<h3>它说的结果，我怎么核实？</h3>
+<p>三样都可查：账本里每条执行记录逐条可查；每天落粉丝与曝光读数，截图留证、标证据级别；<code>mkt demo</code> 零网络零账号，本地一秒跑完完整闭环。反例也公开：上面的发布尸检就是一次 0 新增 star 的真实 campaign。</p>
+<h3>要花钱吗？</h3>
+<p>工具本身 MIT 开源，没有付费版。运行消耗的本机资源与模型调用按你自己的环境计。</p>
+<h3>出异常了怎么办？</h3>
+<p>异常停车待人工裁决，不会自行硬闯；完成率驱动调量建议；供给缺口提前报警，不会等用完了才说。</p>
+
 <h2>相关链接</h2>
 <ul>
 <li>仓库与文档：<a href="https://github.com/roy-tong/Growovo">GitHub roy-tong/Growovo</a>（<a href="https://github.com/roy-tong/Growovo/blob/main/README.en.md">English README</a> · <a href="https://github.com/roy-tong/Growovo/blob/main/docs/feature-status.md">功能状态</a> · <a href="https://github.com/roy-tong/Growovo/blob/main/docs/platform-automation-matrix.md">平台自动执行矩阵</a>）</li>
-<li>LLM 标准入口：<a href="https://roy-tong.github.io/Growovo/llms.txt">/llms.txt</a> · <a href="https://raw.githubusercontent.com/roy-tong/Growovo/main/llms.txt">仓库 llms.txt</a></li>
-<li>ovo 家族：研究层 <a href="https://github.com/roy-tong/Askovo">Askovo</a> · 核验层 <a href="https://github.com/roy-tong/Verovo">Verovo</a></li>
+<li>LLM 标准入口：<a href="https://roy-tong.github.io/Growovo/llms.txt">/llms.txt</a> · <a href="https://raw.githubusercontent.com/roy-tong/Growovo/main/llms.txt">仓库 llms.txt</a> · <a href="./en.html" hreflang="en">English page</a></li>
+<li>ovo 家族：研究层 <a href="https://roy-tong.github.io/Askovo/">Askovo</a>（<a href="https://github.com/roy-tong/Askovo">仓库</a>） · 核验层 <a href="https://roy-tong.github.io/Verovo/">Verovo</a>（<a href="https://github.com/roy-tong/Verovo">仓库</a>）</li>
 </ul>
 
-<footer>Growovo · MIT License · 执行量、真实读数、闭环责任——只承诺可核验的事。</footer>
+<footer>Growovo · MIT License · 执行量、真实读数、闭环责任——只承诺可核验的事。<br>
+ovo 家族：研究 <a href="https://roy-tong.github.io/Askovo/">Askovo</a> → 执行 Growovo → 核验 <a href="https://roy-tong.github.io/Verovo/">Verovo</a> · <a href="./en.html">English</a></footer>
 </main>
 </body>
 </html>
