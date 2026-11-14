@@ -1,5 +1,29 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- **Account identity binding (G-01)**: real x sends now verify that the
+  browser's actual platform account matches the authorized one. A new
+  `core/account_identity.py` gate (`AccountIdentityProof` +
+  `enforce_identity`) runs on every real-send path — queue, single action and
+  MCP — before dispatch: identity-bound policies (require_identity /
+  allow_accounts / account_identities) require a freshly observed proof whose
+  stable user_id exactly matches the authorized record, and queue_runner now
+  passes the observed user_id (never a caller-supplied one) into approval
+  checks. Unknown, mismatched, stale (>300s) or wrong-channel observations
+  fail closed with distinct reason codes (`identity_unknown`,
+  `identity_mismatch`, `identity_stale`, `identity_channel_mismatch`); name-only
+  authorizations without identity records are blocked with
+  `authorization_missing_identity` until re-authorized with identities; the
+  session_gate 300s login-marker cache is never accepted as identity
+  evidence. Receipts record authorized_account + observed identity; every
+  decision appends to `data/identity/events.jsonl`. Unbound legacy policies
+  keep their previous behaviour. The default CDP identity reader deliberately
+  returns None (fail closed) until live wiring after the X campaign window
+  (2026-11-19); email sender identity is not yet covered by this gate.
+
 ## 0.14.0 - 2026-11-14
 
 ### Added
