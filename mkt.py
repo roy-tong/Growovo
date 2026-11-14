@@ -1163,7 +1163,9 @@ def cmd_grow(args):
                                on=args.on or None)
         bar = "一致" if result["match"] else "不一致"
         print(f"人工对数：{result['on']} 自动 {result['auto']} / 人工 {result['human']}"
-              f" → {bar}｜连续 {result['streak']}/7｜当前级别 {result['verification']}")
+              f" → {bar}｜连续 {result['streak']}/7 个日历日｜当前级别 {result['verification']}")
+        if result.get("invalid_reasons"):
+            print(f"本次不计数：{'; '.join(result['invalid_reasons'])}")
         if result["promoted"]:
             print("读数已升级 PROVEN：后续结果单仍保留 approximated 快照口径")
         return 0
@@ -4200,7 +4202,7 @@ def build_parser():
     a.add_argument("id"); a.add_argument("--interval", type=int, default=30)
     a.add_argument("--no-deliver", action="store_true")
     a.add_argument("--once", action="store_true", help="只跑一轮（供测试/手动）")
-    a = gsub.add_parser("calibrate", help="读数人工对数：连续 7 次一致后升级 PROVEN")
+    a = gsub.add_parser("calibrate", help="读数人工对数：连续 7 个日历日（每日一计、缺日重置）后升级 PROVEN")
     a.add_argument("id"); a.add_argument("--followers", type=int, default=None,
                                          help="人在 X 后台手读到的粉丝数")
     a.add_argument("--mismatch", action="store_true", help="本次不一致")

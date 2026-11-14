@@ -1977,51 +1977,140 @@ done
 
     # ---------- 读数校准 ----------
 
+    @staticmethod
+    def _valid_count(value):
+        """读数须为合法非负整数（bool/负数/非整数不收）；否则返回 None。"""
+        if isinstance(value, bool) or value is None:
+            return None
+        if isinstance(value, int):
+            return value if value >= 0 else None
+        if isinstance(value, float) and value.is_integer() and value >= 0:
+            return int(value)
+        return None
+
     @locked
     def calibrate(self, *, followers: Optional[int] = None, match: bool = True,
-                  note: str = "", by: str = "", on: Optional[str] = None) -> Dict[str, Any]:
-        """记录一次人工对数；连续 7 次一致后把读数标为 PROVEN。
+                  note: str = "", by: str = "",
+                  on: Optional[str] = None) -> Dict[str, Any]:
+        """记录一次人工对数；连续 7 个日历日（每日一条有效对数）后标 PROVEN。
 
         「人工对数」= 人打开 X 后台手读一次粉丝数，与当天自动读数比对。
         这是读数从 UNVERIFIED 升级的唯一路径，不接受自动判定。
+        有效对数 = 当日自动与人工读数均为非负整数且严格相等、署名非空、
+        且与当前 measurement.readers 的账号（handle）一致。
+        · 同日重复提交只追加审计记录，不重复计日；同日冲突则该日作废；
+        · 缺数日或不一致日中断连续：连续段锚定本次提交日，当日无效即归零，
+          搁置后的旧连续段不能隔着缺数日复活；
+        · 账号/读数口径变化（或 scope 凭据缺失）后，旧 PROVEN 降级
+          UNVERIFIED，且连续计数从当日重新开始；
+        · PROVEN 只覆盖本次 scope（metric+handle+解析器），不外推其他指标。
         """
         on = on or _today()
+        try:
+            date.fromisoformat(on)
+        except ValueError as exc:
+            raise GrowError(f"校准日期非法：{on}") from exc
+        if on > _today():
+            raise GrowError(f"校准日期不能是未来：{on}")
         data = self.load()
-        readers = (data.get("measurement") or {}).get("readers") or []
+        measurement = data.setdefault("measurement", {})
+        readers = measurement.get("readers") or []
         handle = next((str(r.get("handle") or "") for r in readers), "")
         reading = ((data.get("telemetry", {}).get("days", {}).get(on, {})
                     or {}).get("readings") or {})
         auto_value = reading.get("followers")
-        if followers is not None and auto_value is not None and int(followers) != int(auto_value):
-            match = False
-        calibration = data.setdefault("measurement", {}).setdefault(
-            "calibration", {"due": "", "checks": []})
+        auto_v = self._valid_count(auto_value)
+        human_v = self._valid_count(followers)
+        strict_match = (auto_v is not None and human_v is not None
+                        and auto_v == human_v)
+        if not strict_match:
+            match = False  # --mismatch 或读数缺失/不等，都不能记成一致
+        reasons: List[str] = []
+        if human_v is None:
+            reasons.append("missing_human_reading")
+        if auto_v is None:
+            reasons.append("missing_auto_reading")
+        if not (by or "").strip():
+            reasons.append("missing_reviewer")
+        if not handle:
+            reasons.append("missing_account_handle")
+        if auto_v is not None and human_v is not None and auto_v != human_v:
+            reasons.append("reading_mismatch")
+        if not match and strict_match:
+            reasons.append("reviewer_marked_mismatch")
+        valid_day = strict_match and bool(match) and not reasons
+
+        calibration = measurement.setdefault("calibration",
+                                             {"due": "", "checks": []})
         checks = calibration.setdefault("checks", [])
         checks.append({"on": on, "handle": handle, "auto": auto_value,
                        "human": followers, "match": bool(match),
+                       "valid": bool(valid_day), "reasons": reasons,
                        "note": (note or "")[:200], "by": by,
                        "at": datetime.now().isoformat(timespec="seconds")})
-        streak = 0
-        for check in reversed(checks):
-            if check.get("match"):
-                streak += 1
-            else:
-                break
-        promoted = False
-        if streak >= 7:
-            data["measurement"]["verification"] = "PROVEN"
-            calibration["promoted_at"] = on
-            promoted = True
-        calibration["streak"] = streak
-        calibration["due"] = on if not promoted else ""
+
+        scope = {"metric": "followers", "handle": handle,
+                 "parser": "followers-v1"}
+        if (measurement.get("verification") == "PROVEN"
+                and calibration.get("scope") != scope):
+            # 账号/解析器/口径变化（或旧 PROVEN 无 scope 凭据）：降级重计
+            measurement["verification"] = "UNVERIFIED"
+            calibration["downgraded_at"] = on
+        if (calibration.get("scope") != scope
+                or calibration.get("counted_from") is None):
+            # 口径新建/变化/凭据缺失：连续计数从今天重新开始——历史有效日
+            # 只留审计，不再参与升级，防止旧连续段借降级或迁移复活。
+            calibration["counted_from"] = on
+        counted_from = str(calibration.get("counted_from") or on)
+
+        # 每日一计：同日全部条目均有效才算有效日；counted_from 之前的
+        # 历史条目按同一规则重演但只作审计，不参与本次连续段。
+        day_states: Dict[str, bool] = {}
+        for check in checks:
+            day = str(check.get("on") or "")
+            if not day or day < counted_from:
+                continue
+            a = self._valid_count(check.get("auto"))
+            h = self._valid_count(check.get("human"))
+            ok = (a is not None and h is not None and a == h
+                  and bool(check.get("match"))
+                  and str(check.get("by") or "").strip()
+                  and str(check.get("handle") or "") == handle)
+            day_states[day] = day_states.get(day, True) and ok
+        valid_days = {d for d, ok in day_states.items() if ok}
+
+        # 连续段锚定「本次提交日」：当日无效（缺数/读数不等/冲突）则连续段
+        # 归零；长期搁置后的旧连续段不能隔着缺数日复活。
+        streak_days = 1 if day_states.get(on) else 0
+        if streak_days:
+            anchor = date.fromisoformat(on)
+            while ((anchor - timedelta(days=streak_days)).isoformat()
+                   in valid_days):
+                streak_days += 1
+        last_valid = max(valid_days) if valid_days else None
+
+        promoted = (streak_days >= 7
+                    and measurement.get("verification") != "PROVEN")
+        if promoted:
+            measurement["verification"] = "PROVEN"
+            calibration["promoted_at"] = last_valid
+        calibration["scope"] = scope
+        calibration["streak"] = streak_days          # 兼容旧读法
+        calibration["streak_days"] = streak_days
+        calibration["last_valid_date"] = last_valid
+        calibration["due"] = "" if measurement.get("verification") == "PROVEN" else on
         data.setdefault("history", []).append(
             {"at": on, "kind": "calibrate", "by": by,
-             "note": f"{'一致' if match else '不一致'}；连续 {streak} 次"
+             "note": f"{'一致' if match else '不一致'}；"
+                     f"连续 {streak_days} 个有效日历日"
                      + ("；已升级 PROVEN" if promoted else "")})
         self.save(data)
         return {"on": on, "auto": auto_value, "human": followers,
-                "match": bool(match), "streak": streak,
-                "verification": data["measurement"].get("verification"),
+                "match": bool(match), "streak": streak_days,
+                "streak_days": streak_days, "valid_day": valid_day,
+                "invalid_reasons": reasons, "last_valid_date": last_valid,
+                "scope": scope,
+                "verification": measurement.get("verification"),
                 "promoted": promoted, "checks": len(checks)}
 
     # ---------- 体检 / 安装 ----------
