@@ -146,7 +146,12 @@ def loopback_connector(port):
 
 
 def _parse_request(raw):
-    text = raw.decode("iso-8859-1", errors="replace")
+    # 假服务器把手写请求行和 headers 拼成 str，TLS 假服务器拿到 raw bytes；
+    # 两种输入都接受（测试脚手架，不涉及被冻结的断言）。
+    if isinstance(raw, (bytes, bytearray)):
+        text = raw.decode("iso-8859-1", errors="replace")
+    else:
+        text = str(raw)
     lines = text.split("\r\n")
     first = lines[0].split(" ") if lines else [""]
     headers = {}

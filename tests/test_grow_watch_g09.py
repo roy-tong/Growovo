@@ -30,7 +30,6 @@ else:
 from core.watch import WatchError, WatchList
 
 PUBLIC = "93.184.216.34"
-PUBLIC_ALT = "20.205.243.166"
 URL = "https://rival.example/pricing"
 
 
