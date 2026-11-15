@@ -69,6 +69,7 @@ TARGET_AMBIGUOUS = "target_ambiguous"
 WS_UNAVAILABLE = "ws_unavailable"
 TIMEOUT = "timeout"
 EVALUATE_ERROR = "evaluate_error"
+ENDPOINT_MISMATCH = "identity_endpoint_mismatch"
 IDENTITY_MISSING = "identity_missing"
 IDENTITY_CONFLICT = "identity_conflict"
 OK = "ok"
@@ -566,3 +567,35 @@ def probe(channel="x", *, endpoint=None, timeout=None, http_get=None,
     LOGGER.info("CDP 身份探测成功：%s via %s", user_id, source)
     return ProbeResult(reason=OK, endpoint=base, target_id=target_id,
                        source=source, proof=proof)
+
+
+#: 执行侧端点环境变量：X vendor（channels/x/vendor/*.py）用它决定真实动作
+#: 在哪个调试浏览器里执行。身份探测必须与它指向同一个浏览器，否则会出现
+#: 「在 A 上验证身份、在 B 上发送」。
+_EXECUTION_URL_ENV = {"x": "X_CDP_URL"}
+
+
+def execution_endpoint(channel, env=None):
+    """该渠道真实执行时使用的 CDP 端点（与 vendor 同一份配置）。
+
+    G-10：返回规范化后的 loopback 端点；配置非法时抛 EndpointRejected。
+    """
+    env = os.environ if env is None else env
+    key = _EXECUTION_URL_ENV.get(str(channel or "").strip().lower())
+    raw = str(env.get(key) or "").strip() if key else ""
+    if not raw:
+        raw = str(env.get("MKT_CDP_URL") or "").strip() or "http://127.0.0.1:9222"
+    return parse_endpoint(raw)
+
+
+def assert_identity_endpoint_matches(channel, env=None):
+    """身份端点必须等于执行端点；不等就抛 _CdpError(ENDPOINT_MISMATCH)。"""
+    env = os.environ if env is None else env
+    identity = resolve_endpoint(env)
+    execution = execution_endpoint(channel, env)
+    if identity.rstrip("/") != execution.rstrip("/"):
+        raise _CdpError(
+            "身份探测端点 %s 与执行端点 %s 不是同一个调试浏览器：不发送"
+            % (identity, execution), ENDPOINT_MISMATCH)
+    return execution
+

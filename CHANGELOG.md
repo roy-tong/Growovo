@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+### G-10 execution endpoint binding and G-11 strict qualification reads
+
+- **G-10**: the identity gate now refuses to send unless the CDP endpoint the
+  identity was read from is the same endpoint the X vendor executes against
+  (`MKT_CDP_IDENTITY_URL`/`PORT`/`MKT_CDP_URL` vs `X_CDP_URL`). A mismatch is
+  `identity_endpoint_mismatch` with zero vendor calls; multiple X pages in
+  different browser contexts stay ambiguous and are refused instead of guessed.
+- **G-11**: `outcomes/qualifications.jsonl` is read through one strict parser.
+  A broken line or a non-boolean `qualifies` raises `LedgerReadError` instead of
+  silently skipping the revocation and reporting verified counts, and the cache
+  is keyed by the file's mtime/size so a long-lived `OutcomeLedger` sees an
+  external revoke immediately.
+
 ### G-07 single business-result reading and G-08 measurement requalification
 
 - **G-07**: revoking an event's qualification no longer leaves two answers. The
