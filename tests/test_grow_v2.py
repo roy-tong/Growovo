@@ -141,7 +141,7 @@ class TickTests(unittest.TestCase):
                          owner="roy@example.com", handle="verovo",
                          data_dir=self.dir, skip_probe=True)
         self.run = GrowRunV2(self.path)
-        self.run.arm()
+        self.run.arm(by="roy")
 
     def test_daily_quota_limits_sends_and_deferrs(self):
         _queue(self.dir, "g1", "2026-11-01", count=3)
@@ -238,7 +238,7 @@ class WeeklyTests(unittest.TestCase):
                          target=20, actions_per_week=7, started="2026-11-01",
                          handle="verovo", data_dir=self.dir, skip_probe=True)
         self.run = GrowRunV2(self.path)
-        self.run.arm()
+        self.run.arm(by="roy")
         self._fill_week()
 
     def _fill_week(self, start: int = 1, end: int = 7):
@@ -332,7 +332,7 @@ class OpsTests(unittest.TestCase):
 
     def test_review_aggregates_days(self):
         _queue(self.dir, "g1", "2026-11-01", count=1)
-        self.run.arm()
+        self.run.arm(by="roy")
         self.run.tick(self.dir, on="2026-11-01",
                       runner=_runner(self.dir, "2026-11-01"),
                       reader=_reader("2026-11-01"), now=_now("2026-11-01"))
@@ -395,7 +395,7 @@ class ContentLoopTests(unittest.TestCase):
                          target=20, actions_per_week=7, started="2026-11-01",
                          handle="verovo", data_dir=self.dir, skip_probe=True)
         self.run = GrowRunV2(self.path)
-        self.run.arm()
+        self.run.arm(by="roy")
 
     def _drafts(self, body="We reconcile invoice total, usage export and contract "
                           "price, then park the gap. Which source do you trust most?"):

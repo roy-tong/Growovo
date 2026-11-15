@@ -411,6 +411,10 @@ class GrowRunV2:
                     "content_score": check["score"],
                     "content_issues": check["issues"][:6],
                     "author_handle": str(raw.get("author_handle") or "").lstrip("@")}
+            # 三要素准入（G-03）：写了任意一项就必须写全，缺项不进可自动触达集合；
+            # 一个都没写的旧手工条目 outreach_ready=None（未评估≠出局）。
+            from . import outcome_layers as _ol
+            item.update(_ol.outreach_admission(raw))
             if window or raw.get("window"):
                 item["window"] = window or raw.get("window")
             for extra in ("audience", "brief_id", "source", "subject", "editorial_review", "fit_review"):
@@ -499,23 +503,107 @@ class GrowRunV2:
     # ---------- 开闸 / 恢复 ----------
 
     @locked
-    def arm(self) -> Dict[str, Any]:
+    def arm(self, *, by: str = "", data_dir=None,
+            blocking_check=None) -> Dict[str, Any]:
+        """显式人工开闸：必须署名 + 有效常驻授权 + 无阻塞告警。
+
+        署名是声明式身份（谁按下这个按钮），不是强身份证明；真正的执行门
+        仍是 policy/quota/pause/账本。`blocking_check` 由 runbook 注入，
+        库调用不传时只做署名/状态/授权检查。
+        """
+        from .execution_policy import allows, policy_path
+        operator = str(by or "").strip()
+        if not operator:
+            raise GrowError(
+                "AUTH_REQUIRED：arm 必须带 --by <operator> 署名；"
+                "开闸是人的决定，Agent 不能自签")
+        if blocking_check is not None:
+            blocking = list(blocking_check() or [])
+            if blocking:
+                first = blocking[0]
+                raise GrowError(
+                    f"{first.get('error_code') or 'REVIEW_REQUIRED'}："
+                    "还有阻塞告警，不能开闸：" + "、".join(
+                        str(i.get("event_id") or i.get("title"))
+                        for i in blocking[:3])
+                    + f"\n先处理：mkt grow incident {data.get('id')} --list")
         data = self.load()
+        if data.get("status") == "draft":
+            raise GrowError(
+                "这个闭环还停在 draft：先补齐登录态/授权/账号身份"
+                "（mkt grow doctor），再 mkt grow arm；不能先跑再补授权")
+        if data.get("status") in ("paused", "needs_attention", "completed",
+                                  "cancelled"):
+            raise GrowError(
+                f"当前状态 {data.get('status')} 不能直接开闸："
+                "先 mkt grow resume（必要时先裁决未知回执）")
         health = data.get("guards", {}).get("account_health") or {}
         if health.get("checked") and not health.get("eligible"):
             raise GrowError("账号健康不达标，不能开闸（先修账号或换账号）")
+        if data.get("status") not in ("ready_to_arm", "active"):
+            raise GrowError(
+                f"只有 ready_to_arm/未开闸的 active 能 arm；当前 {data.get('status')}")
+        base = Path(data_dir) if data_dir else self.path.parent.parent
+        policy_file = policy_path(base)
+        if not policy_file.is_file():
+            raise GrowError(
+                "POLICY_DENIED：没有常驻授权，不能开闸；先人工 "
+                "mkt policy enable --actions ... --by <operator>")
+        try:
+            policy_sha = hashlib.sha256(policy_file.read_bytes()).hexdigest()
+        except OSError as exc:
+            raise GrowError(f"POLICY_DENIED：授权文件读不到（{exc}）") from exc
+        account = str((data.get("guards") or {}).get("account_id") or "")
+        for item in (data.get("actions") or []):
+            text = str(item)
+            if ":" not in text:
+                continue
+            channel, action = text.split(":", 1)
+            if not allows(base, channel, action, account, ""):
+                raise GrowError(
+                    f"POLICY_DENIED：常驻授权未覆盖 {text}，或已过期/撤销；"
+                    f"先人工 mkt policy enable --actions {text} --by <operator>")
         if data.get("go"):
+            if not data.get("armed_by"):
+                data["armed_by"] = operator
+                data["armed_at"] = datetime.now().isoformat(timespec="seconds")
+                data["armed_policy_sha256"] = policy_sha
+                self.save(data)
             return data
         data["go"] = True
+        data["armed_by"] = operator
+        data["armed_at"] = datetime.now().isoformat(timespec="seconds")
+        data["armed_policy_sha256"] = policy_sha
+        if data.get("status") == "ready_to_arm":
+            data["status"] = "active"
         data.setdefault("history", []).append(
-            {"at": _today(), "kind": "arm", "note": "实跑已开闸；暂停闸与全部执行门照旧"})
+            {"at": _today(), "kind": "arm", "by": operator,
+             "policy_sha256": policy_sha,
+             "note": "实跑已开闸；暂停闸与全部执行门照旧"})
+        self.save(data)
+        return data
+
+    @locked
+    def pause(self, *, reason: str = "", by: str = "") -> Dict[str, Any]:
+        """一键暂停（§4.3 paused）：下一轮 tick 不再选中任何条目。"""
+        data = self.load()
+        if data.get("status") == "paused":
+            return data
+        if data.get("status") not in ("active", "needs_attention"):
+            raise GrowError(
+                f"当前状态 {data.get('status')} 不需要暂停："
+                "还没开闸的计划可以直接结束或新建，已暂停的用 resume")
+        data.setdefault("history", []).append(
+            {"at": _today(), "kind": "pause", "by": by,
+             "note": (reason or "人工暂停")[:300]})
+        data["status"] = "paused"
         self.save(data)
         return data
 
     @locked
     def resume(self, *, note: str, by: str = "") -> Dict[str, Any]:
         data = self.load()
-        if data.get("status") != "needs_attention":
+        if data.get("status") not in ("needs_attention", "paused"):
             return data
         note = (note or "").strip()
         if not note:
@@ -682,10 +770,10 @@ class GrowRunV2:
                 continue
             stale = self._count_stale(q, on=on,
                                       committed_targets=committed_targets)
-            candidates = self._select_items(q, on=on, now=now,
-                                            default_window=default_window,
-                                            committed_targets=committed_targets,
-                                            limit=left)
+            candidates = self._select_items(
+                q, on=on, now=now, default_window=default_window,
+                committed_targets=committed_targets, limit=left,
+                audience_tz=str((data.get("windows") or {}).get("iana") or ""))
             if not candidates:
                 note = "没有到期且窗口内的条目（留到下个 tick）"
                 if stale:
@@ -929,7 +1017,9 @@ class GrowRunV2:
     @staticmethod
     def _select_items(queue: Dict[str, Any], *, on: str, now: datetime,
                       default_window: str, committed_targets: set,
-                      limit: int, max_lateness_days: int = 2) -> List[Dict[str, Any]]:
+                      limit: int, max_lateness_days: int = 2,
+                      audience_tz: str = "") -> List[Dict[str, Any]]:
+        from . import outcome_layers as _ol
         selected = []
         oldest = (date.fromisoformat(on)
                   - timedelta(days=max(0, int(max_lateness_days)))).isoformat()
@@ -942,10 +1032,15 @@ class GrowRunV2:
             scheduled = str(item.get("scheduled_for") or on)
             if scheduled < oldest:
                 continue  # 过期内容不再发：宁可少发，不补发陈旧回复
+            # 三要素不全的条目不进可自动触达集合；旧条目未评估（None）照旧放行。
+            if not _ol.is_outreach_ready(item):
+                continue
             window = item.get("window") or default_window
             probe = dict(item)
             probe.setdefault("window", window)
-            if not gs.item_due(probe, today=on, now_utc=now):
+            # 窗口按 RunSpec 的 IANA 时区算；没给 IANA 时保持旧固定偏移口径。
+            if not gs.item_due(probe, today=on, now_utc=now,
+                               iana=audience_tz or None):
                 continue
             selected.append(item)
             if len(selected) >= max(0, int(limit)):
@@ -1009,6 +1104,62 @@ class GrowRunV2:
         self.save(data)
         return card
 
+    @staticmethod
+    def _readings_with_fallback(data: Dict[str, Any], data_dir: Path, on: str,
+                                readings: Dict[str, Any]) -> Dict[str, Any]:
+        """读数缺项时回落到 outcome 计数快照（G-03）。
+
+        平台读数可能因为传感器没跑而缺，但同一份账里可能已经有当天/更早的
+        x_followers/x_impressions 计数。回落值仍标 approximated；取不到就保持
+        取不到，不填 0。"""
+        out = dict(readings or {})
+        if out.get("followers") is not None and out.get("impressions") is not None:
+            return out
+        from .attribution import OutcomeLedger
+        latest: Dict[str, tuple] = {}
+        for rec in OutcomeLedger(Path(data_dir)).records():
+            if rec.get("kind") != "count":
+                continue
+            campaign = str(rec.get("campaign") or "")
+            # 只认本 run 或无 campaign 的读数；别的 run 的读数不能借来用。
+            if campaign and not _belongs(campaign, str(data.get("id") or "")):
+                continue
+            metric = str(rec.get("metric") or "")
+            window = str(rec.get("window") or "")
+            if metric not in ("x_followers", "x_impressions") or not window:
+                continue
+            if window > on:  # 未来/更晚的读数不能提前用
+                continue
+            prev = latest.get(metric)
+            if prev is None or window > prev[0]:
+                latest[metric] = (window, int(rec.get("value") or 0))
+        filled = []
+        for metric, key in (("x_followers", "followers"),
+                            ("x_impressions", "impressions")):
+            if out.get(key) is not None or metric not in latest:
+                continue
+            out[key] = latest[metric][1]
+            out.setdefault("%s_window" % key, latest[metric][0])
+            filled.append(key)
+        if filled:
+            out.setdefault("source", "outcomes/events.jsonl")
+            out["approximated"] = True
+            out["fallback"] = "计数快照（%s）" % "、".join(filled)
+        return out
+
+    @staticmethod
+    def _layers(data_dir: Path, data: Dict[str, Any], on: str) -> Dict[str, Any]:
+        """日卡里的三层视图：窗口取本自然周 Start～当天；读不到就标 UNKNOWN。"""
+        from . import outcome_layers
+        week_start = gs.week_start_of(on, data["started"])
+        try:
+            return outcome_layers.layer_summary(
+                data_dir, run_id=data["id"],
+                window={"start": week_start, "end": on})
+        except Exception as exc:  # noqa: BLE001 账本坏了不能把日卡变成 0 结果
+            return outcome_layers.unknown_summary(
+                "三层账本读取失败：%s: %s" % (type(exc).__name__, exc))
+
     def _build_daily(self, data: Dict[str, Any], data_dir: Path, on: str, *,
                      committed_today: List[Dict[str, Any]],
                      today_quota: Dict[str, int],
@@ -1016,6 +1167,7 @@ class GrowRunV2:
         by_action: Dict[str, int] = self._count_by_action(committed_today)
         published = sum(by_action.values())
         planned = sum(int(v) for v in today_quota.values())
+        readings = self._readings_with_fallback(data, data_dir, on, readings)
         goal = self._goal_progress(data, data_dir)
         day_telemetry = data.get("telemetry", {}).get("days", {}).get(on, {})
         counts = day_telemetry.get("counts") or {}
@@ -1035,6 +1187,7 @@ class GrowRunV2:
             "published": {"total": published, "planned": planned,
                           "by_action": by_action},
             "readings": readings or {},
+            "layers": self._layers(data_dir, data, on),
             "guardrails": guards,
             "supply": data.get("supply_state") or {},
             "learning": data.get("learning") or {},
@@ -1071,6 +1224,22 @@ class GrowRunV2:
                  f"{guards.get('duplicates', 0)}｜抑制跳过 {guards.get('suppressed', 0)}"]
         if readings.get("error"):
             lines.append(f"读数异常：{readings['error']}")
+        layers = card.get("layers") or {}
+        if layers:
+            lines += ["", "## 三层结果", ""]
+            for key, label in (("L1", "L1 执行"), ("L2", "L2 互动"),
+                               ("L3", "L3 业务")):
+                block = layers.get(key) or {}
+                lines.append(f"- {label}（{block.get('state', 'UNKNOWN')}）："
+                             f"{block.get('text', '')}")
+            attribution = layers.get("attribution") or {}
+            summary = attribution.get("summary") or {}
+            if summary.get("total"):
+                lines.append(
+                    f"- 激活归因（非因果）：direct_receipt "
+                    f"{summary.get('direct_receipt', 0)}｜assisted_observation "
+                    f"{summary.get('assisted_observation', 0)}｜unattributed "
+                    f"{summary.get('unattributed', 0)}")
         production = card.get("production") or {}
         if production:
             lines += ["", f"自动内容供给：本轮入队 {production.get('added', 0)} 条"]
@@ -1081,6 +1250,9 @@ class GrowRunV2:
         if learning:
             lines += ["", "## 今日复盘", f"有效帖子样本：{learning.get('sample', 0)}",
                       str(learning.get("recommendation") or "继续采集")]
+            if learning.get("review_required"):
+                lines.append("复审：" + "；".join(
+                    learning.get("review_reasons") or []))
             if learning.get("error"):
                 lines.append(f"采集异常：{learning['error']}")
             lines.extend(f"- {c.get('detail', '')}" for c in learning.get("changes") or [])
@@ -1194,11 +1366,20 @@ class GrowRunV2:
         if isinstance(health, (int, float)) and health < 60:
             old = int(plan.get("actions_per_week") or 0)
             new = max(1, round(old * 0.8))
-            plan["actions_per_week"] = new
-            quota["actions_per_week"] = new
-            adjustments.append({"on": end, "kind": "safety", "param": "actions_per_week",
-                                "from": old, "to": new,
-                                "detail": f"账号健康 {health} < 60：先降量 20%，修好再谈加量"})
+            detail = f"账号健康 {health} < 60：先降量 20%，修好再谈加量"
+            from . import controlled_learning
+            try:
+                # G-04：降量属于 auto_safe，可自动执行；记录改动前后策略 hash。
+                controlled_learning.record_auto_reduce(
+                    data, param="actions_per_week", from_value=old,
+                    to_value=new, reason=detail, on=end)
+            except Exception:  # noqa: BLE001 受控层失败也先降量（安全方向）
+                plan["actions_per_week"] = new
+                quota["actions_per_week"] = new
+                adjustments.append({"on": end, "kind": "safety",
+                                    "param": "actions_per_week",
+                                    "from": old, "to": new,
+                                    "detail": detail})
             return
         if planned and committed >= 0.9 * planned:
             old = int(plan.get("actions_per_week") or planned)
@@ -1206,10 +1387,15 @@ class GrowRunV2:
             cap = round(SCALE_UP_CAP_RATIO * initial)
             new = min(round(old * SCALE_UP_RATIO), cap)
             if new != old:
-                adjustments.append({"on": end, "kind": "proposal",
-                                    "param": "actions_per_week", "from": old, "to": new,
-                                    "detail": f"第 {week} 周完成 {committed}/{planned}"
-                                              f"（≥90%），建议下周计划量 {old} → {new}（上限 {cap}）；等待用户决定"})
+                from . import controlled_learning
+                change = {"param": "actions_per_week", "from": old, "to": new}
+                adjustments.append({
+                    "on": end, "kind": "proposal",
+                    "param": "actions_per_week", "from": old, "to": new,
+                    "detail": f"第 {week} 周完成 {committed}/{planned}"
+                              f"（≥90%），建议下周计划量 {old} → {new}（上限 {cap}）；等待用户决定",
+                    "requires_reapproval": True,
+                    "change_sha256": controlled_learning.change_sha256(change)})
         elif planned and committed < QUOTA_ATTENTION_BELOW * planned:
             kind = "dry-run" if not data.get("go") and committed == 0 else "attention"
             adjustments.append({
@@ -1247,32 +1433,140 @@ class GrowRunV2:
     def decide(self, *, action: str, note: str = "", by: str = "",
                on: Optional[str] = None, dry_run: bool = False,
                data_dir=None) -> Dict[str, Any]:
+        """继续 / 优化。优化走 G-04 受控层：低风险改动落地，升权改动 held。"""
         action = str(action or "").strip().lower()
         if action not in ("continue", "optimize"):
             raise GrowError("--action 只能是 continue 或 optimize")
         on = on or _today()
+        data_dir = Path(data_dir) if data_dir else self.path.parent.parent
         data = self.load()
+        from . import controlled_learning
         proposal = None
         changes: List[Dict[str, Any]] = []
+        held: List[Dict[str, Any]] = []
+        status = "no_change"
         if action == "optimize":
-            proposal = self._proposal(data, Path(data_dir) if data_dir else self.path.parent.parent, on)
+            proposal = self._proposal(data, data_dir, on)
             changes = list(proposal.get("changes") or [])
-            if not dry_run:
-                changes = self._apply_proposal(data, changes, on)
-                if changes and proposal.get("evidence_id"):
-                    data.setdefault("applied_learning", []).append(proposal["evidence_id"])
-                if changes:
-                    self._write_briefs(Path(data_dir) if data_dir else self.path.parent.parent, data)
+            evidence_hash = str(proposal.get("evidence_hash")
+                                or proposal.get("evidence_id") or "")
+            if proposal.get("source") == "learning":
+                assessment = controlled_learning.assess(
+                    sample=int(proposal.get("sample") or 0),
+                    changes=changes,
+                    declared_min=proposal.get("min_sample_declared"),
+                    review_required=proposal.get("review_required"),
+                    review_reasons=proposal.get("review_reasons"))
+                proposal["assessment"] = assessment
+                if not assessment["can_optimize"]:
+                    held = [self._held_change(change, assessment["next_action"])
+                            for change in changes]
+                    changes = []
+            if dry_run:
+                proposal["would_need_review"] = [
+                    change for change in changes
+                    if controlled_learning.classify_change(change)[
+                        "requires_human_reapproval"]]
+                status = "preview" if (changes or held) else "no_change"
+            elif changes:
+                outcome = controlled_learning.apply_changes(
+                    data, changes, actor="human", by=by or "local-operator",
+                    evidence_hash=evidence_hash, on=on)
+                proposal["applied"] = outcome["applied"]
+                held = held + list(outcome["held"])
+                changes = list(outcome["applied"])
+                if outcome["applied"]:
+                    self._write_briefs(data_dir, data)
+                    if proposal.get("evidence_id"):
+                        data.setdefault("applied_learning", []).append(
+                            proposal["evidence_id"])
+                if outcome.get("no_op"):
+                    proposal.setdefault("rationale", []).append(
+                        "同一份证据已应用过：本次不重复改参数")
+                if outcome["held"]:
+                    proposal.setdefault("rationale", []).append(
+                        "有改动需要重新人审："
+                        + "、".join(sorted({str(h["change_sha256"])[:16]
+                                            for h in outcome["held"]})))
+                status = ("partial" if changes and held else
+                          ("applied" if changes else
+                           ("needs_review" if held else "no_change")))
+            if not dry_run and held and not changes:
+                status = "needs_review"  # 样本不足/需复审：旧策略继续跑，等决定
+            proposal["held"] = held
         elif dry_run:
             proposal = {"changes": [], "rationale": ["继续当前策略，不做参数调整"]}
         decision = {"at": datetime.now().isoformat(timespec="seconds"), "on": on,
                     "action": action, "note": (note or "")[:300], "by": by,
-                    "changes": changes, "dry_run": bool(dry_run),
+                    "changes": changes, "held": held, "status": status,
+                    "dry_run": bool(dry_run),
                     "snapshot": self._snapshot(data)}
         data.setdefault("decisions", []).append(decision)
         if not dry_run:
             self.save(data)
         return {"decision": decision, "proposal": proposal}
+
+    @staticmethod
+    def _held_change(change: Dict[str, Any], reason: str) -> Dict[str, Any]:
+        """把一项待批准改动整理成 decision.held 的形状。"""
+        from . import controlled_learning
+        info = controlled_learning.classify_change(change)
+        return {"change": change, "tier": info["tier"],
+                "reason_code": "REVIEW_REQUIRED", "detail": reason,
+                "change_sha256": controlled_learning.change_sha256(change),
+                "next_actor": "human"}
+
+    @locked
+    def approve_change(self, data_dir, change_sha256: str, *, by: str,
+                       on: Optional[str] = None,
+                       dry_run: bool = False) -> Dict[str, Any]:
+        """人审批准当前提案里的某一项改动（按 change_sha256 定位）。"""
+        from . import controlled_learning
+        if not str(by or "").strip():
+            raise GrowError("批准改动必须署名（--by）：机器不能替人背书")
+        data = self.load()
+        on = on or _today()
+        proposal = self._proposal(data, Path(data_dir), on)
+        hit = None
+        for change in proposal.get("changes") or []:
+            if controlled_learning.change_sha256(change) == change_sha256:
+                hit = change
+                break
+        if hit is None:
+            raise GrowError(
+                "这个 change_sha256 不在当前提案里：批准必须针对当前策略下的具体改动"
+                "（先 mkt grow decide <id> --action optimize 看提案）")
+        record = controlled_learning.approve_change(data, hit, by=by, on=on)
+        if not dry_run:
+            self.save(data)
+        return record
+
+    @locked
+    def rollback_changes(self, data_dir, *, by: str, on: Optional[str] = None,
+                         change_id: str = "", note: str = "",
+                         dry_run: bool = False) -> Dict[str, Any]:
+        """撤销上一次策略改动：恢复前一份策略，不撤销已发外部动作。"""
+        from . import controlled_learning
+        data = self.load()
+        result = controlled_learning.rollback_changes(
+            data, by=by, on=on or _today(), change_id=change_id, note=note)
+        if result.get("rolled_back") and not dry_run:
+            self.save(data)
+            try:
+                self._write_briefs(Path(data_dir), data)
+            except Exception:  # noqa: BLE001 需求单写失败不影响回滚记账
+                pass
+        return result
+
+    def list_changes(self) -> Dict[str, Any]:
+        """策略改动、批准与已应用证据（只读）。"""
+        from . import controlled_learning
+        data = self.load()
+        return {"run": data.get("id"),
+                "current_hash": controlled_learning.strategy_hash(data),
+                "changes": data.get("strategy_changes") or [],
+                "approvals": data.get("change_approvals") or [],
+                "applied_evidence": data.get("applied_evidence") or []}
 
     def _snapshot(self, data: Dict[str, Any]) -> Dict[str, Any]:
         return {"plan": int((data.get("plan") or {}).get("actions_per_week") or 0),
@@ -1290,7 +1584,12 @@ class GrowRunV2:
             if evidence_id in data.get("applied_learning", []):
                 return {"on": on, "changes": [], "source": "learning",
                         "rationale": ["这批证据的调整已应用；等待新的业务反馈"]}
-            return {"on": on, "changes": learning["changes"], "evidence_id": evidence_id,
+            return {"on": on, "changes": learning["changes"],
+                    "evidence_id": evidence_id, "evidence_hash": evidence_id,
+                    "sample": learning.get("sample"),
+                    "min_sample_declared": learning.get("min_sample_declared"),
+                    "review_required": learning.get("review_required"),
+                    "review_reasons": learning.get("review_reasons"),
                     "rationale": [learning.get("recommendation", "")],
                     "observed": {"sample": learning.get("sample"),
                                  "buckets": learning.get("buckets")},
@@ -1330,10 +1629,14 @@ class GrowRunV2:
             changes.append({"param": "actions_per_week", "from": old, "to": target,
                             "rollback": old,
                             "detail": f"周计划 {old} → {target}"})
+        observed = {"committed_7d": committed_week, "plan": plan,
+                    "staged": staged, "projected_weekly": projected,
+                    "completion": round(completion, 3)}
+        evidence_hash = hashlib.sha256(json.dumps(
+            {"source": "quota", "observed": observed, "changes": changes},
+            sort_keys=True, ensure_ascii=False).encode()).hexdigest()
         return {"on": on, "changes": changes, "rationale": rationale,
-                "observed": {"committed_7d": committed_week, "plan": plan,
-                             "staged": staged, "projected_weekly": projected,
-                             "completion": round(completion, 3)},
+                "observed": observed, "evidence_hash": evidence_hash,
                 "rollback": {"actions_per_week": old}}
 
     def _committed_in_range(self, data_dir: Path, data: Dict[str, Any], on: str,
@@ -1350,61 +1653,6 @@ class GrowRunV2:
             if start <= day <= on:
                 n += 1
         return n
-
-    @staticmethod
-    def _apply_proposal(data: Dict[str, Any], changes: List[Dict[str, Any]],
-                        on: str) -> List[Dict[str, Any]]:
-        applied = []
-        for change in changes:
-            if change.get("param") == "target.koc_share":
-                target = change.get("to") or {}
-                share = float(target.get("koc_share") or 0.7)
-                share = max(0.3, min(0.9, share))
-                data.setdefault("growth_strategy", {})["koc_share_target"] = share
-                data.setdefault("adjustments", []).append({
-                    "on": on, "kind": "decision", "param": "target.koc_share",
-                    "from": change.get("from", "current"), "to": {"koc_share": share},
-                    "detail": change.get("detail", ""),
-                    "rollback": "恢复 KOC 占比目标 50%"})
-                applied.append(change)
-                continue
-            if change.get("param") == "content.mix_weights":
-                from . import grow_content
-                target = change.get("to") or {}
-                boost = str(target.get("boost") or "")
-                reduce = str(target.get("reduce") or "")
-                if not boost or not reduce:
-                    continue
-                content = data.setdefault("content", {})
-                weights = grow_content.apply_weights(
-                    content.get("formula_weights"), boost=boost, reduce=reduce)
-                content["formula_weights"] = weights
-                family = str((data.get("goal") or {}).get("family") or "")
-                briefs = []
-                for brief in (data.get("supply") or {}).get("briefs") or []:
-                    briefs.append(grow_content.enrich_brief(
-                        {k: v for k, v in brief.items() if k not in ("formulas", "mix", "rules")},
-                        goal_family=family, formula_weights=weights))
-                data.setdefault("supply", {})["briefs"] = briefs
-                data.setdefault("adjustments", []).append({
-                    "on": on, "kind": "decision", "param": "content.mix_weights",
-                    "from": change.get("from", "current"), "to": target,
-                    "detail": change.get("detail", ""),
-                    "rollback": "恢复原配比"})
-                applied.append(change)
-                continue
-            if change.get("param") != "actions_per_week":
-                continue
-            old = int((data.get("plan") or {}).get("actions_per_week") or 0)
-            new = int(change.get("to") or old)
-            data.setdefault("plan", {})["actions_per_week"] = new
-            data.setdefault("quota", {})["actions_per_week"] = new
-            data.setdefault("adjustments", []).append({
-                "on": on, "kind": "decision", "param": "actions_per_week",
-                "from": old, "to": new, "detail": change.get("detail", ""),
-                "rollback": old})
-            applied.append(change)
-        return applied
 
     # ---------- 进度 / 状态 / 报告 ----------
 
@@ -1595,6 +1843,12 @@ class GrowRunV2:
         data_dir = Path(data_dir)
         payload = grow_learning.analyze(data_dir, data["id"], data)
         payload["on"] = on or _today()
+        from . import controlled_learning
+        payload["assessment"] = controlled_learning.assess(
+            sample=int(payload.get("sample") or 0),
+            changes=payload.get("changes") or [],
+            review_required=payload.get("review_required"),
+            review_reasons=payload.get("review_reasons"))
         path = grow_learning.write_learning(data_dir, data["id"], payload,
                                             on=payload["on"])
         payload["path"] = str(path)
@@ -1977,51 +2231,140 @@ done
 
     # ---------- 读数校准 ----------
 
+    @staticmethod
+    def _valid_count(value):
+        """读数须为合法非负整数（bool/负数/非整数不收）；否则返回 None。"""
+        if isinstance(value, bool) or value is None:
+            return None
+        if isinstance(value, int):
+            return value if value >= 0 else None
+        if isinstance(value, float) and value.is_integer() and value >= 0:
+            return int(value)
+        return None
+
     @locked
     def calibrate(self, *, followers: Optional[int] = None, match: bool = True,
-                  note: str = "", by: str = "", on: Optional[str] = None) -> Dict[str, Any]:
-        """记录一次人工对数；连续 7 次一致后把读数标为 PROVEN。
+                  note: str = "", by: str = "",
+                  on: Optional[str] = None) -> Dict[str, Any]:
+        """记录一次人工对数；连续 7 个日历日（每日一条有效对数）后标 PROVEN。
 
         「人工对数」= 人打开 X 后台手读一次粉丝数，与当天自动读数比对。
         这是读数从 UNVERIFIED 升级的唯一路径，不接受自动判定。
+        有效对数 = 当日自动与人工读数均为非负整数且严格相等、署名非空、
+        且与当前 measurement.readers 的账号（handle）一致。
+        · 同日重复提交只追加审计记录，不重复计日；同日冲突则该日作废；
+        · 缺数日或不一致日中断连续：连续段锚定本次提交日，当日无效即归零，
+          搁置后的旧连续段不能隔着缺数日复活；
+        · 账号/读数口径变化（或 scope 凭据缺失）后，旧 PROVEN 降级
+          UNVERIFIED，且连续计数从当日重新开始；
+        · PROVEN 只覆盖本次 scope（metric+handle+解析器），不外推其他指标。
         """
         on = on or _today()
+        try:
+            date.fromisoformat(on)
+        except ValueError as exc:
+            raise GrowError(f"校准日期非法：{on}") from exc
+        if on > _today():
+            raise GrowError(f"校准日期不能是未来：{on}")
         data = self.load()
-        readers = (data.get("measurement") or {}).get("readers") or []
+        measurement = data.setdefault("measurement", {})
+        readers = measurement.get("readers") or []
         handle = next((str(r.get("handle") or "") for r in readers), "")
         reading = ((data.get("telemetry", {}).get("days", {}).get(on, {})
                     or {}).get("readings") or {})
         auto_value = reading.get("followers")
-        if followers is not None and auto_value is not None and int(followers) != int(auto_value):
-            match = False
-        calibration = data.setdefault("measurement", {}).setdefault(
-            "calibration", {"due": "", "checks": []})
+        auto_v = self._valid_count(auto_value)
+        human_v = self._valid_count(followers)
+        strict_match = (auto_v is not None and human_v is not None
+                        and auto_v == human_v)
+        if not strict_match:
+            match = False  # --mismatch 或读数缺失/不等，都不能记成一致
+        reasons: List[str] = []
+        if human_v is None:
+            reasons.append("missing_human_reading")
+        if auto_v is None:
+            reasons.append("missing_auto_reading")
+        if not (by or "").strip():
+            reasons.append("missing_reviewer")
+        if not handle:
+            reasons.append("missing_account_handle")
+        if auto_v is not None and human_v is not None and auto_v != human_v:
+            reasons.append("reading_mismatch")
+        if not match and strict_match:
+            reasons.append("reviewer_marked_mismatch")
+        valid_day = strict_match and bool(match) and not reasons
+
+        calibration = measurement.setdefault("calibration",
+                                             {"due": "", "checks": []})
         checks = calibration.setdefault("checks", [])
         checks.append({"on": on, "handle": handle, "auto": auto_value,
                        "human": followers, "match": bool(match),
+                       "valid": bool(valid_day), "reasons": reasons,
                        "note": (note or "")[:200], "by": by,
                        "at": datetime.now().isoformat(timespec="seconds")})
-        streak = 0
-        for check in reversed(checks):
-            if check.get("match"):
-                streak += 1
-            else:
-                break
-        promoted = False
-        if streak >= 7:
-            data["measurement"]["verification"] = "PROVEN"
-            calibration["promoted_at"] = on
-            promoted = True
-        calibration["streak"] = streak
-        calibration["due"] = on if not promoted else ""
+
+        scope = {"metric": "followers", "handle": handle,
+                 "parser": "followers-v1"}
+        if (measurement.get("verification") == "PROVEN"
+                and calibration.get("scope") != scope):
+            # 账号/解析器/口径变化（或旧 PROVEN 无 scope 凭据）：降级重计
+            measurement["verification"] = "UNVERIFIED"
+            calibration["downgraded_at"] = on
+        if (calibration.get("scope") != scope
+                or calibration.get("counted_from") is None):
+            # 口径新建/变化/凭据缺失：连续计数从今天重新开始——历史有效日
+            # 只留审计，不再参与升级，防止旧连续段借降级或迁移复活。
+            calibration["counted_from"] = on
+        counted_from = str(calibration.get("counted_from") or on)
+
+        # 每日一计：同日全部条目均有效才算有效日；counted_from 之前的
+        # 历史条目按同一规则重演但只作审计，不参与本次连续段。
+        day_states: Dict[str, bool] = {}
+        for check in checks:
+            day = str(check.get("on") or "")
+            if not day or day < counted_from:
+                continue
+            a = self._valid_count(check.get("auto"))
+            h = self._valid_count(check.get("human"))
+            ok = (a is not None and h is not None and a == h
+                  and bool(check.get("match"))
+                  and str(check.get("by") or "").strip()
+                  and str(check.get("handle") or "") == handle)
+            day_states[day] = day_states.get(day, True) and ok
+        valid_days = {d for d, ok in day_states.items() if ok}
+
+        # 连续段锚定「本次提交日」：当日无效（缺数/读数不等/冲突）则连续段
+        # 归零；长期搁置后的旧连续段不能隔着缺数日复活。
+        streak_days = 1 if day_states.get(on) else 0
+        if streak_days:
+            anchor = date.fromisoformat(on)
+            while ((anchor - timedelta(days=streak_days)).isoformat()
+                   in valid_days):
+                streak_days += 1
+        last_valid = max(valid_days) if valid_days else None
+
+        promoted = (streak_days >= 7
+                    and measurement.get("verification") != "PROVEN")
+        if promoted:
+            measurement["verification"] = "PROVEN"
+            calibration["promoted_at"] = last_valid
+        calibration["scope"] = scope
+        calibration["streak"] = streak_days          # 兼容旧读法
+        calibration["streak_days"] = streak_days
+        calibration["last_valid_date"] = last_valid
+        calibration["due"] = "" if measurement.get("verification") == "PROVEN" else on
         data.setdefault("history", []).append(
             {"at": on, "kind": "calibrate", "by": by,
-             "note": f"{'一致' if match else '不一致'}；连续 {streak} 次"
+             "note": f"{'一致' if match else '不一致'}；"
+                     f"连续 {streak_days} 个有效日历日"
                      + ("；已升级 PROVEN" if promoted else "")})
         self.save(data)
         return {"on": on, "auto": auto_value, "human": followers,
-                "match": bool(match), "streak": streak,
-                "verification": data["measurement"].get("verification"),
+                "match": bool(match), "streak": streak_days,
+                "streak_days": streak_days, "valid_day": valid_day,
+                "invalid_reasons": reasons, "last_valid_date": last_valid,
+                "scope": scope,
+                "verification": measurement.get("verification"),
                 "promoted": promoted, "checks": len(checks)}
 
     # ---------- 体检 / 安装 ----------

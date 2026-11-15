@@ -99,6 +99,27 @@ def gate_browser_login(channel, entry, *, login_probe=None):
         raise ActionError(f"{channel} 浏览器登录态缺失：请在浏览器登录该站点后重试（引擎只检测登录态，不管理账号）")
 
 
+def gate_account_identity(channel, data_dir, account=""):
+    """G-01 实际账号身份门禁：登录界面标记 ≠ 授权账号身份。
+
+    绑定了账号身份的授权（require_identity / allow_accounts /
+    account_identities）在真实发送前必须观测到与授权记录精确一致的
+    实际平台账号；未绑定授权不介入（legacy 语义不变）。拒绝抛
+    ActionError → 账本记 rejected，绝不带病发送。返回证据 dict
+    （未绑定为 None），供回执记录 authorized_account 与实际观测身份。
+    """
+    from . import account_identity
+    policy = account_identity.load_policy(data_dir)
+    if not account_identity.identity_bound(policy, account):
+        return None
+    try:
+        return account_identity.enforce_identity(
+            data_dir, channel, account, account_identity.observe(channel),
+            policy=policy)
+    except account_identity.IdentityBlocked as exc:
+        raise ActionError(f"账号身份门禁: {exc}") from exc
+
+
 def _parse_issue(target):
     import re
     m = re.match(r"^(?:issue:)?([\w.-]+/[\w.-]+)#(\d+)$", str(target or "").strip())
@@ -137,11 +158,21 @@ def _dispatch_action_inner(*, channel, action, data_dir=None, campaign="", go=Fa
             # not label an approval rejection with the earlier precheck mode.
             if not rec.get("approval") and rec.get("result") != "rejected":
                 rec["approval"] = "routine-policy"
+        if identity_evidence and isinstance(rec, dict) and "identity" not in rec:
+            rec = dict(rec)
+            rec["identity"] = dict(identity_evidence)
         return rec
     if action in READ_ACTIONS:
         raise ActionError("读动作请用 mkt search/inbox/audit，不走 run_action")
     if not go:
         log(f"[action] {channel}/{action} dry-run（加 --go 才实跑）")
+
+    # G-01：真实发送前校验实际账号身份（队列/单动作/MCP 共用此路径）；
+    # dry-run 保持零浏览器副作用，不做身份探测，只由队列层给出提示。
+    from . import account_identity
+    identity_evidence = None
+    if go and channel in account_identity.IDENTITY_CHANNELS:
+        identity_evidence = gate_account_identity(channel, data, account)
 
     ledger = Ledger(data / "ledger.jsonl")
     extra = list(extra or [])

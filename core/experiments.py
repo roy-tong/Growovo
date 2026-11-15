@@ -117,9 +117,21 @@ def start_experiment(data_dir: Path, exp_id: str) -> dict:
     return exp
 
 
+def update_fields(data_dir: Path, exp_id: str, **fields) -> dict:
+    """受控层扩展字段的统一落点（G-04）：不改预注册核心字段的校验纪律。"""
+    exp = load_experiment(data_dir, exp_id)
+    exp.update(fields)
+    exp.setdefault("change_log", []).append(
+        {"ts": datetime.now().isoformat(timespec="seconds"),
+         "action": "update", "fields": sorted(fields)})
+    _save(Path(data_dir), exp)
+    return exp
+
+
 def record_observation(data_dir: Path, exp_id: str, *, note: str,
                        data: dict | None = None, evidence_ref: str = "",
-                       approximated: bool = False) -> dict:
+                       approximated: bool = False,
+                       evidence_hash: str = "") -> dict:
     exp = load_experiment(data_dir, exp_id)
     if exp["status"] != "running":
         raise ExperimentError(
@@ -130,13 +142,16 @@ def record_observation(data_dir: Path, exp_id: str, *, note: str,
         raise ExperimentError("note 不能为空")
     if not evidence_ref and not approximated:
         raise ExperimentError("无 evidence_ref 的观察必须显式 approximated=true")
-    exp["observations"].append({
+    observation = {
         "ts": datetime.now().isoformat(timespec="seconds"),
         "note": note,
         "data": data or {},
         "evidence_ref": evidence_ref,
         "approximated": bool(approximated),
-    })
+    }
+    if evidence_hash:
+        observation["evidence_hash"] = evidence_hash
+    exp["observations"].append(observation)
     _save(data_dir, exp)
     return exp
 

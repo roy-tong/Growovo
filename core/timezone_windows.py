@@ -15,16 +15,56 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional, Tuple
 
-# 受众目录：tz 为 UTC 偏移（小时，冬令时基准；夏令时由调用方传入修正量）。
+# 受众目录：tz 为 UTC 偏移（小时，冬令时基准），iana 是窗口计算的权威时区。
+# tz 只是冬令时基准与无 tzdata 时的回退；真正的窗口按 iana 时区算
+# （G-05：跨夏令时切换不改变「受众本地几点」的语义）。
 AUDIENCES: Dict[str, Dict] = {
-    "jp":      {"tz": 9,  "lang": "ja", "topics": ["质量纪律", "测试文化", "细节工程"]},
-    "cn":      {"tz": 8,  "lang": "zh", "topics": ["效率工具", "出海", "独立开发"]},
-    "sg":      {"tz": 8,  "lang": "en", "topics": ["SEA startup", "SaaS"]},
-    "au-east": {"tz": 11, "lang": "en", "topics": ["solo founder", "indie hacker", "SaaS"]},
-    "eu-west": {"tz": 1,  "lang": "en", "topics": ["B2B", "procurement", "open source"]},
-    "us-east": {"tz": -5, "lang": "en", "topics": ["scale", "fundraising", "devtools"]},
-    "us-west": {"tz": -8, "lang": "en", "topics": ["AI tooling", "open source", "devtools"]},
+    "jp":      {"tz": 9,  "iana": "Asia/Tokyo", "lang": "ja", "topics": ["质量纪律", "测试文化", "细节工程"]},
+    "cn":      {"tz": 8,  "iana": "Asia/Shanghai", "lang": "zh", "topics": ["效率工具", "出海", "独立开发"]},
+    "sg":      {"tz": 8,  "iana": "Asia/Singapore", "lang": "en", "topics": ["SEA startup", "SaaS"]},
+    "au-east": {"tz": 11, "iana": "Australia/Sydney", "lang": "en", "topics": ["solo founder", "indie hacker", "SaaS"]},
+    "eu-west": {"tz": 1,  "iana": "Europe/Paris", "lang": "en", "topics": ["B2B", "procurement", "open source"]},
+    "us-east": {"tz": -5, "iana": "America/New_York", "lang": "en", "topics": ["scale", "fundraising", "devtools"]},
+    "us-west": {"tz": -8, "iana": "America/Los_Angeles", "lang": "en", "topics": ["AI tooling", "open source", "devtools"]},
 }
+
+try:  # Python 3.9+；系统缺 tzdata 时回退到固定偏移（宁保守，不抛）。
+    from zoneinfo import ZoneInfo
+except ImportError:  # pragma: no cover
+    ZoneInfo = None  # type: ignore[assignment]
+
+
+def zone_for(audience: str, iana: str = ""):
+    """受众的 IANA 时区对象；没有 tzdata 或名字不合法时返回 None。"""
+    name = str(iana or AUDIENCES.get(str(audience or ""), {}).get("iana") or "")
+    if not name or ZoneInfo is None:
+        return None
+    try:
+        return ZoneInfo(name)
+    except Exception:  # noqa: BLE001 未知时区名不能猜
+        return None
+
+
+def audience_iana(audience: str, iana: str = "") -> str:
+    return str(iana or AUDIENCES.get(str(audience or ""), {}).get("iana") or "")
+
+
+def local_hour_at(now_utc: datetime, audience: str = "",
+                  iana: str = "") -> float:
+    """UTC 时刻 → 受众本地小时；有 IANA 时区就按它算（含夏令时）。
+
+    没有可用 tzdata 时退回冬令时固定偏移，并在调用方以 evidence 披露。
+    """
+    zone = zone_for(audience, iana)
+    moment = now_utc
+    if zone is not None:
+        if moment.tzinfo is None:
+            moment = moment.replace(tzinfo=timezone.utc)
+        local = moment.astimezone(zone)
+        return local.hour + local.minute / 60.0 + local.second / 3600.0
+    spec = AUDIENCES.get(str(audience or ""), {})
+    utc_hour = moment.hour + moment.minute / 60.0
+    return (utc_hour + float(spec.get("tz", 0))) % 24
 
 # 受众本地时间的黄金窗（起点, 终点），小时浮点。
 GOLDEN_WINDOWS: List[Tuple[float, float]] = [

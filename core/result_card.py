@@ -25,6 +25,8 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 WEEK_DAYS = 7
+#: 低于这个有效样本数时，学习建议只能算噪声（与 grow_learning.MIN_SAMPLE 同口径）。
+MIN_LEARNING_SAMPLE = 3
 
 # 业务漏斗阶段（与 attribution.FUNNEL 同序）；比例只是记账口径，不是因果。
 FUNNEL_STAGES = ("signal", "signup", "activation", "paid")
@@ -103,12 +105,17 @@ def _as_int(value, default: int = 0) -> int:
     return default if number is None else number
 
 
-def _business(ol, run_id: str) -> Dict[str, Any]:
+def _business(ol, run_id: str, data_dir=None) -> Dict[str, Any]:
     """业务漏斗：按 run id 读 Outcomes 事件，映射成四个阶段的主体数。
 
     available=False 表示这个 run 名下没有业务事件——不是「业务为 0」，
     读数侧渲染成「取不到（未接入数据源）」；阶段计数只做比值口径，
-    不证明渠道因果。"""
+    不证明渠道因果。
+
+    G-03：一旦这个 run 有经授权导入的产品事件（``outcomes/product_events.jsonl``），
+    注册/激活/付费改用三层账本的 L3 口径——它会应用人工资格判定与事件核验
+    状态，避免同一页上「业务事件 1 个激活」和「L3 0 个激活」两套数。signal
+    仍只来自既有 outcome 台账。"""
     funnel = {stage: 0 for stage in FUNNEL_STAGES}
     payload = ol.funnel(campaign=run_id)
     for row in payload.get("funnel") or []:
@@ -122,6 +129,18 @@ def _business(ol, run_id: str) -> Dict[str, Any]:
         note = str(payload.get("note") or "") or "阶段计数是比值口径，不证明因果"
     else:
         note = "取不到（未接入数据源）：该 run 名下没有业务事件"
+    if data_dir is not None:
+        try:
+            from . import outcome_layers
+            if outcome_layers.has_authorized_imports(data_dir, run_id=run_id):
+                summary = outcome_layers.layer_summary(data_dir, run_id=run_id)
+                for stage in ("signup", "activation", "paid"):
+                    funnel[stage] = _as_int(summary["L3"].get(stage))
+                available = True  # 来源已接入：全 0 也要如实展示，不写「取不到」
+                note = ("阶段计数是比值口径，不证明因果；L3 已按事件核验状态与"
+                        "人工资格判定调整")
+        except Exception:  # noqa: BLE001 三层账本读不到时保留既有口径
+            pass
     return {"available": available, "funnel": funnel, "note": note}
 
 
@@ -158,6 +177,166 @@ def _next_week(run: Dict[str, Any], adjustments: List[Dict[str, Any]]) -> Dict[s
     changes = [{"detail": str(a.get("detail") or "")}
                for a in adjustments if isinstance(a, dict)]
     return {"actions_per_week": actions, "changes": changes}
+
+
+def _goal_status(run: Dict[str, Any], records: List[Dict[str, Any]],
+                 week_end: str) -> Dict[str, Any]:
+    """头部主目标状态：达标 / 不足 / 无数据（G-03 结果卡第一层）。
+
+    只读同一份 outcome 计数快照；没有读数就是 ``no_data``，不拿发布量或互动
+    冒充主目标进展。delta 目标（从基线往上加）按增量判断。"""
+    goal = run.get("goal") or {}
+    metric = str(goal.get("metric") or "")
+    label = str(goal.get("metric_label") or metric or "主目标")
+    by_day: Dict[str, int] = {}
+    if metric == "followers":
+        by_day = _count_by_day(records, "x_followers")
+    elif metric in ("impressions", "visibility", "reach"):
+        by_day = _count_by_day(records, "x_impressions")
+    current = _latest_at_or_before(by_day, week_end) if by_day else None
+    baseline = goal.get("baseline")
+    target = goal.get("target")
+    base = {"metric": metric, "label": label, "current": current,
+            "baseline": baseline, "target": target,
+            "target_kind": goal.get("target_kind"),
+            "target_text": goal.get("target_text")}
+    if current is None or not isinstance(target, (int, float)) or not target:
+        return dict(base, state="no_data", state_label="无数据",
+                    text=(f"主目标（{label}）：无数据——这个指标还没有可核验读数，"
+                          "不能报达标，也不能报不足"))
+    if goal.get("target_kind") == "delta" and isinstance(baseline, (int, float)):
+        reached = current - baseline
+        met = reached >= target
+        detail = f"本周读数 {current}，相比基线 {baseline} 增加 {reached}（目标 +{target}）"
+    else:
+        met = current >= target
+        detail = f"当前 {current}（目标 {target}）"
+    return dict(base, state="met" if met else "short",
+                state_label="达标" if met else "不足",
+                text=f"主目标（{label}）：{'达标' if met else '不足'}——{detail}")
+
+
+def _human_minutes(run: Dict[str, Any], week_start: str,
+                   week_end: str) -> Optional[int]:
+    """本周人工分钟：优先周 telemetry 行，其次按日相加；没有就是 None。"""
+    telemetry = run.get("telemetry") if isinstance(run.get("telemetry"), dict) else {}
+    weeks = telemetry.get("weeks") if isinstance(telemetry.get("weeks"), dict) else {}
+    row = weeks.get(week_start) if isinstance(weeks, dict) else None
+    value = _as_int_or_none(row.get("human_minutes")) if isinstance(row, dict) else None
+    if value is not None:
+        return value
+    days = telemetry.get("days") if isinstance(telemetry.get("days"), dict) else {}
+    total = 0
+    seen = False
+    for day, entry in days.items():
+        if not (week_start <= str(day) <= week_end) or not isinstance(entry, dict):
+            continue
+        number = _as_int_or_none(entry.get("human_minutes"))
+        if number is None:
+            continue
+        seen = True
+        total += number
+    return total if seen else None
+
+
+def _layers(data_dir, run_id: str, week_start: str,
+            week_end: str) -> Dict[str, Any]:
+    """三层结果的只读视图；读不到就整块 UNKNOWN，绝不当成 0。"""
+    try:
+        from . import outcome_layers
+        return outcome_layers.layer_summary(
+            data_dir, run_id=run_id,
+            window={"start": week_start, "end": week_end})
+    except Exception as exc:  # noqa: BLE001 账本坏了不能把结果单变成 0
+        from . import outcome_layers
+        return outcome_layers.unknown_summary(
+            "三层账本读取失败：%s: %s" % (type(exc).__name__, exc))
+
+
+def _evidence(run: Dict[str, Any], layers: Dict[str, Any], *,
+              published_total: int, readings_by_day: Dict[str, int],
+              guardrails: Dict[str, Any], week_start: str,
+              week_end: str) -> Dict[str, Any]:
+    """证据覆盖与盲点：这一周哪些数有来源、哪些只能写「取不到」。"""
+    reading_days = sorted(d for d in readings_by_day
+                          if week_start <= d <= week_end)
+    l3 = layers.get("L3") or {}
+    coverage = {
+        "ledger_actions": published_total,
+        "reading_days": len(reading_days),
+        "days_in_week": WEEK_DAYS,
+        "l3_events": _as_int(l3.get("events")),
+        "l3_source_connected": bool(l3.get("source_connected")),
+    }
+    blind_spots: List[str] = []
+    if layers.get("degraded"):
+        blind_spots.append("三层账本读取失败：先修数据源再谈三层口径，不要当成「没有结果」")
+    elif not coverage["l3_source_connected"]:
+        blind_spots.append("产品业务事件未接入：激活、付费没有可核验来源，不能报转化")
+    elif _as_int(l3.get("events")) == 0:
+        blind_spots.append("产品业务事件已接入，但本周窗口内没有可核验事件")
+    if coverage["reading_days"] == 0:
+        blind_spots.append("本周没有平台读数：曝光与新增粉丝取不到，不是 0")
+    failed = _as_int(guardrails.get("failed"))
+    indeterminate = _as_int(guardrails.get("indeterminate"))
+    if failed or indeterminate:
+        blind_spots.append(
+            f"有 {failed} 次失败、{indeterminate} 次未知回执：需要人工裁决，不能当成功")
+    if _as_int(l3.get("unverified")):
+        blind_spots.append(
+            f"有 {len(l3.get('unverified') or [])} 条来源方宣称未核验：一律不计入")
+    if not blind_spots:
+        blind_spots.append("本周覆盖内没发现明显盲点；committed 仍只证明发出")
+    stops: List[str] = []
+    status = str(run.get("status") or "")
+    if status == "needs_attention":
+        stops.append("运行停在 needs_attention：先处理未知/失败结果再继续")
+    elif status in ("paused", "cancelled"):
+        stops.append(f"运行状态是 {status}：本周没有新的自动执行")
+    rejected: List[str] = []
+    production = (run.get("automation") or {}) if isinstance(
+        run.get("automation"), dict) else {}
+    last = production.get("last_result") if isinstance(production.get("last_result"), dict) else {}
+    for item in last.get("rejected") or []:
+        rejected.append(str(item)[:200])
+    return {"coverage": coverage, "blind_spots": blind_spots,
+            "abnormal_stops": stops, "rejected": rejected}
+
+
+def _recommendation(goal_status: Dict[str, Any], layers: Dict[str, Any],
+                    evidence: Dict[str, Any],
+                    run: Optional[Dict[str, Any]] = None) -> str:
+    """下一建议：先说最缺的证据，再说要不要动计划量。
+
+    G-04：样本不足或需要复审时，明确写「不调权重/不加额度」——建议不能
+    被读成「已证明这条策略有效」。"""
+    learning = (run or {}).get("learning")
+    learning = learning if isinstance(learning, dict) else {}
+    if learning.get("review_required"):
+        return ("学习复审：" + "；".join(learning.get("review_reasons") or [])
+                + "。复审前不调文案权重，也不加发布额度。")
+    sample = _as_int_or_none(learning.get("sample"))
+    if sample is not None and sample < MIN_LEARNING_SAMPLE:
+        return (f"有效样本 {sample} 条：先采集，不据此调整文案权重或配额；"
+                "样本太少时任何「更好」都只是噪声。")
+    l3 = layers.get("L3") or {}
+    coverage = evidence.get("coverage") or {}
+    if layers.get("degraded"):
+        return "先修三层账本的读取错误：读不到不等于没发生，修好再看结论。"
+    if l3.get("state") == "UNKNOWN":
+        return ("先把产品激活事件接进来：导出经授权的产品事件，用 "
+                "`mkt grow events import` 导入。没有业务事件时，这周的发布和互动"
+                "只证明做了什么，不能证明用户用起来了。")
+    if coverage.get("reading_days", 0) == 0:
+        return "先补平台读数：没有读数时分不清「没效果」和「没数据」，先跑 tick 或人工对数。"
+    if _as_int(l3.get("unverified")):
+        return "先核验未确认的业务事件（要支付记录/买方确认），核验前不要写进付费。"
+    if goal_status.get("state") == "short":
+        return ("主目标不足：先看证据覆盖有没有缺口，再决定是否减量或换内容；"
+                "不要用一次同期增长解释成渠道有效。")
+    if goal_status.get("state") == "met":
+        return "主目标已达标：维持计划量，继续积累可核验样本，别把本周数据当成长期结论。"
+    return "维持当前计划量，继续积累可核验样本；发布与互动的变化不能直接当成激活。"
 
 
 def build(data_dir, run: Dict[str, Any], week_start: str, week_end: str,
@@ -213,10 +392,23 @@ def build(data_dir, run: Dict[str, Any], week_start: str, week_end: str,
     adjustments = [a for a in run.get("adjustments") or []
                    if week_start <= str(a.get("on") or "") <= week_end]
 
-    business = _business(ol, run_id)
+    business = _business(ol, run_id, data)
     guardrails = _guardrails(run, week_start)
     supply = _supply(run)
     next_week = _next_week(run, adjustments)
+
+    # G-03 结果卡新信息结构：主目标状态 / 三层分列 / 证据覆盖与盲点 /
+    # 人工分钟 / 下一建议。全部只读，缺数写 UNKNOWN 或 None，不写 0。
+    goal_status = _goal_status(run, records, week_end)
+    layers = _layers(data, run_id, week_start, week_end)
+    reading_days = dict(followers_by_day)
+    reading_days.update(impressions_by_day)
+    evidence = _evidence(run, layers, published_total=published_total,
+                         readings_by_day=reading_days,
+                         guardrails=guardrails, week_start=week_start,
+                         week_end=week_end)
+    human_minutes = _human_minutes(run, week_start, week_end)
+    recommendation = _recommendation(goal_status, layers, evidence, run)
 
     return {
         "schema": "growovo.result-card/1",
@@ -239,6 +431,11 @@ def build(data_dir, run: Dict[str, Any], week_start: str, week_end: str,
         "guardrails": guardrails,
         "supply": supply,
         "next_week": next_week,
+        "goal_status": goal_status,
+        "layers": layers,
+        "evidence": evidence,
+        "human_minutes": human_minutes,
+        "recommendation": recommendation,
         "notes": [],
     }
 
@@ -333,6 +530,65 @@ def _render_next_week(card: Dict[str, Any]) -> List[str]:
     return lines
 
 
+def _render_goal_and_layers(card: Dict[str, Any]) -> List[str]:
+    """主目标 + 三层分列：执行 / 目标人群有价值互动 / 产品业务事件。"""
+    status = card.get("goal_status") or {}
+    layers = card.get("layers") or {}
+    lines = ["", "## 主目标", "",
+             f"- {status.get('state_label') or '无数据'}：{status.get('text', '')}"]
+    if status.get("state") == "no_data":
+        lines.append("- 说明：无数据不是「没有增长」，是这个指标这周没有可核验读数")
+    lines += ["", "## 三层结果", ""]
+    labels = {"L1": "本周执行", "L2": "目标人群有价值互动",
+              "L3": "产品业务事件"}
+    for key in ("L1", "L2", "L3"):
+        block = layers.get(key) or {}
+        lines.append(f"- {key}（{labels[key]}｜{block.get('state', 'UNKNOWN')}）："
+                     f"{block.get('text', '')}")
+        if block.get("note"):
+            lines.append(f"  - 口径：{block['note']}")
+    if (layers.get("L3") or {}).get("source_connected"):
+        lines.append("  - 口径：「业务事件」一节是本 run 累计（按 campaign 归集），"
+                     "三层是本周窗口，两个口径不要相加。")
+    attribution = layers.get("attribution") or {}
+    counts = attribution.get("summary") or {}
+    lines += ["", "激活归因（非因果，只是证据链能追到哪一步）："
+              f"direct_receipt {_fmt_int(counts.get('direct_receipt', 0))}｜"
+              f"assisted_observation {_fmt_int(counts.get('assisted_observation', 0))}｜"
+              f"unattributed {_fmt_int(counts.get('unattributed', 0))}"]
+    for row in (attribution.get("activations") or [])[:5]:
+        lines.append(f"- {row.get('subject')}：{row.get('attribution')}"
+                     f"（{len(row.get('touches') or [])} 条触达；"
+                     f"causal_credit={row.get('causal_credit')}）")
+    return lines
+
+
+def _render_evidence(card: Dict[str, Any]) -> List[str]:
+    """证据覆盖与盲点、异常停机、被拒内容、人工分钟与下一建议。"""
+    evidence = card.get("evidence") or {}
+    coverage = evidence.get("coverage") or {}
+    lines = ["", "## 证据覆盖与盲点", ""]
+    source = "已接入" if coverage.get("l3_source_connected") else "未接入"
+    lines.append(
+        f"- 覆盖：账本已确认动作 {_fmt_int(coverage.get('ledger_actions'))} 条｜"
+        f"有读数 {_fmt_int(coverage.get('reading_days'))}/"
+        f"{_fmt_int(coverage.get('days_in_week'))} 天｜"
+        f"L3 事件 {_fmt_int(coverage.get('l3_events'))} 条（来源{source}）")
+    for item in evidence.get("blind_spots") or []:
+        lines.append(f"- 盲点：{item}")
+    for item in evidence.get("abnormal_stops") or []:
+        lines.append(f"- 异常停机：{item}")
+    for item in evidence.get("rejected") or []:
+        lines.append(f"- 被拒内容：{item}")
+    minutes = card.get("human_minutes")
+    lines += ["", f"- 人工分钟：{_fmt_int(minutes) if minutes is not None else '取不到'}"
+                  "（本周人工投入，缺记就是缺记，不估算）"]
+    advice = card.get("recommendation")
+    if advice:
+        lines += ["", f"- 下一建议：{advice}"]
+    return lines
+
+
 def render(card: Dict[str, Any]) -> str:
     """人读版结果单。这一页就是交付物：数字、证据口径、边界声明。"""
     goal = card.get("goal") or {}
@@ -385,6 +641,9 @@ def render(card: Dict[str, Any]) -> str:
     lines += _render_business(card)
     lines += _render_guardrails(card)
     lines += _render_next_week(card)
+    # G-03 追加：主目标 + 三层分列 / 证据覆盖与盲点、人工分钟与下一建议
+    lines += _render_goal_and_layers(card)
+    lines += _render_evidence(card)
     lines += [
         "",
         "## 边界声明",

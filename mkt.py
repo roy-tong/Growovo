@@ -29,6 +29,16 @@
   mkt optimize              优化建议（需人工决定，不自动改预算或重放）
   mkt schedule …            持久化排期：add/list/tick/status/resume
   mkt outcome …             效果归因：事件/计数台账 + 漏斗（口径非因果）
+  mkt grow events|layers|journey|qualify
+                            三层结果（G-03）：授权产品事件导入/三层汇总/个人进度/人工改资格
+                            （导入与改资格默认只预演，--apply 才落盘；其余只读）
+  mkt grow experiment …     受控实验（G-04）：设计/批准/启动/观察/分析（写入默认 dry-run）
+  mkt grow change …         策略改动（G-04）：清单/人审批准/回滚（升权改动未批准不生效）
+  mkt grow start …          九步启动向导（G-05）：体检→清单→身份→目标→3 条预览→风险→
+                           显式 arm→调度模式→日报；不自动 arm，写入要 --apply
+  mkt grow status --explain|incident --list|resume --after-reconciliation|pause
+                            统一监控与恢复（G-05）：C-01 状态解释/唯一事件 ID 告警/
+                            indeterminate 裁决后恢复/一键暂停
 
 示例:
   python3 mkt.py email message --queue data/queues/er-wave7.json        # dry-run
@@ -503,9 +513,16 @@ def cmd_tactic(args):
 
 
 def cmd_watch(args):
-    from core.watch import KIND_TACTICS, WatchError, WatchList
+    from core.watch import (KIND_TACTICS, WatchError, WatchList,
+                            local_file_fetcher)
     act = args.action
     path = DATA / "watch" / f"{args.id}.json" if getattr(args, "id", "") else None
+
+    def _local_kwargs():
+        """显式本地模式：只给 file:// 用一个只读本地文件的抓取器。"""
+        if not getattr(args, "allow_local_file", False):
+            return {}
+        return {"allow_local_file": True, "file_fetcher": local_file_fetcher}
 
     if act == "start":
         try:
@@ -522,13 +539,17 @@ def cmd_watch(args):
     if act == "add":
         try:
             entry = WatchList(path).add(args.url, args.kind, args.competitor,
-                                        note=args.note or "")
+                                        note=args.note or "",
+                                        **_local_kwargs())
         except WatchError as exc:
             print(f"不能加入：{exc}")
             return 2
         print(f"已监控 {entry['competitor']} 的 {entry['kind']} 页"
               f"（基线快照 {entry['baseline_len']} 字符）")
-        print(f"  变化时建议承接：{'、'.join(KIND_TACTICS[entry['kind']])}")
+        if entry.get("last_final_url") and entry["last_final_url"] != entry["url"]:
+            print(f"  实际抓取地址（重定向后）：{entry['last_final_url']}")
+        print("  变化时只记 page_content_changed；人工核实后才谈涨价/故障："
+              f"{'、'.join(KIND_TACTICS[entry['kind']])}")
         return 0
 
     if act == "remove":
@@ -541,13 +562,20 @@ def cmd_watch(args):
         return 0
 
     if act == "check":
-        result = WatchList(path).check()
-        print(f"检查 {result['checked']} 项：{len(result['events'])} 个变化")
+        result = WatchList(path).check(**_local_kwargs())
+        print(f"检查 {result['checked']} 项：{len(result['events'])} 个变化"
+              + (f"｜抓取失败 {result['failed']} 项（不改基线）"
+                 if result["failed"] else ""))
         for e in result["events"]:
-            print(f"  ⚡ [{e['kind']}] {e['competitor']}（{e['on']}）：{e['diff'] or '内容已变化'}")
-            print(f"     建议承接：{'、'.join(e['tactics'])}（mkt tactic show 看打法）")
+            print(f"  ⚡ [{e['kind']}] {e['competitor']}（{e['on']}）："
+                  f"{e['diff'] or '内容已变化'}")
+            print(f"     事件：{e['event_type']}｜{e['verification']}"
+                  "（人工核实前不宣称涨价/故障）")
+            print(f"     候选承接：{'、'.join(e['tactics'])}（mkt tactic show 看打法）")
+            print(f"     核实：mkt watch confirm {args.id} {e['id']} "
+                  "--claim price_change|status_incident|rejected --by <谁> --note <依据>")
         if not result["events"]:
-            print("  无变化；下次 cron 再查")
+            print("  无实质变化；下次 cron 再查")
         return 0
 
     if act == "events":
@@ -556,8 +584,23 @@ def cmd_watch(args):
             print("还没有变化事件")
             return 0
         for e in rows:
-            print(f"- [{e['on']}] {e['competitor']} {e['kind']}：{e['diff'] or '变化'}"
+            state = e.get("verification", "needs_review")
+            claim = e.get("claim") or "content_changed"
+            print(f"- [{e['on']}] {e['competitor']} {e['kind']}"
+                  f"｜{state}/{claim}：{e['diff'] or '变化'}"
                   f" → {'、'.join(e['tactics'])}")
+        return 0
+
+    if act == "confirm":
+        try:
+            record = WatchList(path).confirm_event(
+                args.event_id, claim=args.claim, by=args.by or "",
+                note=args.note or "")
+        except WatchError as exc:
+            print(f"不能记录人工核实：{exc}")
+            return 2
+        print(f"已记录人工核实：{record['event_id']} → {record['claim']}"
+              f"（by {record['by']}）；原事件与快照不改")
         return 0
 
     if act == "summary":
@@ -695,13 +738,407 @@ def cmd_grow(args):
         print("\n只能出人工作业单（不假装自动）：其余平台。")
         return 0
 
+    if act == "experiment":
+        from core import controlled_learning as cl
+        sub = getattr(args, "experiment_action", "")
+        if sub == "design":
+            try:
+                exp = cl.design_experiment(
+                    DATA, exp_id=args.exp_id,
+                    hypothesis=args.hypothesis, segment=args.segment,
+                    mechanism=args.mechanism,
+                    control_or_baseline=args.baseline,
+                    primary_metric=args.metric, guardrail=args.guardrail,
+                    window={"start": args.start, "end": args.end},
+                    min_sample_declared=args.min_sample,
+                    analysis_limitations=args.limitations,
+                    stop_conditions=args.stop_conditions,
+                    decision_rule=args.decision_rule, owner=args.owner,
+                    randomized=args.randomized,
+                    assignment_ref=args.assignment_ref,
+                    dry_run=not args.apply)
+            except cl.ControlledLearningError as exc:
+                print(f"实验未创建：{exc}")
+                return 2
+            if args.json:
+                print(json.dumps(exp, ensure_ascii=False, indent=1))
+                return 0
+            label = "已创建" if args.apply else "预演（未写入）"
+            print(f"{label}：实验 {exp['exp_id']}｜预声明样本 "
+                  f"{exp['min_sample_declared']}｜计划指纹 "
+                  f"{str(exp['plan_sha256'])[:24]}…")
+            print(f"下一步：mkt grow experiment approve {exp['exp_id']} "
+                  "--by <谁> --apply（批准后才能 start）")
+            if not args.apply:
+                print("确认无误后加 --apply 落盘（默认只校验，不写文件）。")
+            return 0
+        if sub == "approve":
+            try:
+                record = cl.approve_experiment(
+                    DATA, args.id, by=args.by, note=args.note,
+                    dry_run=not args.apply)
+            except cl.ControlledLearningError as exc:
+                print(f"未批准：{exc}")
+                return 2
+            if args.json:
+                print(json.dumps(record, ensure_ascii=False, indent=1))
+                return 0
+            approval = record.get("approval") or record
+            print(("已批准" if args.apply else "预演（未写入）")
+                  + f"：实验 {args.id} 由 {approval.get('by')} 批准，绑定计划指纹 "
+                  f"{str(approval.get('plan_sha256'))[:24]}…")
+            return 0
+        if sub == "start":
+            try:
+                exp = cl.start_experiment(DATA, args.id, dry_run=not args.apply)
+            except cl.ControlledLearningError as exc:
+                print(f"未启动：{exc}")
+                return 2
+            if args.json:
+                print(json.dumps(exp, ensure_ascii=False, indent=1))
+                return 0
+            print(("已启动" if args.apply else "预演（未写入）")
+                  + f"：实验 {args.id} 状态 {exp.get('status')}")
+            return 0
+        if sub == "observe":
+            try:
+                result = cl.record_observation(
+                    DATA, args.id, note=args.note, value=args.value,
+                    evidence_ref=args.evidence_ref,
+                    evidence_hash=args.evidence_hash,
+                    approximated=args.approximated)
+            except cl.ControlledLearningError as exc:
+                print(f"未记录：{exc}")
+                return 2
+            if args.json:
+                print(json.dumps(result, ensure_ascii=False, indent=1))
+                return 0
+            if not result["recorded"]:
+                print(f"未记录：同一份证据已记过（{result['reason']}），"
+                      f"当前有效样本 {result['sample']} 条")
+            else:
+                print(f"已记录：有效样本 {result['sample']} 条"
+                      f"｜分析口径 {result['analysis']['analysis_mode']}")
+            return 0
+        if sub == "analyze":
+            try:
+                analysis = cl.analyze_experiment(DATA, args.id)
+            except cl.ControlledLearningError as exc:
+                print(f"分析不了：{exc}")
+                return 2
+            if args.json:
+                print(json.dumps(analysis, ensure_ascii=False, indent=1))
+                return 0
+            print(f"# 实验 {analysis['exp_id']}（{analysis['status']}）")
+            print(f"- 口径：{analysis['analysis_mode']}"
+                  f"｜有效样本 {analysis['sample']}/{analysis['min_sample_declared']}"
+                  f"｜随机分组 {'是' if analysis['randomized'] else '否'}")
+            print(f"- 结论：{analysis['wording']}")
+            print(f"- 下一步：{analysis['next_action']}")
+            for item in analysis.get("limitations") or []:
+                print(f"- 限制：{item}")
+            return 0
+        if sub == "compare":
+            channels = [c.strip() for c in (args.channels or "").split(",")
+                        if c.strip()]
+            window = ({"start": args.start, "end": args.end}
+                      if (args.start or args.end) else None)
+            try:
+                comparison = cl.freeze_comparison(
+                    DATA, args.id, product=args.product, channels=channels,
+                    quota={"actions_per_week": args.quota_actions},
+                    window=window, cost_basis=args.cost_basis,
+                    dry_run=not args.apply)
+            except cl.ControlledLearningError as exc:
+                print(f"比较上下文未冻结：{exc}")
+                return 2
+            if args.json:
+                print(json.dumps(comparison, ensure_ascii=False, indent=1))
+                return 0
+            print(("已冻结" if args.apply else "预演（未写入）")
+                  + f"：三种替代 + 上下文指纹 "
+                  f"{str(comparison['comparison_hash'])[:24]}…")
+            for arm in comparison["arms"]:
+                print(f"  - {arm['name']}：{arm['description']}")
+            print("冻结后换时间窗/换渠道不能把结果说成有效。")
+            return 0
+        if sub == "metrics":
+            window = ({"start": args.start, "end": args.end}
+                      if (args.start or args.end) else None)
+            metrics = cl.falsification_metrics(
+                DATA, run_id=args.run or None, window=window)
+            if args.json:
+                print(json.dumps(metrics, ensure_ascii=False, indent=1))
+            else:
+                print(cl.render_falsification(metrics))
+            return 0
+        if sub == "list":
+            experiments = cl.list_experiments(DATA)
+            if args.json:
+                print(json.dumps(experiments, ensure_ascii=False, indent=1))
+                return 0
+            if not experiments:
+                print("还没有受控实验。先 mkt grow experiment design ...")
+                return 0
+            for exp in experiments:
+                approval = exp.get("approval") or {}
+                print(f"  {exp.get('exp_id')}｜{exp.get('status')}"
+                      f"｜声明样本 {exp.get('min_sample_declared')}"
+                      f"｜{'已批准 ' + str(approval.get('by')) if approval.get('by') else '未批准'}")
+            return 0
+        print("experiment 只支持 design/approve/start/observe/analyze/list")
+        return 2
+
+    if act == "change":
+        from core import controlled_learning as cl
+        try:
+            run, raw = _open()
+        except FileNotFoundError as exc:
+            print(str(exc))
+            return 2
+        if raw.get("schema") != "growovo.grow-run/2":
+            print("change 只支持 v2 闭环（先 mkt grow launch）")
+            return 2
+        sub = getattr(args, "change_action", "")
+        if sub == "list":
+            listing = run.list_changes()
+            if args.json:
+                print(json.dumps(listing, ensure_ascii=False, indent=1))
+                return 0
+            print(f"当前策略指纹：{listing['current_hash']}")
+            if not listing["changes"]:
+                print("还没有策略改动记录。")
+                return 0
+            for record in listing["changes"]:
+                print(f"  {record.get('change_id')}｜{record.get('kind')}"
+                      f"｜{record.get('param')}：{record.get('from')} → "
+                      f"{record.get('to')}｜{record.get('on')}"
+                      f"｜{str(record.get('before_hash'))[:16]}… → "
+                      f"{str(record.get('after_hash'))[:16]}…")
+            for record in listing["approvals"]:
+                print(f"  批准 {str(record.get('change_sha256'))[:16]}…"
+                      f"｜by {record.get('by')}｜{record.get('on')}")
+            return 0
+        if sub == "approve":
+            try:
+                record = run.approve_change(
+                    DATA, args.change, by=args.by, on=args.on or None,
+                    dry_run=not args.apply)
+            except GrowErrors + (cl.ControlledLearningError,) as exc:
+                print(f"未批准：{exc}")
+                return 2
+            if args.json:
+                print(json.dumps(record, ensure_ascii=False, indent=1))
+                return 0
+            print(("已记录批准" if args.apply else "预演（未写入）")
+                  + f"：{str(record['change_sha256'])[:16]}… 由 "
+                  f"{record['by']} 批准，绑定策略指纹 "
+                  f"{str(record['before_hash'])[:16]}…")
+            return 0
+        if sub == "rollback":
+            try:
+                result = run.rollback_changes(
+                    DATA, by=args.by, on=args.on or None,
+                    change_id=args.change or "", dry_run=not args.apply)
+            except GrowErrors + (cl.ControlledLearningError,) as exc:
+                print(f"未回滚：{exc}")
+                return 2
+            if args.json:
+                print(json.dumps(result, ensure_ascii=False, indent=1))
+                return 0
+            if not result.get("rolled_back"):
+                print(f"没有回滚：{result.get('reason', '')}")
+                return 0
+            print(("已回滚" if args.apply else "预演（未写入）")
+                  + f"：恢复策略指纹 {str(result['restored_hash'])[:16]}…"
+                  "；已发出去的外部动作不回滚。")
+            return 0
+        print("change 只支持 list/approve/rollback")
+        return 2
+
+    if act in ("events", "layers", "journey", "qualify"):
+        from core import outcome_layers
+
+        def _window(ns):
+            """--window-start/--window-end → 时间窗；都没给就是 None（不限）。"""
+            start = getattr(ns, "window_start", "") or ""
+            end = getattr(ns, "window_end", "") or ""
+            return {"start": start, "end": end} if (start or end) else None
+
+        if act == "events":
+            sub = getattr(args, "events_action", "")
+            if sub == "import":
+                try:
+                    result = outcome_layers.import_events(
+                        DATA, args.from_file,
+                        allowed_sources=args.allowed_source,
+                        imported_by=args.by, window=_window(args),
+                        dry_run=not args.apply)
+                except outcome_layers.OutcomeLayerError as exc:
+                    print(f"导入未执行：{exc}")
+                    return 2
+                if args.json:
+                    print(json.dumps(result, ensure_ascii=False, indent=1))
+                    return 0 if not result["errors"] else 1
+                added = (result["created"] if args.apply
+                         else result.get("would_create", 0))
+                print(f"导入{'已写入' if args.apply else '预演（未写入）'}："
+                      f"新增 {added} 条｜重复跳过 {result['skipped_duplicate']} 条"
+                      f"｜错误 {len(result['errors'])} 条")
+                for err in result["errors"]:
+                    print(f"  第 {err['row']} 行 {err.get('event_id') or '-'}："
+                          f"{err['reason']}（{err['detail']}）")
+                for warning in result.get("warnings") or []:
+                    print(f"  注意：{warning}")
+                if result.get("partial"):
+                    print("  注意：这是一次部分导入——被拒的行没有写入，其余已写入；"
+                          "先修被拒行再补导。")
+                if args.apply and result["created"]:
+                    print("已写：outcomes/product_events.jsonl、三层凭证，"
+                          "并把通过核验的业务事件投影进业务台账。")
+                elif not args.apply and result["event_ids"]:
+                    print("确认无误后加 --apply 落盘（默认只校验，不写任何文件）。")
+                return 0 if not result["errors"] else 1
+            if sub == "list":
+                events = outcome_layers.read_product_events(
+                    DATA, run_id=args.id or None)
+                states = outcome_layers.qualification_states(DATA)
+                if args.json:
+                    print(json.dumps({"events": events,
+                                      "qualifications": states},
+                                     ensure_ascii=False, indent=1))
+                    return 0
+                if not events:
+                    print("还没有导入过产品事件。先 `mkt grow events import "
+                          "--from <file> --allowed-source <system> --by <谁>` 预演。")
+                    return 0
+                print(f"已导入产品事件 {len(events)} 条"
+                      "（核验未通过的不计入；资格是另一条线，需人工改）：")
+                for rec in events:
+                    qualifies = states.get(rec.get("event_id"), True)
+                    print(f"  {rec.get('event_id')}｜{rec.get('event_type')}"
+                          f"｜{rec.get('subject_id')}｜{rec.get('occurred_at')}"
+                          f"｜{rec.get('source_system')}"
+                          f"｜核验 {rec.get('verification_state')}"
+                          f"｜资格 {'计入' if qualifies else '人工判为不计入'}")
+                print("资格变更留审计：mkt grow qualify <event_id> --no/--yes "
+                      "--by <谁> --note <依据>")
+                return 0
+            if sub == "sync":
+                result = outcome_layers.sync_action_receipts(
+                    DATA, run_id=args.id or None, window=_window(args),
+                    by=args.by or "local-ledger", dry_run=not args.apply)
+                if args.json:
+                    print(json.dumps(result, ensure_ascii=False, indent=1))
+                    return 0
+                if args.apply:
+                    print(f"L1 回执已补齐 {result['written']} 张（扫描账本 "
+                          f"{result['scanned']} 条）。")
+                else:
+                    print(f"预演：将补 {result['would_write']} 张 L1 回执"
+                          f"（扫描账本 {result['scanned']} 条，未写入）。"
+                          "加 --apply 落盘。")
+                return 0
+            print("events 只支持 import/list/sync")
+            return 2
+
+        if act == "layers":
+            summary = outcome_layers.layer_summary(
+                DATA, run_id=getattr(args, "id", "") or None,
+                window=_window(args))
+            if args.json:
+                print(json.dumps(summary, ensure_ascii=False, indent=1))
+            else:
+                print(outcome_layers.render_summary(summary))
+            return 0
+
+        if act == "journey":
+            try:
+                journey = outcome_layers.prospect_journey(
+                    DATA, prospect_ref=args.ref,
+                    run_id=getattr(args, "id", "") or None)
+            except outcome_layers.OutcomeLayerError as exc:
+                print(f"查不了：{exc}")
+                return 2
+            if args.json:
+                print(json.dumps(journey, ensure_ascii=False, indent=1))
+            else:
+                print(outcome_layers.render_journey(journey))
+            return 0
+
+        if act == "qualify":
+            if bool(args.yes) == bool(args.no):
+                print("二选一：--yes（计入）或 --no（不计入），不要两个都给或都不给")
+                return 2
+            try:
+                record = outcome_layers.set_event_qualification(
+                    DATA, args.event_id, qualifies=bool(args.yes),
+                    by=args.by, note=args.note, dry_run=not args.apply)
+            except outcome_layers.OutcomeLayerError as exc:
+                print(f"资格未改：{exc}")
+                return 2
+            if args.json:
+                print(json.dumps(record, ensure_ascii=False, indent=1))
+                return 0
+            verdict = "计入" if record["qualifies"] else "不计入"
+            if args.apply:
+                print(f"已记录资格变更：{record['event_id']} → {verdict}"
+                      f"（原事件没改；审计 {record['ts']} by {record['by']}）。")
+            else:
+                print(f"预演：将把 {record['event_id']} 标为{verdict}"
+                      "（原事件不改，只追加审计记录）。加 --apply 写入。")
+            return 0
+
+    if act == "start" and not getattr(args, "id", ""):
+        # G-05 九步向导：不带 run id 的 mkt grow start；只建计划，不 Arming。
+        from core import grow_runbook as rb
+        channels = [c.strip() for c in (args.channels or "x").split(",")
+                    if c.strip()]
+        actions = [a.strip() for a in
+                   (getattr(args, "wizard_action", "") or "reply").split(",")
+                   if a.strip()]
+        plan = rb.build_start_plan(
+            DATA, facts_path=args.facts, goal_id=args.goal,
+            run_id=getattr(args, "run_id", "") or "",
+            target=args.target, channels=channels, actions=actions,
+            actions_per_week=int(args.actions_per_week or 7),
+            account=getattr(args, "account", "") or "",
+            handle=args.handle or "",
+            audience=getattr(args, "audience", "") or "us-west",
+            owner=args.owner or "", started=args.on or "",
+            schedule=getattr(args, "schedule", "foreground") or "foreground",
+            delivery=getattr(args, "delivery", "local") or "local",
+            email_owner=getattr(args, "email_owner", "") or "",
+            email_authorized=bool(getattr(args, "authorize_email", False)),
+            source_systems=getattr(args, "source_system", []) or [])
+        if getattr(args, "apply", False):
+            try:
+                result = rb.apply_start_plan(plan, DATA)
+            except rb.RunbookError as exc:
+                print(f"计划未创建（{exc.code}）：{exc}")
+                return 2
+            if getattr(args, "json", False):
+                print(json.dumps(result, ensure_ascii=False, indent=1))
+                return 0
+            print(rb.render_start_plan(result))
+            print(f"\n已建计划：{result['run_path']}｜status={result['status']}"
+                  "｜go=False")
+            print(f"下一步：mkt grow arm {result['run_id']}（必须由人显式执行）")
+            return 0
+        if getattr(args, "json", False):
+            print(json.dumps(plan, ensure_ascii=False, indent=1))
+            return 0
+        print(rb.render_start_plan(plan))
+        return 0
+
     if act == "start":
-        channels = [c.strip() for c in (args.channels or "").split(",") if c.strip()]
+        channels = [c.strip() for c in
+                    (args.channels or "x,email").split(",") if c.strip()]
         try:
             data = GrowRun.start(path, args.id, args.facts, args.goal, channels,
                                  target=args.target, window_days=args.window,
                                  started=args.on or None,
-                                 actions_per_week=args.actions_per_week,
+                                 actions_per_week=args.actions_per_week or 20,
                                  go=args.go, data_dir=DATA, owner=args.owner or "")
         except GrowErrors as exc:
             print(f"不能开始：{exc}")
@@ -837,33 +1274,106 @@ def cmd_grow(args):
         return 0
 
     if act == "arm":
+        from core import grow_runbook as rb
+        path = DATA / "grow" / f"{args.id}.json"
+        if not path.is_file():
+            print(f"没有这个闭环：{path}")
+            return 2
+        raw = json.loads(path.read_text(encoding="utf-8"))
+        if not (args.by or "").strip():
+            print("AUTH_REQUIRED：arm 必须带 --by <operator> 署名；"
+                  "开闸是人的决定，Agent 不能自签")
+            return 2
+        if raw.get("schema") != "growovo.grow-run/2":
+            from core.grow import GrowRun
+            try:
+                GrowRun(path).arm()
+            except Exception as exc:  # noqa: BLE001 旧版兼容路径
+                print(f"不能开闸：{exc}")
+                return 2
+            print(f"{args.id}（旧版闭环）已开闸；v1 不记录署名，建议迁移到 "
+                  "mkt grow launch")
+            return 0
         try:
-            run, raw = _open()
-            data = run.arm()
-        except FileNotFoundError as exc:
-            print(str(exc))
+            data = rb.arm_run(DATA, path, by=args.by)
+        except rb.RunbookError as exc:
+            print(f"不能开闸（{exc.code}）：{exc}")
             return 2
         except GrowErrors as exc:
             print(f"不能开闸：{exc}")
             return 2
-        print(f"{args.id} 实跑已开闸。急停随时可用：mkt pause --on '原因'"
-              "（暂停闸优先于一切写操作）")
+        print(f"{args.id} 实跑已开闸（{data.get('armed_by')}）。"
+              "急停随时可用：mkt pause --on '原因'（暂停闸优先于一切写操作）")
+        return 0
+
+    if act == "pause":
+        try:
+            run, raw = _open()
+        except FileNotFoundError as exc:
+            print(str(exc))
+            return 2
+        try:
+            data = run.pause(reason=args.reason or "", by=args.by or "")
+        except GrowErrors as exc:
+            print(f"不能暂停：{exc}")
+            return 2
+        print(f"{args.id} 已暂停：status={data.get('status')}"
+              "｜下一轮 tick 不再选中任何条目；恢复用 mkt grow resume")
+        return 0
+
+    if act == "incident":
+        from core import grow_runbook as rb
+        path = DATA / "grow" / f"{args.id}.json"
+        if not path.exists():
+            print(f"没有这个闭环：{path}")
+            return 2
+        probe = None
+        if getattr(args, "probe_login", False):
+            from core import session_gate
+            probe = session_gate.check_login
+        report = rb.list_incidents(DATA, path, on=args.on or None,
+                                   login_probe=probe)
+        if args.json:
+            print(json.dumps(report, ensure_ascii=False, indent=1))
+        else:
+            print(rb.render_incidents(report))
         return 0
 
     if act == "resume":
+        from core import grow_runbook as rb
+        path = DATA / "grow" / f"{args.id}.json"
+        if not path.is_file():
+            print(f"没有这个闭环：{path}")
+            return 2
+        raw = json.loads(path.read_text(encoding="utf-8"))
+        if raw.get("schema") != "growovo.grow-run/2":
+            try:
+                from core.grow import GrowRun
+                data = GrowRun(path).resume(note=args.note or "",
+                                            by=args.by or "")
+            except Exception as exc:  # noqa: BLE001 旧版兼容路径
+                print(f"不能恢复：{exc}")
+                return 2
+            print(f"{args.id} 已恢复（旧版闭环）：status={data.get('status')}")
+            return 0
         try:
-            run, raw = _open()
-            data = run.resume(note=args.note or "", by=args.by or "")
-        except FileNotFoundError as exc:
-            print(str(exc))
+            result = rb.resume_run(
+                DATA, path, by=args.by or "", note=args.note or "",
+                after_reconciliation=getattr(args, "after_reconciliation", "")
+                or "")
+        except rb.RunbookError as exc:
+            print(f"不能恢复（{exc.code}）：{exc}")
             return 2
         except GrowErrors as exc:
             print(f"不能恢复：{exc}")
             return 2
-        if data.get("status") != "active":
-            print(f"{args.id} 当前不是 needs_attention（status={data.get('status')}），无需恢复")
+        if not result.get("resumed"):
+            print(f"{args.id} 当前不需要恢复（status={result.get('status')}）")
             return 0
-        print(f"{args.id} 已恢复：status=active，go={data.get('go')}（暂停闸与执行门照旧）")
+        print(f"{args.id} 已恢复：status={result['status']}"
+              + (f"｜事件 {args.after_reconciliation} 已核对"
+                 if getattr(args, "after_reconciliation", "") else "")
+              + "（暂停闸与执行门照旧生效）")
         return 0
 
     if act == "tick":
@@ -962,14 +1472,29 @@ def cmd_grow(args):
             print(f"不能记录决定：{exc}")
             return 2
         decision = result["decision"]
+        if getattr(args, "json", False):
+            print(json.dumps(result, ensure_ascii=False, indent=1))
+            return 0
         print(f"已记录决定：{decision['action']}（{decision['on']}）")
         if decision.get("note"):
             print(f"  说明：{decision['note']}")
         proposal = result.get("proposal") or {}
+        assessment = proposal.get("assessment") or {}
+        if assessment:
+            print(f"  口径：{assessment.get('wording') or assessment.get('analysis_mode')}")
         for line in proposal.get("rationale") or []:
             print(f"  理由：{line}")
         for change in decision.get("changes") or []:
             print(f"  调整：{change.get('detail') or change}")
+        for item in decision.get("held") or []:
+            change = item.get("change") or {}
+            print(f"  待人审：{change.get('param')} → {change.get('to')}"
+                  f"｜{item.get('detail') or ''}")
+            if item.get("change_sha256"):
+                print(f"    批准：mkt grow change approve {args.id} "
+                      f"--change {item['change_sha256']} --by <谁> --apply")
+        if decision.get("status") == "needs_review":
+            print("  当前仍按旧策略运行：未批准前不改参数，也不停跑。")
         if getattr(args, "dry_run", False):
             print("  （dry-run：只出提案，未落盘）")
         return 0
@@ -1163,7 +1688,9 @@ def cmd_grow(args):
                                on=args.on or None)
         bar = "一致" if result["match"] else "不一致"
         print(f"人工对数：{result['on']} 自动 {result['auto']} / 人工 {result['human']}"
-              f" → {bar}｜连续 {result['streak']}/7｜当前级别 {result['verification']}")
+              f" → {bar}｜连续 {result['streak']}/7 个日历日｜当前级别 {result['verification']}")
+        if result.get("invalid_reasons"):
+            print(f"本次不计数：{'; '.join(result['invalid_reasons'])}")
         if result["promoted"]:
             print("读数已升级 PROVEN：后续结果单仍保留 approximated 快照口径")
         return 0
@@ -1174,6 +1701,17 @@ def cmd_grow(args):
         except FileNotFoundError as exc:
             print(str(exc))
             return 2
+        if getattr(args, "explain", False):
+            from core import grow_runbook as rb
+            if raw.get("schema") != "growovo.grow-run/2":
+                print("--explain 只支持 v2 闭环（先 mkt grow launch）")
+                return 2
+            explain = rb.explain_status(DATA, path, on=args.on or None)
+            if getattr(args, "json", False):
+                print(json.dumps(explain, ensure_ascii=False, indent=1))
+            else:
+                print(rb.render_status(explain))
+            return 0
         if raw.get("schema") == "growovo.grow-run/2":
             s = run.status(DATA, on=args.on or None)
             goal = s.get("goal") or {}
@@ -2736,6 +3274,15 @@ def cmd_x(args):
             print("默认只读不落账；人工核对数字后加 --record 才写入 outcome 计数")
         return 0
     from channels.x.adapter import run as x_run
+    if args.go:
+        # G-01：CLI adhoc 直通路径同样过账号身份门禁——绑定身份的授权下，
+        # 浏览器实际账号必须与授权一致；未绑定授权不介入（legacy 语义不变）。
+        from core.action_runner import ActionError, gate_account_identity
+        try:
+            gate_account_identity("x", DATA, getattr(args, "account", "") or "")
+        except ActionError as exc:
+            print(f"拒绝执行：{exc}")
+            return 1
     extra = list(args.extra or [])
     if getattr(args, "file", None):
         extra += ["--file", args.file]
@@ -4033,17 +4580,27 @@ def build_parser():
     wsub = sp.add_subparsers(dest="action", required=True)
     a = wsub.add_parser("start", help="建一个监控清单")
     a.add_argument("id"); a.add_argument("--owner", default="")
-    a = wsub.add_parser("add", help="加监控项（加时即抓基线快照；死链拒收）")
+    a = wsub.add_parser("add", help="加监控项（加时即抓基线快照；死链/内网拒收）")
     a.add_argument("id"); a.add_argument("--url", required=True)
     a.add_argument("--kind", required=True, choices=["price", "status", "changelog"])
     a.add_argument("--competitor", required=True)
     a.add_argument("--note", default="")
+    a.add_argument("--allow-local-file", action="store_true",
+                   help="仅测试/离线演示：允许 file:// 本地页面（生产默认拒绝）")
     a = wsub.add_parser("remove", help="移除监控项")
     a.add_argument("id"); a.add_argument("--url", required=True)
-    a = wsub.add_parser("check", help="抓取并 diff（cron 调用；变化产出事件）")
+    a = wsub.add_parser("check", help="抓取并 diff（cron 调用；变化只记 page_content_changed）")
     a.add_argument("id")
-    a = wsub.add_parser("events", help="看变化事件（新在前）")
+    a.add_argument("--allow-local-file", action="store_true",
+                   help="仅测试/离线演示：允许 file:// 本地页面（生产默认拒绝）")
+    a = wsub.add_parser("events", help="看变化事件（新在前；含人工核实状态）")
     a.add_argument("id"); a.add_argument("--n", type=int, default=20)
+    a = wsub.add_parser("confirm", help="人工核实一条事件（追加式审计，不改原事件）")
+    a.add_argument("id"); a.add_argument("event_id")
+    a.add_argument("--claim", required=True,
+                   choices=["price_change", "status_incident",
+                            "changelog_update", "content_only", "rejected"])
+    a.add_argument("--by", required=True); a.add_argument("--note", required=True)
     a = wsub.add_parser("summary", help="清单概况")
     a.add_argument("id")
     sp.set_defaults(fn=cmd_watch)
@@ -4105,24 +4662,61 @@ def build_parser():
     a.add_argument("id"); a.add_argument("--on", default="")
     a.add_argument("--max-items", type=int, default=3)
 
-    a = gsub.add_parser("start", help="兼容旧版：开一个 v1 闭环（不做策略编译）")
-    a.add_argument("id"); a.add_argument("--facts", required=True, help="产品事实包 JSON")
+    a = gsub.add_parser("start",
+                        help="九步启动向导（不带 id）；带 id 时兼容旧版 v1 闭环")
+    a.add_argument("id", nargs="?", default="",
+                   help="旧版 v1 闭环 id（不填 = 走九步向导）")
+    a.add_argument("--facts", required=True, help="产品事实包 JSON")
     a.add_argument("--goal", required=True, help="目标 id，如 awareness.followers")
-    a.add_argument("--channels", default="x,email")
+    a.add_argument("--channels", default="")
     a.add_argument("--target", type=int, default=None)
     a.add_argument("--window", type=int, default=None, help="目标窗口天数")
-    a.add_argument("--actions-per-week", type=int, default=20)
+    a.add_argument("--actions-per-week", type=int, default=None)
     a.add_argument("--owner", default=""); a.add_argument("--on", default="")
     a.add_argument("--go", action="store_true", help="建完直接开实跑（默认 dry-run）")
+    a.add_argument("--run-id", default="", help="向导建的 run id（默认按产品名+日期）")
+    a.add_argument("--action", dest="wizard_action", default="reply",
+                   help="向导的主渠道动作（默认 reply）")
+    a.add_argument("--account", default="", help="授权账号 id（账号健康/身份检查）")
+    a.add_argument("--handle", default="", help="X handle（读数）")
+    a.add_argument("--audience", default="us-west")
+    a.add_argument("--schedule", choices=["foreground", "scheduled"],
+                   default="foreground", help="前台常驻或生成计划任务文件")
+    a.add_argument("--delivery", choices=["local", "email"], default="local",
+                   help="日报订阅：默认本地文件；email 需单独授权")
+    a.add_argument("--email-owner", default="")
+    a.add_argument("--authorize-email", action="store_true",
+                   help="单独授权邮件投递（向导本身不发送）")
+    a.add_argument("--source-system", action="append", default=[],
+                   help="已授权的业务事件来源（可重复）")
+    a.add_argument("--dry-run", action="store_true",
+                   help="只出九步计划，不写文件（默认行为，显式写更清楚）")
+    a.add_argument("--apply", action="store_true", help="真的建计划（仍不 arm）")
+    a.add_argument("--json", action="store_true")
 
     a = gsub.add_parser("tick", help="一步日循环：配额执行+自动读数+日结果+周结算（供 cron）")
     a.add_argument("id"); a.add_argument("--on", default="")
     a.add_argument("--deliver", action="store_true", help="同时投递周结果单（默认只落盘）")
-    a = gsub.add_parser("arm", help="把实跑开关打开（人工确认动作）")
+    a = gsub.add_parser("arm", help="显式开闸（必须人署名；检查授权/账号健康/阻塞告警）")
     a.add_argument("id")
-    a = gsub.add_parser("resume", help="人工裁决后恢复 needs_attention 的闭环（必须写处理说明）")
+    a.add_argument("--by", default="", help="开闸人署名（必填；声明式身份）")
+    a = gsub.add_parser("resume",
+                        help="人工裁决后恢复 needs_attention/paused（必须署名；indeterminate 先裁决）")
     a.add_argument("id"); a.add_argument("--by", required=True)
-    a.add_argument("--note", required=True, help="处理了什么：哪条队列、结论、谁修的")
+    a.add_argument("--note", default="", help="处理了什么：哪条队列、结论、谁修的")
+    a.add_argument("--after-reconciliation", default="",
+                   help="已核对的事件 ID（mkt grow incident --list 里的 INC-…）")
+    a = gsub.add_parser("incident",
+                        help="运行告警：每条有唯一事件 ID 与人工恢复建议（只读）")
+    a.add_argument("id"); a.add_argument("--list", action="store_true",
+                                         help="列出告警（默认也是列）")
+    a.add_argument("--on", default="")
+    a.add_argument("--probe-login", action="store_true",
+                   help="现场探测登录态（默认不碰浏览器）")
+    a.add_argument("--json", action="store_true")
+    a = gsub.add_parser("pause", help="一键暂停：下一轮 tick 不再选中任何条目")
+    a.add_argument("id"); a.add_argument("--reason", default="")
+    a.add_argument("--by", default="")
     a = gsub.add_parser("daily", help="今天的日结果（发布量/读数/供给/护栏）")
     a.add_argument("id"); a.add_argument("--on", default="")
     a = gsub.add_parser("decide", help="看完日结果后决定：继续任务 或 优化策略")
@@ -4131,6 +4725,7 @@ def build_parser():
     a.add_argument("--note", default="", help="为什么这样决定")
     a.add_argument("--by", default=""); a.add_argument("--on", default="")
     a.add_argument("--dry-run", action="store_true", help="只出提案，不落盘")
+    a.add_argument("--json", action="store_true")
     a = gsub.add_parser("briefs", help="看内容需求单（agent 按这个生产）")
     a.add_argument("id")
     a = gsub.add_parser("stage", help="把内容写进按日队列（agent 供给入口，过门禁才落盘）")
@@ -4191,14 +4786,125 @@ def build_parser():
     a.add_argument("id"); a.add_argument("--interval", type=int, default=30)
     a.add_argument("--no-deliver", action="store_true")
     a.add_argument("--once", action="store_true", help="只跑一轮（供测试/手动）")
-    a = gsub.add_parser("calibrate", help="读数人工对数：连续 7 次一致后升级 PROVEN")
+    a = gsub.add_parser("events", help="授权产品事件：导入/清单/补 L1 回执（默认只校验不落盘）")
+    esub = a.add_subparsers(dest="events_action", required=True)
+    e = esub.add_parser("import", help="从 JSON/JSONL/CSV 导入产品事件（默认 dry-run）")
+    e.add_argument("--from", dest="from_file", required=True,
+                   help="事件文件：JSON 数组 / events 数组 / JSONL / CSV")
+    e.add_argument("--allowed-source", action="append", default=[],
+                   help="授权来源系统（source_system），可重复，如 product_export")
+    e.add_argument("--by", default="", help="导入人署名（落盘必填，用于审计）")
+    e.add_argument("--window-start", default="", help="只收该日期之后发生的事件")
+    e.add_argument("--window-end", default="", help="只收该日期之前发生的事件")
+    e.add_argument("--apply", action="store_true", help="真写入（默认只校验）")
+    e.add_argument("--json", action="store_true")
+    e = esub.add_parser("list", help="已导入的产品事件与资格状态（只读）")
+    e.add_argument("--id", default="", help="只看某个 run")
+    e.add_argument("--json", action="store_true")
+    e = esub.add_parser("sync", help="把账本 committed 记录补成 L1 凭证（默认 dry-run）")
+    e.add_argument("--id", default=""); e.add_argument("--by", default="local-ledger")
+    e.add_argument("--window-start", default=""); e.add_argument("--window-end", default="")
+    e.add_argument("--apply", action="store_true"); e.add_argument("--json", action="store_true")
+
+    a = gsub.add_parser("layers", help="三层结果汇总：L1 执行/L2 互动/L3 业务 + 激活归因（只读）")
+    a.add_argument("id", nargs="?", default="", help="run id（不填=全部）")
+    a.add_argument("--window-start", default=""); a.add_argument("--window-end", default="")
+    a.add_argument("--json", action="store_true")
+
+    a = gsub.add_parser("journey", help="一个人的进度归并：触达/回应/产品事件/抑制（只读）")
+    a.add_argument("ref", help="邮箱、平台 ID 或 contact id，如 x:111")
+    a.add_argument("--id", default="", help="只看某个 run")
+    a.add_argument("--json", action="store_true")
+
+    a = gsub.add_parser("qualify", help="人工改一条产品事件的资格（原事件不改，留审计；默认 dry-run）")
+    a.add_argument("event_id")
+    a.add_argument("--yes", action="store_true", help="计入")
+    a.add_argument("--no", action="store_true", help="不计入")
+    a.add_argument("--by", default="", help="谁判的（必填，审计用）")
+    a.add_argument("--note", default="", help="依据（必填，如「内部测试账号」）")
+    a.add_argument("--apply", action="store_true", help="真写入（默认只预演）")
+    a.add_argument("--json", action="store_true")
+
+    a = gsub.add_parser("experiment",
+                        help="受控实验（G-04）：设计/批准/启动/观察/分析/清单；写入默认 dry-run")
+    esub = a.add_subparsers(dest="experiment_action", required=True)
+    e = esub.add_parser("design", help="预注册一个 GrowthExperiment（默认只校验）")
+    e.add_argument("--id", dest="exp_id", required=True)
+    e.add_argument("--hypothesis", required=True, help="假设：改什么、为什么")
+    e.add_argument("--segment", required=True, help="目标人群/对象范围")
+    e.add_argument("--mechanism", required=True, help="机制，如 content.mix_weights")
+    e.add_argument("--baseline", required=True, help="对照或基线是什么")
+    e.add_argument("--metric", required=True, help="主要指标")
+    e.add_argument("--guardrail", required=True, help="护栏：什么情况算越界")
+    e.add_argument("--start", required=True); e.add_argument("--end", required=True)
+    e.add_argument("--min-sample", type=int, required=True,
+                   help="预声明最小样本（少于它只能算探索）")
+    e.add_argument("--limitations", required=True, help="分析局限")
+    e.add_argument("--stop-conditions", required=True,
+                   help="停止条件，逗号分隔")
+    e.add_argument("--decision-rule", default="", help="判定规则（缺省按样本+护栏生成）")
+    e.add_argument("--owner", default="")
+    e.add_argument("--randomized", action="store_true", help="是否随机分组")
+    e.add_argument("--assignment-ref", default="", help="随机分组记录在哪")
+    e.add_argument("--apply", action="store_true"); e.add_argument("--json", action="store_true")
+    e = esub.add_parser("approve", help="人审批准实验计划（绑定计划指纹）")
+    e.add_argument("id"); e.add_argument("--by", required=True)
+    e.add_argument("--note", default="")
+    e.add_argument("--apply", action="store_true"); e.add_argument("--json", action="store_true")
+    e = esub.add_parser("start", help="批准且计划未变才允许开跑")
+    e.add_argument("id")
+    e.add_argument("--apply", action="store_true"); e.add_argument("--json", action="store_true")
+    e = esub.add_parser("observe", help="记一条观察（同一 evidence 只记一次）")
+    e.add_argument("id"); e.add_argument("--note", required=True)
+    e.add_argument("--value", type=float, default=None)
+    e.add_argument("--evidence-ref", default=""); e.add_argument("--evidence-hash", default="")
+    e.add_argument("--approximated", action="store_true")
+    e.add_argument("--apply", action="store_true"); e.add_argument("--json", action="store_true")
+    e = esub.add_parser("analyze", help="只读分析：口径、样本门槛、措辞（不自动下结论）")
+    e.add_argument("id"); e.add_argument("--json", action="store_true")
+    e = esub.add_parser("compare", help="冻结三种替代的比较上下文（§12.5；默认 dry-run）")
+    e.add_argument("id")
+    e.add_argument("--product", required=True)
+    e.add_argument("--channels", default="x", help="渠道，逗号分隔")
+    e.add_argument("--quota-actions", type=int, default=7,
+                   help="冻结的每周动作配额")
+    e.add_argument("--start", required=True); e.add_argument("--end", required=True)
+    e.add_argument("--cost-basis", required=True, help="成本归集口径")
+    e.add_argument("--apply", action="store_true"); e.add_argument("--json", action="store_true")
+    e = esub.add_parser("metrics", help="§12.5 七项结果指标（只读；缺项 unknown）")
+    e.add_argument("--run", default=""); e.add_argument("--start", default="")
+    e.add_argument("--end", default="")
+    e.add_argument("--json", action="store_true")
+    e = esub.add_parser("list", help="实验清单（只读）")
+    e.add_argument("--json", action="store_true")
+
+    a = gsub.add_parser("change", help="策略改动（G-04）：清单/人审批准/回滚；写入默认 dry-run")
+    csub = a.add_subparsers(dest="change_action", required=True)
+    c = csub.add_parser("list", help="改动、批准与已应用证据（只读）")
+    c.add_argument("id"); c.add_argument("--json", action="store_true")
+    c = csub.add_parser("approve", help="批准当前提案里的某一项改动（按 change sha）")
+    c.add_argument("id"); c.add_argument("--change", required=True,
+                                         help="改动的 change_sha256（decide 输出里有）")
+    c.add_argument("--by", required=True); c.add_argument("--on", default="")
+    c.add_argument("--apply", action="store_true"); c.add_argument("--json", action="store_true")
+    c = csub.add_parser("rollback", help="撤销上一次策略改动（不撤销已发外部动作）")
+    c.add_argument("id"); c.add_argument("--change", default="",
+                                         help="指定 change_id；缺省撤销最后一次")
+    c.add_argument("--by", required=True); c.add_argument("--on", default="")
+    c.add_argument("--apply", action="store_true"); c.add_argument("--json", action="store_true")
+
+    a = gsub.add_parser("calibrate", help="读数人工对数：连续 7 个日历日（每日一计、缺日重置）后升级 PROVEN")
     a.add_argument("id"); a.add_argument("--followers", type=int, default=None,
                                          help="人在 X 后台手读到的粉丝数")
     a.add_argument("--mismatch", action="store_true", help="本次不一致")
     a.add_argument("--note", default=""); a.add_argument("--by", default="")
     a.add_argument("--on", default="")
-    a = gsub.add_parser("status", help="看进度：目标、今日配额、供给、心跳、待决策")
+    a = gsub.add_parser("status",
+                        help="看进度：目标/配额/供给/心跳；--explain 给 C-01 状态解释")
     a.add_argument("id"); a.add_argument("--on", default="")
+    a.add_argument("--explain", action="store_true",
+                   help="C-01 状态解释：责任人/下一动作/阻断码/未决外部动作/告警")
+    a.add_argument("--json", action="store_true")
     a = gsub.add_parser("report", help="结果单（默认最新一周）")
     a.add_argument("id"); a.add_argument("--week", type=int, default=None)
     a.add_argument("--on", default=""); a.add_argument("--json", action="store_true")
@@ -4264,8 +4970,10 @@ def build_parser():
     sp.add_argument("--record", action="store_true", help="stats：人工对数后落 outcome 计数")
     sp.add_argument("--go", action="store_true")
     sp.add_argument("--campaign")
+    sp.add_argument("--account", default="",
+                   help="G-01：绑定身份授权下实跑时声明的账号 ID（配合身份观测校验）")
     sp.add_argument("--adhoc", action="store_true",
-                       help="实跑无 plan 管辖时的显式放行（账本记 adhoc=true）")
+                   help="实跑无 plan 管辖时的显式放行（账本记 adhoc=true）")
     sp.set_defaults(fn=cmd_x)
 
     sp = sub.add_parser("email", help="Email 渠道（SMTP 写 + CDP 读，PORTED）")

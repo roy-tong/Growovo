@@ -1,5 +1,281 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- **Shared resume gate (D3, G-05)**: `mkt grow resume <run> --by ... --note ...`
+  without `--after-reconciliation` used to call `GrowRunV2.resume()` directly,
+  which checked only status/note and flipped `needs_attention` back to `active`
+  without looking at the ledger. Both resume paths now go through
+  `grow_runbook.resume_run`: the default path runs the same incident scan as
+  the reconciliation path, refuses while an `indeterminate` receipt or any
+  other blocking alert remains, keeps the status unchanged, and prints the
+  exact next step (`mkt ledger resolve <ref>` plus `mkt grow resume ...
+  --after-reconciliation <INC-id> --by ... --note ...`). Only runs with no
+  blocking alert (warnings are fine) return to `active`; the global pause and
+  every execution gate still apply. Legacy v1 resume keeps its old path.
+
+- **Approval consumption and rollback semantics (D2, G-04)**: a human approval
+  is now single-use. When it is used to land a privilege escalation it is
+  stamped `consumed_at` / `consumed_by_change` / `consumed_by`, and the same
+  record can never approve another escalation (the stale-hash check already
+  blocked some replays, but a rollback restored the old hash and made the old
+  approval valid again). Rolling back also revokes unused approvals bound to
+  the restored strategy hash (`revoked_by_rollback`), so no pre-rollback
+  approval can come back to life; approvals created after the rollback still
+  work. A change that has already been reversed cannot be rolled back again,
+  including via an explicit `change_id`; rolling back a rollback record remains
+  refused. The failure reason distinguishes consumed, revoked, stale and
+  never-approved.
+
+- **Signed, policy-bound arm (D4, G-05)**: `mkt grow arm` is an explicit
+  human action, not something an agent can do after creating a plan.
+  `--by <operator>` is required; anonymous or blank arm returns
+  `AUTH_REQUIRED` and leaves `go=false`. The run must be `ready_to_arm` (or a
+  legacy `active`/not-armed run), every action in the run must still be covered
+  by a valid routine policy (`allows()` checks expiry, revocation and account
+  scope), account health must pass, and the shared incident scan must show no
+  blocking alert; any failure returns `POLICY_DENIED`/`REVIEW_REQUIRED` (with
+  the blocking INC ids). A successful arm records `armed_by`, `armed_at` and
+  `armed_policy_sha256` (sha256 of the policy file bytes) plus an `arm` history
+  entry; a second signed arm is idempotent and keeps the first attestation.
+  It never runs queues, writes ledger rows or sends. The legacy v1 path keeps
+  working through `mkt grow arm --by` but does not record a signature; it
+  prints a migration note. Signing is a declaration of who pressed the button,
+  not cryptographic proof of identity (the same honesty as Verovo's
+  `attested_by_declaration`); real security still comes from policy, quota,
+  pause and the ledger.
+
+- **Buyer-controlled payment verification (D1, G-03)**: `paid`/`activation`
+  no longer count as verified just because `verified_by` and `evidence_hash`
+  are non-empty. The verifier must be in a payment/buyer-controlled domain
+  (payment providers, billing/product DB exports, `buyer:`/`customer:`
+  records, or an operator-extended whitelist); vendor/supplier/seller/sales
+  identities are rejected even with every field filled. The evidence hash must
+  recompute exactly from the event identity and structured payment fields
+  (`event_id`, `event_type`, `subject_id`, `source_system`, `source_ref`,
+  `amount`, `currency`, `payment_ref`, `paid_at`, canonical compact JSON,
+  sha256). A paid event additionally needs amount > 0, a three-letter currency
+  and a non-empty payment ref; missing or tampered fields stay unverified and
+  never project into the paid funnel or write `payment_verified` receipts.
+  `import_events(..., trusted_verifiers=...)` lets an operator add a
+  buyer-controlled verifier explicitly. Event records keep the new payment
+  fields so the evidence can be recomputed later.
+
+- **Competitor-watch URL and event truthfulness (G-06)**: `core/watch.py` now
+  asks `core/watch_safety.py` before every snapshot. Only `http`/`https` are
+  accepted in production; `file://` works only in an explicit local mode with
+  an injected local fetcher (tests/offline demos) and is rejected on the default
+  path. Host admission is two-stage: static hostname rules reject `localhost`
+  (and subdomains), `*.local`, `.internal`/`.home.arpa`/`.lan`, single-label
+  names, and literal/legacy IPv4 forms (decimal, octal, hex, short form, `0`);
+  then DNS results are checked and **every** address must be public — loopback,
+  RFC1918, link-local, CGNAT, documentation/benchmark, multicast, reserved,
+  `0.0.0.0`, IPv6 unique-local (fc00::/7), and IPv4-mapped IPv6
+  (`::ffff:127.0.0.1`) all fail closed. Resolution failure or an empty answer
+  is a refusal, never a pass. The address classifier is a pure function so the
+  whole IPv4/IPv6 matrix is testable without network. Redirects are followed
+  manually, never by the HTTP library: each hop is re-resolved and re-checked,
+  the hop limit is 5, loops and non-http(s) targets are refused, and
+  `https→http` downgrade is refused (after checking the target is not private,
+  so a redirect to an intranet is reported as such). Response bounds: 2 MB,
+  15 s, HTML/plain-text content types only, 4xx/5xx and challenge/login-wall/
+  empty-shell pages keep the previous baseline (403 never moves it). Event
+  truthfulness: script/template-only changes, timestamps, UUIDs, long hex
+  tokens, long numbers and long nonces are noise and produce no event; a real
+  text diff only records `page_content_changed` with `verification:
+  needs_review`, `claim: content_changed`, `claim_status: unverified` and
+  `tactics_status: candidate_after_review`. Price changes are never inferred
+  from the whole-page diff: structured currency/number tokens are included as
+  a hint only. Human confirmation is a separate append-only
+  `event_verifications.jsonl` (`mkt watch confirm <id> <event_id> --claim
+  price_change|status_incident|changelog_update|content_only|rejected --by
+  <who> --note <why>`); it never rewrites the original event, and the latest
+  verdict wins in the read view. `mkt watch add/check --allow-local-file` is
+  the explicit offline local-page mode; production commands reject `file://`
+  without it. All tests use injected fake resolvers/transports; zero network.
+
+- **Unified start, monitoring and safe recovery (G-05)**: a new
+  `core/grow_runbook.py` turns the first safe run into a nine-step wizard
+  (`mkt grow start` without a run id; with a run id the old v1 path is kept):
+  automatic doctor → credential/login/permission gap list → account identity →
+  goal and metric source → three offline candidate previews → risk and quota →
+  **explicit arm** → foreground or scheduled mode → daily-report delivery. The
+  wizard never signs policy, never fabricates identity proof and never arms:
+  it writes a plan with status `draft` or `ready_to_arm` (`go=False`) and the
+  exact next command; `mkt grow arm` refuses a draft, so nothing can start
+  before login/authorization are real. It reports the C-01 start checklist
+  (`product_facts`, `verified_account`, `risk_policy`,
+  `activation_definition`, `source_access`, `required_human_review`), defaults
+  to one channel / one action / a minimal quota / no auto-scale, and treats the
+  daily report as local files by default — email delivery requires a separate
+  `--authorize-email` and still only happens when a human runs
+  `mkt grow tick --deliver` (the wizard never sends). Run status gains the
+  `draft`/`ready_to_arm` states from §4.3 on the existing run file; there is no
+  second state machine. `mkt grow status <run> --explain` returns the C-01
+  contract (`next_actor`, `next_required_action`, `blocked_reason_code`,
+  `last_updated_at`, `has_pending_external_effect`, `artifact_refs`) plus
+  quota remaining, observation window, data coverage and per-row fault status.
+  `mkt grow incident <run> --list` reports every alert with a stable unique
+  `INC-xxxxxxxxxxxx` event id and a human recovery command; corrupt ledgers or
+  suppression files become `ledger_or_suppression_corrupt` incidents instead of
+  crashing (fail closed, never treat a bad row as absent). The eight-row fault
+  matrix is a decidable object (`FAULT_MATRIX` / `diagnose`): browser crash,
+  account/authorization expiry, unknown receipt, ledger/suppression corruption,
+  readings failure (no fake 0), duplicate instance (single-instance lock probe
+  that ignores harmless stale lock files), supply shortage/staleness, and
+  timezone switches. `mkt grow resume <run> --after-reconciliation <INC-id>
+  --by <operator>` refuses to resume while an `indeterminate` external action
+  is unreconciled — a real `mkt ledger resolve` record is required — and also
+  refuses while other blocking incidents remain; it only changes the run status
+  and never resends or undoes an external action. `mkt grow pause <run>` sets
+  `paused` so the next tick selects nothing (the global `mkt pause` file stays
+  the hard stop), and `resume` understands `paused` too. Run windows now carry
+  the RunSpec IANA zone (`windows.iana`) and scheduling uses it when present,
+  so daylight-saving changes no longer shift the audience's local golden window
+  (runs without an IANA zone keep the legacy fixed-offset behaviour). CLI,
+  offline and default-safe: `mkt grow start` (wizard, `--dry-run` by default,
+  `--apply` writes the plan), `status --explain`, `incident --list`,
+  `resume --after-reconciliation`, and `pause`. Synthetic fixtures and injected
+  login probes only; zero network, zero real sends.
+
+- **Controlled learning and strategy experiments (G-04)**: a new
+  `core/controlled_learning.py` turned the learning loop into a permission
+  system, not a statistics contest. `GrowthExperiment` now carries every PRD
+  field (`hypothesis`, `segment`, `mechanism`, `control_or_baseline`,
+  `primary_metric`, `guardrail`, `window`, `min_sample_declared`,
+  `analysis_limitations`, `stop_conditions`, `approval`) on the existing
+  `data/experiments/<id>.json` store; design requires all of them, approval
+  binds the full plan fingerprint (`plan_sha256`), and a changed plan or a
+  missing approval blocks start with `REVIEW_REQUIRED`. Observations are
+  evidence-idempotent: re-submitting the same evidence hash is a no-op and
+  never adds a second sample. Analysis is honest by construction:
+  `no_data` without samples, `exploration` for descriptive before/after or
+  samples below the declared minimum (three samples can only suggest a
+  direction and explicitly cannot claim a winner), and `causal_allowed` only
+  when the experiment is randomized with an `assignment_ref` and reached
+  `min_sample_declared`; the conclusion is still signed by a human.
+  Strategy changes are classified into three tiers: agent-suggestible
+  (audience, queries, formula/mix, quota decrease), human re-approval
+  (single-day/weekly cap increase, adding a channel, changing the account,
+  lifting suppression, changing the auto-send scope, unknown params fail
+  closed), and auto-safe (reduce or stop). An Agent actor never mutates
+  strategy — it returns suggestions; in extreme-failure mode it may still only
+  reduce quota or stop, never increase. Every applied change records
+  `before_hash`/`after_hash` of the canonical strategy view, the evidence hash,
+  tier and approver; an approval is bound to both the change fingerprint and
+  the strategy hash, so it expires once the strategy moves. Re-submitting the
+  same evidence is a no-op (no second privilege bump). Rollback restores the
+  previous strategy snapshot, appends a rollback record instead of deleting
+  history, and leaves the ledger / external actions untouched. Learning never
+  lifts DNC: even an approved suppression change is recorded as a manual action
+  for a human to perform. Viral spikes (one post at ≥5× the median) and
+  zero-interaction samples force a review before any weight change, and strong
+  negative feedback can only suggest stopping a strategy (never lifting DNC or
+  raising quota). §12.5 is covered by a frozen three-arm comparison
+  (manual / generic agent / Growovo) plus the seven result metrics, which stay
+  `unknown` when no traceable source exists (not 0), and the report states that
+  billing is not based on followers or send counts. `mkt grow decide --action
+  optimize` now applies only low-risk changes and holds the rest as
+  `needs_review` with the old strategy still running (never silently stops, never
+  escalates without approval); weekly account-health reductions are recorded as
+  `auto_safety` changes; `grow_learning` marks its payload `non_causal` and
+  carries review triggers; daily/weekly cards say when samples are too thin to
+  adjust weights. CLI, offline and default-safe: `mkt grow experiment
+  design/approve/start/observe/analyze/compare/metrics/list` and `mkt grow
+  change list/approve/rollback` (design/approve/start/observe/compare and the
+  change writes need `--apply`; analyze/metrics/list are read-only). Synthetic
+  data only, zero network, zero real sends.
+
+- **Three-layer outcomes and real activation feedback (G-03)**: a new
+  `core/outcome_layers.py` imports **authorized product events** (JSON / JSONL /
+  CSV) and keeps execution, interaction and business evidence in separate
+  layers. Import validates the source system against an explicit allow-list and
+  requires an importer signature, deduplicates on `event_id`, enforces an
+  import time window and ISO timestamps, stamps `growovo.product-event/1`
+  (schema version + import batch + `imported_by`), and records
+  `verification_state`: activation/paid need both `verified_by` and
+  `evidence_hash`, otherwise the claim stays `unverified` and never counts as
+  paid. Every accepted event appends a receipt that points at its source
+  (`product_events:<event_id>`) — L1 `action_receipt` from the send ledger,
+  L2 `engagement_receipt`, L3 `activation_receipt` — and each layer has an
+  assertion allow-list, so an L1 receipt can no longer claim business growth.
+  Receipts and qualification changes are append-only. Verified business events
+  are projected into the existing `OutcomeLedger`
+  (`import_key=product_events:<event_id>`), so the funnel, `grow
+  metrics/learn/review` and the result card keep one ledger instead of a
+  parallel one. First-activation semantics deduplicate by subject (a second
+  activation is listed as a repeat, a second signup does not become a second
+  first activation), campaign-less events count toward the product total but
+  stay `unattributed`, and attribution only reports evidence-chain reach:
+  `direct_receipt` / `assisted_observation` / `unattributed` with
+  `causal_credit=not_claimed` — multi-touch is reported, never converted into
+  "X brought 10 users". Manual qualification changes require `by` + `note`,
+  append an audit record and leave the original event untouched. A read-only
+  `ProspectJourney` projection merges ledger touches, imported events, contact
+  identity namespaces and suppression state (G07–G10); same display name with
+  different platform IDs is not merged and DNC/bounced prospects keep their
+  suppression. Result cards gain main-goal status (met/short/no_data),
+  three-layer columns, evidence coverage and blind spots, human minutes and a
+  next recommendation; without a product event source L3 renders `UNKNOWN`
+  with "激活事件未接入", never `0` and never `activation 0`. Queue staging now
+  evaluates the three-element outreach admission (`their_problem`,
+  `why_we_help`, `expected_action`): incomplete items are excluded from the
+  auto-reach set, legacy items that never declared the elements stay eligible
+  (`outreach_ready=None`). CLI, all offline and default-safe:
+  `mkt grow events import --from <file> --allowed-source <system> --by <who>
+  [--apply]`, `mkt grow events list|sync`, `mkt grow layers [id]`,
+  `mkt grow journey <ref>`, `mkt grow qualify <event_id> --yes|--no --by <who>
+  --note <why> [--apply]`. Import and qualification are dry-run unless
+  `--apply` is passed; everything else is read-only. Synthetic fixtures only,
+  zero network, zero real sends.
+
+- **Account identity binding (G-01)**: real x sends now verify that the
+  browser's actual platform account matches the authorized one. A new
+  `core/account_identity.py` gate (`AccountIdentityProof` +
+  `enforce_identity`) runs on every real-send path — queue, single action and
+  MCP — before dispatch: identity-bound policies (require_identity /
+  allow_accounts / account_identities) require a freshly observed proof whose
+  stable user_id exactly matches the authorized record, and queue_runner now
+  passes the observed user_id (never a caller-supplied one) into approval
+  checks. Unknown, mismatched, stale (>300s) or wrong-channel observations
+  fail closed with distinct reason codes (`identity_unknown`,
+  `identity_mismatch`, `identity_stale`, `identity_channel_mismatch`); name-only
+  authorizations without identity records are blocked with
+  `authorization_missing_identity` until re-authorized with identities; the
+  session_gate 300s login-marker cache is never accepted as identity
+  evidence. Receipts record authorized_account + observed identity; every
+  decision appends to `data/identity/events.jsonl`. Unbound legacy policies
+  keep their previous behaviour. The default CDP identity reader deliberately
+  returns None (fail closed) until live wiring after the X campaign window
+  (2026-11-19); email sender identity is not yet covered by this gate.
+  Adversarial-review follow-ups: run_queue now forwards the observed user_id
+  into every per-item run_action call (a require_identity queue previously
+  passed the queue-level gate and then failed every item at approval), and the
+  `mkt x <action> --go` CLI path (including `--adhoc`) runs the same identity
+  gate with a new `--account` option — it can no longer bypass identity-bound
+  authorizations. A no-mock queue integration test freezes the real path.
+
+### Fixed
+
+- **Calibration streak integrity (G-02)**: `mkt grow calibrate` now counts one
+  valid calibration per calendar day. A valid day requires a same-day auto
+  reading and a human reading that are both non-negative integers and strictly
+  equal, a non-empty `--by` reviewer, and the current account handle; explicit
+  `--mismatch` submissions and same-day conflicts void the day, seven
+  submissions on the same day count as one, a missing calendar day resets the
+  streak, and future `--on` dates are rejected. PROVEN is scoped to
+  metric+handle+parser: account or reading-definition changes downgrade the
+  verification back to UNVERIFIED and never extend to other metrics. Before
+  this fix, any seven consecutive successful submissions — same-day repeats or
+  entries without a human reading — promoted readings to PROVEN.
+  Adversarial-review follow-ups: the streak is anchored to the submission day
+  (an invalid same-day submission reports 0 instead of resurrecting a month-old
+  run across a gap), and consecutive counting restarts from the current day
+  whenever the scope credential is missing or changes, so a downgraded run
+  cannot re-promote from historical valid days.
+
 ## 0.14.0 - 2026-11-14
 
 ### Added

@@ -12,7 +12,8 @@ import random
 import time
 from pathlib import Path
 
-from .action_runner import ActionError, precheck, run_action
+from . import account_identity
+from .action_runner import ActionError, gate_account_identity, precheck, run_action
 from .queue import item_text, lint_queue, load_queue
 from .safety import is_paused
 from .throttle import Throttle
@@ -101,9 +102,30 @@ def run_queue(queue_path, *, data_dir=None, go=False, allow_unverified=False,
     if action not in QUEUE_ACTIONS:
         raise QueueRunError(f"{channel}/{action} 不是队列可执行动作（{sorted(QUEUE_ACTIONS)}）")
 
+    # G-01 账号身份门禁：绑定身份的授权在真实发送前必须观测到与授权一致
+    # 的实际平台账号（登录界面标记不算）；未绑定授权不介入。dry-run 只提示。
+    # 观测到的实际 user_id 随后作为 platform_user_id 传给审批校验——
+    # 传的是观测值，不是调用方自报值。
+    identity_evidence = None
+    if channel in account_identity.IDENTITY_CHANNELS:
+        policy = account_identity.load_policy(data)
+        if account_identity.identity_bound(policy, account):
+            if not go:
+                log("[identity] dry-run：未做实际账号身份校验；"
+                    "实跑（go）将强制校验浏览器实际账号")
+            else:
+                try:
+                    identity_evidence = gate_account_identity(channel, data, account)
+                except ActionError as exc:
+                    raise QueueRunError(f"账号身份门禁拒绝整队执行：{exc}") from exc
+
+    routine_kwargs = {}
+    if identity_evidence:
+        routine_kwargs["platform_user_id"] = identity_evidence[
+            "observed_platform_identity"]
     if routine is True:
         precheck(channel, action, data, campaign, go, allow_unverified,
-                 routine=True, account=account)
+                 routine=True, account=account, **routine_kwargs)
     else:
         precheck(channel, action, data, campaign, go, allow_unverified)
     throttle = Throttle(data / "state")
@@ -125,6 +147,12 @@ def run_queue(queue_path, *, data_dir=None, go=False, allow_unverified=False,
         }
         if routine is True:
             action_kwargs.update(routine=True, account=account)
+            if identity_evidence:
+                # G-01：把队列级观测到的实际 user_id 传给逐条执行——
+                # 审批校验（allows）在 require_identity 下需要它；传的是
+                # 观测值，不是调用方自报值。
+                action_kwargs["platform_user_id"] = identity_evidence[
+                    "observed_platform_identity"]
         try:
             rec = run_action(**action_kwargs)
         except SystemExit as exc:
@@ -134,6 +162,8 @@ def run_queue(queue_path, *, data_dir=None, go=False, allow_unverified=False,
         rec.setdefault("channel", channel)
         rec.setdefault("action", action)
         rec.setdefault("ref", item.get("id", ""))
+        if identity_evidence:
+            rec.setdefault("identity", dict(identity_evidence))
         results.append(rec)
         log(f"[{idx + 1}/{len(items)}] {item.get('id', '')} {target}: {rec.get('result')}")
         # 人类节奏：真实发送之间随机停顿；dry-run 不碰平台，不需要等。

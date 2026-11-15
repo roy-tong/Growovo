@@ -73,6 +73,13 @@ class OutcomeLedger:
     def _canonical(self, subject):
         return self._identity_map().get(str(subject), subject)
 
+    def canonical_subject(self, subject):
+        """公开的身份归一入口：contacts.jsonl 有该平台身份时返回 contact id。
+
+        归并展示（如 ProspectJourney）与漏斗计数必须用同一套归一口径，否则
+        同一个人会在两个地方算成两个主体。"""
+        return self._canonical(subject)
+
     # ---- 写入 ----
     def add_event(self, *, subject: str, event_type: str, channel: str = "",
                   touch: str = "", source_ref: str = "", approximated: bool = False,
