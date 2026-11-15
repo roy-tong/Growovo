@@ -4,6 +4,18 @@
 
 ### Fixed
 
+- **Shared resume gate (D3, G-05)**: `mkt grow resume <run> --by ... --note ...`
+  without `--after-reconciliation` used to call `GrowRunV2.resume()` directly,
+  which checked only status/note and flipped `needs_attention` back to `active`
+  without looking at the ledger. Both resume paths now go through
+  `grow_runbook.resume_run`: the default path runs the same incident scan as
+  the reconciliation path, refuses while an `indeterminate` receipt or any
+  other blocking alert remains, keeps the status unchanged, and prints the
+  exact next step (`mkt ledger resolve <ref>` plus `mkt grow resume ...
+  --after-reconciliation <INC-id> --by ... --note ...`). Only runs with no
+  blocking alert (warnings are fine) return to `active`; the global pause and
+  every execution gate still apply. Legacy v1 resume keeps its old path.
+
 - **Approval consumption and rollback semantics (D2, G-04)**: a human approval
   is now single-use. When it is used to land a privilege escalation it is
   stamped `consumed_at` / `consumed_by_change` / `consumed_by`, and the same

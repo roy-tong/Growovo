@@ -1579,6 +1579,48 @@ def arm_run(data_dir, run_path, *, by: str = "", on: Optional[str] = None
     return run.arm(by=operator, data_dir=Path(data_dir))
 
 
+def resume_run(data_dir, run_path, *, by: str = "", note: str = "",
+               after_reconciliation: str = "", on: Optional[str] = None
+               ) -> Dict[str, Any]:
+    """resume 的唯一入口：默认路径也必须先过 indeterminate/blocking 扫描。
+
+    - 带 --after-reconciliation：走人工核对路径（要求该事件已 resolved）；
+    - 不带：先看有没有 blocking 告警；有就拒绝并给出下一步，不碰 status；
+    - 只有干净（warning 可留）才回到 active。
+    """
+    if _text(after_reconciliation):
+        return resume_after_reconciliation(
+            data_dir, run_path, after_reconciliation, by=by, note=note)
+    from .grow_v2 import GrowRunV2
+    operator = _text(by)
+    if not operator:
+        raise RunbookError(
+            "AUTH_REQUIRED", "resume 必须署名（--by）：恢复是人的决定")
+    run = GrowRunV2(Path(run_path))
+    data = run.load()
+    if data.get("status") not in ("needs_attention", "paused"):
+        return {"resumed": False, "status": data.get("status"),
+                "reason": "当前状态不需要恢复"}
+    blocking = blocking_incidents(data_dir, Path(run_path), on=on)
+    if blocking:
+        first = blocking[0]
+        code = first.get("error_code") or "REVIEW_REQUIRED"
+        details = "；".join(
+            f"{row['event_id']} {row['title']}（{row['recovery']}）"
+            for row in blocking[:3])
+        hint = (f"mkt grow resume {data.get('id')} --after-reconciliation "
+                f"{first['event_id']} --by <operator> --note <依据>")
+        next_step = _text(first.get("next_command"))
+        raise RunbookError(
+            code,
+            f"还有 {len(blocking)} 条阻塞告警，不能恢复：{details}。"
+            f"先执行：{next_step or hint}；核对后再 {hint}")
+    out = run.resume(note=note, by=operator)
+    return {"resumed": True, "status": out.get("status"),
+            "go": out.get("go"), "run": out.get("id"),
+            "note": "警告级告警不拦恢复；暂停闸与执行门照旧生效"}
+
+
 def resume_after_reconciliation(data_dir, run_path=None, incident_id: str = "",
                                 *, by: str, run_id: str = "", note: str = "",
                                 now: Optional[str] = None) -> Dict[str, Any]:

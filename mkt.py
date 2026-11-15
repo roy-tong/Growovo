@@ -1340,39 +1340,40 @@ def cmd_grow(args):
         return 0
 
     if act == "resume":
-        if getattr(args, "after_reconciliation", ""):
-            from core import grow_runbook as rb
-            path = DATA / "grow" / f"{args.id}.json"
-            if not path.exists():
-                print(f"没有这个闭环：{path}")
-                return 2
+        from core import grow_runbook as rb
+        path = DATA / "grow" / f"{args.id}.json"
+        if not path.is_file():
+            print(f"没有这个闭环：{path}")
+            return 2
+        raw = json.loads(path.read_text(encoding="utf-8"))
+        if raw.get("schema") != "growovo.grow-run/2":
             try:
-                result = rb.resume_after_reconciliation(
-                    DATA, path, args.after_reconciliation,
-                    by=args.by or "", note=args.note or "")
-            except rb.RunbookError as exc:
-                print(f"不能恢复（{exc.code}）：{exc}")
+                from core.grow import GrowRun
+                data = GrowRun(path).resume(note=args.note or "",
+                                            by=args.by or "")
+            except Exception as exc:  # noqa: BLE001 旧版兼容路径
+                print(f"不能恢复：{exc}")
                 return 2
-            if not result.get("resumed"):
-                print(f"{args.id} 当前不需要恢复（status={result.get('status')}）")
-                return 0
-            print(f"{args.id} 已恢复：status={result['status']}"
-                  f"｜事件 {args.after_reconciliation} 已核对"
-                  "（暂停闸与执行门照旧生效）")
+            print(f"{args.id} 已恢复（旧版闭环）：status={data.get('status')}")
             return 0
         try:
-            run, raw = _open()
-            data = run.resume(note=args.note or "", by=args.by or "")
-        except FileNotFoundError as exc:
-            print(str(exc))
+            result = rb.resume_run(
+                DATA, path, by=args.by or "", note=args.note or "",
+                after_reconciliation=getattr(args, "after_reconciliation", "")
+                or "")
+        except rb.RunbookError as exc:
+            print(f"不能恢复（{exc.code}）：{exc}")
             return 2
         except GrowErrors as exc:
             print(f"不能恢复：{exc}")
             return 2
-        if data.get("status") != "active":
-            print(f"{args.id} 当前不是 needs_attention（status={data.get('status')}），无需恢复")
+        if not result.get("resumed"):
+            print(f"{args.id} 当前不需要恢复（status={result.get('status')}）")
             return 0
-        print(f"{args.id} 已恢复：status=active，go={data.get('go')}（暂停闸与执行门照旧）")
+        print(f"{args.id} 已恢复：status={result['status']}"
+              + (f"｜事件 {args.after_reconciliation} 已核对"
+                 if getattr(args, "after_reconciliation", "") else "")
+              + "（暂停闸与执行门照旧生效）")
         return 0
 
     if act == "tick":
