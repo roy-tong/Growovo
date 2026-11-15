@@ -2,6 +2,29 @@
 
 ## Unreleased
 
+### G-01b live account identity and legacy authorization
+
+- The CDP identity reader is implemented (`core/cdp_identity.py`): it lists the
+  debug endpoint on loopback only, connects to the page target over a
+  hand-written WebSocket, and accepts **only** a stable numeric platform id from
+  `verify_credentials` or the `twid` cookie. A handle, a display name or a login
+  marker is never promoted to an identity. It is off by default
+  (`MKT_CDP_IDENTITY=1`), has a 5 s timeout, records every probe reason in
+  `data/identity/probes.jsonl`, and fails closed.
+- **AC-H is enforced**: a legacy authorization that does not name a concrete
+  platform account no longer bypasses the gate. Real sends are refused with
+  `AUTH_REQUIRED` / `authorization_not_identity_bound` (or
+  `authorization_missing_identity` when only account names exist) and a migration
+  command; read-only and dry-run flows keep working and report the blocker.
+- `mkt policy migrate-identity` lists the accounts that still lack a binding and,
+  with `--apply --by NAME --identity account=platform:user_id`, writes the
+  binding; `mkt policy identity` shows whether the reader is enabled and what the
+  last probe returned; `mkt doctor` reports a 「账号身份门禁」 row.
+- All three real-send entries (queue, `mkt x --go`, MCP) enforce the same gate
+  and now record `authorized_account` / `observed_platform_identity` /
+  `identity_proof_ref` on the ledger row; the CLI path previously enforced the
+  gate but dropped the proof.
+
 ### Fixed
 
 - **Operator-declared trusted verifiers (final review)**: internal

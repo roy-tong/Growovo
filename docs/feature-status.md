@@ -181,3 +181,11 @@ See [requirements, implemented fixes and remaining gaps](grow-feedback-improveme
 - Local value-chain fixtures prove the state machine and real subprocess accounting only. External delivery receipts, user completion and production reliability still need authorized real-world verification.
 - Experience counts and freshness are build-time facts and must be regenerated with the pipeline and status page. Previous counts such as 108/117 were snapshots, not permanent facts.
 - Synthetic demos and local fixtures do not prove external business results, paid demand, production reliability or exact-once delivery.
+
+## G-01b live identity (2026-11-15)
+
+| Review item | Runnable depth | Verification and remaining boundary |
+|---|---|---|
+| Real account identity | `core/cdp_identity.py` reads the loopback debug endpoint, speaks CDP over a hand-written WebSocket and only accepts a stable numeric id (verify_credentials or `twid`); handle-only, unreachable, non-loopback and timeout all classify and fail closed. Off by default (`MKT_CDP_IDENTITY=1`), 5 s timeout, probes recorded | Real-account verification is still pending: the launch campaign holds the browser profiles until 2026-11-19, so the reader is exercised against a local fake CDP server, not a live X account |
+| Legacy authorization | Real sends under an authorization that does not name a concrete platform account are refused (`AUTH_REQUIRED`), with `mkt policy migrate-identity` and a doctor row pointing at the fix; dry-run and read-only flows report the blocker instead of failing | The gate is declaration-level: `--by` names who pressed the button, it is not a cryptographic identity. Migrating every existing grant is an operator action this patch cannot perform for them |
+| Receipts | All three entries (queue, CLI `--go`, MCP) write `authorized_account`, `observed_platform_identity` and `identity_proof_ref` | A proof read from the browser can be replayed inside its 300 s window by a different local process; treat the debug endpoint as a trusted local boundary |

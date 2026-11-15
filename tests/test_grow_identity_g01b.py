@@ -134,8 +134,10 @@ def start_fake_ws(payloads, *, mode="ok"):
                     continue
                 message = json.loads(payload.decode("utf-8"))
                 expression = message["params"]["expression"]
-                value = (payloads["cookie"] if "document.cookie" in expression
-                         else payloads["api"])
+                # The verify_credentials expression also reads document.cookie
+                # (for the csrf token), so the API call is the discriminator.
+                value = (payloads["api"] if "verify_credentials" in expression
+                         else payloads["cookie"])
                 _send_text(self.request, json.dumps({
                     "id": message["id"],
                     "result": {"result": {"type": "string", "value": value}},
@@ -587,7 +589,7 @@ class LegacyAuthorizationMigrationTests(_SendCase):
         self.assertIn("--identity acct-a=x:", account["next"])
         # dry-run 不写 policy
         self.assertFalse(get_policy(self.dir).get("require_identity"))
-        self.assertEqual([], get_policy(self.dir).get("account_identities"))
+        self.assertFalse(get_policy(self.dir).get("account_identities"))
 
     def test_migrate_identity_apply_requires_signature_and_identity(self):
         self._legacy()

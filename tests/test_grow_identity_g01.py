@@ -160,8 +160,13 @@ class IdentityGateG01Tests(unittest.TestCase):
         self.assertIn("identity_unknown", outcome)
         self.assertEqual(0, sends)
 
-    def test_legacy_default_policy_untouched(self):
-        """未绑定账号的 legacy 授权：门禁不介入（连探测都不发生）。"""
+    def test_legacy_unbound_policy_blocks_real_send(self):
+        """AC-H：旧授权没声明具体平台账号 → 真实发送拒绝，仍不探测身份。
+
+        G-01b 收紧了 G-01 的默认：此前未绑定授权完全不经过门禁，等于新门禁
+        只保护新授权。现在问题归因在授权侧（缺 require_identity / accounts /
+        account_identities），所以先拒绝、再谈观测。
+        """
         authorize(self.dir, by="owner", actions=["x:reply"], days=30)
         self.queue_path = _queue_file(self.dir, account="")
 
@@ -170,8 +175,10 @@ class IdentityGateG01Tests(unittest.TestCase):
 
         account_identity.set_reader(must_not_probe)
         outcome, sends = self._run()
-        self.assertEqual("ok", outcome)
-        self.assertEqual(1, sends)
+        self.assertIn("AUTH_REQUIRED", outcome)
+        self.assertIn("authorization_not_identity_bound", outcome)
+        self.assertIn("migrate-identity", outcome)
+        self.assertEqual(0, sends)
 
     def test_action_path_gate_blocks_mismatch(self):
         """单动作路径（mkt x / MCP 共用的 run_action）同样被门禁拦截。"""
@@ -258,7 +265,8 @@ class IdentityRealPathIntegrationTests(unittest.TestCase):
         self.assertEqual(0, rc)
         self.assertEqual(1, len(calls))
 
-    def test_cli_adhoc_unbound_policy_untouched(self):
+    def test_cli_adhoc_unbound_policy_is_refused(self):
+        """AC-H 在 CLI 直通路径同样生效：旧授权 → 拒绝，vendor 不被调用。"""
         import mkt
         authorize(self.dir, by="owner", actions=["x:reply"], days=30)  # 无绑定
 
@@ -271,8 +279,8 @@ class IdentityRealPathIntegrationTests(unittest.TestCase):
              mock.patch("channels.x.adapter.run",
                         side_effect=self._vendor(calls)):
             rc = mkt.cmd_x(self._x_args(account=""))
-        self.assertEqual(0, rc)
-        self.assertEqual(1, len(calls))
+        self.assertEqual(1, rc)
+        self.assertEqual(0, len(calls))
 
 
 if __name__ == "__main__":

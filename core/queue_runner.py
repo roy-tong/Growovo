@@ -109,15 +109,28 @@ def run_queue(queue_path, *, data_dir=None, go=False, allow_unverified=False,
     identity_evidence = None
     if channel in account_identity.IDENTITY_CHANNELS:
         policy = account_identity.load_policy(data)
-        if account_identity.identity_bound(policy, account):
+        blockers = account_identity.identity_blockers(
+            data, account, policy=policy, policy_loaded=True)
+        if blockers:
+            blocker = blockers[0]
+            text = ("[identity] dry-run 阻塞项：%s %s；下一步：%s"
+                    % (blocker["code"], blocker["detail"], blocker["next"]))
             if not go:
-                log("[identity] dry-run：未做实际账号身份校验；"
-                    "实跑（go）将强制校验浏览器实际账号")
+                for item in blockers:
+                    log("[identity] dry-run 阻塞项：%s %s；下一步：%s"
+                        % (item["code"], item["detail"], item["next"]))
             else:
-                try:
-                    identity_evidence = gate_account_identity(channel, data, account)
-                except ActionError as exc:
-                    raise QueueRunError(f"账号身份门禁拒绝整队执行：{exc}") from exc
+                raise QueueRunError(
+                    "账号身份门禁拒绝整队执行：%s %s；下一步：%s"
+                    % (blocker["code"], blocker["detail"], blocker["next"]))
+        elif not go:
+            log("[identity] dry-run：未做实际账号身份校验；"
+                "实跑（go）将强制校验浏览器实际账号")
+        else:
+            try:
+                identity_evidence = gate_account_identity(channel, data, account)
+            except ActionError as exc:
+                raise QueueRunError(f"账号身份门禁拒绝整队执行：{exc}") from exc
 
     routine_kwargs = {}
     if identity_evidence:
