@@ -47,7 +47,7 @@ class CalibrationG02Tests(unittest.TestCase):
                          target=20, actions_per_week=7, started="2026-11-01",
                          handle="acct-a", data_dir=self.dir, skip_probe=True)
         self.run = GrowRunV2(self.path)
-        self.run.arm()
+        self.run.arm(by="roy")
 
     # ---- 测试辅助 -------------------------------------------------
 

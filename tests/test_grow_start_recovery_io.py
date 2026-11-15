@@ -91,7 +91,7 @@ class Workspace(unittest.TestCase):
                          started="2026-11-01", handle="verovo",
                          data_dir=self.dir, skip_probe=True)
         run = GrowRunV2(self.run_path)
-        run.arm()
+        run.arm(by="roy")
         return run
 
 
@@ -131,7 +131,7 @@ class ApplyPlanTests(Workspace):
         plan = self.plan(login_probe=probe(session_gate.LOGGED_OUT))
         result = rb.apply_start_plan(plan, self.dir)
         self.assertEqual("draft", result["status"])
-        proc = self._mkt("grow", "arm", RUN, check=False)
+        proc = self._mkt("grow", "arm", RUN, "--by", "roy", check=False)
         self.assertEqual(2, proc.returncode)
         self.assertIn("draft", proc.stdout + proc.stderr)
         self.assertFalse(GrowRunV2(self.run_path).load()["go"])
@@ -175,9 +175,9 @@ class WizardGuardTests(Workspace):
         run = self.launched()
         run.pause(reason="事故", by="roy")
         with self.assertRaises(GrowError):
-            run.arm()
+            run.arm(by="roy")
         run.resume(note="处理完", by="roy")
-        armed = run.arm()
+        armed = run.arm(by="roy")
         self.assertTrue(armed["go"])
 
 
@@ -328,7 +328,7 @@ class CliJsonTests(Workspace):
         result = rb.apply_start_plan(plan, self.dir)
         self.assertEqual("draft", result["status"])
         with self.assertRaises(GrowError):
-            GrowRunV2(Path(result["run_path"])).arm()
+            GrowRunV2(Path(result["run_path"])).arm(by="roy")
 
     def test_incident_json_and_pause_cli(self):
         run = self.launched()

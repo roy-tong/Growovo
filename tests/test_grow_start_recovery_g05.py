@@ -121,7 +121,7 @@ class Workspace(unittest.TestCase):
                          started="2026-11-01", handle="verovo",
                          data_dir=self.dir, skip_probe=True)
         run = GrowRunV2(path)
-        run.arm()
+        run.arm(by="roy")
         return run, path
 
     def ledger(self):
@@ -176,7 +176,7 @@ class StartPlanTests(Workspace):
         self.assertEqual("draft", data["status"])
         self.assertFalse(data["go"])
         with self.assertRaises(GrowError):
-            GrowRunV2(Path(result["run_path"])).arm()
+            GrowRunV2(Path(result["run_path"])).arm(by="roy")
 
     def test_cdp_unavailable_also_stays_draft(self):
         self.authorize()
@@ -200,7 +200,7 @@ class StartPlanTests(Workspace):
         self.assertFalse(data["go"])
         self.assertIn(f"mkt grow arm {RUN}", plan["next_command"])
         # 只有人的 arm 才把它推进到 active
-        run.arm()
+        run.arm(by="roy")
         self.assertEqual("active", run.load()["status"])
         self.assertTrue(run.load()["go"])
 

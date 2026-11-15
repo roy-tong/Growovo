@@ -99,7 +99,7 @@ class G03Base(unittest.TestCase):
                          target=20, actions_per_week=7, started="2026-11-01",
                          handle="acct-a", data_dir=self.dir, skip_probe=True)
         self.run = GrowRunV2(self.path)
-        self.run.arm()
+        self.run.arm(by="roy")
 
     def _json_file(self, rows, name="events.json"):
         path = self.dir / name
