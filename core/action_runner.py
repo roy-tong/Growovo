@@ -127,6 +127,16 @@ def gate_account_identity(channel, data_dir, account=""):
                blocker["next"]))
     if account_identity.policy_state(policy, account)["mode"] in ("absent", "invalid"):
         return None
+    # G-10：身份必须来自真实执行所用的那个调试浏览器。端点不一致就直接拒绝，
+    # 免得「在 A 上验证、在 B 上发送」。
+    from . import cdp_identity
+    try:
+        cdp_identity.assert_identity_endpoint_matches(channel)
+    except cdp_identity._CdpError as exc:
+        raise ActionError(
+            "账号身份门禁: %s %s：%s" % (cdp_identity.ENDPOINT_MISMATCH, exc.reason, exc)) from exc
+    except cdp_identity.EndpointRejected as exc:
+        raise ActionError("账号身份门禁: identity_endpoint_invalid：%s" % exc) from exc
     proof = account_identity.observe(channel, data_dir=data_dir)
     try:
         return account_identity.enforce_identity(

@@ -38,6 +38,42 @@ class AttributionError(ValueError):
     pass
 
 
+class LedgerReadError(RuntimeError):
+    """资格审计读不出来时拒绝给出已验证计数：宁可不回答，也不给错答案。"""
+
+
+def read_qualification_log(path):
+    """严格读取 ``outcomes/qualifications.jsonl``。
+
+    G-11：坏行、非布尔 ``qualifies`` 都不许被跳过或按真值猜——撤销记录一旦
+    读丢，被撤销的事件就会重新算成有效结果。返回 ``event_id -> 最新记录``。
+    """
+    path = Path(path)
+    latest = {}
+    if not path.is_file():
+        return latest
+    with path.open(encoding="utf-8") as fh:
+        for number, line in enumerate(fh, start=1):
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                rec = json.loads(line)
+            except json.JSONDecodeError as exc:
+                raise LedgerReadError(
+                    "%s 第 %d 行不是合法 JSON（%s）：资格审计损坏时不能给出已验证计数"
+                    % (path, number, exc)) from exc
+            qualifies = rec.get("qualifies")
+            if not isinstance(qualifies, bool):
+                raise LedgerReadError(
+                    "%s 第 %d 行的 qualifies 不是布尔（%r）：不能按真值猜，"
+                    "撤销与否必须明确" % (path, number, qualifies))
+            key = str(rec.get("event_id") or "")
+            if key:
+                latest[key] = rec
+    return latest
+
+
 class OutcomeLedger:
     def __init__(self, data_dir):
         self.data_dir = Path(data_dir)
@@ -47,55 +83,35 @@ class OutcomeLedger:
 
 
 
-    def _latest_qualifications(self):
-        """G-07: event_id → 最新一条资格审计（用于 disqualified 披露）。"""
-        if getattr(self, "_qual_cache", None) is not None:
-            return self._qual_cache
-        latest = {}
+    def _qualification_state(self):
+        """严格读取资格审计，并按文件状态缓存（外部追加后必须失效）。
+
+        G-11：读不出来就抛 LedgerReadError，绝不当成「没有撤销」。
+        """
         path = self.data_dir / "outcomes" / "qualifications.jsonl"
-        if path.is_file():
-            for line in path.read_text(encoding="utf-8").splitlines():
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    rec = json.loads(line)
-                except json.JSONDecodeError:
-                    continue
-                key = str(rec.get("event_id") or "")
-                if key:
-                    latest[key] = rec
+        try:
+            stat = path.stat()
+            stamp = (stat.st_mtime_ns, stat.st_size)
+        except OSError:
+            stamp = None
+        if getattr(self, "_qual_stamp", "unset") == stamp:
+            return self._qual_cache
+        latest = read_qualification_log(path)
+        self._qual_stamp = stamp
         self._qual_cache = latest
+        self._revoked_cache = {"product_events:%s" % k
+                               for k, rec in latest.items()
+                               if not rec.get("qualifies")}
         return latest
 
-    def _revoked_import_keys(self):
-        """G-07: 最新资格为 False 的事件，其投影行不再进入任何业务读数。
+    def _latest_qualifications(self):
+        """G-07/G-11: event_id → 最新一条资格审计（严格读取，供披露）。"""
+        return self._qualification_state()
 
-        原台账行保留（append-only、可审计）；这里只在读取侧过滤，使漏斗、
-        journey、周卡/日卡与学习样本共用同一个有效口径。
-        """
-        if getattr(self, "_revoked_cache", None) is not None:
-            return self._revoked_cache
-        revoked = set()
-        path = self.data_dir / "outcomes" / "qualifications.jsonl"
-        if path.is_file():
-            latest = {}
-            for line in path.read_text(encoding="utf-8").splitlines():
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    rec = json.loads(line)
-                except json.JSONDecodeError:
-                    continue
-                key = str(rec.get("event_id") or "")
-                if key:
-                    latest[key] = bool(rec.get("qualifies"))
-            # 台账投影行的 import_key 是 ``product_events:<event_id>``；
-            # 资格审计按 event_id 记录，这里补上前缀才能对上号。
-            revoked = {"product_events:%s" % k for k, ok in latest.items() if not ok}
-        self._revoked_cache = revoked
-        return revoked
+    def _revoked_import_keys(self):
+        """G-07: 最新资格为 False 的事件，其投影行不再进入任何业务读数。"""
+        self._qualification_state()
+        return self._revoked_cache
 
     # ---- 身份归一 ----
     def _identity_map(self):
