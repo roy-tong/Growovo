@@ -423,6 +423,65 @@ class DegradedReadTests(TmpDir):
         self.assertIn("修三层账本", card["recommendation"])
 
 
+class TrustedVerifierCliTests(unittest.TestCase):
+    """自有核验方要能被操作员显式声明；声明是署名动作，写进导入记录。"""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.home = Path(self.tmp.name) / "data"
+        self.home.mkdir(parents=True, exist_ok=True)
+        self.env = dict(os.environ, MKT_HOME=str(self.home))
+
+    def _event(self, verifier="acme-billing"):
+        return _row(event_id="p-1", event_type="paid", subject_id="buyer-1",
+                    source_ref="billing:inv-1", verified_by=verifier,
+                    amount="49.00", currency="USD", payment_ref="inv-1",
+                    paid_at="2026-11-03T09:00:00")
+
+    def _run(self, *extra):
+        path = Path(self.tmp.name) / "paid.json"
+        path.write_text(json.dumps([self._event()], ensure_ascii=False),
+                        encoding="utf-8")
+        return subprocess.run(
+            [sys.executable, str(MKT), "grow", "events", "import",
+             "--from", str(path), "--allowed-source", "product_export",
+             "--by", "roy", "--apply", *extra],
+            cwd=str(ROOT), env=self.env, text=True, capture_output=True)
+
+    def _record(self):
+        path = self.home / "outcomes" / "product_events.jsonl"
+        rows = [json.loads(line) for line in
+                path.read_text(encoding="utf-8").splitlines() if line.strip()]
+        return rows[-1]
+
+    def test_declared_trusted_verifier_verifies_and_is_recorded(self):
+        proc = self._run("--trusted-verifier", "acme-billing")
+        self.assertEqual(0, proc.returncode, proc.stderr + proc.stdout)
+        record = self._record()
+        self.assertEqual("verified", record["verification_state"])
+        self.assertEqual(["acme-billing"],
+                         record["import_trusted_verifiers"])
+
+    def test_undeclared_internal_verifier_is_unverified(self):
+        proc = self._run()
+        self.assertEqual(0, proc.returncode, proc.stderr + proc.stdout)
+        self.assertEqual("unverified", self._record()["verification_state"])
+
+    def test_vendor_sales_stays_unverified_even_when_declared(self):
+        path = Path(self.tmp.name) / "paid.json"
+        path.write_text(json.dumps([self._event("vendor-sales")]),
+                        encoding="utf-8")
+        proc = subprocess.run(
+            [sys.executable, str(MKT), "grow", "events", "import",
+             "--from", str(path), "--allowed-source", "product_export",
+             "--by", "roy", "--apply",
+             "--trusted-verifier", "vendor-sales"],
+            cwd=str(ROOT), env=self.env, text=True, capture_output=True)
+        self.assertEqual(0, proc.returncode, proc.stderr + proc.stdout)
+        self.assertEqual("unverified", self._record()["verification_state"])
+
+
 class CliTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
