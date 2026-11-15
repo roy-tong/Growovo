@@ -513,9 +513,16 @@ def cmd_tactic(args):
 
 
 def cmd_watch(args):
-    from core.watch import KIND_TACTICS, WatchError, WatchList
+    from core.watch import (KIND_TACTICS, WatchError, WatchList,
+                            local_file_fetcher)
     act = args.action
     path = DATA / "watch" / f"{args.id}.json" if getattr(args, "id", "") else None
+
+    def _local_kwargs():
+        """显式本地模式：只给 file:// 用一个只读本地文件的抓取器。"""
+        if not getattr(args, "allow_local_file", False):
+            return {}
+        return {"allow_local_file": True, "file_fetcher": local_file_fetcher}
 
     if act == "start":
         try:
@@ -532,13 +539,17 @@ def cmd_watch(args):
     if act == "add":
         try:
             entry = WatchList(path).add(args.url, args.kind, args.competitor,
-                                        note=args.note or "")
+                                        note=args.note or "",
+                                        **_local_kwargs())
         except WatchError as exc:
             print(f"不能加入：{exc}")
             return 2
         print(f"已监控 {entry['competitor']} 的 {entry['kind']} 页"
               f"（基线快照 {entry['baseline_len']} 字符）")
-        print(f"  变化时建议承接：{'、'.join(KIND_TACTICS[entry['kind']])}")
+        if entry.get("last_final_url") and entry["last_final_url"] != entry["url"]:
+            print(f"  实际抓取地址（重定向后）：{entry['last_final_url']}")
+        print("  变化时只记 page_content_changed；人工核实后才谈涨价/故障："
+              f"{'、'.join(KIND_TACTICS[entry['kind']])}")
         return 0
 
     if act == "remove":
@@ -551,13 +562,20 @@ def cmd_watch(args):
         return 0
 
     if act == "check":
-        result = WatchList(path).check()
-        print(f"检查 {result['checked']} 项：{len(result['events'])} 个变化")
+        result = WatchList(path).check(**_local_kwargs())
+        print(f"检查 {result['checked']} 项：{len(result['events'])} 个变化"
+              + (f"｜抓取失败 {result['failed']} 项（不改基线）"
+                 if result["failed"] else ""))
         for e in result["events"]:
-            print(f"  ⚡ [{e['kind']}] {e['competitor']}（{e['on']}）：{e['diff'] or '内容已变化'}")
-            print(f"     建议承接：{'、'.join(e['tactics'])}（mkt tactic show 看打法）")
+            print(f"  ⚡ [{e['kind']}] {e['competitor']}（{e['on']}）："
+                  f"{e['diff'] or '内容已变化'}")
+            print(f"     事件：{e['event_type']}｜{e['verification']}"
+                  "（人工核实前不宣称涨价/故障）")
+            print(f"     候选承接：{'、'.join(e['tactics'])}（mkt tactic show 看打法）")
+            print(f"     核实：mkt watch confirm {args.id} {e['id']} "
+                  "--claim price_change|status_incident|rejected --by <谁> --note <依据>")
         if not result["events"]:
-            print("  无变化；下次 cron 再查")
+            print("  无实质变化；下次 cron 再查")
         return 0
 
     if act == "events":
@@ -566,8 +584,23 @@ def cmd_watch(args):
             print("还没有变化事件")
             return 0
         for e in rows:
-            print(f"- [{e['on']}] {e['competitor']} {e['kind']}：{e['diff'] or '变化'}"
+            state = e.get("verification", "needs_review")
+            claim = e.get("claim") or "content_changed"
+            print(f"- [{e['on']}] {e['competitor']} {e['kind']}"
+                  f"｜{state}/{claim}：{e['diff'] or '变化'}"
                   f" → {'、'.join(e['tactics'])}")
+        return 0
+
+    if act == "confirm":
+        try:
+            record = WatchList(path).confirm_event(
+                args.event_id, claim=args.claim, by=args.by or "",
+                note=args.note or "")
+        except WatchError as exc:
+            print(f"不能记录人工核实：{exc}")
+            return 2
+        print(f"已记录人工核实：{record['event_id']} → {record['claim']}"
+              f"（by {record['by']}）；原事件与快照不改")
         return 0
 
     if act == "summary":
@@ -4527,17 +4560,27 @@ def build_parser():
     wsub = sp.add_subparsers(dest="action", required=True)
     a = wsub.add_parser("start", help="建一个监控清单")
     a.add_argument("id"); a.add_argument("--owner", default="")
-    a = wsub.add_parser("add", help="加监控项（加时即抓基线快照；死链拒收）")
+    a = wsub.add_parser("add", help="加监控项（加时即抓基线快照；死链/内网拒收）")
     a.add_argument("id"); a.add_argument("--url", required=True)
     a.add_argument("--kind", required=True, choices=["price", "status", "changelog"])
     a.add_argument("--competitor", required=True)
     a.add_argument("--note", default="")
+    a.add_argument("--allow-local-file", action="store_true",
+                   help="仅测试/离线演示：允许 file:// 本地页面（生产默认拒绝）")
     a = wsub.add_parser("remove", help="移除监控项")
     a.add_argument("id"); a.add_argument("--url", required=True)
-    a = wsub.add_parser("check", help="抓取并 diff（cron 调用；变化产出事件）")
+    a = wsub.add_parser("check", help="抓取并 diff（cron 调用；变化只记 page_content_changed）")
     a.add_argument("id")
-    a = wsub.add_parser("events", help="看变化事件（新在前）")
+    a.add_argument("--allow-local-file", action="store_true",
+                   help="仅测试/离线演示：允许 file:// 本地页面（生产默认拒绝）")
+    a = wsub.add_parser("events", help="看变化事件（新在前；含人工核实状态）")
     a.add_argument("id"); a.add_argument("--n", type=int, default=20)
+    a = wsub.add_parser("confirm", help="人工核实一条事件（追加式审计，不改原事件）")
+    a.add_argument("id"); a.add_argument("event_id")
+    a.add_argument("--claim", required=True,
+                   choices=["price_change", "status_incident",
+                            "changelog_update", "content_only", "rejected"])
+    a.add_argument("--by", required=True); a.add_argument("--note", required=True)
     a = wsub.add_parser("summary", help="清单概况")
     a.add_argument("id")
     sp.set_defaults(fn=cmd_watch)

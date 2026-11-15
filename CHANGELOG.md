@@ -4,6 +4,39 @@
 
 ### Added
 
+- **Competitor-watch URL and event truthfulness (G-06)**: `core/watch.py` now
+  asks `core/watch_safety.py` before every snapshot. Only `http`/`https` are
+  accepted in production; `file://` works only in an explicit local mode with
+  an injected local fetcher (tests/offline demos) and is rejected on the default
+  path. Host admission is two-stage: static hostname rules reject `localhost`
+  (and subdomains), `*.local`, `.internal`/`.home.arpa`/`.lan`, single-label
+  names, and literal/legacy IPv4 forms (decimal, octal, hex, short form, `0`);
+  then DNS results are checked and **every** address must be public — loopback,
+  RFC1918, link-local, CGNAT, documentation/benchmark, multicast, reserved,
+  `0.0.0.0`, IPv6 unique-local (fc00::/7), and IPv4-mapped IPv6
+  (`::ffff:127.0.0.1`) all fail closed. Resolution failure or an empty answer
+  is a refusal, never a pass. The address classifier is a pure function so the
+  whole IPv4/IPv6 matrix is testable without network. Redirects are followed
+  manually, never by the HTTP library: each hop is re-resolved and re-checked,
+  the hop limit is 5, loops and non-http(s) targets are refused, and
+  `https→http` downgrade is refused (after checking the target is not private,
+  so a redirect to an intranet is reported as such). Response bounds: 2 MB,
+  15 s, HTML/plain-text content types only, 4xx/5xx and challenge/login-wall/
+  empty-shell pages keep the previous baseline (403 never moves it). Event
+  truthfulness: script/template-only changes, timestamps, UUIDs, long hex
+  tokens, long numbers and long nonces are noise and produce no event; a real
+  text diff only records `page_content_changed` with `verification:
+  needs_review`, `claim: content_changed`, `claim_status: unverified` and
+  `tactics_status: candidate_after_review`. Price changes are never inferred
+  from the whole-page diff: structured currency/number tokens are included as
+  a hint only. Human confirmation is a separate append-only
+  `event_verifications.jsonl` (`mkt watch confirm <id> <event_id> --claim
+  price_change|status_incident|changelog_update|content_only|rejected --by
+  <who> --note <why>`); it never rewrites the original event, and the latest
+  verdict wins in the read view. `mkt watch add/check --allow-local-file` is
+  the explicit offline local-page mode; production commands reject `file://`
+  without it. All tests use injected fake resolvers/transports; zero network.
+
 - **Unified start, monitoring and safe recovery (G-05)**: a new
   `core/grow_runbook.py` turns the first safe run into a nine-step wizard
   (`mkt grow start` without a run id; with a run id the old v1 path is kept):

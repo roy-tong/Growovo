@@ -196,15 +196,18 @@ class CapabilityCliTests(unittest.TestCase):
                         encoding="utf-8")
         self.run_mkt("watch", "start", "rivals")
         out = self.run_mkt("watch", "add", "rivals", "--url", page.as_uri(),
-                           "--kind", "price", "--competitor", "Rival").stdout
+                           "--kind", "price", "--competitor", "Rival",
+                           "--allow-local-file").stdout
         self.assertIn("基线快照", out)
         self.assertIn("price-hike-harvest", out)
 
-        out = self.run_mkt("watch", "check", "rivals").stdout
-        self.assertIn("无变化", out)
+        out = self.run_mkt("watch", "check", "rivals",
+                           "--allow-local-file").stdout
+        self.assertIn("无实质变化", out)
         page.write_text("<html><body>Pro plan 99 dollars per month for teams</body></html>",
                         encoding="utf-8")
-        out = self.run_mkt("watch", "check", "rivals").stdout
+        out = self.run_mkt("watch", "check", "rivals",
+                           "--allow-local-file").stdout
         self.assertIn("Rival", out)
         self.assertIn("price-hike-harvest", out)
         out = self.run_mkt("watch", "events", "rivals").stdout
