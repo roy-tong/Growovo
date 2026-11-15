@@ -1048,7 +1048,9 @@ def _l3_summary(data_dir: Path, ol: OutcomeLedger,
                                                             Dict[str, Dict[str, Any]]]:
     rows = _business_rows(data_dir, ol, prov, qual)
     run_rows = [r for r in rows if _belongs(r["campaign_id"], run_id)]
-    connected = bool(run_rows)
+    # G-07: 授权导入存在即「来源已接入」；把人工资格撤销的事件排除后
+    # 仍然 connected，读数才是 0 而不是「未接入」。
+    connected = bool(run_rows) or has_authorized_imports(data_dir, run_id=None)
     in_window = [r for r in run_rows if _in_bounds(r["occurred_at"], bounds)]
     first, repeats, unverified = _first_and_repeats(ol, in_window)
     counts = {stage: len(first[stage]) for stage in L3_TYPES}
@@ -1072,6 +1074,22 @@ def _l3_summary(data_dir: Path, ol: OutcomeLedger,
         available, state = True, "OBSERVED"
         text = (f"首次激活 {counts['activation']} 人｜注册 {counts['signup']} 人｜"
                 f"付费 {counts['paid']} 人（均来自已核验事件）")
+    # G-07: 人工资格撤销要能被看见（谁、凭什么），而不是悄悄少算一个人。
+    disqualified = []
+    for rec in prov:
+        key = _text(rec.get("event_id"))
+        if qual.get(key, True):
+            continue
+        latest = None
+        for row in read_qualifications(data_dir):
+            if _text(row.get("event_id")) == key:
+                latest = row
+        disqualified.append({"event_id": key,
+                             "event_type": _text(rec.get("event_type")),
+                             "subject_id": _text(rec.get("subject_id")),
+                             "by": (latest or {}).get("by"),
+                             "note": (latest or {}).get("note"),
+                             "ts": (latest or {}).get("ts")})
     return {
         "layer": "L3",
         "available": available,
@@ -1084,6 +1102,7 @@ def _l3_summary(data_dir: Path, ol: OutcomeLedger,
         "repeated_signups": repeats["signup"],
         "repeated_payments": repeats["paid"],
         "unverified": unverified,
+        "disqualified": disqualified,
         "events": len(in_window),
         "source_connected": connected,
         "note": ("首次激活 = 同一主体第一次可核验的价值事件；重复激活单列不重复"
@@ -1245,7 +1264,16 @@ def prospect_journey(data_dir, *, prospect_ref: str,
         if campaign:
             runs.add(campaign)
         events.append(rec)
-    product_events = [e for e in events if _text(e.get("event_type")) in L3_TYPES]
+    # G-07: 只认最新资格仍为 True 的事件；被撤销的事件留在导入记录里，
+    # 但不参与 journey 的状态判定与计数（与 L3、漏斗同口径）。
+    states = qualification_states(data_dir)
+
+    def _qualified(rec):
+        key = _text(rec.get("event_id"))
+        return states.get(key, True)
+
+    product_events = [e for e in events
+                      if _text(e.get("event_type")) in L3_TYPES and _qualified(e)]
     responses = [e for e in events
                  if _text(e.get("event_type")) == "meaningful_conversation"]
 
@@ -1346,6 +1374,10 @@ def prospect_journey(data_dir, *, prospect_ref: str,
             "campaign_id": _text(e.get("campaign_id")),
             "verification_state": _text(e.get("verification_state")),
         } for e in product_events],
+        "qualified_counts": {
+            stage: len({_text(e.get("event_id")) for e in product_events
+                        if _text(e.get("event_type")) == stage})
+            for stage in L3_TYPES},
         "suppression_state": suppression,
         "current_state": current_state,
         "next_allowed_action": next_action,

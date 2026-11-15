@@ -1072,6 +1072,39 @@ def cmd_grow(args):
             return 0
 
         if act == "qualify":
+            if getattr(args, "list", False):
+                wanted = str(getattr(args, "event", "") or args.event_id or "").strip()
+                rows = [row for row in outcome_layers.read_qualifications(DATA)
+                        if not wanted or str(row.get("event_id")) == wanted]
+                latest = rows[-1] if rows else {}
+                event = {}
+                if wanted:
+                    event = next((rec for rec in outcome_layers.read_product_events(DATA)
+                                  if str(rec.get("event_id")) == wanted), {})
+                payload = {"event_id": wanted or None,
+                           "event": {k: event.get(k) for k in
+                                     ("event_id", "event_type", "subject_id",
+                                      "occurred_at", "source_system", "source_ref")
+                                     if k in event} or None,
+                           "qualifies": bool(latest.get("qualifies")),
+                           "history": rows,
+                           "count": len(rows),
+                           "changes": rows,
+                           "boundary": ("资格变更只追加审计，原事件不改；投影按最新资格"
+                                        "过滤，台账行仍可审计")}
+                if args.json:
+                    print(json.dumps(payload, ensure_ascii=False, indent=1))
+                else:
+                    print(f"资格变更 {len(rows)} 条"
+                          + (f"（事件 {wanted}）" if wanted else ""))
+                    for row in rows:
+                        verdict = "计入" if row.get("qualifies") else "不计入"
+                        subject = row.get("subject_id") or "-"
+                        kind = row.get("event_type") or "-"
+                        print(f"- {row.get('ts')} {row.get('event_id')}"
+                              f"（{kind}，主体 {subject}）→ {verdict}"
+                              f" by {row.get('by')}：{row.get('note')}")
+                return 0
             if bool(args.yes) == bool(args.no):
                 print("二选一：--yes（计入）或 --no（不计入），不要两个都给或都不给")
                 return 2
@@ -4848,7 +4881,10 @@ def build_parser():
     a.add_argument("--json", action="store_true")
 
     a = gsub.add_parser("qualify", help="人工改一条产品事件的资格（原事件不改，留审计；默认 dry-run）")
-    a.add_argument("event_id")
+    a.add_argument("event_id", nargs="?", default="")
+    a.add_argument("--list", action="store_true",
+                   help="列出资格变更审计（可配 --event 过滤），只读")
+    a.add_argument("--event", default="", help="--list：只看某条事件的变更历史")
     a.add_argument("--yes", action="store_true", help="计入")
     a.add_argument("--no", action="store_true", help="不计入")
     a.add_argument("--by", default="", help="谁判的（必填，审计用）")

@@ -1384,7 +1384,10 @@ def falsification_metrics(data_dir, *, run_id: Optional[str] = None,
         from .attribution import OutcomeLedger
         ledger_view = OutcomeLedger(data_dir)
         subjects = set()
+        states = outcome_layers.qualification_states(data_dir)
         for rec in events:
+            if not states.get(_text(rec.get("event_id")), True):
+                continue
             etype = _text(rec.get("event_type"))
             if etype in ("meaningful_conversation", "activation", "paid"):
                 subject = _text(rec.get("subject_id"))
