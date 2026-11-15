@@ -506,6 +506,20 @@ def _apply_one(data: Dict[str, Any],
     return False, (f"{param} 没有自动落点：批准记录已留存，请在对应配置里人工执行")
 
 
+def _already_at_target(data: Dict[str, Any],
+                       change: Dict[str, Any]) -> bool:
+    """这项改动是否已经落地：在副本上应用后策略 hash 不变。
+
+    放在「批准是否已消费」之前：重试已落地的改动是幂等 no_op，不是二次升权。
+    只认会产生实际变动的参数；人工操作类（解除抑制）与未知参数不在此列。
+    """
+    probe = copy.deepcopy(data)
+    mutated, manual = _apply_one(probe, change)
+    if manual or not mutated:
+        return False
+    return strategy_hash(probe) == strategy_hash(data)
+
+
 def apply_changes(data: Dict[str, Any], changes: Sequence[Dict[str, Any]], *,
                   actor: str, evidence_hash: str = "",
                   approval: Optional[Dict[str, Any]] = None,
@@ -533,12 +547,18 @@ def apply_changes(data: Dict[str, Any], changes: Sequence[Dict[str, Any]], *,
 
     applied: List[Dict[str, Any]] = []
     held: List[Dict[str, Any]] = []
+    already: List[Dict[str, Any]] = []
     manual: List[str] = []
     for change in changes or []:
         if not isinstance(change, dict):
             continue
         info = classify_change(change)
         csha = change_sha256(change)
+        if _already_at_target(data, change):
+            already.append({"change": change, "tier": info["tier"],
+                            "change_sha256": csha,
+                            "detail": "目标值已等于 to，策略 hash 未变"})
+            continue
         allowed = False
         reason_code: Optional[str] = None
         detail = ""
@@ -641,12 +661,16 @@ def apply_changes(data: Dict[str, Any], changes: Sequence[Dict[str, Any]], *,
             data.setdefault("applied_evidence", []).append(evidence_hash)
 
     after_hash = strategy_hash(data)
-    status = ("no_change" if not applied and not held else
-              ("needs_review" if held and not applied else
-               ("partial" if held else "applied")))
+    just_duplicates = bool(already) and not applied and not held
+    status = ("no_op" if just_duplicates else
+              ("no_change" if not applied and not held else
+               ("needs_review" if held and not applied else
+                ("partial" if held else "applied"))))
     return {
         "applied": applied, "held": held, "manual_actions": manual,
-        "no_op": False, "reason": "",
+        "already_applied": already,
+        "no_op": just_duplicates,
+        "reason": "already_applied" if just_duplicates else "",
         "evidence_hash": evidence_hash,
         "before_hash": before_hash, "after_hash": after_hash,
         "status": status,

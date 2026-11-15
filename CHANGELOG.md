@@ -4,6 +4,19 @@
 
 ### Fixed
 
+- **Idempotent change retry (final review)**: `apply_changes` checked whether
+  an approval was already consumed before checking whether the change was
+  already in effect, so retrying the same change after a partial or interrupted
+  apply returned `held/REVIEW_REQUIRED` ("approval already consumed") or wrote
+  a duplicate strategy change. The idempotency check now runs first: if applying
+  the change to a copy leaves the strategy hash unchanged (target already
+  equals `to`), the item is reported in `already_applied` and no approval is
+  needed. A retry of only such items returns
+  `no_op/already_applied` with no new change record; a mixed batch skips the
+  landed item and processes the rest normally. The single-use approval rule
+  remains in force for changes that still need to land, and the
+  rollback-then-replay guard is unchanged.
+
 - **Default incident gate on library entry points (final review)**: the CLI
   was gated, but `GrowRunV2.arm(by=...)` without `blocking_check` and
   `GrowRunV2.resume(...)` could still bypass the incident scan when called
