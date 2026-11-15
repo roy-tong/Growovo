@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>一夜发布 73 条内容，0 增长：一次失败的增长实验复盘 | Growovo</title>
+<meta name="description" content="一个 31 粉丝的账号在 11 小时里发了 73 条内容，三个仓库 star 增长全部为零。完整记录：平台静默丢弃、读数分层、五个发现、以及下一轮实验怎么设计。所有数字可复现。">
+<link rel="canonical" href="https://roy-tong.github.io/Growovo/guides/launch-autopsy.html">
+<meta name="theme-color" content="#fafbfc">
+<!-- GSC/Bing 验证码插在这行下面 -->
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="Growovo">
+<meta property="og:title" content="一夜发布 73 条内容，0 增长：一次失败的增长实验">
+<meta property="og:description" content="31 粉丝、11 小时、73 条内容、0 个新 star。数字全部可复现的失败复盘，和它改变了什么。">
+<meta property="og:url" content="https://roy-tong.github.io/Growovo/guides/launch-autopsy.html">
+<meta property="og:image" content="https://roy-tong.github.io/Growovo/assets/social-preview.png">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="alternate" hreflang="zh-CN" href="https://roy-tong.github.io/Growovo/guides/launch-autopsy.html">
+<style>
+:root{--ink:#1a1d21;--mut:#5b6470;--line:#e4e7ec;--bg:#fafbfc;--accent:#0d6b3f;--warn:#8a5a00}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font:16px/1.75 -apple-system,BlinkMacSystemFont,"PingFang SC","Segoe UI",sans-serif;color:var(--ink);background:#fff}
+main{max-width:760px;margin:0 auto;padding:48px 20px 80px}
+h1{font-size:28px;line-height:1.35;letter-spacing:-.5px}
+h2{font-size:20px;margin:44px 0 12px}
+p{margin:10px 0}
+a{color:var(--accent)}
+.tagline{font-size:17px;color:var(--mut);margin-top:10px}
+table{width:100%;border-collapse:collapse;margin:14px 0;font-size:15px}
+th,td{text-align:left;padding:9px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font-weight:600;background:var(--bg)}
+code,pre{font:13.5px/1.6 ui-monospace,SFMono-Regular,Menlo,monospace}
+code{background:var(--bg);border:1px solid var(--line);border-radius:4px;padding:1px 5px}
+pre{background:var(--ink);color:#e8edf2;border-radius:8px;padding:14px 16px;overflow-x:auto;margin:14px 0}
+pre code{background:none;border:none;color:inherit;padding:0}
+.note{border-left:3px solid var(--warn);background:#fffaf0;padding:10px 14px;border-radius:0 6px 6px 0;margin:14px 0;font-size:15px}
+.meta{color:var(--mut);font-size:14px;margin-top:8px}
+footer{border-top:1px solid var(--line);margin-top:56px;padding-top:18px;color:var(--mut);font-size:14px}
+</style>
+</head>
+<body>
+<main>
+<h1>一夜发布 73 条内容，0 增长</h1>
+<p class="tagline">一次失败的增长实验完整复盘：31 个粉丝的账号，11 小时，73 条内容，三个仓库的 star 增长全部为零。</p>
+<p class="meta">实验窗口 2026-11-05 20:32 → 11-06 07:23（+08）。原始记录：<a href="https://github.com/roy-tong/Growovo/blob/main/docs/launch-autopsy-20261105.md">docs/launch-autopsy-20261105.md</a>（英文，每个数字带来源）。本文所有数字与原文一致，不新增任何未核实数据。</p>
+
+<h2>先分清楚四个东西：发布 ≠ 曝光 ≠ 关注 ≠ 商业结果</h2>
+<p>复盘之前先立标尺。增长讨论里最常见的混淆，是把四个不同层级的结果当成一个：</p>
+<table>
+<tr><th>层级</th><th>是什么</th><th>这一晚的读数</th></tr>
+<tr><td>发布</td><td>执行结果——内容确实发出去了</td><td>73+ 条（其中一部分被平台静默丢弃，见下）</td></tr>
+<tr><td>曝光</td><td>渠道反馈——平台给不给看</td><td>线程浏览量页面读数为 4，且该读数不可信</td></tr>
+<tr><td>关注</td><td>增长信号——陌生人决定留下</td><td>0 个新关注者</td></tr>
+<tr><td>商业结果</td><td>注册、激活、付费</td><td>0</td></tr>
+</table>
+<p>「发了多少」是执行问题，「有没有人看」是渠道问题，「有没有人留下来」是增长问题，「有没有人用/付钱」是商业问题。<strong>执行量做得再满，也不能替代后面三层。</strong></p>
+
+<h2>实验设置</h2>
+<table>
+<tr><th>项</th><th>数量</th></tr>
+<tr><td>发布线程</td><td>3 条（每个产品一条），每条 12 帖，共 36 帖</td></tr>
+<tr><td>对他人的回复</td><td>34 条（每条可溯源）</td></tr>
+<tr><td>独立帖子</td><td>至少 3 条确认发出；另有 13 条草稿无法确认是否发布</td></tr>
+<tr><td>合计</td><td><strong>73+ 条 / 10 小时 51 分</strong>，来自一个 31 粉丝的账号</td></tr>
+</table>
+<p>该账号此前共发过 1,644 条帖子；这一晚的产出约占其历史总量的 4.4%。</p>
+
+<h2>结果</h2>
+<table>
+<tr><th>产品</th><th>前值（11-04，GitHub API）</th><th>后值（11-06，GitHub API）</th><th>增量</th></tr>
+<tr><td>Verovo</td><td>218</td><td>218</td><td><strong>0</strong></td></tr>
+<tr><td>Askovo</td><td>1</td><td>1</td><td><strong>0</strong></td></tr>
+<tr><td>Growovo</td><td>1</td><td>1</td><td><strong>0</strong></td></tr>
+</table>
+<p>没有 fork、没有 issue、没有陌生人的回复。star 数与页面无关、可精确复现，这是本次实验里唯一可信的硬读数。</p>
+
+<h2>过程中发生了什么</h2>
+<p>时间线从推文 ID 解码得出（X 的帖子 ID 高位编码了创建时间），不依赖当时的手记：</p>
+<table>
+<tr><th>时间（+08）</th><th>事件</th></tr>
+<tr><td>20:32</td><td>第一条线程开帖</td></tr>
+<tr><td>21:10</td><td>平台开始<strong>静默丢弃</strong>独立帖子：提交返回成功，无错误、无横幅、无拒绝通知，但帖子不存在</td></tr>
+<tr><td>23:00</td><td>探测：3 条帖子全部未出现在搜索与主页，停止队列</td></tr>
+<tr><td>02:00</td><td>第三次探测通过，恢复发布</td></tr>
+<tr><td>07:23</td><td>最后一条回复发出</td></tr>
+</table>
+<p class="note">静默丢弃是本次最有价值的发现：任何只检查「提交调用是否成功」的管线，都会把这一晚记成 100% 成功，而实际约三分之一的独立帖从未存在。我们是被「发布后再搜一次文本」这第二道检查救回来的。</p>
+
+<h2>五个发现</h2>
+<p><strong>1. 回复的触达是真的，小账号的冷启动广播不是。</strong>34 条对他人的回复全部送达；36 条线程帖几乎无人看见。31 粉丝的账号发冷线程，不缺质量，缺的是分发路径——回复之所以有效，是因为落在别人已有的受众里。</p>
+<p><strong>2. 数量制造不出「关心的理由」。</strong>73 条内容里没有一条能让陌生人对自己说「这解决了我手头的问题」。唯一有 218 star 的产品，star 来自完全不同的机制：此前我们用合成样本审计了约 110 个工具的 token 计量，发现 45+ 个可复现的 bug 并提了 issue，10 个修复被上游合并——star 是几个月前那件事带来的。</p>
+<p><strong>3. 我们自己的工具本可以抓住这个失败，但我们没用它。</strong>Growovo 的核心主张是可核验的账本（每个动作记为成功/失败/结果未知）。当晚绕过了账本，用三个临时脚本写进度 JSON——这就是「至少 3 条」带限定词的原因：我们无法从当晚自己的记录完整还原当晚。走产品的管线会把静默丢弃记成「结果未知」行，而不是让它消失。</p>
+<p><strong>4. 限制不是速率配额，是注意力。</strong>当日限额 50 帖 + 200 回复，我们只用了 73 条。决定什么能发出去的是平台的反自动化启发式，不是配额；但即使全部发出，结果也不会变——瓶颈从来不是产能，是没人在等。</p>
+<p><strong>5. 用数量「公开构建」只是写日记。</strong>「这周我们发版两次」没人能据此行动；「我们发了 73 条、一无所获、原因是这些、我们改了这些」才构成可用的公共知识。</p>
+
+<h2>我们改了什么</h2>
+<ul>
+<li>取消原计划 500 帖 / 14 天的量级 campaign。</li>
+<li>每个产品<strong>先发布一个可验证的产物</strong>（一个可复现的 bug、一个数据集、一条可溯源的主张），再谈推广——陌生人可以不信我们，但可以自己验证产物。</li>
+<li>X 降为公告板：每周至多 3 条，每条指向一个产物，不再公告「我们存在」。</li>
+<li><strong>所有动作走账本</strong>，包括失败的动作。本文存在的原因恰恰是那晚没有账本，只能靠帖子 ID 反推。</li>
+</ul>
+
+<h2>复现这些数字</h2>
+<pre><code># star 读数
+curl -s https://api.github.com/repos/roy-tong/Verovo   # stargazers_count，对照 11-04 的 218
+
+# 帖子时间（X 帖子 ID 高位编码创建时间）
+python3 -c "from datetime import datetime; print(datetime.fromtimestamp((ID &gt;&gt; 22) + 1288834974657))"
+
+# 账本缺口：仓库 data/ledger.jsonl 只有 2026-11-02 的 3 行，发布当晚一行都没有</code></pre>
+
+<h2>这次实验不能证明什么</h2>
+<ul>
+<li>不证明产品错了——73 条帖子是分发测试，不是产品测试。</li>
+<li>不证明 X 对所有人没用——只证明「31 粉丝 + 没有可验证产物」的账号在 X 上没用。</li>
+<li>不证明审计机制一定能复制——它成功过一次、在一个产品上、带着真实技术发现。把一次成功当公式，和这次实验是同一个错误。</li>
+</ul>
+
+<h2>Growovo 在其中的角色</h2>
+<p>它不是这次失败的解药，是防止下次失败得不明不白的工具：账本逐条记录执行量、每天落真实读数并标证据级别、异常停车等人工裁决。它不承诺平台算法给多少曝光——那一层谁也承诺不了。<a href="../#faq">常见问题</a>里写了它全自动的范围与边界；<a href="https://github.com/roy-tong/Growovo/blob/main/docs/compare.md">对比页</a>写了它输在哪里、赢在哪里。</p>
+<p><a href="../">← 返回 Growovo 首页</a> · <a href="../en.html">English page</a></p>
+
+<footer>Growovo · MIT License · 数字全部来自 <a href="https://github.com/roy-tong/Growovo/blob/main/docs/launch-autopsy-20261105.md">launch-autopsy-20261105.md</a>（2026-11-06 写成）。<br>
+ovo 家族：研究 <a href="https://roy-tong.github.io/Askovo/">Askovo</a> → 执行 Growovo → 核验 <a href="https://roy-tong.github.io/Verovo/">Verovo</a></footer>
+</main>
+</body>
+</html>
