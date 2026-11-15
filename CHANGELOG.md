@@ -4,6 +4,54 @@
 
 ### Added
 
+- **Controlled learning and strategy experiments (G-04)**: a new
+  `core/controlled_learning.py` turned the learning loop into a permission
+  system, not a statistics contest. `GrowthExperiment` now carries every PRD
+  field (`hypothesis`, `segment`, `mechanism`, `control_or_baseline`,
+  `primary_metric`, `guardrail`, `window`, `min_sample_declared`,
+  `analysis_limitations`, `stop_conditions`, `approval`) on the existing
+  `data/experiments/<id>.json` store; design requires all of them, approval
+  binds the full plan fingerprint (`plan_sha256`), and a changed plan or a
+  missing approval blocks start with `REVIEW_REQUIRED`. Observations are
+  evidence-idempotent: re-submitting the same evidence hash is a no-op and
+  never adds a second sample. Analysis is honest by construction:
+  `no_data` without samples, `exploration` for descriptive before/after or
+  samples below the declared minimum (three samples can only suggest a
+  direction and explicitly cannot claim a winner), and `causal_allowed` only
+  when the experiment is randomized with an `assignment_ref` and reached
+  `min_sample_declared`; the conclusion is still signed by a human.
+  Strategy changes are classified into three tiers: agent-suggestible
+  (audience, queries, formula/mix, quota decrease), human re-approval
+  (single-day/weekly cap increase, adding a channel, changing the account,
+  lifting suppression, changing the auto-send scope, unknown params fail
+  closed), and auto-safe (reduce or stop). An Agent actor never mutates
+  strategy — it returns suggestions; in extreme-failure mode it may still only
+  reduce quota or stop, never increase. Every applied change records
+  `before_hash`/`after_hash` of the canonical strategy view, the evidence hash,
+  tier and approver; an approval is bound to both the change fingerprint and
+  the strategy hash, so it expires once the strategy moves. Re-submitting the
+  same evidence is a no-op (no second privilege bump). Rollback restores the
+  previous strategy snapshot, appends a rollback record instead of deleting
+  history, and leaves the ledger / external actions untouched. Learning never
+  lifts DNC: even an approved suppression change is recorded as a manual action
+  for a human to perform. Viral spikes (one post at ≥5× the median) and
+  zero-interaction samples force a review before any weight change, and strong
+  negative feedback can only suggest stopping a strategy (never lifting DNC or
+  raising quota). §12.5 is covered by a frozen three-arm comparison
+  (manual / generic agent / Growovo) plus the seven result metrics, which stay
+  `unknown` when no traceable source exists (not 0), and the report states that
+  billing is not based on followers or send counts. `mkt grow decide --action
+  optimize` now applies only low-risk changes and holds the rest as
+  `needs_review` with the old strategy still running (never silently stops, never
+  escalates without approval); weekly account-health reductions are recorded as
+  `auto_safety` changes; `grow_learning` marks its payload `non_causal` and
+  carries review triggers; daily/weekly cards say when samples are too thin to
+  adjust weights. CLI, offline and default-safe: `mkt grow experiment
+  design/approve/start/observe/analyze/compare/metrics/list` and `mkt grow
+  change list/approve/rollback` (design/approve/start/observe/compare and the
+  change writes need `--apply`; analyze/metrics/list are read-only). Synthetic
+  data only, zero network, zero real sends.
+
 - **Three-layer outcomes and real activation feedback (G-03)**: a new
   `core/outcome_layers.py` imports **authorized product events** (JSON / JSONL /
   CSV) and keeps execution, interaction and business evidence in separate

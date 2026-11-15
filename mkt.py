@@ -32,6 +32,8 @@
   mkt grow events|layers|journey|qualify
                             三层结果（G-03）：授权产品事件导入/三层汇总/个人进度/人工改资格
                             （导入与改资格默认只预演，--apply 才落盘；其余只读）
+  mkt grow experiment …     受控实验（G-04）：设计/批准/启动/观察/分析（写入默认 dry-run）
+  mkt grow change …         策略改动（G-04）：清单/人审批准/回滚（升权改动未批准不生效）
 
 示例:
   python3 mkt.py email message --queue data/queues/er-wave7.json        # dry-run
@@ -698,6 +700,224 @@ def cmd_grow(args):
         print("\n只能出人工作业单（不假装自动）：其余平台。")
         return 0
 
+    if act == "experiment":
+        from core import controlled_learning as cl
+        sub = getattr(args, "experiment_action", "")
+        if sub == "design":
+            try:
+                exp = cl.design_experiment(
+                    DATA, exp_id=args.exp_id,
+                    hypothesis=args.hypothesis, segment=args.segment,
+                    mechanism=args.mechanism,
+                    control_or_baseline=args.baseline,
+                    primary_metric=args.metric, guardrail=args.guardrail,
+                    window={"start": args.start, "end": args.end},
+                    min_sample_declared=args.min_sample,
+                    analysis_limitations=args.limitations,
+                    stop_conditions=args.stop_conditions,
+                    decision_rule=args.decision_rule, owner=args.owner,
+                    randomized=args.randomized,
+                    assignment_ref=args.assignment_ref,
+                    dry_run=not args.apply)
+            except cl.ControlledLearningError as exc:
+                print(f"实验未创建：{exc}")
+                return 2
+            if args.json:
+                print(json.dumps(exp, ensure_ascii=False, indent=1))
+                return 0
+            label = "已创建" if args.apply else "预演（未写入）"
+            print(f"{label}：实验 {exp['exp_id']}｜预声明样本 "
+                  f"{exp['min_sample_declared']}｜计划指纹 "
+                  f"{str(exp['plan_sha256'])[:24]}…")
+            print(f"下一步：mkt grow experiment approve {exp['exp_id']} "
+                  "--by <谁> --apply（批准后才能 start）")
+            if not args.apply:
+                print("确认无误后加 --apply 落盘（默认只校验，不写文件）。")
+            return 0
+        if sub == "approve":
+            try:
+                record = cl.approve_experiment(
+                    DATA, args.id, by=args.by, note=args.note,
+                    dry_run=not args.apply)
+            except cl.ControlledLearningError as exc:
+                print(f"未批准：{exc}")
+                return 2
+            if args.json:
+                print(json.dumps(record, ensure_ascii=False, indent=1))
+                return 0
+            approval = record.get("approval") or record
+            print(("已批准" if args.apply else "预演（未写入）")
+                  + f"：实验 {args.id} 由 {approval.get('by')} 批准，绑定计划指纹 "
+                  f"{str(approval.get('plan_sha256'))[:24]}…")
+            return 0
+        if sub == "start":
+            try:
+                exp = cl.start_experiment(DATA, args.id, dry_run=not args.apply)
+            except cl.ControlledLearningError as exc:
+                print(f"未启动：{exc}")
+                return 2
+            if args.json:
+                print(json.dumps(exp, ensure_ascii=False, indent=1))
+                return 0
+            print(("已启动" if args.apply else "预演（未写入）")
+                  + f"：实验 {args.id} 状态 {exp.get('status')}")
+            return 0
+        if sub == "observe":
+            try:
+                result = cl.record_observation(
+                    DATA, args.id, note=args.note, value=args.value,
+                    evidence_ref=args.evidence_ref,
+                    evidence_hash=args.evidence_hash,
+                    approximated=args.approximated)
+            except cl.ControlledLearningError as exc:
+                print(f"未记录：{exc}")
+                return 2
+            if args.json:
+                print(json.dumps(result, ensure_ascii=False, indent=1))
+                return 0
+            if not result["recorded"]:
+                print(f"未记录：同一份证据已记过（{result['reason']}），"
+                      f"当前有效样本 {result['sample']} 条")
+            else:
+                print(f"已记录：有效样本 {result['sample']} 条"
+                      f"｜分析口径 {result['analysis']['analysis_mode']}")
+            return 0
+        if sub == "analyze":
+            try:
+                analysis = cl.analyze_experiment(DATA, args.id)
+            except cl.ControlledLearningError as exc:
+                print(f"分析不了：{exc}")
+                return 2
+            if args.json:
+                print(json.dumps(analysis, ensure_ascii=False, indent=1))
+                return 0
+            print(f"# 实验 {analysis['exp_id']}（{analysis['status']}）")
+            print(f"- 口径：{analysis['analysis_mode']}"
+                  f"｜有效样本 {analysis['sample']}/{analysis['min_sample_declared']}"
+                  f"｜随机分组 {'是' if analysis['randomized'] else '否'}")
+            print(f"- 结论：{analysis['wording']}")
+            print(f"- 下一步：{analysis['next_action']}")
+            for item in analysis.get("limitations") or []:
+                print(f"- 限制：{item}")
+            return 0
+        if sub == "compare":
+            channels = [c.strip() for c in (args.channels or "").split(",")
+                        if c.strip()]
+            window = ({"start": args.start, "end": args.end}
+                      if (args.start or args.end) else None)
+            try:
+                comparison = cl.freeze_comparison(
+                    DATA, args.id, product=args.product, channels=channels,
+                    quota={"actions_per_week": args.quota_actions},
+                    window=window, cost_basis=args.cost_basis,
+                    dry_run=not args.apply)
+            except cl.ControlledLearningError as exc:
+                print(f"比较上下文未冻结：{exc}")
+                return 2
+            if args.json:
+                print(json.dumps(comparison, ensure_ascii=False, indent=1))
+                return 0
+            print(("已冻结" if args.apply else "预演（未写入）")
+                  + f"：三种替代 + 上下文指纹 "
+                  f"{str(comparison['comparison_hash'])[:24]}…")
+            for arm in comparison["arms"]:
+                print(f"  - {arm['name']}：{arm['description']}")
+            print("冻结后换时间窗/换渠道不能把结果说成有效。")
+            return 0
+        if sub == "metrics":
+            window = ({"start": args.start, "end": args.end}
+                      if (args.start or args.end) else None)
+            metrics = cl.falsification_metrics(
+                DATA, run_id=args.run or None, window=window)
+            if args.json:
+                print(json.dumps(metrics, ensure_ascii=False, indent=1))
+            else:
+                print(cl.render_falsification(metrics))
+            return 0
+        if sub == "list":
+            experiments = cl.list_experiments(DATA)
+            if args.json:
+                print(json.dumps(experiments, ensure_ascii=False, indent=1))
+                return 0
+            if not experiments:
+                print("还没有受控实验。先 mkt grow experiment design ...")
+                return 0
+            for exp in experiments:
+                approval = exp.get("approval") or {}
+                print(f"  {exp.get('exp_id')}｜{exp.get('status')}"
+                      f"｜声明样本 {exp.get('min_sample_declared')}"
+                      f"｜{'已批准 ' + str(approval.get('by')) if approval.get('by') else '未批准'}")
+            return 0
+        print("experiment 只支持 design/approve/start/observe/analyze/list")
+        return 2
+
+    if act == "change":
+        from core import controlled_learning as cl
+        try:
+            run, raw = _open()
+        except FileNotFoundError as exc:
+            print(str(exc))
+            return 2
+        if raw.get("schema") != "growovo.grow-run/2":
+            print("change 只支持 v2 闭环（先 mkt grow launch）")
+            return 2
+        sub = getattr(args, "change_action", "")
+        if sub == "list":
+            listing = run.list_changes()
+            if args.json:
+                print(json.dumps(listing, ensure_ascii=False, indent=1))
+                return 0
+            print(f"当前策略指纹：{listing['current_hash']}")
+            if not listing["changes"]:
+                print("还没有策略改动记录。")
+                return 0
+            for record in listing["changes"]:
+                print(f"  {record.get('change_id')}｜{record.get('kind')}"
+                      f"｜{record.get('param')}：{record.get('from')} → "
+                      f"{record.get('to')}｜{record.get('on')}"
+                      f"｜{str(record.get('before_hash'))[:16]}… → "
+                      f"{str(record.get('after_hash'))[:16]}…")
+            for record in listing["approvals"]:
+                print(f"  批准 {str(record.get('change_sha256'))[:16]}…"
+                      f"｜by {record.get('by')}｜{record.get('on')}")
+            return 0
+        if sub == "approve":
+            try:
+                record = run.approve_change(
+                    DATA, args.change, by=args.by, on=args.on or None,
+                    dry_run=not args.apply)
+            except GrowErrors + (cl.ControlledLearningError,) as exc:
+                print(f"未批准：{exc}")
+                return 2
+            if args.json:
+                print(json.dumps(record, ensure_ascii=False, indent=1))
+                return 0
+            print(("已记录批准" if args.apply else "预演（未写入）")
+                  + f"：{str(record['change_sha256'])[:16]}… 由 "
+                  f"{record['by']} 批准，绑定策略指纹 "
+                  f"{str(record['before_hash'])[:16]}…")
+            return 0
+        if sub == "rollback":
+            try:
+                result = run.rollback_changes(
+                    DATA, by=args.by, on=args.on or None,
+                    change_id=args.change or "", dry_run=not args.apply)
+            except GrowErrors + (cl.ControlledLearningError,) as exc:
+                print(f"未回滚：{exc}")
+                return 2
+            if args.json:
+                print(json.dumps(result, ensure_ascii=False, indent=1))
+                return 0
+            if not result.get("rolled_back"):
+                print(f"没有回滚：{result.get('reason', '')}")
+                return 0
+            print(("已回滚" if args.apply else "预演（未写入）")
+                  + f"：恢复策略指纹 {str(result['restored_hash'])[:16]}…"
+                  "；已发出去的外部动作不回滚。")
+            return 0
+        print("change 只支持 list/approve/rollback")
+        return 2
+
     if act in ("events", "layers", "journey", "qualify"):
         from core import outcome_layers
 
@@ -1098,14 +1318,29 @@ def cmd_grow(args):
             print(f"不能记录决定：{exc}")
             return 2
         decision = result["decision"]
+        if getattr(args, "json", False):
+            print(json.dumps(result, ensure_ascii=False, indent=1))
+            return 0
         print(f"已记录决定：{decision['action']}（{decision['on']}）")
         if decision.get("note"):
             print(f"  说明：{decision['note']}")
         proposal = result.get("proposal") or {}
+        assessment = proposal.get("assessment") or {}
+        if assessment:
+            print(f"  口径：{assessment.get('wording') or assessment.get('analysis_mode')}")
         for line in proposal.get("rationale") or []:
             print(f"  理由：{line}")
         for change in decision.get("changes") or []:
             print(f"  调整：{change.get('detail') or change}")
+        for item in decision.get("held") or []:
+            change = item.get("change") or {}
+            print(f"  待人审：{change.get('param')} → {change.get('to')}"
+                  f"｜{item.get('detail') or ''}")
+            if item.get("change_sha256"):
+                print(f"    批准：mkt grow change approve {args.id} "
+                      f"--change {item['change_sha256']} --by <谁> --apply")
+        if decision.get("status") == "needs_review":
+            print("  当前仍按旧策略运行：未批准前不改参数，也不停跑。")
         if getattr(args, "dry_run", False):
             print("  （dry-run：只出提案，未落盘）")
         return 0
@@ -4278,6 +4513,7 @@ def build_parser():
     a.add_argument("--note", default="", help="为什么这样决定")
     a.add_argument("--by", default=""); a.add_argument("--on", default="")
     a.add_argument("--dry-run", action="store_true", help="只出提案，不落盘")
+    a.add_argument("--json", action="store_true")
     a = gsub.add_parser("briefs", help="看内容需求单（agent 按这个生产）")
     a.add_argument("id")
     a = gsub.add_parser("stage", help="把内容写进按日队列（agent 供给入口，过门禁才落盘）")
@@ -4376,6 +4612,74 @@ def build_parser():
     a.add_argument("--note", default="", help="依据（必填，如「内部测试账号」）")
     a.add_argument("--apply", action="store_true", help="真写入（默认只预演）")
     a.add_argument("--json", action="store_true")
+
+    a = gsub.add_parser("experiment",
+                        help="受控实验（G-04）：设计/批准/启动/观察/分析/清单；写入默认 dry-run")
+    esub = a.add_subparsers(dest="experiment_action", required=True)
+    e = esub.add_parser("design", help="预注册一个 GrowthExperiment（默认只校验）")
+    e.add_argument("--id", dest="exp_id", required=True)
+    e.add_argument("--hypothesis", required=True, help="假设：改什么、为什么")
+    e.add_argument("--segment", required=True, help="目标人群/对象范围")
+    e.add_argument("--mechanism", required=True, help="机制，如 content.mix_weights")
+    e.add_argument("--baseline", required=True, help="对照或基线是什么")
+    e.add_argument("--metric", required=True, help="主要指标")
+    e.add_argument("--guardrail", required=True, help="护栏：什么情况算越界")
+    e.add_argument("--start", required=True); e.add_argument("--end", required=True)
+    e.add_argument("--min-sample", type=int, required=True,
+                   help="预声明最小样本（少于它只能算探索）")
+    e.add_argument("--limitations", required=True, help="分析局限")
+    e.add_argument("--stop-conditions", required=True,
+                   help="停止条件，逗号分隔")
+    e.add_argument("--decision-rule", default="", help="判定规则（缺省按样本+护栏生成）")
+    e.add_argument("--owner", default="")
+    e.add_argument("--randomized", action="store_true", help="是否随机分组")
+    e.add_argument("--assignment-ref", default="", help="随机分组记录在哪")
+    e.add_argument("--apply", action="store_true"); e.add_argument("--json", action="store_true")
+    e = esub.add_parser("approve", help="人审批准实验计划（绑定计划指纹）")
+    e.add_argument("id"); e.add_argument("--by", required=True)
+    e.add_argument("--note", default="")
+    e.add_argument("--apply", action="store_true"); e.add_argument("--json", action="store_true")
+    e = esub.add_parser("start", help="批准且计划未变才允许开跑")
+    e.add_argument("id")
+    e.add_argument("--apply", action="store_true"); e.add_argument("--json", action="store_true")
+    e = esub.add_parser("observe", help="记一条观察（同一 evidence 只记一次）")
+    e.add_argument("id"); e.add_argument("--note", required=True)
+    e.add_argument("--value", type=float, default=None)
+    e.add_argument("--evidence-ref", default=""); e.add_argument("--evidence-hash", default="")
+    e.add_argument("--approximated", action="store_true")
+    e.add_argument("--apply", action="store_true"); e.add_argument("--json", action="store_true")
+    e = esub.add_parser("analyze", help="只读分析：口径、样本门槛、措辞（不自动下结论）")
+    e.add_argument("id"); e.add_argument("--json", action="store_true")
+    e = esub.add_parser("compare", help="冻结三种替代的比较上下文（§12.5；默认 dry-run）")
+    e.add_argument("id")
+    e.add_argument("--product", required=True)
+    e.add_argument("--channels", default="x", help="渠道，逗号分隔")
+    e.add_argument("--quota-actions", type=int, default=7,
+                   help="冻结的每周动作配额")
+    e.add_argument("--start", required=True); e.add_argument("--end", required=True)
+    e.add_argument("--cost-basis", required=True, help="成本归集口径")
+    e.add_argument("--apply", action="store_true"); e.add_argument("--json", action="store_true")
+    e = esub.add_parser("metrics", help="§12.5 七项结果指标（只读；缺项 unknown）")
+    e.add_argument("--run", default=""); e.add_argument("--start", default="")
+    e.add_argument("--end", default="")
+    e.add_argument("--json", action="store_true")
+    e = esub.add_parser("list", help="实验清单（只读）")
+    e.add_argument("--json", action="store_true")
+
+    a = gsub.add_parser("change", help="策略改动（G-04）：清单/人审批准/回滚；写入默认 dry-run")
+    csub = a.add_subparsers(dest="change_action", required=True)
+    c = csub.add_parser("list", help="改动、批准与已应用证据（只读）")
+    c.add_argument("id"); c.add_argument("--json", action="store_true")
+    c = csub.add_parser("approve", help="批准当前提案里的某一项改动（按 change sha）")
+    c.add_argument("id"); c.add_argument("--change", required=True,
+                                         help="改动的 change_sha256（decide 输出里有）")
+    c.add_argument("--by", required=True); c.add_argument("--on", default="")
+    c.add_argument("--apply", action="store_true"); c.add_argument("--json", action="store_true")
+    c = csub.add_parser("rollback", help="撤销上一次策略改动（不撤销已发外部动作）")
+    c.add_argument("id"); c.add_argument("--change", default="",
+                                         help="指定 change_id；缺省撤销最后一次")
+    c.add_argument("--by", required=True); c.add_argument("--on", default="")
+    c.add_argument("--apply", action="store_true"); c.add_argument("--json", action="store_true")
 
     a = gsub.add_parser("calibrate", help="读数人工对数：连续 7 个日历日（每日一计、缺日重置）后升级 PROVEN")
     a.add_argument("id"); a.add_argument("--followers", type=int, default=None,

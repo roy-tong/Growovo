@@ -25,6 +25,8 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 WEEK_DAYS = 7
+#: 低于这个有效样本数时，学习建议只能算噪声（与 grow_learning.MIN_SAMPLE 同口径）。
+MIN_LEARNING_SAMPLE = 3
 
 # 业务漏斗阶段（与 attribution.FUNNEL 同序）；比例只是记账口径，不是因果。
 FUNNEL_STAGES = ("signal", "signup", "activation", "paid")
@@ -302,8 +304,21 @@ def _evidence(run: Dict[str, Any], layers: Dict[str, Any], *,
 
 
 def _recommendation(goal_status: Dict[str, Any], layers: Dict[str, Any],
-                    evidence: Dict[str, Any]) -> str:
-    """下一建议：先说最缺的证据，再说要不要动计划量。"""
+                    evidence: Dict[str, Any],
+                    run: Optional[Dict[str, Any]] = None) -> str:
+    """下一建议：先说最缺的证据，再说要不要动计划量。
+
+    G-04：样本不足或需要复审时，明确写「不调权重/不加额度」——建议不能
+    被读成「已证明这条策略有效」。"""
+    learning = (run or {}).get("learning")
+    learning = learning if isinstance(learning, dict) else {}
+    if learning.get("review_required"):
+        return ("学习复审：" + "；".join(learning.get("review_reasons") or [])
+                + "。复审前不调文案权重，也不加发布额度。")
+    sample = _as_int_or_none(learning.get("sample"))
+    if sample is not None and sample < MIN_LEARNING_SAMPLE:
+        return (f"有效样本 {sample} 条：先采集，不据此调整文案权重或配额；"
+                "样本太少时任何「更好」都只是噪声。")
     l3 = layers.get("L3") or {}
     coverage = evidence.get("coverage") or {}
     if layers.get("degraded"):
@@ -393,7 +408,7 @@ def build(data_dir, run: Dict[str, Any], week_start: str, week_end: str,
                          guardrails=guardrails, week_start=week_start,
                          week_end=week_end)
     human_minutes = _human_minutes(run, week_start, week_end)
-    recommendation = _recommendation(goal_status, layers, evidence)
+    recommendation = _recommendation(goal_status, layers, evidence, run)
 
     return {
         "schema": "growovo.result-card/1",

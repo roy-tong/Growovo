@@ -1163,6 +1163,9 @@ class GrowRunV2:
         if learning:
             lines += ["", "## 今日复盘", f"有效帖子样本：{learning.get('sample', 0)}",
                       str(learning.get("recommendation") or "继续采集")]
+            if learning.get("review_required"):
+                lines.append("复审：" + "；".join(
+                    learning.get("review_reasons") or []))
             if learning.get("error"):
                 lines.append(f"采集异常：{learning['error']}")
             lines.extend(f"- {c.get('detail', '')}" for c in learning.get("changes") or [])
@@ -1276,11 +1279,20 @@ class GrowRunV2:
         if isinstance(health, (int, float)) and health < 60:
             old = int(plan.get("actions_per_week") or 0)
             new = max(1, round(old * 0.8))
-            plan["actions_per_week"] = new
-            quota["actions_per_week"] = new
-            adjustments.append({"on": end, "kind": "safety", "param": "actions_per_week",
-                                "from": old, "to": new,
-                                "detail": f"账号健康 {health} < 60：先降量 20%，修好再谈加量"})
+            detail = f"账号健康 {health} < 60：先降量 20%，修好再谈加量"
+            from . import controlled_learning
+            try:
+                # G-04：降量属于 auto_safe，可自动执行；记录改动前后策略 hash。
+                controlled_learning.record_auto_reduce(
+                    data, param="actions_per_week", from_value=old,
+                    to_value=new, reason=detail, on=end)
+            except Exception:  # noqa: BLE001 受控层失败也先降量（安全方向）
+                plan["actions_per_week"] = new
+                quota["actions_per_week"] = new
+                adjustments.append({"on": end, "kind": "safety",
+                                    "param": "actions_per_week",
+                                    "from": old, "to": new,
+                                    "detail": detail})
             return
         if planned and committed >= 0.9 * planned:
             old = int(plan.get("actions_per_week") or planned)
@@ -1288,10 +1300,15 @@ class GrowRunV2:
             cap = round(SCALE_UP_CAP_RATIO * initial)
             new = min(round(old * SCALE_UP_RATIO), cap)
             if new != old:
-                adjustments.append({"on": end, "kind": "proposal",
-                                    "param": "actions_per_week", "from": old, "to": new,
-                                    "detail": f"第 {week} 周完成 {committed}/{planned}"
-                                              f"（≥90%），建议下周计划量 {old} → {new}（上限 {cap}）；等待用户决定"})
+                from . import controlled_learning
+                change = {"param": "actions_per_week", "from": old, "to": new}
+                adjustments.append({
+                    "on": end, "kind": "proposal",
+                    "param": "actions_per_week", "from": old, "to": new,
+                    "detail": f"第 {week} 周完成 {committed}/{planned}"
+                              f"（≥90%），建议下周计划量 {old} → {new}（上限 {cap}）；等待用户决定",
+                    "requires_reapproval": True,
+                    "change_sha256": controlled_learning.change_sha256(change)})
         elif planned and committed < QUOTA_ATTENTION_BELOW * planned:
             kind = "dry-run" if not data.get("go") and committed == 0 else "attention"
             adjustments.append({
@@ -1329,32 +1346,140 @@ class GrowRunV2:
     def decide(self, *, action: str, note: str = "", by: str = "",
                on: Optional[str] = None, dry_run: bool = False,
                data_dir=None) -> Dict[str, Any]:
+        """继续 / 优化。优化走 G-04 受控层：低风险改动落地，升权改动 held。"""
         action = str(action or "").strip().lower()
         if action not in ("continue", "optimize"):
             raise GrowError("--action 只能是 continue 或 optimize")
         on = on or _today()
+        data_dir = Path(data_dir) if data_dir else self.path.parent.parent
         data = self.load()
+        from . import controlled_learning
         proposal = None
         changes: List[Dict[str, Any]] = []
+        held: List[Dict[str, Any]] = []
+        status = "no_change"
         if action == "optimize":
-            proposal = self._proposal(data, Path(data_dir) if data_dir else self.path.parent.parent, on)
+            proposal = self._proposal(data, data_dir, on)
             changes = list(proposal.get("changes") or [])
-            if not dry_run:
-                changes = self._apply_proposal(data, changes, on)
-                if changes and proposal.get("evidence_id"):
-                    data.setdefault("applied_learning", []).append(proposal["evidence_id"])
-                if changes:
-                    self._write_briefs(Path(data_dir) if data_dir else self.path.parent.parent, data)
+            evidence_hash = str(proposal.get("evidence_hash")
+                                or proposal.get("evidence_id") or "")
+            if proposal.get("source") == "learning":
+                assessment = controlled_learning.assess(
+                    sample=int(proposal.get("sample") or 0),
+                    changes=changes,
+                    declared_min=proposal.get("min_sample_declared"),
+                    review_required=proposal.get("review_required"),
+                    review_reasons=proposal.get("review_reasons"))
+                proposal["assessment"] = assessment
+                if not assessment["can_optimize"]:
+                    held = [self._held_change(change, assessment["next_action"])
+                            for change in changes]
+                    changes = []
+            if dry_run:
+                proposal["would_need_review"] = [
+                    change for change in changes
+                    if controlled_learning.classify_change(change)[
+                        "requires_human_reapproval"]]
+                status = "preview" if (changes or held) else "no_change"
+            elif changes:
+                outcome = controlled_learning.apply_changes(
+                    data, changes, actor="human", by=by or "local-operator",
+                    evidence_hash=evidence_hash, on=on)
+                proposal["applied"] = outcome["applied"]
+                held = held + list(outcome["held"])
+                changes = list(outcome["applied"])
+                if outcome["applied"]:
+                    self._write_briefs(data_dir, data)
+                    if proposal.get("evidence_id"):
+                        data.setdefault("applied_learning", []).append(
+                            proposal["evidence_id"])
+                if outcome.get("no_op"):
+                    proposal.setdefault("rationale", []).append(
+                        "同一份证据已应用过：本次不重复改参数")
+                if outcome["held"]:
+                    proposal.setdefault("rationale", []).append(
+                        "有改动需要重新人审："
+                        + "、".join(sorted({str(h["change_sha256"])[:16]
+                                            for h in outcome["held"]})))
+                status = ("partial" if changes and held else
+                          ("applied" if changes else
+                           ("needs_review" if held else "no_change")))
+            if not dry_run and held and not changes:
+                status = "needs_review"  # 样本不足/需复审：旧策略继续跑，等决定
+            proposal["held"] = held
         elif dry_run:
             proposal = {"changes": [], "rationale": ["继续当前策略，不做参数调整"]}
         decision = {"at": datetime.now().isoformat(timespec="seconds"), "on": on,
                     "action": action, "note": (note or "")[:300], "by": by,
-                    "changes": changes, "dry_run": bool(dry_run),
+                    "changes": changes, "held": held, "status": status,
+                    "dry_run": bool(dry_run),
                     "snapshot": self._snapshot(data)}
         data.setdefault("decisions", []).append(decision)
         if not dry_run:
             self.save(data)
         return {"decision": decision, "proposal": proposal}
+
+    @staticmethod
+    def _held_change(change: Dict[str, Any], reason: str) -> Dict[str, Any]:
+        """把一项待批准改动整理成 decision.held 的形状。"""
+        from . import controlled_learning
+        info = controlled_learning.classify_change(change)
+        return {"change": change, "tier": info["tier"],
+                "reason_code": "REVIEW_REQUIRED", "detail": reason,
+                "change_sha256": controlled_learning.change_sha256(change),
+                "next_actor": "human"}
+
+    @locked
+    def approve_change(self, data_dir, change_sha256: str, *, by: str,
+                       on: Optional[str] = None,
+                       dry_run: bool = False) -> Dict[str, Any]:
+        """人审批准当前提案里的某一项改动（按 change_sha256 定位）。"""
+        from . import controlled_learning
+        if not str(by or "").strip():
+            raise GrowError("批准改动必须署名（--by）：机器不能替人背书")
+        data = self.load()
+        on = on or _today()
+        proposal = self._proposal(data, Path(data_dir), on)
+        hit = None
+        for change in proposal.get("changes") or []:
+            if controlled_learning.change_sha256(change) == change_sha256:
+                hit = change
+                break
+        if hit is None:
+            raise GrowError(
+                "这个 change_sha256 不在当前提案里：批准必须针对当前策略下的具体改动"
+                "（先 mkt grow decide <id> --action optimize 看提案）")
+        record = controlled_learning.approve_change(data, hit, by=by, on=on)
+        if not dry_run:
+            self.save(data)
+        return record
+
+    @locked
+    def rollback_changes(self, data_dir, *, by: str, on: Optional[str] = None,
+                         change_id: str = "", note: str = "",
+                         dry_run: bool = False) -> Dict[str, Any]:
+        """撤销上一次策略改动：恢复前一份策略，不撤销已发外部动作。"""
+        from . import controlled_learning
+        data = self.load()
+        result = controlled_learning.rollback_changes(
+            data, by=by, on=on or _today(), change_id=change_id, note=note)
+        if result.get("rolled_back") and not dry_run:
+            self.save(data)
+            try:
+                self._write_briefs(Path(data_dir), data)
+            except Exception:  # noqa: BLE001 需求单写失败不影响回滚记账
+                pass
+        return result
+
+    def list_changes(self) -> Dict[str, Any]:
+        """策略改动、批准与已应用证据（只读）。"""
+        from . import controlled_learning
+        data = self.load()
+        return {"run": data.get("id"),
+                "current_hash": controlled_learning.strategy_hash(data),
+                "changes": data.get("strategy_changes") or [],
+                "approvals": data.get("change_approvals") or [],
+                "applied_evidence": data.get("applied_evidence") or []}
 
     def _snapshot(self, data: Dict[str, Any]) -> Dict[str, Any]:
         return {"plan": int((data.get("plan") or {}).get("actions_per_week") or 0),
@@ -1372,7 +1497,12 @@ class GrowRunV2:
             if evidence_id in data.get("applied_learning", []):
                 return {"on": on, "changes": [], "source": "learning",
                         "rationale": ["这批证据的调整已应用；等待新的业务反馈"]}
-            return {"on": on, "changes": learning["changes"], "evidence_id": evidence_id,
+            return {"on": on, "changes": learning["changes"],
+                    "evidence_id": evidence_id, "evidence_hash": evidence_id,
+                    "sample": learning.get("sample"),
+                    "min_sample_declared": learning.get("min_sample_declared"),
+                    "review_required": learning.get("review_required"),
+                    "review_reasons": learning.get("review_reasons"),
                     "rationale": [learning.get("recommendation", "")],
                     "observed": {"sample": learning.get("sample"),
                                  "buckets": learning.get("buckets")},
@@ -1412,10 +1542,14 @@ class GrowRunV2:
             changes.append({"param": "actions_per_week", "from": old, "to": target,
                             "rollback": old,
                             "detail": f"周计划 {old} → {target}"})
+        observed = {"committed_7d": committed_week, "plan": plan,
+                    "staged": staged, "projected_weekly": projected,
+                    "completion": round(completion, 3)}
+        evidence_hash = hashlib.sha256(json.dumps(
+            {"source": "quota", "observed": observed, "changes": changes},
+            sort_keys=True, ensure_ascii=False).encode()).hexdigest()
         return {"on": on, "changes": changes, "rationale": rationale,
-                "observed": {"committed_7d": committed_week, "plan": plan,
-                             "staged": staged, "projected_weekly": projected,
-                             "completion": round(completion, 3)},
+                "observed": observed, "evidence_hash": evidence_hash,
                 "rollback": {"actions_per_week": old}}
 
     def _committed_in_range(self, data_dir: Path, data: Dict[str, Any], on: str,
@@ -1432,61 +1566,6 @@ class GrowRunV2:
             if start <= day <= on:
                 n += 1
         return n
-
-    @staticmethod
-    def _apply_proposal(data: Dict[str, Any], changes: List[Dict[str, Any]],
-                        on: str) -> List[Dict[str, Any]]:
-        applied = []
-        for change in changes:
-            if change.get("param") == "target.koc_share":
-                target = change.get("to") or {}
-                share = float(target.get("koc_share") or 0.7)
-                share = max(0.3, min(0.9, share))
-                data.setdefault("growth_strategy", {})["koc_share_target"] = share
-                data.setdefault("adjustments", []).append({
-                    "on": on, "kind": "decision", "param": "target.koc_share",
-                    "from": change.get("from", "current"), "to": {"koc_share": share},
-                    "detail": change.get("detail", ""),
-                    "rollback": "恢复 KOC 占比目标 50%"})
-                applied.append(change)
-                continue
-            if change.get("param") == "content.mix_weights":
-                from . import grow_content
-                target = change.get("to") or {}
-                boost = str(target.get("boost") or "")
-                reduce = str(target.get("reduce") or "")
-                if not boost or not reduce:
-                    continue
-                content = data.setdefault("content", {})
-                weights = grow_content.apply_weights(
-                    content.get("formula_weights"), boost=boost, reduce=reduce)
-                content["formula_weights"] = weights
-                family = str((data.get("goal") or {}).get("family") or "")
-                briefs = []
-                for brief in (data.get("supply") or {}).get("briefs") or []:
-                    briefs.append(grow_content.enrich_brief(
-                        {k: v for k, v in brief.items() if k not in ("formulas", "mix", "rules")},
-                        goal_family=family, formula_weights=weights))
-                data.setdefault("supply", {})["briefs"] = briefs
-                data.setdefault("adjustments", []).append({
-                    "on": on, "kind": "decision", "param": "content.mix_weights",
-                    "from": change.get("from", "current"), "to": target,
-                    "detail": change.get("detail", ""),
-                    "rollback": "恢复原配比"})
-                applied.append(change)
-                continue
-            if change.get("param") != "actions_per_week":
-                continue
-            old = int((data.get("plan") or {}).get("actions_per_week") or 0)
-            new = int(change.get("to") or old)
-            data.setdefault("plan", {})["actions_per_week"] = new
-            data.setdefault("quota", {})["actions_per_week"] = new
-            data.setdefault("adjustments", []).append({
-                "on": on, "kind": "decision", "param": "actions_per_week",
-                "from": old, "to": new, "detail": change.get("detail", ""),
-                "rollback": old})
-            applied.append(change)
-        return applied
 
     # ---------- 进度 / 状态 / 报告 ----------
 
@@ -1677,6 +1756,12 @@ class GrowRunV2:
         data_dir = Path(data_dir)
         payload = grow_learning.analyze(data_dir, data["id"], data)
         payload["on"] = on or _today()
+        from . import controlled_learning
+        payload["assessment"] = controlled_learning.assess(
+            sample=int(payload.get("sample") or 0),
+            changes=payload.get("changes") or [],
+            review_required=payload.get("review_required"),
+            review_reasons=payload.get("review_reasons"))
         path = grow_learning.write_learning(data_dir, data["id"], payload,
                                             on=payload["on"])
         payload["path"] = str(path)

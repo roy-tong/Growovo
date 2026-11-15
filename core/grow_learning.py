@@ -9,7 +9,8 @@
      带 rollback 与观察窗，不直接改策略选择。
 
 纪律：样本不足时只记录「继续采集」，不硬调；公开指标是相关不是因果；
-回复率/互动率是比值口径，不证明内容质量。
+回复率/互动率是比值口径，不证明内容质量。G-04 追加：爆量（单条 ≥5× 中位）
+或零互动时先复审、不调参，口径固定标 non_causal。
 """
 from __future__ import annotations
 
@@ -329,11 +330,23 @@ def analyze(data_dir, run_id: str, data: Dict[str, Any]) -> Dict[str, Any]:
                            f"高于非 KOC 组；次日把 KOC 触达目标提到 70%")})
             recommendation = (recommendation + "；" if recommendation else "") + \
                 "KOC 组反馈更好，次日优先 KOC"
+    # G-04：爆量/零互动先复审——这两种情况下均值会骗人，不许直接调参。
+    from . import controlled_learning
+    review_reasons = controlled_learning.review_triggers(rows)
+    if review_reasons:
+        changes = []
+        recommendation = "先复审：" + "；".join(review_reasons)
     return {"sample": len(rows), "buckets": {"formula": by_formula,
                                              "window": by_window,
                                              "author_tier": by_tier},
             "changes": changes, "recommendation": recommendation,
-            "min_sample": MIN_SAMPLE}
+            "min_sample": MIN_SAMPLE,
+            "analysis_mode": "non_causal",
+            "exploration_only": True,
+            "review_required": bool(review_reasons),
+            "review_reasons": review_reasons,
+            "limitations": ["公开指标与同期变化是相关，不是因果；不宣称策略胜出",
+                            "样本门槛不是统计功效保证；结论由人判断"]}
 
 
 def write_learning(data_dir, run_id: str, payload: Dict[str, Any], *,
@@ -375,5 +388,9 @@ def render(payload: Dict[str, Any]) -> str:
     lines.append(f"建议：{payload.get('recommendation', '')}")
     for change in payload.get("changes") or []:
         lines.append(f"- {change.get('detail')}")
+    if payload.get("review_required"):
+        lines.append("复审：" + "；".join(payload.get("review_reasons") or []))
+    lines.append(f"口径：{payload.get('analysis_mode', 'non_causal')}"
+                 "（相关不等于因果，不宣称策略胜出）")
     lines += ["", "边界：公开指标是相关不是因果；样本 <3 的分组只展示不调参。", ""]
     return "\n".join(lines)
