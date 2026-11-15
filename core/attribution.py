@@ -45,6 +45,58 @@ class OutcomeLedger:
         self.contacts_path = self.data_dir / "contacts.jsonl"
         self._identity_map_cache = None
 
+
+
+    def _latest_qualifications(self):
+        """G-07: event_id → 最新一条资格审计（用于 disqualified 披露）。"""
+        if getattr(self, "_qual_cache", None) is not None:
+            return self._qual_cache
+        latest = {}
+        path = self.data_dir / "outcomes" / "qualifications.jsonl"
+        if path.is_file():
+            for line in path.read_text(encoding="utf-8").splitlines():
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    rec = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                key = str(rec.get("event_id") or "")
+                if key:
+                    latest[key] = rec
+        self._qual_cache = latest
+        return latest
+
+    def _revoked_import_keys(self):
+        """G-07: 最新资格为 False 的事件，其投影行不再进入任何业务读数。
+
+        原台账行保留（append-only、可审计）；这里只在读取侧过滤，使漏斗、
+        journey、周卡/日卡与学习样本共用同一个有效口径。
+        """
+        if getattr(self, "_revoked_cache", None) is not None:
+            return self._revoked_cache
+        revoked = set()
+        path = self.data_dir / "outcomes" / "qualifications.jsonl"
+        if path.is_file():
+            latest = {}
+            for line in path.read_text(encoding="utf-8").splitlines():
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    rec = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                key = str(rec.get("event_id") or "")
+                if key:
+                    latest[key] = bool(rec.get("qualifies"))
+            # 台账投影行的 import_key 是 ``product_events:<event_id>``；
+            # 资格审计按 event_id 记录，这里补上前缀才能对上号。
+            revoked = {"product_events:%s" % k for k, ok in latest.items() if not ok}
+        self._revoked_cache = revoked
+        return revoked
+
     # ---- 身份归一 ----
     def _identity_map(self):
         """contacts.jsonl → {contact_id 或平台身份值: contact_id}；无库/无文件则空表。"""
@@ -173,7 +225,10 @@ class OutcomeLedger:
 
         各阶段计数是独立观察值：相邻比值是「比值口径」不是转化因果，更不是
         渠道效果证明。计数快照单列，不与事件混算。"""
-        events = [r for r in self.records(campaign) if r.get("kind") == "event"]
+        revoked = self._revoked_import_keys()
+        events = [r for r in self.records(campaign)
+                  if r.get("kind") == "event"
+                  and str(r.get("import_key") or "") not in revoked]
         counts = [r for r in self.records(campaign) if r.get("kind") == "count"]
         by_stage = {stage: set() for stage in FUNNEL}      # canonical 主体
         raw_by_stage = {stage: set() for stage in FUNNEL}  # 原始主体串
@@ -251,6 +306,16 @@ class OutcomeLedger:
             ],
             "note": "转化率是比值不是因果；阶段计数为独立观察值；近似口径与缺核验价值事件单列，不洗白",
         }
+        if revoked:
+            out["disqualified"] = [
+                {"event_id": key.split(":", 1)[-1],
+                 "by": row.get("by"), "note": row.get("note"),
+                 "ts": row.get("ts"), "event_type": row.get("event_type"),
+                 "subject_id": row.get("subject_id")}
+                for key, row in sorted(
+                    (("%s:%s" % ("product_events", k)), v)
+                    for k, v in self._latest_qualifications().items()
+                    if not v.get("qualifies"))]
         if campaign:
             out["campaign"] = campaign
         return out

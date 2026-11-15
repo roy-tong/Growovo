@@ -182,3 +182,10 @@ See [requirements, implemented fixes and remaining gaps](grow-feedback-improveme
 - Local value-chain fixtures prove the state machine and real subprocess accounting only. External delivery receipts, user completion and production reliability still need authorized real-world verification.
 - Experience counts and freshness are build-time facts and must be regenerated with the pipeline and status page. Previous counts such as 108/117 were snapshots, not permanent facts.
 - Synthetic demos and local fixtures do not prove external business results, paid demand, production reliability or exact-once delivery.
+
+## G-07 / G-08 (2026-11-15)
+
+| Review item | Runnable depth | Verification and remaining boundary |
+|---|---|---|
+| One business-result reading | Qualification is applied at the projection layer: `funnel()` skips revoked projections, journey filters revoked events before first/repeat, learning and the weekly card read qualified L3, and `disqualified` lists who/why/when. Ledger rows are never deleted | The ledger remains the append-only fact store; anything that reads `ledger.jsonl` directly (custom scripts, `mkt outcome event`) still sees the raw rows and must apply `outcomes/qualifications.jsonl` itself |
+| Measurement requalification | PROVEN downgrades to CONFLICTED on the first conflicting reading after promotion, `requalify_required` and `due` are set, `promoted_at` survives, and seven more valid days restore it. `grow status` carries a `measurement` block with a human next step | PROVEN only covers metric + handle + parser + period; it says the reading matched human counts, not that the metric means business success |

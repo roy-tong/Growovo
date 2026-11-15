@@ -1701,6 +1701,38 @@ class GrowRunV2:
                 "target_text": goal.get("target_text"), "progress": progress,
                 "note": "" if current is not None else "还没有关注者读数（先跑 mkt x stats）"}
 
+
+    def _measurement_projection(self, data):
+        """G-08: 当前读数可信度与重新校准要求（status 必须能看见）。
+
+        PROVEN 只覆盖 metric+handle+parser+时期；一次明确冲突把它降级为
+        CONFLICTED 并要求重新校准，但历史 promoted_at 保留。
+        """
+        measurement = data.get("measurement") or {}
+        calibration = measurement.get("calibration") or {}
+        verification = str(measurement.get("verification") or "UNVERIFIED")
+        requalify = bool(calibration.get("requalify_required"))
+        due = str(calibration.get("due") or "")
+        if verification == "PROVEN" and not requalify:
+            text = "读数已通过七日校准（PROVEN），仅覆盖该指标与该账号"
+            action = ""
+        elif verification == "CONFLICTED":
+            text = ("读数与人工对数冲突，当前可信度降级为 CONFLICTED"
+                    "（曾在 %s 通过七日校准）" % (calibration.get("promoted_at") or "—"))
+            action = "重新校准：对不上的一天不复用旧结论；due %s" % (due or "立即")
+        else:
+            text = "读数尚未通过七日校准（UNVERIFIED）：只作参考，不当已证明准确"
+            action = "继续每日人工对数，届满七日再升级（due %s）" % (due or "今天")
+        return {"verification": verification,
+                "requalify_required": requalify,
+                "due": due or None,
+                "promoted_at": calibration.get("promoted_at"),
+                "conflicted_at": calibration.get("conflicted_at"),
+                "streak_days": calibration.get("streak_days"),
+                "handle": measurement.get("handle"),
+                "text": text,
+                "next_required_action": action}
+
     def status(self, data_dir, *, on: Optional[str] = None) -> Dict[str, Any]:
         on = on or _today()
         data = self.load()
@@ -1731,6 +1763,7 @@ class GrowRunV2:
             "heartbeat": heartbeat,
             "readings": (data.get("telemetry", {}).get("days", {})
                          .get(on, {}).get("readings") or {}),
+            "measurement": self._measurement_projection(data),
             "pending_decision": not decisions,
             "queues": len(pending),
             "result_cards": data.get("result_cards") or [],
@@ -2358,16 +2391,34 @@ done
                 streak_days += 1
         last_valid = max(valid_days) if valid_days else None
 
+        # G-08：区分「曾经通过七日校准」与「当前读数是否可信」。
+        # 一次明确冲突（当日读数无效/不一致）就要把当前读数降级，而不是等
+        # 账号或解析器口径变化——否则第八天对不上，界面还显示 PROVEN。
+        conflicted = measurement.get("verification") == "PROVEN" and not day_states.get(on)
+        if conflicted:
+            measurement["verification"] = "CONFLICTED"
+            calibration["requalify_required"] = True
+            calibration["conflicted_at"] = on
+        elif measurement.get("verification") == "CONFLICTED" and not valid_day:
+            # 连续无效日：保持降级，继续要求重新校准。
+            calibration["requalify_required"] = True
+
         promoted = (streak_days >= 7
                     and measurement.get("verification") != "PROVEN")
         if promoted:
             measurement["verification"] = "PROVEN"
             calibration["promoted_at"] = last_valid
+            calibration["requalify_required"] = False
         calibration["scope"] = scope
         calibration["streak"] = streak_days          # 兼容旧读法
         calibration["streak_days"] = streak_days
         calibration["last_valid_date"] = last_valid
-        calibration["due"] = "" if measurement.get("verification") == "PROVEN" else on
+        if (measurement.get("verification") == "PROVEN"
+                and not calibration.get("requalify_required")):
+            calibration["due"] = ""
+        else:
+            calibration["due"] = on
+            calibration["requalify_required"] = True
         data.setdefault("history", []).append(
             {"at": on, "kind": "calibrate", "by": by,
              "note": f"{'一致' if match else '不一致'}；"

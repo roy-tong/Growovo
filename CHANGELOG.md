@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+### G-07 single business-result reading and G-08 measurement requalification
+
+- **G-07**: revoking an event's qualification no longer leaves two answers. The
+  ledger keeps every row (append-only, auditable), but `funnel()` drops the
+  projections of revoked events, `grow_learning` and the weekly card read the
+  same qualified L3 numbers, `prospect_journey` filters revoked events before
+  first/repeat decisions, and `disqualified` (who, why, when) is disclosed on
+  both the L3 summary and the funnel payload. `mkt grow qualify --list
+  [--event ID]` prints the audit trail. Revoking a first activation correctly
+  promotes the next real activation to "first".
+- **G-08**: `calibrate` now separates "passed seven consecutive days once" from
+  "the current reading is trustworthy". A conflicting or invalid reading after
+  PROVEN downgrades the current reading to `CONFLICTED`, sets
+  `requalify_required` and a due date while keeping `promoted_at`; seven further
+  valid days restore PROVEN and clear the requirement. `grow status` exposes the
+  state (`measurement` block) so a downgraded reading is never shown as proven.
+
 ### Fixed
 
 - **Pinned DNS check for competitor watch fetches (G-09)**: the watch policy
