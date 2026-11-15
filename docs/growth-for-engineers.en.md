@@ -60,7 +60,7 @@ python3 mkt.py grow learn g1
 
 ## Check the evidence before you trust it
 
-- [Launch autopsy: 73 tweets in 11 hours, 0 new stars](launch-autopsy-20261105.md) — a real campaign run with this tool, the numbers it got, and the ledger gap it exposed in ourselves.
+- [Launch autopsy: 73 tweets in 11 hours, 0 new stars](launch-autopsy-20261105.md) — a real launch experiment run without the ledger, the numbers it got, and the ledger gap it exposed in ourselves.
 - [Why not just write a script, or use a generic automation platform?](compare.md) — point-by-point, with a repo file behind every claim.
 - [Platform automation matrix](platform-automation-matrix.md) — phase one: X + Email fully automated; GitHub, Reddit, Hacker News, LinkedIn gated behind a supervised first run; manual channels such as Xiaohongshu and Zhihu get work orders only.
 

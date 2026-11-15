@@ -33,7 +33,7 @@ python3 mkt.py grow agent g1          # 已有任务可用此命令启用 Codex 
 python3 mkt.py grow produce g1 --max-items 3
 ```
 
-**先看证据再决定信不信：** [发布尸检：11 小时 73 条推文，0 个新 star](docs/launch-autopsy-20261105.md)——用这个工具跑的一次真实 campaign、拿到的数字，以及它暴露出的我们自己的账本缺口。
+**先看证据再决定信不信：** [发布尸检：11 小时 73 条推文，0 个新 star](docs/launch-autopsy-20261105.md)——一次真实的 GTM 发布实验，当晚**没走 Growovo 的账本**（进度靠临时脚本记）；这是它拿到的数字，也是它暴露出的账本缺口。
 
 <details>
 <summary>版本更新（v0.8 – v0.13）：GTM Work OS、编排与授权、设计层、执行完整性、内容运营</summary>
