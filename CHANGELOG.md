@@ -4,6 +4,42 @@
 
 ### Fixed
 
+- **Pinned DNS check for competitor watch fetches (G-09)**: the watch policy
+  validated every address that DNS returned and then fetched the **URL**, so the
+  transport resolved the domain a second time; a rebinding between the check and
+  the connect could make the monitor read an internal page while the policy had
+  approved a public one (the old production path passed no resolver at all unless
+  a test injected one). New `core/safe_fetch.py` resolves once, classifies
+  **every** returned address (one loopback/private/link-local/reserved/ULA/
+  IPv4-mapped address rejects the whole fetch), pins the first validated address
+  and dials **that IP**. HTTP uses `http.client.HTTPConnection(host=<ip>)` with an
+  explicit `Host` header for the original domain (bracketed IPv6, non-default
+  ports kept). HTTPS keeps SNI and certificate/hostname verification on the
+  original domain through `ssl.create_default_context()` +
+  `wrap_socket(server_hostname=<domain>)`; an `SSLContext` with
+  `check_hostname`/`CERT_REQUIRED` disabled is refused before connecting, so
+  connecting to an IP never turns verification off and never switches it to the
+  IP. `getpeername` is compared with the pinned address (IPv4-mapped forms
+  normalised) and a mismatch aborts the read. Redirects are manual: every
+  `Location` re-enters the full resolve → classify → pin → connect flow, with a
+  hop limit, loop detection, no https→http downgrade, and private/loopback
+  targets are never dialled. Connect timeout, read timeout, total fetch budget,
+  hop limit, declared and actual byte cap and content-type gate all fail closed
+  with machine codes mapped to the C-01 families (`POLICY_DENIED`,
+  `STALE_SOURCE`, `RATE_LIMITED`). `core/watch.py`'s production path now uses the
+  pinned fetcher; every entry stores `last_fetch` and every change event carries
+  `fetch` with `resolved_ips`, `pinned_ip`, `redirect_chain`, `bytes`,
+  `allowed`, `reason`, `mode` and `connector`. The legacy injected
+  `transport`/`fetcher`/`file://` test paths still work but are labelled
+  `injected_transport`/`injected_fetcher`/`local_file` and never report a pinned
+  address. Boundaries are documented and not relaxed for compatibility: one
+  pinned IP with no multi-IP failover (CDN anycast/geo-DNS can serve different
+  content from another address; a failed first address fails the fetch instead
+  of falling back), direct sockets only (the system proxy is bypassed),
+  HTTP/1.1 only (no HTTP/2/ALPN), no connection reuse, IPv6 requires a working
+  IPv6 route, and an injected connector that does not report its peer address
+  cannot be re-checked (tests/offline only).
+
 - **Operator-declared trusted verifiers (final review)**: internal
   buyer-controlled systems (`internal-billing`, `warehouse`,
   `admin-console`, …) were rejected as verifiers unless they happened to be in
