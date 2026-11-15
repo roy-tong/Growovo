@@ -973,7 +973,8 @@ def cmd_grow(args):
                         DATA, args.from_file,
                         allowed_sources=args.allowed_source,
                         imported_by=args.by, window=_window(args),
-                        dry_run=not args.apply)
+                        dry_run=not args.apply,
+                        trusted_verifiers=set(args.trusted_verifier or []))
                 except outcome_layers.OutcomeLayerError as exc:
                     print(f"导入未执行：{exc}")
                     return 2
@@ -4797,6 +4798,8 @@ def build_parser():
     e.add_argument("--window-start", default="", help="只收该日期之后发生的事件")
     e.add_argument("--window-end", default="", help="只收该日期之前发生的事件")
     e.add_argument("--apply", action="store_true", help="真写入（默认只校验）")
+    e.add_argument("--trusted-verifier", action="append", default=[],
+                   help="操作员额外认可的核验方 id（可重复，追加到默认白名单）")
     e.add_argument("--json", action="store_true")
     e = esub.add_parser("list", help="已导入的产品事件与资格状态（只读）")
     e.add_argument("--id", default="", help="只看某个 run")

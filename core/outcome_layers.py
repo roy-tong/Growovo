@@ -350,7 +350,8 @@ def _verification_state(row: Dict[str, str],
 def _normalize_event(row, *, index: int, allowed_sources: set,
                      bounds: Optional[Tuple[str, str]], batch: str,
                      imported_by: str,
-                     trusted_verifiers=DEFAULT_TRUSTED_VERIFIERS
+                     trusted_verifiers=DEFAULT_TRUSTED_VERIFIERS,
+                     declared_verifiers=frozenset()
                      ) -> Tuple[Optional[Dict[str, Any]], Optional[Dict[str, Any]]]:
     """校验并规范化一行事件。返回 (rec, None) 或 (None, error)。"""
     def bad(reason: str, detail: str) -> Tuple[None, Dict[str, Any]]:
@@ -399,6 +400,7 @@ def _normalize_event(row, *, index: int, allowed_sources: set,
         "verification_state": state,
         "import_batch": batch,
         "imported_by": imported_by,
+        "import_trusted_verifiers": sorted(declared_verifiers),
         "imported_at": _now(),
     })
     return rec, None
@@ -415,6 +417,10 @@ def import_events(data_dir, path, *, allowed_sources: Optional[Iterable[str]] = 
     匿名行为也可导入：给一个稳定的匿名主体 ID（如 ``anon-xxxx``），不要留空——
     空主体无法去重也无法回答「这是不是同一个人」。
 
+    ``trusted_verifiers`` 是操作员声明的「额外信任」核验方（追加到默认支付/
+    买方白名单），写进每条导入记录的 ``import_trusted_verifiers``；声明不能把
+    vendor/supplier/seller/sales 自称变成核验。
+
     去重键是 ``event_id``；重复导入只记 ``skipped_duplicate``，不重复计数。
     校验失败的行不写（不会写出半条事件），错误带 reason 供调用方判断怎么补；
     同批其余合法行照常导入，此时 ``partial=True``——调用方必须同时看
@@ -422,9 +428,9 @@ def import_events(data_dir, path, *, allowed_sources: Optional[Iterable[str]] = 
     """
     data_dir = Path(data_dir)
     sources = {_text(s) for s in (allowed_sources or []) if _text(s)}
-    trusted = ({_text(v).lower() for v in trusted_verifiers if _text(v)}
-               if trusted_verifiers is not None
-               else set(DEFAULT_TRUSTED_VERIFIERS))
+    # 操作员声明的是「额外信任」，不是替换默认白名单。
+    declared = {_text(v).lower() for v in (trusted_verifiers or []) if _text(v)}
+    trusted = set(DEFAULT_TRUSTED_VERIFIERS) | declared
     if not sources:
         raise OutcomeLayerError(
             "导入事件前先声明授权来源（--allowed-source，如 product_export）："
@@ -444,7 +450,8 @@ def import_events(data_dir, path, *, allowed_sources: Optional[Iterable[str]] = 
         rec, error = _normalize_event(row, index=index, allowed_sources=sources,
                                       bounds=bounds, batch=batch,
                                       imported_by=imported_by,
-                                      trusted_verifiers=trusted)
+                                      trusted_verifiers=trusted,
+                                      declared_verifiers=declared)
         if error is not None:
             errors.append(error)
             continue
@@ -463,6 +470,7 @@ def import_events(data_dir, path, *, allowed_sources: Optional[Iterable[str]] = 
         "window": window or {},
         "dry_run": bool(dry_run),
         "created": 0,
+        "trusted_verifiers": sorted(declared),
         "skipped_duplicate": len(duplicates),
         "repaired": 0,
         "errors": errors,

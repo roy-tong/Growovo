@@ -4,6 +4,21 @@
 
 ### Fixed
 
+- **Operator-declared trusted verifiers (final review)**: internal
+  buyer-controlled systems (`internal-billing`, `warehouse`,
+  `admin-console`, …) were rejected as verifiers unless they happened to be in
+  the default whitelist, while a self-declared `verified_by="stripe"` with a
+  self-computed hash was accepted. `mkt grow events import` now accepts
+  repeatable `--trusted-verifier <id>`; the ids are **added** to the default
+  whitelist (not replacing it), recorded as `import_trusted_verifiers` on every
+  imported event, and echoed in the import result. The declaration is an
+  operator-signed action (`--by` still required) but it cannot whitelist
+  vendor/supplier/seller/sales identities — those remain unverified even when
+  declared. The documentation now states plainly that a verifier id is a
+  declarative identity and that the evidence hash only proves the declared
+  fields are intact; it does not prove the payment provider received money.
+  Stronger assurance requires a payment-provider API or a buyer finance export.
+
 - **Idempotent change retry (final review)**: `apply_changes` checked whether
   an approval was already consumed before checking whether the change was
   already in effect, so retrying the same change after a partial or interrupted
