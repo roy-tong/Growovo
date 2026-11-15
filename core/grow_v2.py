@@ -503,6 +503,24 @@ class GrowRunV2:
     # ---------- 开闸 / 恢复 ----------
 
     @locked
+    def _gate_rows(self, data_dir, blocking_check):
+        """默认走共享 incident 扫描；显式传入的检查函数优先（测试/编排用）。"""
+        if blocking_check is not None:
+            return list(blocking_check() or [])
+        from . import grow_incidents
+        base = Path(data_dir) if data_dir else self.path.parent.parent
+        return grow_incidents.blocking_incidents(base, self.path)
+
+    @staticmethod
+    def _raise_gate(rows) -> None:
+        first = rows[0]
+        code = str(first.get("error_code") or "REVIEW_REQUIRED")
+        names = "、".join(str(row.get("event_id") or row.get("title"))
+                          for row in rows[:3])
+        raise GrowError(
+            f"{code}：还有 {len(rows)} 条阻塞告警，不能继续：{names}"
+            f"\n先处理：mkt grow incident --list（或按告警里的恢复命令执行）")
+
     def arm(self, *, by: str = "", data_dir=None,
             blocking_check=None) -> Dict[str, Any]:
         """显式人工开闸：必须署名 + 有效常驻授权 + 无阻塞告警。
@@ -517,16 +535,6 @@ class GrowRunV2:
             raise GrowError(
                 "AUTH_REQUIRED：arm 必须带 --by <operator> 署名；"
                 "开闸是人的决定，Agent 不能自签")
-        if blocking_check is not None:
-            blocking = list(blocking_check() or [])
-            if blocking:
-                first = blocking[0]
-                raise GrowError(
-                    f"{first.get('error_code') or 'REVIEW_REQUIRED'}："
-                    "还有阻塞告警，不能开闸：" + "、".join(
-                        str(i.get("event_id") or i.get("title"))
-                        for i in blocking[:3])
-                    + f"\n先处理：mkt grow incident {data.get('id')} --list")
         data = self.load()
         if data.get("status") == "draft":
             raise GrowError(
@@ -563,6 +571,9 @@ class GrowRunV2:
                 raise GrowError(
                     f"POLICY_DENIED：常驻授权未覆盖 {text}，或已过期/撤销；"
                     f"先人工 mkt policy enable --actions {text} --by <operator>")
+        blocking = self._gate_rows(data_dir, blocking_check)
+        if blocking:
+            self._raise_gate(blocking)
         if data.get("go"):
             if not data.get("armed_by"):
                 data["armed_by"] = operator
@@ -601,10 +612,14 @@ class GrowRunV2:
         return data
 
     @locked
-    def resume(self, *, note: str, by: str = "") -> Dict[str, Any]:
+    def resume(self, *, note: str, by: str = "", data_dir=None,
+               blocking_check=None) -> Dict[str, Any]:
         data = self.load()
         if data.get("status") not in ("needs_attention", "paused"):
             return data
+        blocking = self._gate_rows(data_dir, blocking_check)
+        if blocking:
+            self._raise_gate(blocking)
         note = (note or "").strip()
         if not note:
             raise GrowError("恢复需要 --note 写清处理了什么（哪条队列、结论、谁修的）")

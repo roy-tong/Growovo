@@ -4,6 +4,18 @@
 
 ### Fixed
 
+- **Default incident gate on library entry points (final review)**: the CLI
+  was gated, but `GrowRunV2.arm(by=...)` without `blocking_check` and
+  `GrowRunV2.resume(...)` could still bypass the incident scan when called
+  directly. Both now default to the shared `blocking_incidents()` scan through
+  a small `core/grow_incidents.py` adapter (it lazily imports the single
+  scanner in `grow_runbook`, so `grow_v2` never imports runbook at module load
+  and there is no cycle). An unresolved `indeterminate` or any blocking alert
+  now raises `INDETERMINATE_EXTERNAL_ACTION`/the incident's C-01 code with the
+  INC id before `go` or `status` changes; warning-only alerts still allow
+  resume. Explicit `blocking_check=` remains available for tests/orchestration
+  and overrides the default, but callers no longer need to remember it.
+
 - **Shared resume gate (D3, G-05)**: `mkt grow resume <run> --by ... --note ...`
   without `--after-reconciliation` used to call `GrowRunV2.resume()` directly,
   which checked only status/note and flipped `needs_attention` back to `active`
