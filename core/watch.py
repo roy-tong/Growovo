@@ -19,6 +19,18 @@ G-06 起，抓取前后都先过 ``core/watch_safety.py``：
 - 整页 diff 在人工核实前只记 ``page_content_changed``（needs_review）；
   价格只做结构化 token 提示，人工确认写入追加式审计，不改原事件。
 
+G-09 起，生产默认抓取走 ``core/safe_fetch.py``：解析一次 → 每个地址都判定 →
+连接固定到已判定的 IP（HTTP 显式发原域名的 ``Host``，HTTPS 的 SNI 与证书
+校验都针对原域名）→ 再校验响应；重定向每一跳重新走完整流程，所以「校验用的
+解析」和「连接用的地址」不再是两次独立解析。每次抓取的记录落在监控项的
+``last_fetch``（以及变化事件的 ``fetch``）里，带
+``resolved_ips`` / ``pinned_ip`` / ``redirect_chain`` / ``bytes`` /
+``allowed`` / ``reason`` / ``mode`` / ``connector``，便于事后复核。
+
+传入 ``transport`` / ``fetcher`` 的旧注入路径仍然可用（测试/离线演示），但它们
+不参与连接固定，记录里诚实标成 ``injected_transport`` / ``injected_fetcher``
+（``pinned_ip`` 为空）；只有 ``mode == "pinned"`` 才代表「DNS 校验 + 连接固定」。
+
 数据落盘：data/watch/<list_id>.json（监控清单与快照）、
 data/watch/events.jsonl（变化事件，追加式）、
 data/watch/event_verifications.jsonl（人工核实记录，追加式）。
@@ -30,12 +42,14 @@ import hashlib
 import json
 import os
 import tempfile
+import urllib.parse
 from datetime import datetime
 from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 import re
 
+from . import safe_fetch
 from . import watch_safety as safety
 from .grow_lock import locked, run_lock
 from .ledger import _append_line
@@ -57,13 +71,51 @@ FETCH_TIMEOUT = safety.FETCH_TIMEOUT
 MAX_BYTES = safety.MAX_BYTES
 
 
+#: 抓取模式标签：只有 ``pinned`` 代表「DNS 校验 + 连接固定」（G-09）。
+FETCH_MODES = ("pinned", "injected_transport", "injected_fetcher", "local_file")
+
+
 class WatchError(RuntimeError):
-    pass
+    """监控错误；``code`` 是机器码（如 ``BLOCKED_ADDRESS``），``mode`` 是抓取模式。"""
+
+    def __init__(self, message, *, code: str = "", mode: str = ""):
+        super().__init__(message)
+        self.code = str(code or "")
+        self.mode = str(mode or "")
+
+
+def _fetch_mode(url: str, *, fetcher=None, transport=None, connector=None) -> str:
+    """这次抓取会走哪条路径：只有 pinned 做连接固定，注入路径如实标注。"""
+    scheme = (urllib.parse.urlsplit(str(url or "")).scheme or "").lower()
+    if scheme == "file":
+        return "local_file"
+    if connector is not None or (transport is None and fetcher is None):
+        return "pinned"
+    if transport is not None:
+        return "injected_transport"
+    return "injected_fetcher"
+
+
+def _record(mode: str, *, connector: str, url: str, final_url: str,
+            status: int, size: int, resolved_ips, pinned_ip,
+            redirect_chain, allowed: bool = True, reason: str = "",
+            host: str = "") -> Dict[str, Any]:
+    """抓取记录：可复核的最小字段集（G-09 可观测要求）。"""
+    if mode not in FETCH_MODES:
+        raise ValueError(f"未知抓取模式：{mode!r}")
+    return {"mode": mode, "connector": connector, "url": url,
+            "final_url": final_url, "status": int(status),
+            "bytes": int(size), "resolved_ips": list(resolved_ips or []),
+            "pinned_ip": pinned_ip or None,
+            "redirect_chain": [dict(row) for row in (redirect_chain or [])],
+            "allowed": bool(allowed), "reason": str(reason or ""),
+            "host": str(host or ""),
+            "hop_count": len(redirect_chain or [])}
 
 
 def _default_fetch(url: str) -> str:
-    """兼容入口：生产抓取（手工重定向 + 地址判定 + 响应边界）。"""
-    return safety.fetch_page(url)["text"]
+    """兼容入口：生产抓取（解析 → 判定 → 连接固定 → 响应边界）。"""
+    return safe_fetch.fetch(url)["text"]
 
 
 def local_file_fetcher(url: str) -> str:
@@ -178,43 +230,91 @@ class WatchList:
         return data
 
     def _snapshot_url(self, url: str, *, fetcher=None, transport=None,
-                      resolver=None, allow_local_file: bool = False,
-                      file_fetcher=None) -> Dict[str, Any]:
-        """抓一次快照；所有 URL 先过地址策略，再决定用哪条传输路径。"""
+                      resolver=None, connector=None,
+                      allow_local_file: bool = False,
+                      file_fetcher=None,
+                      fetch_options: Optional[Dict[str, Any]] = None
+                      ) -> Dict[str, Any]:
+        """抓一次快照：生产默认固定连接；所有 URL 先过地址策略。
+
+        ``connector`` 是 G-09 的连接层注入点：地址判定和「连哪个 IP」仍由
+        ``core/safe_fetch`` 决定，注入只替换「怎么把字节拿回来」。旧
+        ``transport``/``fetcher`` 注入点保留给 G-06 测试，不参与连接固定。
+        """
+        options = dict(fetch_options or {})
+        mode = _fetch_mode(url, fetcher=fetcher, transport=transport,
+                           connector=connector)
+        scheme = (urllib.parse.urlsplit(str(url or "")).scheme or "").lower()
         try:
-            info = safety.check_url(url, resolver=resolver,
-                                    allow_local_file=allow_local_file)
-            if info["scheme"] == "file":
-                if not allow_local_file:
-                    raise safety.UrlPolicyError(
-                        "FILE_DISABLED", "file:// 只在显式本地模式可用")
+            if scheme == "file":
+                info = safety.check_url(url, allow_local_file=allow_local_file)
                 local = fetcher or file_fetcher
                 if local is None:
                     raise safety.UrlPolicyError(
                         "FILE_DISABLED",
-                        "file:// 只在显式本地模式 + 注入本地抓取器时可用（测试/离线演示）")
-                return {"text": _snapshot(local(url)), "final_url": url,
-                        "redirects": [], "addresses": info["addresses"]}
-            if fetcher is not None and transport is None:
-                # 兼容旧调用：单跳注入抓取器；静态地址规则已经过，DNS 由注入方负责。
-                return {"text": _snapshot(fetcher(url)), "final_url": url,
-                        "redirects": [], "addresses": info["addresses"]}
-            page = safety.fetch_page(url, transport=transport,
-                                     resolver=resolver,
-                                     allow_local_file=allow_local_file)
+                        "file:// 只在显式本地模式 + 注入本地抓取器时可用"
+                        "（测试/离线演示）")
+                text = _snapshot(local(url))
+                return {"text": text, "final_url": url, "redirects": [],
+                        "addresses": info["addresses"],
+                        "fetch": _record(
+                            "local_file", connector="none", url=url,
+                            final_url=url, status=0,
+                            size=len(text.encode("utf-8")),
+                            resolved_ips=info["addresses"], pinned_ip=None,
+                            redirect_chain=[])}
+            if connector is None and transport is not None:
+                # 旧注入点：地址规则仍然生效，但传输层按 URL 自己抓取，
+                # 不参与 IP 固定 —— 记录里如实标成 injected_transport。
+                info = safety.check_url(url, resolver=resolver,
+                                        allow_local_file=allow_local_file)
+                page = safety.fetch_page(url, transport=transport,
+                                         resolver=resolver,
+                                         allow_local_file=allow_local_file)
+                return {"text": _snapshot(page["text"]),
+                        "final_url": page["final_url"],
+                        "redirects": page["redirects"],
+                        "addresses": info["addresses"],
+                        "fetch": _record(
+                            "injected_transport", connector="injected",
+                            url=url, final_url=page["final_url"],
+                            status=page["status"], size=page["bytes"],
+                            resolved_ips=info["addresses"], pinned_ip=None,
+                            redirect_chain=[{"location": target}
+                                            for target in page["redirects"]])}
+            if connector is None and fetcher is not None:
+                # 旧单跳注入抓取器：G-06 兼容路径，DNS 由注入方负责。
+                info = safety.check_url(url, resolver=resolver,
+                                        allow_local_file=allow_local_file)
+                text = _snapshot(fetcher(url))
+                return {"text": text, "final_url": url, "redirects": [],
+                        "addresses": info["addresses"],
+                        "fetch": _record(
+                            "injected_fetcher", connector="injected", url=url,
+                            final_url=url, status=0,
+                            size=len(text.encode("utf-8")),
+                            resolved_ips=info["addresses"], pinned_ip=None,
+                            redirect_chain=[])}
+            page = safe_fetch.fetch(url, resolver=resolver, connector=connector,
+                                    **options)
+            record = dict(page.get("record") or {})
             return {"text": _snapshot(page["text"]),
                     "final_url": page["final_url"],
                     "redirects": page["redirects"],
-                    "addresses": info["addresses"]}
+                    "addresses": page["resolved_ips"],
+                    "fetch": record}
         except safety.UrlPolicyError as exc:
-            raise WatchError(f"URL 拒绝（{exc.code}）：{exc}") from exc
+            raise WatchError(f"URL 拒绝（{exc.code}）：{exc}",
+                             code=str(getattr(exc, "code", "")),
+                             mode=mode) from exc
 
     @locked
     def add(self, url: str, kind: str, competitor: str, *, note: str = "",
             fetcher: Optional[Callable[[str], str]] = None,
             transport: Optional[Callable[[str], Dict[str, Any]]] = None,
-            resolver=None, allow_local_file: bool = False,
-            file_fetcher: Optional[Callable[[str], str]] = None
+            resolver=None, connector=None, allow_local_file: bool = False,
+            file_fetcher: Optional[Callable[[str], str]] = None,
+            fetch_options: Optional[Dict[str, Any]] = None
             ) -> Dict[str, Any]:
         """加一个监控项：立刻抓基线快照（抓不到就拒绝，不收死链）。"""
         if kind not in KIND_TACTICS:
@@ -225,30 +325,34 @@ class WatchList:
         try:
             snapshot = self._snapshot_url(
                 url, fetcher=fetcher, transport=transport, resolver=resolver,
-                allow_local_file=allow_local_file,
-                file_fetcher=file_fetcher)
+                connector=connector, allow_local_file=allow_local_file,
+                file_fetcher=file_fetcher, fetch_options=fetch_options)
         except WatchError:
             raise
         except Exception as exc:  # noqa: BLE001 抓取失败原样上报
             raise WatchError(
-                f"基线快照抓取失败，不收录：{type(exc).__name__}: {exc}") from exc
+                f"基线快照抓取失败，不收录：{type(exc).__name__}: {exc}",
+                code=str(getattr(exc, "code", "")),
+                mode=str(getattr(exc, "mode", ""))) from exc
         text = snapshot["text"]
         if len(text) < 20:
             raise WatchError(
                 f"页面内容过少（签名 {len(text)} 字符），疑似反爬或空页，不收录")
+        stamp = datetime.now().isoformat(timespec="seconds")
         entry = {
             "url": url, "kind": kind, "competitor": competitor, "note": note,
-            "added_at": datetime.now().isoformat(timespec="seconds"),
+            "added_at": stamp,
             "baseline_len": len(text),
             "last_snapshot": text,
             "last_final_url": snapshot["final_url"],
+            "last_fetch": dict(snapshot["fetch"], ts=stamp),
             "last_checked": None, "last_change": None, "changes": 0,
         }
         data["entries"].append(entry)
         self.save(data)
         return {k: entry[k] for k in ("url", "kind", "competitor",
                                       "baseline_len", "changes",
-                                      "last_final_url")}
+                                      "last_final_url", "last_fetch")}
 
     @locked
     def remove(self, url: str) -> Dict[str, Any]:
@@ -265,13 +369,15 @@ class WatchList:
     @locked
     def check(self, *, fetcher: Optional[Callable[[str], str]] = None,
               transport: Optional[Callable[[str], Dict[str, Any]]] = None,
-              resolver=None, allow_local_file: bool = False,
+              resolver=None, connector=None, allow_local_file: bool = False,
               file_fetcher: Optional[Callable[[str], str]] = None,
+              fetch_options: Optional[Dict[str, Any]] = None,
               log: Callable[..., Any] = print) -> Dict[str, Any]:
         """逐项抓取并与上次快照 diff；变化即写事件并联动承接战术。
 
         抓取失败/403/验证页跳过且**不改基线**（下次再查）；只有实质文本
         变化才产出事件。噪声（时间戳/随机 token）会更新基线但不产事件。
+        每次抓取（成功或失败）都更新该监控项的 ``last_fetch`` 抓取记录。
         """
         data = self.load()
         events: List[Dict[str, Any]] = []
@@ -281,17 +387,30 @@ class WatchList:
             try:
                 snapshot = self._snapshot_url(
                     entry["url"], fetcher=fetcher, transport=transport,
-                    resolver=resolver, allow_local_file=allow_local_file,
-                    file_fetcher=file_fetcher)
+                    resolver=resolver, connector=connector,
+                    allow_local_file=allow_local_file,
+                    file_fetcher=file_fetcher, fetch_options=fetch_options)
             except Exception as exc:  # noqa: BLE001 网络失败/验证页 ≠ 页面变化
                 failed += 1
                 entry["last_checked"] = now
+                entry["last_fetch"] = {
+                    "mode": str(getattr(exc, "mode", "")),
+                    "connector": "",
+                    "url": entry["url"], "final_url": "", "status": 0,
+                    "bytes": 0, "resolved_ips": [], "pinned_ip": None,
+                    "redirect_chain": [], "hop_count": 0,
+                    "allowed": False,
+                    "reason": str(getattr(exc, "code", ""))
+                              or type(exc).__name__,
+                    "error": str(exc)[:200], "host": "", "ts": now,
+                }
                 log(f"[watch] {entry['competitor']} {entry['kind']} 抓取失败："
                     f"{type(exc).__name__}: {str(exc)[:80]}", "WARN")
                 continue
             current = snapshot["text"]
             entry["last_checked"] = now
             entry["last_final_url"] = snapshot["final_url"]
+            entry["last_fetch"] = dict(snapshot["fetch"], ts=now)
             previous = entry["last_snapshot"]
             if current == previous:
                 continue
@@ -314,6 +433,7 @@ class WatchList:
                 "url": entry["url"],
                 "final_url": snapshot["final_url"],
                 "redirects": list(snapshot["redirects"]),
+                "fetch": dict(snapshot["fetch"], ts=now),
                 "before_len": len(previous),
                 "after_len": len(current),
                 "diff": excerpt,

@@ -23,6 +23,10 @@
 - 不读凭据、不猜地址、不把验证页/登录墙当成内容变化；
 - 注入 transport 的调用方自己负责网络边界；但没有 resolver 时，字面 IP、
   localhost、*.local、单段主机名这些静态规则仍然生效。
+- 本模块的 ``fetch_page`` 把 URL 交给传输层，连接阶段由传输层自己解析
+  域名，因此「判定用的解析」与「连接用的地址」是两份结果（DNS rebinding
+  的 TOCTOU）。生产抓取走 ``core/safe_fetch.py``（连接固定到已判定的 IP）；
+  ``fetch_page`` 保留给注入传输层（测试/离线演示）与策略复用。
 """
 from __future__ import annotations
 
@@ -382,7 +386,13 @@ def fetch_page(url: str, *, transport=None, resolver=None,
                allow_local_file: bool = False,
                max_redirects: int = MAX_REDIRECTS,
                max_bytes: int = MAX_BYTES) -> Dict[str, Any]:
-    """抓一页正文：手工重定向 + 逐跳判定 + 状态/类型/大小边界。"""
+    """抓一页正文：手工重定向 + 逐跳判定 + 状态/类型/大小边界。
+
+    注意：本函数只把 URL 交给 ``transport``，真正建连接时的域名解析由
+    传输层完成，判定过的地址不会传给连接。生产抓取请用
+    ``core.safe_fetch.fetch``（解析一次、连接固定到已判定 IP）；本函数
+    保留给注入传输层（测试/离线演示）。
+    """
     current = str(url or "").strip()
     redirects: List[str] = []
     visited: List[str] = []
