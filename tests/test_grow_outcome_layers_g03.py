@@ -163,6 +163,19 @@ class ImportContractTests(G03Base):
         self.assertEqual(1, len(result["errors"]))
         self.assertIn("out_of_window", json.dumps(result["errors"]))
 
+    def test_window_end_day_is_inclusive_by_design(self):
+        """刻意口径：Growovo 周窗含 end 当天。
+
+        与 Verovo 账期的半开 [from, to) 不同；这是增长周报「本周含周日」的
+        业务口径，不是跨产品不一致的 bug。
+        """
+        result = self._import(
+            [event(event_id="edge-in", occurred_at="2026-11-07T23:59:59"),
+             event(event_id="edge-out", occurred_at="2026-11-08T00:00:00")],
+            window=WINDOW)
+        self.assertEqual(1, result["created"])
+        self.assertIn("out_of_window", json.dumps(result["errors"]))
+
     def test_out_of_window_event_not_in_window_kpi(self):
         self._import([event(occurred_at="2026-10-20T10:00:00")])
         summary = outcome_layers.layer_summary(self.dir, run_id="g1",
