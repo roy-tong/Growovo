@@ -90,6 +90,12 @@ def plan_kwargs(facts_path, **override):
     return kwargs
 
 
+def _bound_proof(channel: str, user_id: str):
+    from core.account_identity import AccountIdentityProof
+    return AccountIdentityProof(channel=channel, user_id=user_id, handle="acct-a",
+                                browser_context="test:bound", source_ref="test:reader")
+
+
 class Workspace(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -503,13 +509,26 @@ class ReconciliationTests(Workspace):
         queue_path.parent.mkdir(parents=True, exist_ok=True)
         queue_path.write_text(json.dumps({
             "campaign": f"{RUN}-20261103", "channel": "x", "action": "reply",
+            "account": "acct-a",
             "items": [{"id": "i1", "target": target,
                        "body": "先说结论，再给一个可复现的细节。",
                        "scheduled_for": "2026-11-03"}]}, ensure_ascii=False),
             encoding="utf-8")
+        # G-01b 把“旧授权未绑定身份”的真实发送也拦下了（AC-H）。本用例要测的是
+        # indeterminate 不重发，所以先把授权绑到具体身份并注入匹配的观测，
+        # 让队列真正走到不重试判定，而不是停在身份门禁。
+        from core import account_identity
+        # tick 用 guards.account_id 作为账号范围；先把 run 的账号补上，
+        # 再按该账号绑定身份，队列才会走到不重试判定而不是停在身份门禁。
+        data = run.load()
+        data.setdefault("guards", {})["account_id"] = "acct-a"
+        run.save(data)
+        self.authorize(accounts=["acct-a"], identities=["acct-a=x:uid-a"],
+                       require_identity=True)
+        account_identity.set_reader(lambda channel, **kw: _bound_proof("x", "uid-a"))
         before = len(self.ledger().all())
-        logged_in = lambda channel: {"channel": channel,
-                                      "status": "logged_in"}
+        logged_in = lambda channel, **kw: {"channel": channel,
+                                          "status": "logged_in"}
         with patch.object(adapter, "VENDOR", vendor), \
                 patch.object(session_gate, "check_login", logged_in):
             first = run.tick(self.dir, on="2026-11-03",

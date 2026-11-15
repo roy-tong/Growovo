@@ -130,19 +130,41 @@ _ROUTINE_SCOPE = ContextVar("growovo_routine_approval_scope", default=None)
 
 
 @contextmanager
-def routine_scope(data_dir, channel, action, account=""):
-    """Propagate one explicit routine request to nested legacy approval checks."""
+def routine_scope(data_dir, channel, action, account="", platform_user_id=None):
+    """Propagate one explicit routine request to nested legacy approval checks.
+
+    ``platform_user_id`` is the *observed* identity from the G-01 gate (never a
+    caller declaration); nested adapters inherit it so a require_identity
+    authorization still passes the adapter's legacy second approval check.
+    """
     scope = {
         "data_dir": str(Path(data_dir).resolve()),
         "channel": str(channel or "").strip().lower(),
         "action": str(action or "").strip().lower(),
         "account": account,
+        "platform_user_id": str(platform_user_id or "").strip(),
     }
     token = _ROUTINE_SCOPE.set(scope)
     try:
         yield
     finally:
         _ROUTINE_SCOPE.reset(token)
+
+
+def bind_scope_identity(platform_user_id):
+    """Bind the observed platform id into the in-flight routine scope.
+
+    The identity gate runs inside the scope entered by action_runner, after the
+    scope was created, so the observed id is attached here.  Only the value the
+    gate observed is accepted; callers cannot supply an arbitrary id through
+    this function because it is only called with gate evidence.
+    """
+    value = str(platform_user_id or "").strip()
+    scope = _ROUTINE_SCOPE.get()
+    if not value or scope is None:
+        return None
+    _ROUTINE_SCOPE.set(dict(scope, platform_user_id=value))
+    return value
 
 
 def _inherited_routine(data_dir, channel, action, account):
@@ -157,7 +179,8 @@ def _inherited_routine(data_dir, channel, action, account):
         return None
     if account and account != scope["account"]:
         return None
-    return scope["channel"], scope["action"], scope["account"]
+    return (scope["channel"], scope["action"], scope["account"],
+            scope.get("platform_user_id") or "")
 
 
 def enforce_approval(data_dir, campaign, adhoc=False, *, routine=None,
@@ -178,7 +201,9 @@ def enforce_approval(data_dir, campaign, adhoc=False, *, routine=None,
         inherited = _inherited_routine(data_dir, channel, action, account)
         if inherited is not None:
             routine = True
-            channel, action, account = inherited
+            channel, action, account, inherited_uid = inherited
+            if platform_user_id is None and inherited_uid:
+                platform_user_id = inherited_uid
     if routine is True and channel and action and routine_allows(
             data_dir, channel, action, account, platform_user_id):
         return "routine-policy"

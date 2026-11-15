@@ -2317,6 +2317,19 @@ def cmd_policy(args):
         return _emit(execution_policy.revoke(DATA, by=args.by))
     if args.action == "list-actions":
         return _emit({"routine_actions": execution_policy.list_routine_actions()})
+    if args.action == "migrate-identity":
+        from core import account_identity
+        try:
+            result = account_identity.migrate_identity(
+                DATA, by=args.by, identities=args.identity or [],
+                apply=bool(getattr(args, "apply", False)))
+        except ValueError as exc:
+            print(f"迁移失败：{exc}", file=sys.stderr)
+            return 2
+        return _emit(result)
+    if args.action == "identity":
+        from core import account_identity
+        return _emit(account_identity.identity_status(DATA))
     if args.action == "check":
         allowed = execution_policy.allows(DATA, args.channel, args.action_name,
                                           account=args.account,
@@ -3312,12 +3325,15 @@ def cmd_x(args):
             print("默认只读不落账；人工核对数字后加 --record 才写入 outcome 计数")
         return 0
     from channels.x.adapter import run as x_run
+    identity_evidence = None
     if args.go:
         # G-01：CLI adhoc 直通路径同样过账号身份门禁——绑定身份的授权下，
         # 浏览器实际账号必须与授权一致；未绑定授权不介入（legacy 语义不变）。
+        # 门禁返回的观测证据必须随回执落账，否则三条入口的回执字段不一致。
         from core.action_runner import ActionError, gate_account_identity
         try:
-            gate_account_identity("x", DATA, getattr(args, "account", "") or "")
+            identity_evidence = gate_account_identity(
+                "x", DATA, getattr(args, "account", "") or "")
         except ActionError as exc:
             print(f"拒绝执行：{exc}")
             return 1
@@ -3327,7 +3343,8 @@ def cmd_x(args):
     if getattr(args, "thread", False):
         extra += ["--thread"]
     return x_run(args.action, extra, go=args.go, adhoc=args.adhoc,
-                campaign=args.campaign, ledger=_ledger())
+                campaign=args.campaign, ledger=_ledger(), data_dir=DATA,
+                identity=identity_evidence)
 
 
 def cmd_email(args):
@@ -4326,6 +4343,13 @@ def build_parser():
                    help="账号身份 account=platform:user_id，可重复")
     a.add_argument("--require-identity", action="store_true",
                    help="执行时必须提供匹配的平台用户 ID；未提供则拒绝")
+    a = psub.add_parser("migrate-identity",
+                        help="旧授权迁移：列出缺身份绑定的常驻授权，--apply 绑定后解阻真实发送")
+    a.add_argument("--by", default="", help="执行迁移的人；--apply 时必填")
+    a.add_argument("--identity", action="append", default=[],
+                   help="account=platform:user_id，可重复；--apply 时必填")
+    a.add_argument("--apply", action="store_true", help="真正写入（默认 dry-run 只报告）")
+    a = psub.add_parser("identity", help="当前身份读取状态与最近一次探测结果（只读）")
     a = psub.add_parser("disable"); a.add_argument("--by", required=True)
     a = psub.add_parser("check"); a.add_argument("--channel", required=True); a.add_argument("--action-name", required=True)
     a.add_argument("--account", default="")

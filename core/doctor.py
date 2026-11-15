@@ -114,6 +114,20 @@ def run_doctor(base, data_dir, selftest=False):
     else:
         warn("CDP 会话", "未响应：CDP 渠道不可用，./launch.command 启动（SMTP/API 渠道不受影响）")
 
+    # 账号身份门禁：旧授权没有绑定平台身份时，真实发送会被 AUTH_REQUIRED 拒绝
+    try:
+        from .account_identity import identity_blockers
+        blockers = identity_blockers(data_dir)
+    except Exception as exc:  # noqa: BLE001 诊断本身不应让 doctor 崩掉
+        blockers = []
+        warn("账号身份门禁", f"无法检查：{type(exc).__name__}: {str(exc)[:80]}")
+    if blockers:
+        warn("账号身份门禁",
+             f"{blockers[0]['detail']}；下一步：mkt policy migrate-identity --apply "
+             f"--by <你的名字> --identity <账号>=<平台稳定ID>")
+    else:
+        ok("账号身份门禁", "当前授权已绑定平台身份（或尚无授权）")
+
     # 全局暂停态
     if is_paused(data_dir):
         warn("全局暂停", "一切写操作拒跑中（mkt pause --off 恢复）")

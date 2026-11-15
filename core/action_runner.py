@@ -100,22 +100,37 @@ def gate_browser_login(channel, entry, *, login_probe=None):
 
 
 def gate_account_identity(channel, data_dir, account=""):
-    """G-01 实际账号身份门禁：登录界面标记 ≠ 授权账号身份。
+    """G-01b 实际账号身份门禁：登录界面标记 ≠ 授权账号身份。
 
-    绑定了账号身份的授权（require_identity / allow_accounts /
-    account_identities）在真实发送前必须观测到与授权记录精确一致的
-    实际平台账号；未绑定授权不介入（legacy 语义不变）。拒绝抛
-    ActionError → 账本记 rejected，绝不带病发送。返回证据 dict
-    （未绑定为 None），供回执记录 authorized_account 与实际观测身份。
+    - 旧授权（policy 可读但没声明身份绑定）：直接拒绝真实发送
+      （AUTH_REQUIRED），并给出 `mkt policy migrate-identity` 迁移命令；
+      不先探测浏览器——问题在授权，不在观测。
+    - 绑定身份：必须观测到与授权记录精确一致的实际平台账号。
+    - 无 policy / policy 无效：本门禁不裁决（审批门禁另行 fail closed）。
+
+    拒绝抛 ActionError → 账本记 rejected，绝不带病发送。返回证据 dict
+    （未绑定为 None），供回执记录 authorized_account / observed identity /
+    identity_proof_ref。
     """
     from . import account_identity
-    policy = account_identity.load_policy(data_dir)
-    if not account_identity.identity_bound(policy, account):
+    channel = str(channel or "").strip().lower()
+    if channel not in account_identity.IDENTITY_CHANNELS:
         return None
+    policy = account_identity.load_policy(data_dir)
+    blockers = account_identity.identity_blockers(
+        data_dir, account, policy=policy, policy_loaded=True)
+    if blockers:
+        blocker = blockers[0]
+        raise ActionError(
+            "账号身份门禁: %s %s: %s；下一步：%s"
+            % (blocker["code"], blocker["reason"], blocker["detail"],
+               blocker["next"]))
+    if account_identity.policy_state(policy, account)["mode"] in ("absent", "invalid"):
+        return None
+    proof = account_identity.observe(channel, data_dir=data_dir)
     try:
         return account_identity.enforce_identity(
-            data_dir, channel, account, account_identity.observe(channel),
-            policy=policy)
+            data_dir, channel, account, proof, policy=policy)
     except account_identity.IdentityBlocked as exc:
         raise ActionError(f"账号身份门禁: {exc}") from exc
 
@@ -143,6 +158,25 @@ def _dispatch_action_inner(*, channel, action, data_dir=None, campaign="", go=Fa
     data = Path(data_dir or resolve())
     channel = (channel or "").strip().lower()
     action = (action or "").strip().lower()
+    if action in READ_ACTIONS:
+        raise ActionError("读动作请用 mkt search/inbox/audit，不走 run_action")
+    if not go:
+        log(f"[action] {channel}/{action} dry-run（加 --go 才实跑）")
+
+    # G-01b：真实发送前校验实际账号身份（队列/单动作/MCP 共用此路径）。
+    # 必须先于审批：require_identity 的授权在审批里需要 *观测到的* user_id，
+    # 而调用方自报值不算证据。dry-run 保持零浏览器副作用，只由队列/CLI 层提示。
+    from . import account_identity
+    identity_evidence = None
+    if go and channel in account_identity.IDENTITY_CHANNELS:
+        identity_evidence = gate_account_identity(channel, data, account)
+        if identity_evidence:
+            # 观测值同时传给审批校验和适配器的嵌套 legacy 复核；不是调用方自报值。
+            platform_user_id = identity_evidence["observed_platform_identity"]
+            if routine is True:
+                from .planlint import bind_scope_identity
+                bind_scope_identity(platform_user_id)
+
     if routine is True:
         approval_mode = precheck(
             channel, action, data, campaign, go, allow_unverified, target=target,
@@ -162,18 +196,6 @@ def _dispatch_action_inner(*, channel, action, data_dir=None, campaign="", go=Fa
             rec = dict(rec)
             rec["identity"] = dict(identity_evidence)
         return rec
-    if action in READ_ACTIONS:
-        raise ActionError("读动作请用 mkt search/inbox/audit，不走 run_action")
-    if not go:
-        log(f"[action] {channel}/{action} dry-run（加 --go 才实跑）")
-
-    # G-01：真实发送前校验实际账号身份（队列/单动作/MCP 共用此路径）；
-    # dry-run 保持零浏览器副作用，不做身份探测，只由队列层给出提示。
-    from . import account_identity
-    identity_evidence = None
-    if go and channel in account_identity.IDENTITY_CHANNELS:
-        identity_evidence = gate_account_identity(channel, data, account)
-
     ledger = Ledger(data / "ledger.jsonl")
     extra = list(extra or [])
 
@@ -250,7 +272,8 @@ def _dispatch_action_inner(*, channel, action, data_dir=None, campaign="", go=Fa
             args = extra
         publish_options = {"logical_target": target} if action == "publish" and target else {}
         code = xrun(action, args, go=go, campaign=campaign, ledger=ledger,
-                    data_dir=data, log=log, **publish_options)
+                    data_dir=data, log=log, identity=identity_evidence,
+                    **publish_options)
         fallback = {"channel": "x", "action": action, "campaign": campaign,
                     "target": target or "", "result":
                     ("committed" if go else "dry-run") if code == 0 else "failed",

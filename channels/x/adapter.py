@@ -59,8 +59,19 @@ def _vendor_targets(action, data):
     return out
 
 
+def _identity_fields(identity):
+    """G-01b 回执字段：只接受门禁返回的观测证据，不接收调用方自报身份。"""
+    if not isinstance(identity, dict) or not identity.get("enforced"):
+        return {}
+    return {"identity": dict(identity),
+            "authorized_account": str(identity.get("authorized_account") or ""),
+            "observed_platform_identity": str(
+                identity.get("observed_platform_identity") or ""),
+            "identity_proof_ref": str(identity.get("identity_proof_ref") or "")}
+
+
 def _log_to_ledger(action, campaign, ledger, before_lines, log=None, approval_mode=None,
-                   op_ref=None, before_time=None, logical_target=None):
+                   op_ref=None, before_time=None, logical_target=None, identity=None):
     """把 vendor 运行结果回写全局账本（审计 + 跨渠道幂等视图）。
 
     op_ref：本次执行意图的稳定引用，每条记录 ref=op_ref::target，
@@ -72,6 +83,7 @@ def _log_to_ledger(action, campaign, ledger, before_lines, log=None, approval_mo
     wrote = 0
     recorded_targets = set()
     has_unknown = False
+    identity_fields = _identity_fields(identity)
     detail = "adhoc=true" if approval_mode == "adhoc" else ""
 
     def _ref(target):
@@ -95,7 +107,8 @@ def _log_to_ledger(action, campaign, ledger, before_lines, log=None, approval_mo
                     target = "@" + d["handle"]
                     ledger.append(channel="x", transport="cdp", action="message",
                                   campaign=campaign, target=target,
-                                  result=result, ref=_ref(target), detail=detail)
+                                  result=result, ref=_ref(target), detail=detail,
+                                  **identity_fields)
                     recorded_targets.add(target)
                     has_unknown = has_unknown or result == "indeterminate"
                     wrote += 1
@@ -114,7 +127,8 @@ def _log_to_ledger(action, campaign, ledger, before_lines, log=None, approval_mo
                     target = logical_target or target
                     ledger.append(channel="x", transport="cdp", action=action,
                                   campaign=campaign, target=target, result=res,
-                                  ref=_ref(target), evidence=str(f), detail=detail)
+                                  ref=_ref(target), evidence=str(f), detail=detail,
+                                  **identity_fields)
                     recorded_targets.add(target)
                     has_unknown = has_unknown or res == "indeterminate"
                     wrote += 1
@@ -133,7 +147,7 @@ def _log_to_ledger(action, campaign, ledger, before_lines, log=None, approval_mo
                     ledger.append(channel="x", transport="cdp", action=action,
                                   campaign=campaign, target=target,
                                   result=result, ref=_ref(target),
-                                  evidence=str(f), detail=detail)
+                                  evidence=str(f), detail=detail, **identity_fields)
                     recorded_targets.add(target)
                     has_unknown = has_unknown or result == "indeterminate"
                     wrote += 1
@@ -149,7 +163,7 @@ def _log_to_ledger(action, campaign, ledger, before_lines, log=None, approval_mo
                     ledger.append(channel="x", transport="cdp", action="engage",
                                   campaign=campaign, target=target,
                                   result="committed" if ok else "failed",
-                                  ref=_ref(target), detail=detail)
+                                  ref=_ref(target), detail=detail, **identity_fields)
                     recorded_targets.add(target)
                     wrote += 1
     if log and wrote:
@@ -235,7 +249,7 @@ def _acquire_claim(data_root, action, campaign, targets, op_ref):
 
 
 def run(action, extra_args, *, go=False, adhoc=False, campaign=None, ledger=None, log=print,
-        data_dir=None, logical_target=None):
+        data_dir=None, logical_target=None, identity=None):
     """执行 vendor 脚本并把结果记账。go=False 时写操作自动降级为 dry-run。
 
     go=True 的人审门禁与其他渠道同规：必须绑定已人审 plan（data/plans/），
@@ -315,7 +329,7 @@ def run(action, extra_args, *, go=False, adhoc=False, campaign=None, ledger=None
             _, recorded_targets, has_unknown = _log_to_ledger(
                 action, campaign or "", ledger, before_lines, log=log,
                 approval_mode=mode, op_ref=op_ref, before_time=run_started,
-                logical_target=logical_target)
+                logical_target=logical_target, identity=identity)
         except Exception as exc:  # 记账失败不掩盖 vendor 结果
             log(f"账本回写失败（不影响本次执行）: {exc}", "WARN")
             has_unknown = True
@@ -328,12 +342,14 @@ def run(action, extra_args, *, go=False, adhoc=False, campaign=None, ledger=None
         recorded_norm = {norm(t) for t in recorded_targets}
         missing = sorted(t for t in visible if norm(t) not in recorded_norm) \
             if action in ("engage", "reply") else []
+        identity_fields = _identity_fields(identity)
         for target in missing:
             ledger.append(channel="x", transport="cdp", action=action,
                           campaign=campaign or "", target=target,
                           result="indeterminate", ref="%s::%s" % (op_ref, target),
                           detail="go 实跑但该目标无 vendor 结果记录（部分未知）；"
-                                 "未知状态禁止自动重发，人工核实后 ledger.resolve")
+                                 "未知状态禁止自动重发，人工核实后 ledger.resolve",
+                          **identity_fields)
             has_unknown = True
         if not recorded_targets and not missing:
             # 整体未知：外部动作已发生（或可能已发生）而账本无任何记录 =
@@ -345,7 +361,8 @@ def run(action, extra_args, *, go=False, adhoc=False, campaign=None, ledger=None
                           result="indeterminate", ref=op_ref,
                           detail="go 实跑但无 vendor 结果可回写（rc=%d，目标不可见"
                                  "或无结果文件）；未知状态禁止自动重发，人工核实"
-                                 "后 ledger.resolve" % proc.returncode)
+                                 "后 ledger.resolve" % proc.returncode,
+                          **_identity_fields(identity))
             has_unknown = True
         if log and (missing or not recorded_targets):
             log("[x] go 实跑存在未知状态，已记 indeterminate（禁止自动重发）", "WARN")

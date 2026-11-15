@@ -84,13 +84,19 @@ def _normalise_actions(actions):
 def _normalise_identities(identities):
     """Map account -> platform user identity records.
 
-    Accepts ``account=platform:user_id`` strings or dicts.  Identity records are
-    audit evidence for policy checks; they do not change channel permissions.
+    Accepts ``account=platform:user_id`` strings, bare ``platform:user_id``
+    (the default/unspecified account), or dicts.  An empty account key is the
+    policy's default scope (``allow_accounts`` empty); it is a real scope, not
+    a wildcard.  Identity records are audit evidence for policy checks; they do
+    not change channel permissions.
     """
     result = {}
     for item in identities or []:
         if isinstance(item, str):
-            account, _, binding = item.partition("=")
+            if "=" in item:
+                account, _, binding = item.partition("=")
+            else:
+                account, binding = "", item
             platform, _, user_id = binding.partition(":")
             record = {"platform": platform.strip(), "user_id": user_id.strip()}
         elif isinstance(item, dict):
@@ -99,9 +105,11 @@ def _normalise_identities(identities):
                       "user_id": str(item.get("user_id") or "").strip()}
         else:
             raise ValueError("identities 必须是 account=platform:user_id 或对象列表")
-        account = str(account).strip()
-        if not account or not record["platform"] or not record["user_id"]:
-            raise ValueError("identity 必须包含 account、platform 与 user_id")
+        account = str(account)
+        if account.strip() != account:
+            raise ValueError("identity 的 account 不能有首尾空白")
+        if not record["platform"] or not record["user_id"]:
+            raise ValueError("identity 必须包含 account（默认账号可留空）、platform 与 user_id")
         record["verified_at"] = _now().isoformat(timespec="seconds")
         result.setdefault(account, []).append(record)
     return result
@@ -226,6 +234,16 @@ def _valid_policy(policy):
     if expiry is not None and _current_for(expiry) >= expiry:
         return None
     return policy, expiry
+
+
+def is_active(policy):
+    """Read-only: is this stored policy structurally valid and still in force?
+
+    Public on purpose: the identity gate and migration tooling must classify an
+    unreadable/invalid policy separately from a readable legacy one without
+    duplicating the validation rules.
+    """
+    return _valid_policy(policy) is not None
 
 
 def allows(data_dir, channel, action, account='', platform_user_id=None):
