@@ -40,6 +40,7 @@ from __future__ import annotations
 
 import csv
 import hashlib
+import hmac
 import json
 import secrets
 from datetime import date, datetime
@@ -62,11 +63,23 @@ EVENT_TYPES = ("action_committed", "meaningful_conversation",
                "signup", "activation", "paid")
 #: 计入 L3 业务层的类型；注册不等于激活，但三者都算业务事件。
 L3_TYPES = ("signup", "activation", "paid")
-#: 价值事件：必须有可核验来源（verified_by + evidence_hash）。
+#: 价值事件：核验方必须在支付/买方控制域，且 evidence_hash 可复算。
+DEFAULT_TRUSTED_VERIFIERS = frozenset({
+    "stripe", "paypal", "paddle", "chargebee", "lemonsqueezy", "adyen",
+    "braintree", "billing", "payments", "payment-db", "product-db",
+    "product_db", "db",
+})
+#: 供应商/卖方自称永远不是买方核验：即使字段都填了也不算。
+_VERIFIER_DENY = ("vendor", "supplier", "seller", "sales", "reseller",
+                  "agency", "partner")
+#: 证据 hash 绑定的字段（测试侧同口径冻结）。
+EVIDENCE_KEYS = ("event_id", "event_type", "subject_id", "source_system",
+                 "source_ref", "amount", "currency", "payment_ref", "paid_at")
 VALUE_EVENT_TYPES = ("activation", "paid")
 EVENT_FIELDS = ("event_id", "event_type", "subject_id", "occurred_at",
                 "source_system", "source_ref", "campaign_id",
-                "evidence_hash", "verified_by")
+                "evidence_hash", "verified_by",
+                "amount", "currency", "payment_ref", "paid_at")
 
 LAYERS = ("L1", "L2", "L3")
 #: 每层只认一种凭证类型：层与凭证对不上就是记错账。
@@ -266,16 +279,69 @@ def _load_rows(path) -> List[Any]:
     return list(payload)
 
 
-def _verification_state(row: Dict[str, str]) -> str:
-    """核验状态：价值事件要来源方与证据哈希都对得上才算 verified。
+def evidence_hash_for(row: Dict[str, Any]) -> str:
+    """按冻结口径复算证据 hash：事件身份 + 结构化支付字段。"""
+    payload = {}
+    for key in EVIDENCE_KEYS:
+        value = _text(row.get(key))
+        if key == "currency":
+            value = value.upper()
+        payload[key] = value
+    raw = json.dumps(payload, sort_keys=True, ensure_ascii=False,
+                     separators=(",", ":")).encode("utf-8")
+    return "sha256:" + hashlib.sha256(raw).hexdigest()
 
-    L2 的「可解释互动」只要求有人工署名（谁说这句话算实质回应）；L3 的激活/
-    付款要求 ``verified_by`` + ``evidence_hash`` 同时存在——供应商口头宣称
-    「已成交」但没有买方/支付记录时只能是 unverified。
+
+def _trusted_verifier(name: str, trusted) -> bool:
+    verifier = _text(name).lower()
+    if not verifier:
+        return False
+    if any(token in verifier for token in _VERIFIER_DENY):
+        return False
+    if verifier in trusted:
+        return True
+    return verifier.startswith(("buyer:", "buyer_", "customer:"))
+
+
+def _paid_fields_ok(row: Dict[str, Any]) -> bool:
+    amount = _text(row.get("amount")).replace(",", "").replace(" ", "")
+    try:
+        if float(amount) <= 0:
+            return False
+    except ValueError:
+        return False
+    currency = _text(row.get("currency")).upper()
+    if len(currency) != 3 or not currency.isalpha():
+        return False
+    if len(_text(row.get("payment_ref"))) < 3:
+        return False
+    if _text(row.get("paid_at")):
+        try:
+            _parse_time(row["paid_at"])
+        except OutcomeLayerError:
+            return False
+    return True
+
+
+def _verification_state(row: Dict[str, str],
+                        trusted=DEFAULT_TRUSTED_VERIFIERS) -> str:
+    """核验状态：付款/激活必须在支付或买方控制域，且证据 hash 可复算。
+
+    L2 的「可解释互动」只要求有人工署名（谁说这句话算实质回应）。L3 的
+    激活/付款不接受「字段非空」：供应商销售写 ``verified_by`` 与任意
+    ``evidence_hash`` 仍只是宣称；付款还要求金额/币种/支付流水存在。
     """
     etype = row["event_type"]
     if etype in VALUE_EVENT_TYPES:
-        return "verified" if (row["verified_by"] and row["evidence_hash"]) else "unverified"
+        if not _trusted_verifier(row.get("verified_by", ""), trusted):
+            return "unverified"
+        provided = _text(row.get("evidence_hash")).lower()
+        if not provided or not hmac.compare_digest(
+                provided, evidence_hash_for(row)):
+            return "unverified"
+        if etype == "paid" and not _paid_fields_ok(row):
+            return "unverified"
+        return "verified"
     if etype == "meaningful_conversation":
         return "verified" if row["verified_by"] else "unverified"
     return "observed"
@@ -283,7 +349,9 @@ def _verification_state(row: Dict[str, str]) -> str:
 
 def _normalize_event(row, *, index: int, allowed_sources: set,
                      bounds: Optional[Tuple[str, str]], batch: str,
-                     imported_by: str) -> Tuple[Optional[Dict[str, Any]], Optional[Dict[str, Any]]]:
+                     imported_by: str,
+                     trusted_verifiers=DEFAULT_TRUSTED_VERIFIERS
+                     ) -> Tuple[Optional[Dict[str, Any]], Optional[Dict[str, Any]]]:
     """校验并规范化一行事件。返回 (rec, None) 或 (None, error)。"""
     def bad(reason: str, detail: str) -> Tuple[None, Dict[str, Any]]:
         return None, {"row": index,
@@ -324,7 +392,7 @@ def _normalize_event(row, *, index: int, allowed_sources: set,
     if not _in_bounds(rec["occurred_at"], bounds):
         return bad("out_of_window",
                    f"occurred_at={rec['occurred_at']} 在导入时间窗 {bounds} 之外")
-    state = _verification_state(rec)
+    state = _verification_state(rec, trusted_verifiers)
     rec.update({
         "schema": EVENT_SCHEMA_VERSION,
         "schema_version": EVENT_SCHEMA_VERSION,
@@ -339,7 +407,9 @@ def _normalize_event(row, *, index: int, allowed_sources: set,
 def import_events(data_dir, path, *, allowed_sources: Optional[Iterable[str]] = None,
                   imported_by: str = "",
                   window: Optional[Dict[str, str]] = None,
-                  dry_run: bool = False) -> Dict[str, Any]:
+                  dry_run: bool = False,
+                  trusted_verifiers: Optional[Iterable[str]] = None
+                  ) -> Dict[str, Any]:
     """导入授权产品事件。写不写由 ``dry_run`` 决定：库调用默认写，CLI 默认只校验。
 
     匿名行为也可导入：给一个稳定的匿名主体 ID（如 ``anon-xxxx``），不要留空——
@@ -352,6 +422,9 @@ def import_events(data_dir, path, *, allowed_sources: Optional[Iterable[str]] = 
     """
     data_dir = Path(data_dir)
     sources = {_text(s) for s in (allowed_sources or []) if _text(s)}
+    trusted = ({_text(v).lower() for v in trusted_verifiers if _text(v)}
+               if trusted_verifiers is not None
+               else set(DEFAULT_TRUSTED_VERIFIERS))
     if not sources:
         raise OutcomeLayerError(
             "导入事件前先声明授权来源（--allowed-source，如 product_export）："
@@ -370,7 +443,8 @@ def import_events(data_dir, path, *, allowed_sources: Optional[Iterable[str]] = 
     for index, row in enumerate(rows, 1):
         rec, error = _normalize_event(row, index=index, allowed_sources=sources,
                                       bounds=bounds, batch=batch,
-                                      imported_by=imported_by)
+                                      imported_by=imported_by,
+                                      trusted_verifiers=trusted)
         if error is not None:
             errors.append(error)
             continue
@@ -798,7 +872,7 @@ def _first_and_repeats(ol: OutcomeLedger,
                 "source_ref": row["source_ref"],
                 "campaign_id": row["campaign_id"],
                 "verification_state": "unverified",
-                "reason": "来源方宣称但缺买方/来源核验（verified_by + evidence_hash）：不计入",
+                "reason": "来源方宣称，但缺支付/买方控制域核验或证据 hash 无法复算：不计入",
             })
             continue
         subject = _canon(ol, row["subject_id"])

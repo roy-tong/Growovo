@@ -28,14 +28,31 @@ EVENT = {
     "source_system": "product_export",
     "source_ref": "app:activation:1",
     "campaign_id": "g1",
-    "evidence_hash": "sha256:abc",
+    "evidence_hash": "",
     "verified_by": "product-db",
 }
+
+
+def _evidence(row):
+    keys = ("event_id", "event_type", "subject_id", "source_system",
+            "source_ref", "amount", "currency", "payment_ref", "paid_at")
+    import hashlib
+    payload = {}
+    for key in keys:
+        value = str(row.get(key) or "").strip()
+        if key == "currency":
+            value = value.upper()
+        payload[key] = value
+    raw = json.dumps(payload, sort_keys=True, ensure_ascii=False,
+                     separators=(",", ":")).encode("utf-8")
+    return "sha256:" + hashlib.sha256(raw).hexdigest()
 
 
 def _row(**kw):
     row = dict(EVENT)
     row.update(kw)
+    if row.get("verified_by") and not kw.get("evidence_hash"):
+        row["evidence_hash"] = _evidence(row)
     return row
 
 
@@ -414,7 +431,7 @@ class CliTests(unittest.TestCase):
         self.home.mkdir(parents=True, exist_ok=True)
         self.env = dict(os.environ, MKT_HOME=str(self.home))
         self.events = Path(self.tmp.name) / "events.json"
-        self.events.write_text(json.dumps([EVENT], ensure_ascii=False),
+        self.events.write_text(json.dumps([_row()], ensure_ascii=False),
                                encoding="utf-8")
 
     def run_mkt(self, *args, check=True):

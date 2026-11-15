@@ -2,7 +2,23 @@
 
 ## Unreleased
 
-### Added
+### Fixed
+
+- **Buyer-controlled payment verification (D1, G-03)**: `paid`/`activation`
+  no longer count as verified just because `verified_by` and `evidence_hash`
+  are non-empty. The verifier must be in a payment/buyer-controlled domain
+  (payment providers, billing/product DB exports, `buyer:`/`customer:`
+  records, or an operator-extended whitelist); vendor/supplier/seller/sales
+  identities are rejected even with every field filled. The evidence hash must
+  recompute exactly from the event identity and structured payment fields
+  (`event_id`, `event_type`, `subject_id`, `source_system`, `source_ref`,
+  `amount`, `currency`, `payment_ref`, `paid_at`, canonical compact JSON,
+  sha256). A paid event additionally needs amount > 0, a three-letter currency
+  and a non-empty payment ref; missing or tampered fields stay unverified and
+  never project into the paid funnel or write `payment_verified` receipts.
+  `import_events(..., trusted_verifiers=...)` lets an operator add a
+  buyer-controlled verifier explicitly. Event records keep the new payment
+  fields so the evidence can be recomputed later.
 
 - **Competitor-watch URL and event truthfulness (G-06)**: `core/watch.py` now
   asks `core/watch_safety.py` before every snapshot. Only `http`/`https` are
