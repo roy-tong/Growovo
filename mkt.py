@@ -546,6 +546,10 @@ def cmd_watch(args):
             return 2
         print(f"已监控 {entry['competitor']} 的 {entry['kind']} 页"
               f"（基线快照 {entry['baseline_len']} 字符）")
+        fetch = entry.get("last_fetch") or {}
+        if fetch.get("mode") == "pinned" and fetch.get("pinned_ip"):
+            print(f"  抓取：已校验 {len(fetch.get('resolved_ips') or [])} 个地址，"
+                  f"连接固定到 {fetch['pinned_ip']}")
         if entry.get("last_final_url") and entry["last_final_url"] != entry["url"]:
             print(f"  实际抓取地址（重定向后）：{entry['last_final_url']}")
         print("  变化时只记 page_content_changed；人工核实后才谈涨价/故障："
