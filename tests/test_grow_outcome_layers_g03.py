@@ -47,6 +47,27 @@ def _facts(tmp: Path) -> Path:
     return path
 
 
+EVIDENCE_KEYS = ("event_id", "event_type", "subject_id", "source_system",
+                 "source_ref", "amount", "currency", "payment_ref", "paid_at")
+
+
+def evidence(row):
+    """测试侧冻结的凭证 hash 口径：绑定事件身份 + 结构化支付字段。
+
+    生产实现必须复算同一 payload；只判非空或伪造 ``sha256:fake`` 不算核验。
+    """
+    import hashlib
+    payload = {}
+    for key in EVIDENCE_KEYS:
+        value = str(row.get(key) or "").strip()
+        if key == "currency":
+            value = value.upper()
+        payload[key] = value
+    raw = json.dumps(payload, sort_keys=True, ensure_ascii=False,
+                     separators=(",", ":")).encode("utf-8")
+    return "sha256:" + hashlib.sha256(raw).hexdigest()
+
+
 def event(**kw):
     row = {
         "event_id": "e-0001",
@@ -56,10 +77,12 @@ def event(**kw):
         "source_system": "product_export",
         "source_ref": "app:activation:1",
         "campaign_id": "g1",
-        "evidence_hash": "sha256:abc",
+        "evidence_hash": "",
         "verified_by": "product-db",
     }
     row.update(kw)
+    if row["verified_by"] and not row["evidence_hash"]:
+        row["evidence_hash"] = evidence(row)
     return row
 
 
@@ -209,10 +232,16 @@ class ActivationJudgmentTests(G03Base):
         with self.assertRaises(outcome_layers.OutcomeLayerError):
             outcome_layers.set_event_qualification(
                 self.dir, "e-0001", qualifies=False, by="", note="")
+        before_bytes = (self.dir / "outcomes" / "product_events.jsonl").read_bytes()
+        before_sha = __import__("hashlib").sha256(before_bytes).hexdigest()
         audit = outcome_layers.set_event_qualification(
             self.dir, "e-0001", qualifies=False, by="roy",
             note="内部测试账号，不算激活")
         self.assertTrue(audit["ts"])
+        after_bytes = (self.dir / "outcomes" / "product_events.jsonl").read_bytes()
+        self.assertEqual(before_bytes, after_bytes)  # 原事件一个字节都不改
+        self.assertEqual(before_sha,
+                         __import__("hashlib").sha256(after_bytes).hexdigest())
         records = outcome_layers.read_product_events(self.dir)
         self.assertEqual(1, len(records))  # 原事件未被改写
         summary = outcome_layers.layer_summary(self.dir, run_id="g1")
@@ -220,6 +249,83 @@ class ActivationJudgmentTests(G03Base):
         audits = outcome_layers.read_qualifications(self.dir)
         self.assertEqual(1, len(audits))
         self.assertEqual("roy", audits[0]["by"])
+
+
+class BuyerVerifiedPaymentTests(G03Base):
+    """D1：付款核验必须来自支付/买方控制域，且证据 hash 可复算。"""
+
+    @staticmethod
+    def _paid(**kw):
+        row = event(event_type="paid", verified_by="stripe",
+                    subject_id="buyer-1",
+                    source_ref="stripe:pi_123",
+                    amount="49.00", currency="USD",
+                    payment_ref="pi_123",
+                    paid_at="2026-11-03T09:59:00")
+        row.update(kw)
+        row["evidence_hash"] = kw.get("evidence_hash") or evidence(row)
+        return row
+
+    def test_supplier_paid_claim_with_nonempty_fields_is_unverified(self):
+        # 字段都非空，但核验方是供应商销售 → 仍然只是宣称。
+        row = self._paid(verified_by="vendor-sales")
+        self._import([row])
+        summary = outcome_layers.layer_summary(self.dir, run_id="g1")
+        self.assertEqual(0, summary["L3"]["paid"])
+        self.assertEqual(1, len(summary["L3"]["unverified"]))
+        receipts = outcome_layers.read_receipts(self.dir)
+        self.assertTrue(receipts)
+        self.assertTrue(all(r["assertion"] == "unverified_claim"
+                            for r in receipts))
+
+    def test_unverifiable_hash_is_unverified_even_for_trusted_verifier(self):
+        self._import([self._paid(evidence_hash="sha256:fake")])
+        summary = outcome_layers.layer_summary(self.dir, run_id="g1")
+        self.assertEqual(0, summary["L3"]["paid"])
+        self.assertEqual(1, len(summary["L3"]["unverified"]))
+
+    def test_tampered_structured_fields_break_the_hash(self):
+        row = self._paid()
+        row["amount"] = "4900.00"  # 改成大额，hash 对不上
+        self._import([row])
+        self.assertEqual(0, outcome_layers.layer_summary(
+            self.dir, run_id="g1")["L3"]["paid"])
+
+    def test_buyer_payment_record_verifies_and_writes_receipt(self):
+        self._import([self._paid()])
+        summary = outcome_layers.layer_summary(self.dir, run_id="g1")
+        self.assertEqual(1, summary["L3"]["paid"])
+        receipt = [r for r in outcome_layers.read_receipts(self.dir)
+                   if r["layer"] == "L3"][0]
+        self.assertEqual("payment_verified", receipt["assertion"])
+
+    def test_buyer_finance_export_verifies(self):
+        self._import([self._paid(verified_by="buyer:finance",
+                                 source_ref="ap:2026-11-001")])
+        self.assertEqual(1, outcome_layers.layer_summary(
+            self.dir, run_id="g1")["L3"]["paid"])
+
+    def test_activation_also_needs_verifiable_evidence(self):
+        row = event(verified_by="vendor-sales")
+        row["evidence_hash"] = "sha256:fake"
+        self._import([row])
+        summary = outcome_layers.layer_summary(self.dir, run_id="g1")
+        self.assertEqual(0, summary["L3"]["activation"])
+        self.assertEqual(1, len(summary["L3"]["unverified"]))
+
+    def test_paid_without_structured_payment_fields_is_unverified(self):
+        row = self._paid()
+        row.pop("amount", None)
+        row["evidence_hash"] = evidence(row)
+        self._import([row])
+        self.assertEqual(0, outcome_layers.layer_summary(
+            self.dir, run_id="g1")["L3"]["paid"])
+
+    def test_operator_can_extend_trusted_verifiers(self):
+        row = self._paid(verified_by="acme-ap")
+        self._import([row], trusted_verifiers={"acme-ap"})
+        self.assertEqual(1, outcome_layers.layer_summary(
+            self.dir, run_id="g1")["L3"]["paid"])
 
 
 class ReceiptTests(G03Base):
