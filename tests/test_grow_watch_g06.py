@@ -470,7 +470,6 @@ class UrlModeTests(TmpDir):
                              encoding="utf-8")
         with self.assertRaises(WatchError):
             self.watch.add(page_path.as_uri(), "price", "Rival",
-                           allow_local_file=True,
                            fetcher=lambda u: html("Pro plan costs 49 dollars per month"))
         # 显式本地模式 + 注入抓取器：只在离线演示/测试使用
         entry = self.watch.add(
