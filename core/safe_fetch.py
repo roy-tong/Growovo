@@ -44,6 +44,9 @@
   ``CERT_REQUIRED`` + ``check_hostname``，否则拒绝连接。
 - **IPv6**：已固定的 IPv6 地址用 ``Host: [addr]`` 形式发送；解析器给出 IPv6
   但本机没有 IPv6 出口时整次失败（不换 IPv4 重试）。
+- **字面 IP URL**：没有域名可校验，证书按那个 IP 的 SAN 校验
+  （``server_hostname`` 就是 IP）；站点证书不含该 IP 时握手失败，这是预期，
+  不是为兼容性放宽。
 """
 from __future__ import annotations
 
