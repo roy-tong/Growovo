@@ -104,6 +104,7 @@ footer{border-top:1px solid var(--line);margin-top:56px;padding-top:18px;color:v
 <tr><th>Step</th><th>What happened</th><th>Result</th></tr>
 <tr><td>Plan check</td><td>schema, beachhead, capability matrix, daily kernel budget</td><td>PASS (3 items against a 100/day budget)</td></tr>
 <tr><td>Human gate</td><td>the campaign belongs to plan demo-p0 with <code>human_approved=false</code></td><td><strong>Refused and stopped</strong> — human approval is a precondition</td></tr>
+<tr><td>Simulated approval</td><td><code>mkt plan approve</code>: signature, plan fingerprint and an approval event set <code>human_approved=true</code></td><td>Released; the write-path tests below still run in the sandbox, not as a real authorization</td></tr>
 <tr><td>Write path</td><td>d-001 dry-run, nothing sent; d-002 rejected for placeholder text; d-003 failed on read-back mismatch</td><td>1 dry-run · 1 rejected · 1 failed, all recorded</td></tr>
 <tr><td>Ledger</td><td><code>data/demo/ledger.jsonl</code> holds three terminal states</td><td>Line-by-line inspectable; failures are records too</td></tr>
 </table>
