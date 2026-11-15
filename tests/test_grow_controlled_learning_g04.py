@@ -504,6 +504,80 @@ class RollbackTests(unittest.TestCase):
         self.assertEqual(1, len(Ledger(ledger_path).all()))
 
 
+class ApprovalConsumptionTests(unittest.TestCase):
+    """D2：批准一次性消费；回滚作废旧批准，旧批准不能让升权复活。"""
+
+    def test_used_approval_cannot_be_replayed_after_rollback(self):
+        data = run_data()
+        change = {"param": "quota.max_per_day", "from": 1, "to": 3}
+        approval = cl.approve_change(data, change, by="roy", note="同意加一条")
+        first = cl.apply_changes(data, [change], actor="human", by="roy",
+                                 approval=approval)
+        self.assertEqual(1, len(first["applied"]))
+        rolled = cl.rollback_changes(data, by="roy", note="撤回")
+        self.assertTrue(rolled["rolled_back"])
+        replay = cl.apply_changes(data, [change], actor="human", by="roy",
+                                  approval=approval)
+        self.assertEqual([], replay["applied"])
+        self.assertEqual("REVIEW_REQUIRED", replay["held"][0]["reason_code"])
+        self.assertIn("消费", replay["held"][0]["detail"])
+        self.assertIn(data["quota"].get("max_per_day"), (None, 1))
+
+    def test_approval_is_single_use_without_rollback(self):
+        data = run_data()
+        change = {"param": "quota.max_per_day", "from": 1, "to": 3}
+        approval = cl.approve_change(data, change, by="roy")
+        cl.apply_changes(data, [change], actor="human", by="roy",
+                         approval=approval)
+        second = cl.apply_changes(data, [change], actor="human", by="roy",
+                                  approval=approval)
+        self.assertEqual([], second["applied"])
+        self.assertEqual("REVIEW_REQUIRED", second["held"][0]["reason_code"])
+
+    def test_reapproval_after_rollback_works(self):
+        data = run_data()
+        change = {"param": "quota.max_per_day", "from": 1, "to": 3}
+        approval = cl.approve_change(data, change, by="roy")
+        cl.apply_changes(data, [change], actor="human", by="roy",
+                         approval=approval)
+        cl.rollback_changes(data, by="roy")
+        fresh = cl.approve_change(data, change, by="ann", note="回滚后重新批准")
+        outcome = cl.apply_changes(data, [change], actor="human", by="ann",
+                                   approval=fresh)
+        self.assertEqual(1, len(outcome["applied"]))
+        self.assertEqual(3, data["quota"]["max_per_day"])
+
+    def test_unused_old_approval_is_revoked_by_rollback(self):
+        data = run_data()
+        risky = {"param": "quota.max_per_day", "from": 1, "to": 3}
+        approval = cl.approve_change(data, risky, by="roy")  # 未使用
+        cl.apply_changes(data, [{"param": "target.audience",
+                                 "from": "us-west", "to": "us-east"}],
+                         actor="human", by="roy")
+        cl.rollback_changes(data, by="roy")
+        outcome = cl.apply_changes(data, [risky], actor="human", by="roy",
+                                   approval=approval)
+        self.assertEqual([], outcome["applied"])
+        self.assertEqual("REVIEW_REQUIRED", outcome["held"][0]["reason_code"])
+        self.assertIn("回滚", outcome["held"][0]["detail"])
+
+    def test_second_rollback_is_refused_with_clear_reason(self):
+        data = run_data()
+        change = {"param": "actions_per_week", "from": 7, "to": 3}
+        cl.apply_changes(data, [change], actor="human", by="roy")
+        original = data["strategy_changes"][-1]["change_id"]
+        first = cl.rollback_changes(data, by="roy")
+        self.assertTrue(first["rolled_back"])
+        default = cl.rollback_changes(data, by="roy")
+        self.assertFalse(default["rolled_back"])
+        explicit = cl.rollback_changes(data, by="roy", change_id=original)
+        self.assertFalse(explicit["rolled_back"])
+        self.assertIn("已被回滚", explicit["reason"])
+        again = cl.rollback_changes(data, by="roy",
+                                    change_id=first["record"]["change_id"])
+        self.assertFalse(again["rolled_back"])
+
+
 class ReviewTriggerTests(unittest.TestCase):
     """3 样本只探索；爆量/零互动触发复审；强反面反馈只建议停止。"""
 
