@@ -505,21 +505,49 @@ class GrowRunV2:
     @locked
     def arm(self) -> Dict[str, Any]:
         data = self.load()
+        if data.get("status") == "draft":
+            raise GrowError(
+                "这个闭环还停在 draft：先补齐登录态/授权/账号身份"
+                "（mkt grow doctor），再 mkt grow arm；不能先跑再补授权")
+        if data.get("status") in ("paused", "needs_attention", "completed",
+                                  "cancelled"):
+            raise GrowError(
+                f"当前状态 {data.get('status')} 不能直接开闸："
+                "先 mkt grow resume（必要时先裁决未知回执）")
         health = data.get("guards", {}).get("account_health") or {}
         if health.get("checked") and not health.get("eligible"):
             raise GrowError("账号健康不达标，不能开闸（先修账号或换账号）")
         if data.get("go"):
             return data
         data["go"] = True
+        if data.get("status") == "ready_to_arm":
+            data["status"] = "active"
         data.setdefault("history", []).append(
             {"at": _today(), "kind": "arm", "note": "实跑已开闸；暂停闸与全部执行门照旧"})
         self.save(data)
         return data
 
     @locked
+    def pause(self, *, reason: str = "", by: str = "") -> Dict[str, Any]:
+        """一键暂停（§4.3 paused）：下一轮 tick 不再选中任何条目。"""
+        data = self.load()
+        if data.get("status") == "paused":
+            return data
+        if data.get("status") not in ("active", "needs_attention"):
+            raise GrowError(
+                f"当前状态 {data.get('status')} 不需要暂停："
+                "还没开闸的计划可以直接结束或新建，已暂停的用 resume")
+        data.setdefault("history", []).append(
+            {"at": _today(), "kind": "pause", "by": by,
+             "note": (reason or "人工暂停")[:300]})
+        data["status"] = "paused"
+        self.save(data)
+        return data
+
+    @locked
     def resume(self, *, note: str, by: str = "") -> Dict[str, Any]:
         data = self.load()
-        if data.get("status") != "needs_attention":
+        if data.get("status") not in ("needs_attention", "paused"):
             return data
         note = (note or "").strip()
         if not note:
@@ -686,10 +714,10 @@ class GrowRunV2:
                 continue
             stale = self._count_stale(q, on=on,
                                       committed_targets=committed_targets)
-            candidates = self._select_items(q, on=on, now=now,
-                                            default_window=default_window,
-                                            committed_targets=committed_targets,
-                                            limit=left)
+            candidates = self._select_items(
+                q, on=on, now=now, default_window=default_window,
+                committed_targets=committed_targets, limit=left,
+                audience_tz=str((data.get("windows") or {}).get("iana") or ""))
             if not candidates:
                 note = "没有到期且窗口内的条目（留到下个 tick）"
                 if stale:
@@ -933,7 +961,8 @@ class GrowRunV2:
     @staticmethod
     def _select_items(queue: Dict[str, Any], *, on: str, now: datetime,
                       default_window: str, committed_targets: set,
-                      limit: int, max_lateness_days: int = 2) -> List[Dict[str, Any]]:
+                      limit: int, max_lateness_days: int = 2,
+                      audience_tz: str = "") -> List[Dict[str, Any]]:
         from . import outcome_layers as _ol
         selected = []
         oldest = (date.fromisoformat(on)
@@ -953,7 +982,9 @@ class GrowRunV2:
             window = item.get("window") or default_window
             probe = dict(item)
             probe.setdefault("window", window)
-            if not gs.item_due(probe, today=on, now_utc=now):
+            # 窗口按 RunSpec 的 IANA 时区算；没给 IANA 时保持旧固定偏移口径。
+            if not gs.item_due(probe, today=on, now_utc=now,
+                               iana=audience_tz or None):
                 continue
             selected.append(item)
             if len(selected) >= max(0, int(limit)):

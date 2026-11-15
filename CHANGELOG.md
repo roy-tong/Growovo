@@ -4,6 +4,50 @@
 
 ### Added
 
+- **Unified start, monitoring and safe recovery (G-05)**: a new
+  `core/grow_runbook.py` turns the first safe run into a nine-step wizard
+  (`mkt grow start` without a run id; with a run id the old v1 path is kept):
+  automatic doctor → credential/login/permission gap list → account identity →
+  goal and metric source → three offline candidate previews → risk and quota →
+  **explicit arm** → foreground or scheduled mode → daily-report delivery. The
+  wizard never signs policy, never fabricates identity proof and never arms:
+  it writes a plan with status `draft` or `ready_to_arm` (`go=False`) and the
+  exact next command; `mkt grow arm` refuses a draft, so nothing can start
+  before login/authorization are real. It reports the C-01 start checklist
+  (`product_facts`, `verified_account`, `risk_policy`,
+  `activation_definition`, `source_access`, `required_human_review`), defaults
+  to one channel / one action / a minimal quota / no auto-scale, and treats the
+  daily report as local files by default — email delivery requires a separate
+  `--authorize-email` and still only happens when a human runs
+  `mkt grow tick --deliver` (the wizard never sends). Run status gains the
+  `draft`/`ready_to_arm` states from §4.3 on the existing run file; there is no
+  second state machine. `mkt grow status <run> --explain` returns the C-01
+  contract (`next_actor`, `next_required_action`, `blocked_reason_code`,
+  `last_updated_at`, `has_pending_external_effect`, `artifact_refs`) plus
+  quota remaining, observation window, data coverage and per-row fault status.
+  `mkt grow incident <run> --list` reports every alert with a stable unique
+  `INC-xxxxxxxxxxxx` event id and a human recovery command; corrupt ledgers or
+  suppression files become `ledger_or_suppression_corrupt` incidents instead of
+  crashing (fail closed, never treat a bad row as absent). The eight-row fault
+  matrix is a decidable object (`FAULT_MATRIX` / `diagnose`): browser crash,
+  account/authorization expiry, unknown receipt, ledger/suppression corruption,
+  readings failure (no fake 0), duplicate instance (single-instance lock probe
+  that ignores harmless stale lock files), supply shortage/staleness, and
+  timezone switches. `mkt grow resume <run> --after-reconciliation <INC-id>
+  --by <operator>` refuses to resume while an `indeterminate` external action
+  is unreconciled — a real `mkt ledger resolve` record is required — and also
+  refuses while other blocking incidents remain; it only changes the run status
+  and never resends or undoes an external action. `mkt grow pause <run>` sets
+  `paused` so the next tick selects nothing (the global `mkt pause` file stays
+  the hard stop), and `resume` understands `paused` too. Run windows now carry
+  the RunSpec IANA zone (`windows.iana`) and scheduling uses it when present,
+  so daylight-saving changes no longer shift the audience's local golden window
+  (runs without an IANA zone keep the legacy fixed-offset behaviour). CLI,
+  offline and default-safe: `mkt grow start` (wizard, `--dry-run` by default,
+  `--apply` writes the plan), `status --explain`, `incident --list`,
+  `resume --after-reconciliation`, and `pause`. Synthetic fixtures and injected
+  login probes only; zero network, zero real sends.
+
 - **Controlled learning and strategy experiments (G-04)**: a new
   `core/controlled_learning.py` turned the learning loop into a permission
   system, not a statistics contest. `GrowthExperiment` now carries every PRD

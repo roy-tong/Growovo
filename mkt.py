@@ -34,6 +34,11 @@
                             （导入与改资格默认只预演，--apply 才落盘；其余只读）
   mkt grow experiment …     受控实验（G-04）：设计/批准/启动/观察/分析（写入默认 dry-run）
   mkt grow change …         策略改动（G-04）：清单/人审批准/回滚（升权改动未批准不生效）
+  mkt grow start …          九步启动向导（G-05）：体检→清单→身份→目标→3 条预览→风险→
+                           显式 arm→调度模式→日报；不自动 arm，写入要 --apply
+  mkt grow status --explain|incident --list|resume --after-reconciliation|pause
+                            统一监控与恢复（G-05）：C-01 状态解释/唯一事件 ID 告警/
+                            indeterminate 裁决后恢复/一键暂停
 
 示例:
   python3 mkt.py email message --queue data/queues/er-wave7.json        # dry-run
@@ -1051,13 +1056,56 @@ def cmd_grow(args):
                       "（原事件不改，只追加审计记录）。加 --apply 写入。")
             return 0
 
+    if act == "start" and not getattr(args, "id", ""):
+        # G-05 九步向导：不带 run id 的 mkt grow start；只建计划，不 Arming。
+        from core import grow_runbook as rb
+        channels = [c.strip() for c in (args.channels or "x").split(",")
+                    if c.strip()]
+        actions = [a.strip() for a in
+                   (getattr(args, "wizard_action", "") or "reply").split(",")
+                   if a.strip()]
+        plan = rb.build_start_plan(
+            DATA, facts_path=args.facts, goal_id=args.goal,
+            run_id=getattr(args, "run_id", "") or "",
+            target=args.target, channels=channels, actions=actions,
+            actions_per_week=int(args.actions_per_week or 7),
+            account=getattr(args, "account", "") or "",
+            handle=args.handle or "",
+            audience=getattr(args, "audience", "") or "us-west",
+            owner=args.owner or "", started=args.on or "",
+            schedule=getattr(args, "schedule", "foreground") or "foreground",
+            delivery=getattr(args, "delivery", "local") or "local",
+            email_owner=getattr(args, "email_owner", "") or "",
+            email_authorized=bool(getattr(args, "authorize_email", False)),
+            source_systems=getattr(args, "source_system", []) or [])
+        if getattr(args, "apply", False):
+            try:
+                result = rb.apply_start_plan(plan, DATA)
+            except rb.RunbookError as exc:
+                print(f"计划未创建（{exc.code}）：{exc}")
+                return 2
+            if getattr(args, "json", False):
+                print(json.dumps(result, ensure_ascii=False, indent=1))
+                return 0
+            print(rb.render_start_plan(result))
+            print(f"\n已建计划：{result['run_path']}｜status={result['status']}"
+                  "｜go=False")
+            print(f"下一步：mkt grow arm {result['run_id']}（必须由人显式执行）")
+            return 0
+        if getattr(args, "json", False):
+            print(json.dumps(plan, ensure_ascii=False, indent=1))
+            return 0
+        print(rb.render_start_plan(plan))
+        return 0
+
     if act == "start":
-        channels = [c.strip() for c in (args.channels or "").split(",") if c.strip()]
+        channels = [c.strip() for c in
+                    (args.channels or "x,email").split(",") if c.strip()]
         try:
             data = GrowRun.start(path, args.id, args.facts, args.goal, channels,
                                  target=args.target, window_days=args.window,
                                  started=args.on or None,
-                                 actions_per_week=args.actions_per_week,
+                                 actions_per_week=args.actions_per_week or 20,
                                  go=args.go, data_dir=DATA, owner=args.owner or "")
         except GrowErrors as exc:
             print(f"不能开始：{exc}")
@@ -1206,7 +1254,60 @@ def cmd_grow(args):
               "（暂停闸优先于一切写操作）")
         return 0
 
+    if act == "pause":
+        try:
+            run, raw = _open()
+        except FileNotFoundError as exc:
+            print(str(exc))
+            return 2
+        try:
+            data = run.pause(reason=args.reason or "", by=args.by or "")
+        except GrowErrors as exc:
+            print(f"不能暂停：{exc}")
+            return 2
+        print(f"{args.id} 已暂停：status={data.get('status')}"
+              "｜下一轮 tick 不再选中任何条目；恢复用 mkt grow resume")
+        return 0
+
+    if act == "incident":
+        from core import grow_runbook as rb
+        path = DATA / "grow" / f"{args.id}.json"
+        if not path.exists():
+            print(f"没有这个闭环：{path}")
+            return 2
+        probe = None
+        if getattr(args, "probe_login", False):
+            from core import session_gate
+            probe = session_gate.check_login
+        report = rb.list_incidents(DATA, path, on=args.on or None,
+                                   login_probe=probe)
+        if args.json:
+            print(json.dumps(report, ensure_ascii=False, indent=1))
+        else:
+            print(rb.render_incidents(report))
+        return 0
+
     if act == "resume":
+        if getattr(args, "after_reconciliation", ""):
+            from core import grow_runbook as rb
+            path = DATA / "grow" / f"{args.id}.json"
+            if not path.exists():
+                print(f"没有这个闭环：{path}")
+                return 2
+            try:
+                result = rb.resume_after_reconciliation(
+                    DATA, path, args.after_reconciliation,
+                    by=args.by or "", note=args.note or "")
+            except rb.RunbookError as exc:
+                print(f"不能恢复（{exc.code}）：{exc}")
+                return 2
+            if not result.get("resumed"):
+                print(f"{args.id} 当前不需要恢复（status={result.get('status')}）")
+                return 0
+            print(f"{args.id} 已恢复：status={result['status']}"
+                  f"｜事件 {args.after_reconciliation} 已核对"
+                  "（暂停闸与执行门照旧生效）")
+            return 0
         try:
             run, raw = _open()
             data = run.resume(note=args.note or "", by=args.by or "")
@@ -1547,6 +1648,17 @@ def cmd_grow(args):
         except FileNotFoundError as exc:
             print(str(exc))
             return 2
+        if getattr(args, "explain", False):
+            from core import grow_runbook as rb
+            if raw.get("schema") != "growovo.grow-run/2":
+                print("--explain 只支持 v2 闭环（先 mkt grow launch）")
+                return 2
+            explain = rb.explain_status(DATA, path, on=args.on or None)
+            if getattr(args, "json", False):
+                print(json.dumps(explain, ensure_ascii=False, indent=1))
+            else:
+                print(rb.render_status(explain))
+            return 0
         if raw.get("schema") == "growovo.grow-run/2":
             s = run.status(DATA, on=args.on or None)
             goal = s.get("goal") or {}
@@ -4487,24 +4599,60 @@ def build_parser():
     a.add_argument("id"); a.add_argument("--on", default="")
     a.add_argument("--max-items", type=int, default=3)
 
-    a = gsub.add_parser("start", help="兼容旧版：开一个 v1 闭环（不做策略编译）")
-    a.add_argument("id"); a.add_argument("--facts", required=True, help="产品事实包 JSON")
+    a = gsub.add_parser("start",
+                        help="九步启动向导（不带 id）；带 id 时兼容旧版 v1 闭环")
+    a.add_argument("id", nargs="?", default="",
+                   help="旧版 v1 闭环 id（不填 = 走九步向导）")
+    a.add_argument("--facts", required=True, help="产品事实包 JSON")
     a.add_argument("--goal", required=True, help="目标 id，如 awareness.followers")
-    a.add_argument("--channels", default="x,email")
+    a.add_argument("--channels", default="")
     a.add_argument("--target", type=int, default=None)
     a.add_argument("--window", type=int, default=None, help="目标窗口天数")
-    a.add_argument("--actions-per-week", type=int, default=20)
+    a.add_argument("--actions-per-week", type=int, default=None)
     a.add_argument("--owner", default=""); a.add_argument("--on", default="")
     a.add_argument("--go", action="store_true", help="建完直接开实跑（默认 dry-run）")
+    a.add_argument("--run-id", default="", help="向导建的 run id（默认按产品名+日期）")
+    a.add_argument("--action", dest="wizard_action", default="reply",
+                   help="向导的主渠道动作（默认 reply）")
+    a.add_argument("--account", default="", help="授权账号 id（账号健康/身份检查）")
+    a.add_argument("--handle", default="", help="X handle（读数）")
+    a.add_argument("--audience", default="us-west")
+    a.add_argument("--schedule", choices=["foreground", "scheduled"],
+                   default="foreground", help="前台常驻或生成计划任务文件")
+    a.add_argument("--delivery", choices=["local", "email"], default="local",
+                   help="日报订阅：默认本地文件；email 需单独授权")
+    a.add_argument("--email-owner", default="")
+    a.add_argument("--authorize-email", action="store_true",
+                   help="单独授权邮件投递（向导本身不发送）")
+    a.add_argument("--source-system", action="append", default=[],
+                   help="已授权的业务事件来源（可重复）")
+    a.add_argument("--dry-run", action="store_true",
+                   help="只出九步计划，不写文件（默认行为，显式写更清楚）")
+    a.add_argument("--apply", action="store_true", help="真的建计划（仍不 arm）")
+    a.add_argument("--json", action="store_true")
 
     a = gsub.add_parser("tick", help="一步日循环：配额执行+自动读数+日结果+周结算（供 cron）")
     a.add_argument("id"); a.add_argument("--on", default="")
     a.add_argument("--deliver", action="store_true", help="同时投递周结果单（默认只落盘）")
     a = gsub.add_parser("arm", help="把实跑开关打开（人工确认动作）")
     a.add_argument("id")
-    a = gsub.add_parser("resume", help="人工裁决后恢复 needs_attention 的闭环（必须写处理说明）")
+    a = gsub.add_parser("resume",
+                        help="人工裁决后恢复 needs_attention/paused（必须署名；indeterminate 先裁决）")
     a.add_argument("id"); a.add_argument("--by", required=True)
-    a.add_argument("--note", required=True, help="处理了什么：哪条队列、结论、谁修的")
+    a.add_argument("--note", default="", help="处理了什么：哪条队列、结论、谁修的")
+    a.add_argument("--after-reconciliation", default="",
+                   help="已核对的事件 ID（mkt grow incident --list 里的 INC-…）")
+    a = gsub.add_parser("incident",
+                        help="运行告警：每条有唯一事件 ID 与人工恢复建议（只读）")
+    a.add_argument("id"); a.add_argument("--list", action="store_true",
+                                         help="列出告警（默认也是列）")
+    a.add_argument("--on", default="")
+    a.add_argument("--probe-login", action="store_true",
+                   help="现场探测登录态（默认不碰浏览器）")
+    a.add_argument("--json", action="store_true")
+    a = gsub.add_parser("pause", help="一键暂停：下一轮 tick 不再选中任何条目")
+    a.add_argument("id"); a.add_argument("--reason", default="")
+    a.add_argument("--by", default="")
     a = gsub.add_parser("daily", help="今天的日结果（发布量/读数/供给/护栏）")
     a.add_argument("id"); a.add_argument("--on", default="")
     a = gsub.add_parser("decide", help="看完日结果后决定：继续任务 或 优化策略")
@@ -4687,8 +4835,12 @@ def build_parser():
     a.add_argument("--mismatch", action="store_true", help="本次不一致")
     a.add_argument("--note", default=""); a.add_argument("--by", default="")
     a.add_argument("--on", default="")
-    a = gsub.add_parser("status", help="看进度：目标、今日配额、供给、心跳、待决策")
+    a = gsub.add_parser("status",
+                        help="看进度：目标/配额/供给/心跳；--explain 给 C-01 状态解释")
     a.add_argument("id"); a.add_argument("--on", default="")
+    a.add_argument("--explain", action="store_true",
+                   help="C-01 状态解释：责任人/下一动作/阻断码/未决外部动作/告警")
+    a.add_argument("--json", action="store_true")
     a = gsub.add_parser("report", help="结果单（默认最新一周）")
     a.add_argument("id"); a.add_argument("--week", type=int, default=None)
     a.add_argument("--on", default=""); a.add_argument("--json", action="store_true")

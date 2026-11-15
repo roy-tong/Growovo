@@ -116,41 +116,49 @@ def _parse_hour(value: str) -> float:
     return float(value)
 
 
-def _local_hour(now_utc: datetime, audience: Optional[str]) -> float:
+def _local_hour(now_utc: datetime, audience: Optional[str],
+                iana: Optional[str] = None) -> float:
     key = audience or DEFAULT_AUDIENCE
-    spec = tw.AUDIENCES.get(key)
-    if spec is None:
+    if key not in tw.AUDIENCES:
         raise ScheduleError(f"未知受众 {key}；可选：{sorted(tw.AUDIENCES)}")
-    utc_hour = now_utc.hour + now_utc.minute / 60.0
-    return (utc_hour + float(spec["tz"])) % 24
+    # G-05：RunSpec 给了 IANA 就按它算（含夏令时）；没给时保持旧口径
+    # （冬令时固定偏移），避免历史 run 的窗口语义被静默改写。
+    if not iana:
+        spec = tw.AUDIENCES[key]
+        utc_hour = now_utc.hour + now_utc.minute / 60.0
+        return (utc_hour + float(spec["tz"])) % 24
+    return tw.local_hour_at(now_utc, key, str(iana))
 
 
-def in_dead_zone(audience: str, now_utc: datetime) -> bool:
+def in_dead_zone(audience: str, now_utc: datetime,
+                 iana: Optional[str] = None) -> bool:
     """受众本地 00:00–06:00 为死区（11-05 尸检：凌晨发帖零互动）。"""
-    return tw.in_dead_zone(_local_hour(now_utc, audience))
+    return tw.in_dead_zone(_local_hour(now_utc, audience, iana))
 
 
-def window_allows(window: Any, now_utc: datetime) -> bool:
+def window_allows(window: Any, now_utc: datetime,
+                  iana: Optional[str] = None) -> bool:
     """窗口外不放行；窗口内但落在死区也不放行；空窗口视为不限。"""
     parsed = parse_window(window)
     if parsed is None:
         return True
     audience, windows = parsed
-    local = _local_hour(now_utc, audience)
+    local = _local_hour(now_utc, audience, iana)
     if tw.in_dead_zone(local):
         return False
     return any(lo <= local < hi for lo, hi in windows)
 
 
 def item_due(item: Dict[str, Any], *, today: str, now_utc: datetime,
-             allow_out_of_window: bool = False) -> bool:
+             allow_out_of_window: bool = False,
+             iana: Optional[str] = None) -> bool:
     """条目是否该在本轮发：排期已到且窗口允许。"""
     scheduled = str(item.get("scheduled_for") or today)
     if scheduled > today:
         return False
     if allow_out_of_window:
         return True
-    return window_allows(item.get("window"), now_utc)
+    return window_allows(item.get("window"), now_utc, iana=iana)
 
 
 def supply_status(queues: Sequence[Dict[str, Any]], *, today: str, days: int = 3,
