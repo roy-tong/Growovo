@@ -4,6 +4,49 @@
 
 ### Added
 
+- **Three-layer outcomes and real activation feedback (G-03)**: a new
+  `core/outcome_layers.py` imports **authorized product events** (JSON / JSONL /
+  CSV) and keeps execution, interaction and business evidence in separate
+  layers. Import validates the source system against an explicit allow-list and
+  requires an importer signature, deduplicates on `event_id`, enforces an
+  import time window and ISO timestamps, stamps `growovo.product-event/1`
+  (schema version + import batch + `imported_by`), and records
+  `verification_state`: activation/paid need both `verified_by` and
+  `evidence_hash`, otherwise the claim stays `unverified` and never counts as
+  paid. Every accepted event appends a receipt that points at its source
+  (`product_events:<event_id>`) — L1 `action_receipt` from the send ledger,
+  L2 `engagement_receipt`, L3 `activation_receipt` — and each layer has an
+  assertion allow-list, so an L1 receipt can no longer claim business growth.
+  Receipts and qualification changes are append-only. Verified business events
+  are projected into the existing `OutcomeLedger`
+  (`import_key=product_events:<event_id>`), so the funnel, `grow
+  metrics/learn/review` and the result card keep one ledger instead of a
+  parallel one. First-activation semantics deduplicate by subject (a second
+  activation is listed as a repeat, a second signup does not become a second
+  first activation), campaign-less events count toward the product total but
+  stay `unattributed`, and attribution only reports evidence-chain reach:
+  `direct_receipt` / `assisted_observation` / `unattributed` with
+  `causal_credit=not_claimed` — multi-touch is reported, never converted into
+  "X brought 10 users". Manual qualification changes require `by` + `note`,
+  append an audit record and leave the original event untouched. A read-only
+  `ProspectJourney` projection merges ledger touches, imported events, contact
+  identity namespaces and suppression state (G07–G10); same display name with
+  different platform IDs is not merged and DNC/bounced prospects keep their
+  suppression. Result cards gain main-goal status (met/short/no_data),
+  three-layer columns, evidence coverage and blind spots, human minutes and a
+  next recommendation; without a product event source L3 renders `UNKNOWN`
+  with "激活事件未接入", never `0` and never `activation 0`. Queue staging now
+  evaluates the three-element outreach admission (`their_problem`,
+  `why_we_help`, `expected_action`): incomplete items are excluded from the
+  auto-reach set, legacy items that never declared the elements stay eligible
+  (`outreach_ready=None`). CLI, all offline and default-safe:
+  `mkt grow events import --from <file> --allowed-source <system> --by <who>
+  [--apply]`, `mkt grow events list|sync`, `mkt grow layers [id]`,
+  `mkt grow journey <ref>`, `mkt grow qualify <event_id> --yes|--no --by <who>
+  --note <why> [--apply]`. Import and qualification are dry-run unless
+  `--apply` is passed; everything else is read-only. Synthetic fixtures only,
+  zero network, zero real sends.
+
 - **Account identity binding (G-01)**: real x sends now verify that the
   browser's actual platform account matches the authorized one. A new
   `core/account_identity.py` gate (`AccountIdentityProof` +

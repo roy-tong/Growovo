@@ -29,6 +29,9 @@
   mkt optimize              优化建议（需人工决定，不自动改预算或重放）
   mkt schedule …            持久化排期：add/list/tick/status/resume
   mkt outcome …             效果归因：事件/计数台账 + 漏斗（口径非因果）
+  mkt grow events|layers|journey|qualify
+                            三层结果（G-03）：授权产品事件导入/三层汇总/个人进度/人工改资格
+                            （导入与改资格默认只预演，--apply 才落盘；其余只读）
 
 示例:
   python3 mkt.py email message --queue data/queues/er-wave7.json        # dry-run
@@ -694,6 +697,139 @@ def cmd_grow(args):
             print(f"  ⚠️  {row['platform']:<12} {row['status']:<8} {row['reason']}")
         print("\n只能出人工作业单（不假装自动）：其余平台。")
         return 0
+
+    if act in ("events", "layers", "journey", "qualify"):
+        from core import outcome_layers
+
+        def _window(ns):
+            """--window-start/--window-end → 时间窗；都没给就是 None（不限）。"""
+            start = getattr(ns, "window_start", "") or ""
+            end = getattr(ns, "window_end", "") or ""
+            return {"start": start, "end": end} if (start or end) else None
+
+        if act == "events":
+            sub = getattr(args, "events_action", "")
+            if sub == "import":
+                try:
+                    result = outcome_layers.import_events(
+                        DATA, args.from_file,
+                        allowed_sources=args.allowed_source,
+                        imported_by=args.by, window=_window(args),
+                        dry_run=not args.apply)
+                except outcome_layers.OutcomeLayerError as exc:
+                    print(f"导入未执行：{exc}")
+                    return 2
+                if args.json:
+                    print(json.dumps(result, ensure_ascii=False, indent=1))
+                    return 0 if not result["errors"] else 1
+                added = (result["created"] if args.apply
+                         else result.get("would_create", 0))
+                print(f"导入{'已写入' if args.apply else '预演（未写入）'}："
+                      f"新增 {added} 条｜重复跳过 {result['skipped_duplicate']} 条"
+                      f"｜错误 {len(result['errors'])} 条")
+                for err in result["errors"]:
+                    print(f"  第 {err['row']} 行 {err.get('event_id') or '-'}："
+                          f"{err['reason']}（{err['detail']}）")
+                for warning in result.get("warnings") or []:
+                    print(f"  注意：{warning}")
+                if result.get("partial"):
+                    print("  注意：这是一次部分导入——被拒的行没有写入，其余已写入；"
+                          "先修被拒行再补导。")
+                if args.apply and result["created"]:
+                    print("已写：outcomes/product_events.jsonl、三层凭证，"
+                          "并把通过核验的业务事件投影进业务台账。")
+                elif not args.apply and result["event_ids"]:
+                    print("确认无误后加 --apply 落盘（默认只校验，不写任何文件）。")
+                return 0 if not result["errors"] else 1
+            if sub == "list":
+                events = outcome_layers.read_product_events(
+                    DATA, run_id=args.id or None)
+                states = outcome_layers.qualification_states(DATA)
+                if args.json:
+                    print(json.dumps({"events": events,
+                                      "qualifications": states},
+                                     ensure_ascii=False, indent=1))
+                    return 0
+                if not events:
+                    print("还没有导入过产品事件。先 `mkt grow events import "
+                          "--from <file> --allowed-source <system> --by <谁>` 预演。")
+                    return 0
+                print(f"已导入产品事件 {len(events)} 条"
+                      "（核验未通过的不计入；资格是另一条线，需人工改）：")
+                for rec in events:
+                    qualifies = states.get(rec.get("event_id"), True)
+                    print(f"  {rec.get('event_id')}｜{rec.get('event_type')}"
+                          f"｜{rec.get('subject_id')}｜{rec.get('occurred_at')}"
+                          f"｜{rec.get('source_system')}"
+                          f"｜核验 {rec.get('verification_state')}"
+                          f"｜资格 {'计入' if qualifies else '人工判为不计入'}")
+                print("资格变更留审计：mkt grow qualify <event_id> --no/--yes "
+                      "--by <谁> --note <依据>")
+                return 0
+            if sub == "sync":
+                result = outcome_layers.sync_action_receipts(
+                    DATA, run_id=args.id or None, window=_window(args),
+                    by=args.by or "local-ledger", dry_run=not args.apply)
+                if args.json:
+                    print(json.dumps(result, ensure_ascii=False, indent=1))
+                    return 0
+                if args.apply:
+                    print(f"L1 回执已补齐 {result['written']} 张（扫描账本 "
+                          f"{result['scanned']} 条）。")
+                else:
+                    print(f"预演：将补 {result['would_write']} 张 L1 回执"
+                          f"（扫描账本 {result['scanned']} 条，未写入）。"
+                          "加 --apply 落盘。")
+                return 0
+            print("events 只支持 import/list/sync")
+            return 2
+
+        if act == "layers":
+            summary = outcome_layers.layer_summary(
+                DATA, run_id=getattr(args, "id", "") or None,
+                window=_window(args))
+            if args.json:
+                print(json.dumps(summary, ensure_ascii=False, indent=1))
+            else:
+                print(outcome_layers.render_summary(summary))
+            return 0
+
+        if act == "journey":
+            try:
+                journey = outcome_layers.prospect_journey(
+                    DATA, prospect_ref=args.ref,
+                    run_id=getattr(args, "id", "") or None)
+            except outcome_layers.OutcomeLayerError as exc:
+                print(f"查不了：{exc}")
+                return 2
+            if args.json:
+                print(json.dumps(journey, ensure_ascii=False, indent=1))
+            else:
+                print(outcome_layers.render_journey(journey))
+            return 0
+
+        if act == "qualify":
+            if bool(args.yes) == bool(args.no):
+                print("二选一：--yes（计入）或 --no（不计入），不要两个都给或都不给")
+                return 2
+            try:
+                record = outcome_layers.set_event_qualification(
+                    DATA, args.event_id, qualifies=bool(args.yes),
+                    by=args.by, note=args.note, dry_run=not args.apply)
+            except outcome_layers.OutcomeLayerError as exc:
+                print(f"资格未改：{exc}")
+                return 2
+            if args.json:
+                print(json.dumps(record, ensure_ascii=False, indent=1))
+                return 0
+            verdict = "计入" if record["qualifies"] else "不计入"
+            if args.apply:
+                print(f"已记录资格变更：{record['event_id']} → {verdict}"
+                      f"（原事件没改；审计 {record['ts']} by {record['by']}）。")
+            else:
+                print(f"预演：将把 {record['event_id']} 标为{verdict}"
+                      "（原事件不改，只追加审计记录）。加 --apply 写入。")
+            return 0
 
     if act == "start":
         channels = [c.strip() for c in (args.channels or "").split(",") if c.strip()]
@@ -4202,6 +4338,45 @@ def build_parser():
     a.add_argument("id"); a.add_argument("--interval", type=int, default=30)
     a.add_argument("--no-deliver", action="store_true")
     a.add_argument("--once", action="store_true", help="只跑一轮（供测试/手动）")
+    a = gsub.add_parser("events", help="授权产品事件：导入/清单/补 L1 回执（默认只校验不落盘）")
+    esub = a.add_subparsers(dest="events_action", required=True)
+    e = esub.add_parser("import", help="从 JSON/JSONL/CSV 导入产品事件（默认 dry-run）")
+    e.add_argument("--from", dest="from_file", required=True,
+                   help="事件文件：JSON 数组 / events 数组 / JSONL / CSV")
+    e.add_argument("--allowed-source", action="append", default=[],
+                   help="授权来源系统（source_system），可重复，如 product_export")
+    e.add_argument("--by", default="", help="导入人署名（落盘必填，用于审计）")
+    e.add_argument("--window-start", default="", help="只收该日期之后发生的事件")
+    e.add_argument("--window-end", default="", help="只收该日期之前发生的事件")
+    e.add_argument("--apply", action="store_true", help="真写入（默认只校验）")
+    e.add_argument("--json", action="store_true")
+    e = esub.add_parser("list", help="已导入的产品事件与资格状态（只读）")
+    e.add_argument("--id", default="", help="只看某个 run")
+    e.add_argument("--json", action="store_true")
+    e = esub.add_parser("sync", help="把账本 committed 记录补成 L1 凭证（默认 dry-run）")
+    e.add_argument("--id", default=""); e.add_argument("--by", default="local-ledger")
+    e.add_argument("--window-start", default=""); e.add_argument("--window-end", default="")
+    e.add_argument("--apply", action="store_true"); e.add_argument("--json", action="store_true")
+
+    a = gsub.add_parser("layers", help="三层结果汇总：L1 执行/L2 互动/L3 业务 + 激活归因（只读）")
+    a.add_argument("id", nargs="?", default="", help="run id（不填=全部）")
+    a.add_argument("--window-start", default=""); a.add_argument("--window-end", default="")
+    a.add_argument("--json", action="store_true")
+
+    a = gsub.add_parser("journey", help="一个人的进度归并：触达/回应/产品事件/抑制（只读）")
+    a.add_argument("ref", help="邮箱、平台 ID 或 contact id，如 x:111")
+    a.add_argument("--id", default="", help="只看某个 run")
+    a.add_argument("--json", action="store_true")
+
+    a = gsub.add_parser("qualify", help="人工改一条产品事件的资格（原事件不改，留审计；默认 dry-run）")
+    a.add_argument("event_id")
+    a.add_argument("--yes", action="store_true", help="计入")
+    a.add_argument("--no", action="store_true", help="不计入")
+    a.add_argument("--by", default="", help="谁判的（必填，审计用）")
+    a.add_argument("--note", default="", help="依据（必填，如「内部测试账号」）")
+    a.add_argument("--apply", action="store_true", help="真写入（默认只预演）")
+    a.add_argument("--json", action="store_true")
+
     a = gsub.add_parser("calibrate", help="读数人工对数：连续 7 个日历日（每日一计、缺日重置）后升级 PROVEN")
     a.add_argument("id"); a.add_argument("--followers", type=int, default=None,
                                          help="人在 X 后台手读到的粉丝数")

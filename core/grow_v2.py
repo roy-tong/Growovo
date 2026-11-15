@@ -411,6 +411,10 @@ class GrowRunV2:
                     "content_score": check["score"],
                     "content_issues": check["issues"][:6],
                     "author_handle": str(raw.get("author_handle") or "").lstrip("@")}
+            # 三要素准入（G-03）：写了任意一项就必须写全，缺项不进可自动触达集合；
+            # 一个都没写的旧手工条目 outreach_ready=None（未评估≠出局）。
+            from . import outcome_layers as _ol
+            item.update(_ol.outreach_admission(raw))
             if window or raw.get("window"):
                 item["window"] = window or raw.get("window")
             for extra in ("audience", "brief_id", "source", "subject", "editorial_review", "fit_review"):
@@ -930,6 +934,7 @@ class GrowRunV2:
     def _select_items(queue: Dict[str, Any], *, on: str, now: datetime,
                       default_window: str, committed_targets: set,
                       limit: int, max_lateness_days: int = 2) -> List[Dict[str, Any]]:
+        from . import outcome_layers as _ol
         selected = []
         oldest = (date.fromisoformat(on)
                   - timedelta(days=max(0, int(max_lateness_days)))).isoformat()
@@ -942,6 +947,9 @@ class GrowRunV2:
             scheduled = str(item.get("scheduled_for") or on)
             if scheduled < oldest:
                 continue  # 过期内容不再发：宁可少发，不补发陈旧回复
+            # 三要素不全的条目不进可自动触达集合；旧条目未评估（None）照旧放行。
+            if not _ol.is_outreach_ready(item):
+                continue
             window = item.get("window") or default_window
             probe = dict(item)
             probe.setdefault("window", window)
@@ -1009,6 +1017,62 @@ class GrowRunV2:
         self.save(data)
         return card
 
+    @staticmethod
+    def _readings_with_fallback(data: Dict[str, Any], data_dir: Path, on: str,
+                                readings: Dict[str, Any]) -> Dict[str, Any]:
+        """读数缺项时回落到 outcome 计数快照（G-03）。
+
+        平台读数可能因为传感器没跑而缺，但同一份账里可能已经有当天/更早的
+        x_followers/x_impressions 计数。回落值仍标 approximated；取不到就保持
+        取不到，不填 0。"""
+        out = dict(readings or {})
+        if out.get("followers") is not None and out.get("impressions") is not None:
+            return out
+        from .attribution import OutcomeLedger
+        latest: Dict[str, tuple] = {}
+        for rec in OutcomeLedger(Path(data_dir)).records():
+            if rec.get("kind") != "count":
+                continue
+            campaign = str(rec.get("campaign") or "")
+            # 只认本 run 或无 campaign 的读数；别的 run 的读数不能借来用。
+            if campaign and not _belongs(campaign, str(data.get("id") or "")):
+                continue
+            metric = str(rec.get("metric") or "")
+            window = str(rec.get("window") or "")
+            if metric not in ("x_followers", "x_impressions") or not window:
+                continue
+            if window > on:  # 未来/更晚的读数不能提前用
+                continue
+            prev = latest.get(metric)
+            if prev is None or window > prev[0]:
+                latest[metric] = (window, int(rec.get("value") or 0))
+        filled = []
+        for metric, key in (("x_followers", "followers"),
+                            ("x_impressions", "impressions")):
+            if out.get(key) is not None or metric not in latest:
+                continue
+            out[key] = latest[metric][1]
+            out.setdefault("%s_window" % key, latest[metric][0])
+            filled.append(key)
+        if filled:
+            out.setdefault("source", "outcomes/events.jsonl")
+            out["approximated"] = True
+            out["fallback"] = "计数快照（%s）" % "、".join(filled)
+        return out
+
+    @staticmethod
+    def _layers(data_dir: Path, data: Dict[str, Any], on: str) -> Dict[str, Any]:
+        """日卡里的三层视图：窗口取本自然周 Start～当天；读不到就标 UNKNOWN。"""
+        from . import outcome_layers
+        week_start = gs.week_start_of(on, data["started"])
+        try:
+            return outcome_layers.layer_summary(
+                data_dir, run_id=data["id"],
+                window={"start": week_start, "end": on})
+        except Exception as exc:  # noqa: BLE001 账本坏了不能把日卡变成 0 结果
+            return outcome_layers.unknown_summary(
+                "三层账本读取失败：%s: %s" % (type(exc).__name__, exc))
+
     def _build_daily(self, data: Dict[str, Any], data_dir: Path, on: str, *,
                      committed_today: List[Dict[str, Any]],
                      today_quota: Dict[str, int],
@@ -1016,6 +1080,7 @@ class GrowRunV2:
         by_action: Dict[str, int] = self._count_by_action(committed_today)
         published = sum(by_action.values())
         planned = sum(int(v) for v in today_quota.values())
+        readings = self._readings_with_fallback(data, data_dir, on, readings)
         goal = self._goal_progress(data, data_dir)
         day_telemetry = data.get("telemetry", {}).get("days", {}).get(on, {})
         counts = day_telemetry.get("counts") or {}
@@ -1035,6 +1100,7 @@ class GrowRunV2:
             "published": {"total": published, "planned": planned,
                           "by_action": by_action},
             "readings": readings or {},
+            "layers": self._layers(data_dir, data, on),
             "guardrails": guards,
             "supply": data.get("supply_state") or {},
             "learning": data.get("learning") or {},
@@ -1071,6 +1137,22 @@ class GrowRunV2:
                  f"{guards.get('duplicates', 0)}｜抑制跳过 {guards.get('suppressed', 0)}"]
         if readings.get("error"):
             lines.append(f"读数异常：{readings['error']}")
+        layers = card.get("layers") or {}
+        if layers:
+            lines += ["", "## 三层结果", ""]
+            for key, label in (("L1", "L1 执行"), ("L2", "L2 互动"),
+                               ("L3", "L3 业务")):
+                block = layers.get(key) or {}
+                lines.append(f"- {label}（{block.get('state', 'UNKNOWN')}）："
+                             f"{block.get('text', '')}")
+            attribution = layers.get("attribution") or {}
+            summary = attribution.get("summary") or {}
+            if summary.get("total"):
+                lines.append(
+                    f"- 激活归因（非因果）：direct_receipt "
+                    f"{summary.get('direct_receipt', 0)}｜assisted_observation "
+                    f"{summary.get('assisted_observation', 0)}｜unattributed "
+                    f"{summary.get('unattributed', 0)}")
         production = card.get("production") or {}
         if production:
             lines += ["", f"自动内容供给：本轮入队 {production.get('added', 0)} 条"]
