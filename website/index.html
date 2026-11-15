@@ -103,6 +103,7 @@ footer{border-top:1px solid var(--line);margin-top:56px;padding-top:18px;color:v
 <tr><th>步骤</th><th>发生了什么</th><th>结果</th></tr>
 <tr><td>计划校验</td><td>schema、beachhead、能力矩阵、是否超过内核日预算</td><td>PASS（本计划 3 条，日预算 100）</td></tr>
 <tr><td>人审闸门</td><td>campaign 属于计划 demo-p0，<code>human_approved=false</code></td><td><strong>拒绝执行并停车</strong>——人审是执行前置条件</td></tr>
+<tr><td>模拟人审批准</td><td><code>mkt plan approve</code>：署名 + 计划指纹 + 审批事件，写入 <code>human_approved=true</code></td><td>放行；后续写路径仍在沙盒里跑，不代表真实授权</td></tr>
 <tr><td>写路径事务</td><td>d-001 干跑未发送；d-002 占位符残留被门禁拒绝；d-003 回读不一致主动失败</td><td>1 条 dry-run · 1 条 rejected · 1 条 failed，全部留痕</td></tr>
 <tr><td>账本</td><td><code>data/demo/ledger.jsonl</code> 三条终态与预期一致</td><td>可逐条核对，失败也是记录</td></tr>
 </table>
