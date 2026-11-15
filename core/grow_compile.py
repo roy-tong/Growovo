@@ -211,6 +211,7 @@ def compile_run(*, run_id: str, facts: Dict[str, Any], goal_id: str,
 
     windows = {"audience": audience,
                "timezone_offset": float(tw.AUDIENCES[audience]["tz"]),
+               "iana": str(tw.AUDIENCES[audience].get("iana") or ""),
                "local": [list(w) for w in tw.GOLDEN_WINDOWS],
                "dead_zone": [0.0, 6.0]}
 

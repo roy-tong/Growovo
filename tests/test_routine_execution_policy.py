@@ -192,13 +192,33 @@ class RoutineExecutionTests(RoutineTestCase):
                            target=queueless_target, text="helpful reply", log=lambda *_: None)
             self.assertEqual(1, vendor.call_count)  # denied before vendor on real run
 
+            # G-01：账号名授权但无平台身份记录（旧式授权）→ 真实发送被身份
+            # 门禁拒绝，要求用 identities 重新授权；仍零 vendor 调用。
             authorize(self.data, by="operator", actions=["x:reply"], accounts=["acct-a"])
+            with self.assertRaises(ActionError) as blocked:
+                run_action(channel="x", action="reply", data_dir=self.data,
+                           campaign="routine-campaign", go=True, routine=True,
+                           account="acct-a", target=queueless_target,
+                           text="helpful reply", log=lambda *_: None)
+            self.assertIn("authorization_missing_identity", str(blocked.exception))
+            self.assertEqual(1, vendor.call_count)  # denied before vendor on real run
+
+            # 绑定平台身份 + 注入身份观测（离线）后，同一嵌套 legacy recheck 路径放行。
+            from core import account_identity
+            from core.account_identity import AccountIdentityProof
+            account_identity.set_reader(
+                lambda ch: AccountIdentityProof(channel="x", user_id="uid-a",
+                                                handle="acct-a"))
+            self.addCleanup(account_identity.reset_reader)
+            authorize(self.data, by="operator", actions=["x:reply"],
+                      accounts=["acct-a"], identities=["acct-a=x:uid-a"])
             rec = run_action(channel="x", action="reply", data_dir=self.data,
                              campaign="routine-campaign", go=True, routine=True,
                              account="acct-a", target=queueless_target,
                              text="helpful reply", log=lambda *_: None)
         self.assertEqual("committed", rec["result"])
         self.assertEqual("routine-policy", rec["approval"])
+        self.assertEqual("uid-a", rec["identity"]["observed_platform_identity"])
         self.assertEqual(["routine-policy"], nested_modes)
 
     def test_non_routine_action_still_requires_plan(self):

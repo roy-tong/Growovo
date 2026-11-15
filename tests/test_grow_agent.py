@@ -83,7 +83,7 @@ class ProductionTests(unittest.TestCase):
 
     def test_tick_produces_then_executes_same_cycle(self):
         data=self.run.load(); data['automation']={'enabled':True}; self.run.save(data)
-        self.run.arm()
+        self.run.arm(by="roy")
         result=self.run.tick(self.root,on='2026-11-01',runner=_runner(self.root,'2026-11-01'),
              reader=_reader('2026-11-01'),now=_now('2026-11-01'),
              content_writer=self.writer,discover=self.discover)
