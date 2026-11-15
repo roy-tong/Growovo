@@ -102,6 +102,14 @@ def _reason(ip) -> str:
         if not ip.is_global:
             return "not_global"
         return ""
+    # An IPv4-mapped address *is* an IPv4 address: decide it first so the
+    # verdict cannot depend on how a given Python patch release implements the
+    # IPv6 convenience properties (``is_loopback`` alone already differs
+    # between CPython patch releases for ::ffff:127.0.0.1).
+    mapped = getattr(ip, "ipv4_mapped", None)
+    if mapped is not None:
+        inner = _reason(mapped)
+        return ("ipv4_mapped " + inner) if inner else ""
     if ip.is_unspecified:
         return "unspecified (::)"
     if ip.is_loopback:
@@ -110,10 +118,6 @@ def _reason(ip) -> str:
         return "link_local (fe80::/10)"
     if ip.is_multicast:
         return "multicast (ff00::/8)"
-    mapped = getattr(ip, "ipv4_mapped", None)
-    if mapped is not None:
-        inner = _reason(mapped)
-        return ("ipv4_mapped " + inner) if inner else ""
     for embedded in (getattr(ip, "sixtofour", None),
                      getattr(ip, "teredo", None)):
         if embedded is None:
