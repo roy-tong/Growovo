@@ -1274,17 +1274,36 @@ def cmd_grow(args):
         return 0
 
     if act == "arm":
+        from core import grow_runbook as rb
+        path = DATA / "grow" / f"{args.id}.json"
+        if not path.is_file():
+            print(f"没有这个闭环：{path}")
+            return 2
+        raw = json.loads(path.read_text(encoding="utf-8"))
+        if not (args.by or "").strip():
+            print("AUTH_REQUIRED：arm 必须带 --by <operator> 署名；"
+                  "开闸是人的决定，Agent 不能自签")
+            return 2
+        if raw.get("schema") != "growovo.grow-run/2":
+            from core.grow import GrowRun
+            try:
+                GrowRun(path).arm()
+            except Exception as exc:  # noqa: BLE001 旧版兼容路径
+                print(f"不能开闸：{exc}")
+                return 2
+            print(f"{args.id}（旧版闭环）已开闸；v1 不记录署名，建议迁移到 "
+                  "mkt grow launch")
+            return 0
         try:
-            run, raw = _open()
-            data = run.arm()
-        except FileNotFoundError as exc:
-            print(str(exc))
+            data = rb.arm_run(DATA, path, by=args.by)
+        except rb.RunbookError as exc:
+            print(f"不能开闸（{exc.code}）：{exc}")
             return 2
         except GrowErrors as exc:
             print(f"不能开闸：{exc}")
             return 2
-        print(f"{args.id} 实跑已开闸。急停随时可用：mkt pause --on '原因'"
-              "（暂停闸优先于一切写操作）")
+        print(f"{args.id} 实跑已开闸（{data.get('armed_by')}）。"
+              "急停随时可用：mkt pause --on '原因'（暂停闸优先于一切写操作）")
         return 0
 
     if act == "pause":
@@ -4677,8 +4696,9 @@ def build_parser():
     a = gsub.add_parser("tick", help="一步日循环：配额执行+自动读数+日结果+周结算（供 cron）")
     a.add_argument("id"); a.add_argument("--on", default="")
     a.add_argument("--deliver", action="store_true", help="同时投递周结果单（默认只落盘）")
-    a = gsub.add_parser("arm", help="把实跑开关打开（人工确认动作）")
+    a = gsub.add_parser("arm", help="显式开闸（必须人署名；检查授权/账号健康/阻塞告警）")
     a.add_argument("id")
+    a.add_argument("--by", default="", help="开闸人署名（必填；声明式身份）")
     a = gsub.add_parser("resume",
                         help="人工裁决后恢复 needs_attention/paused（必须署名；indeterminate 先裁决）")
     a.add_argument("id"); a.add_argument("--by", required=True)

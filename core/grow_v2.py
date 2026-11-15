@@ -503,7 +503,30 @@ class GrowRunV2:
     # ---------- 开闸 / 恢复 ----------
 
     @locked
-    def arm(self) -> Dict[str, Any]:
+    def arm(self, *, by: str = "", data_dir=None,
+            blocking_check=None) -> Dict[str, Any]:
+        """显式人工开闸：必须署名 + 有效常驻授权 + 无阻塞告警。
+
+        署名是声明式身份（谁按下这个按钮），不是强身份证明；真正的执行门
+        仍是 policy/quota/pause/账本。`blocking_check` 由 runbook 注入，
+        库调用不传时只做署名/状态/授权检查。
+        """
+        from .execution_policy import allows, policy_path
+        operator = str(by or "").strip()
+        if not operator:
+            raise GrowError(
+                "AUTH_REQUIRED：arm 必须带 --by <operator> 署名；"
+                "开闸是人的决定，Agent 不能自签")
+        if blocking_check is not None:
+            blocking = list(blocking_check() or [])
+            if blocking:
+                first = blocking[0]
+                raise GrowError(
+                    f"{first.get('error_code') or 'REVIEW_REQUIRED'}："
+                    "还有阻塞告警，不能开闸：" + "、".join(
+                        str(i.get("event_id") or i.get("title"))
+                        for i in blocking[:3])
+                    + f"\n先处理：mkt grow incident {data.get('id')} --list")
         data = self.load()
         if data.get("status") == "draft":
             raise GrowError(
@@ -517,13 +540,46 @@ class GrowRunV2:
         health = data.get("guards", {}).get("account_health") or {}
         if health.get("checked") and not health.get("eligible"):
             raise GrowError("账号健康不达标，不能开闸（先修账号或换账号）")
+        if data.get("status") not in ("ready_to_arm", "active"):
+            raise GrowError(
+                f"只有 ready_to_arm/未开闸的 active 能 arm；当前 {data.get('status')}")
+        base = Path(data_dir) if data_dir else self.path.parent.parent
+        policy_file = policy_path(base)
+        if not policy_file.is_file():
+            raise GrowError(
+                "POLICY_DENIED：没有常驻授权，不能开闸；先人工 "
+                "mkt policy enable --actions ... --by <operator>")
+        try:
+            policy_sha = hashlib.sha256(policy_file.read_bytes()).hexdigest()
+        except OSError as exc:
+            raise GrowError(f"POLICY_DENIED：授权文件读不到（{exc}）") from exc
+        account = str((data.get("guards") or {}).get("account_id") or "")
+        for item in (data.get("actions") or []):
+            text = str(item)
+            if ":" not in text:
+                continue
+            channel, action = text.split(":", 1)
+            if not allows(base, channel, action, account, ""):
+                raise GrowError(
+                    f"POLICY_DENIED：常驻授权未覆盖 {text}，或已过期/撤销；"
+                    f"先人工 mkt policy enable --actions {text} --by <operator>")
         if data.get("go"):
+            if not data.get("armed_by"):
+                data["armed_by"] = operator
+                data["armed_at"] = datetime.now().isoformat(timespec="seconds")
+                data["armed_policy_sha256"] = policy_sha
+                self.save(data)
             return data
         data["go"] = True
+        data["armed_by"] = operator
+        data["armed_at"] = datetime.now().isoformat(timespec="seconds")
+        data["armed_policy_sha256"] = policy_sha
         if data.get("status") == "ready_to_arm":
             data["status"] = "active"
         data.setdefault("history", []).append(
-            {"at": _today(), "kind": "arm", "note": "实跑已开闸；暂停闸与全部执行门照旧"})
+            {"at": _today(), "kind": "arm", "by": operator,
+             "policy_sha256": policy_sha,
+             "note": "实跑已开闸；暂停闸与全部执行门照旧"})
         self.save(data)
         return data
 

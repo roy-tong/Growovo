@@ -1545,6 +1545,40 @@ def _require_resolution(data_dir, incident: Dict[str, Any]) -> None:
          "--by <operator>"))
 
 
+def blocking_incidents(data_dir, run_path=None, *, on: Optional[str] = None):
+    """arm/resume 共用的阻塞清单：只有 blocking 才拦，warning 不拦。"""
+    report = list_incidents(data_dir, run_path, on=on)
+    return [row for row in report["incidents"]
+            if row.get("severity") == "blocking" and not row.get("resolved")]
+
+
+def arm_run(data_dir, run_path, *, by: str = "", on: Optional[str] = None
+            ) -> Dict[str, Any]:
+    """显式人工开闸：署名 + 有效授权 + 无 blocking 告警，缺一不可。
+
+    与 resume 分开：arm 不消费 indeterminate，也不改任何事件；它只是把
+    ready_to_arm/未开闸的 run 推到 active，并留下谁在何时按下的记录。
+    """
+    from .grow_v2 import GrowRunV2
+    operator = _text(by)
+    if not operator:
+        raise RunbookError(
+            "AUTH_REQUIRED",
+            "arm 必须带 --by <operator> 署名；开闸是人的决定，Agent 不能自签")
+    run = GrowRunV2(Path(run_path))
+    data = run.load()
+    blocking = blocking_incidents(data_dir, Path(run_path), on=on)
+    if blocking:
+        first = blocking[0]
+        details = "；".join(
+            f"{row['event_id']} {row['title']}（{row['recovery']}）"
+            for row in blocking[:3])
+        raise RunbookError(
+            first.get("error_code") or "REVIEW_REQUIRED",
+            f"还有 {len(blocking)} 条阻塞告警，不能开闸：{details}")
+    return run.arm(by=operator, data_dir=Path(data_dir))
+
+
 def resume_after_reconciliation(data_dir, run_path=None, incident_id: str = "",
                                 *, by: str, run_id: str = "", note: str = "",
                                 now: Optional[str] = None) -> Dict[str, Any]:

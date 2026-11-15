@@ -171,7 +171,7 @@ class TickTests(TmpDir):
         self._run().tick(self.dir, on="2026-11-02", runner=runner)
         self.assertTrue(seen.get("routine"))
         self.assertFalse(seen.get("go"))              # go 默认关=dry-run
-        self._run().arm(by="roy")
+        self._run().arm()
         seen.clear()
         self._run().tick(self.dir, on="2026-11-03", runner=runner)
         self.assertTrue(seen.get("go"))

@@ -4,6 +4,24 @@
 
 ### Fixed
 
+- **Signed, policy-bound arm (D4, G-05)**: `mkt grow arm` is an explicit
+  human action, not something an agent can do after creating a plan.
+  `--by <operator>` is required; anonymous or blank arm returns
+  `AUTH_REQUIRED` and leaves `go=false`. The run must be `ready_to_arm` (or a
+  legacy `active`/not-armed run), every action in the run must still be covered
+  by a valid routine policy (`allows()` checks expiry, revocation and account
+  scope), account health must pass, and the shared incident scan must show no
+  blocking alert; any failure returns `POLICY_DENIED`/`REVIEW_REQUIRED` (with
+  the blocking INC ids). A successful arm records `armed_by`, `armed_at` and
+  `armed_policy_sha256` (sha256 of the policy file bytes) plus an `arm` history
+  entry; a second signed arm is idempotent and keeps the first attestation.
+  It never runs queues, writes ledger rows or sends. The legacy v1 path keeps
+  working through `mkt grow arm --by` but does not record a signature; it
+  prints a migration note. Signing is a declaration of who pressed the button,
+  not cryptographic proof of identity (the same honesty as Verovo's
+  `attested_by_declaration`); real security still comes from policy, quota,
+  pause and the ledger.
+
 - **Buyer-controlled payment verification (D1, G-03)**: `paid`/`activation`
   no longer count as verified just because `verified_by` and `evidence_hash`
   are non-empty. The verifier must be in a payment/buyer-controlled domain
