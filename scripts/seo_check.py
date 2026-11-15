@@ -43,9 +43,10 @@ SITEMAP_EXEMPT = {"404.html"}
 ALLOW_NOINDEX: set[str] = set()
 # Deployment acceptance: key pages must contain these strings once live.
 REQUIRED_MARKERS: dict[str, tuple[str, ...]] = {
-    "index.html": ("一次被闸门拦下的执行",),
-    "en.html": ("One concrete task",),
+    "index.html": ("一次成功交付", "被闸门拦下"),
+    "en.html": ("one successful delivery", "stopped by the gate"),
     "guides/launch-autopsy.html": ("未完成可靠测量", "0 个新 star"),
+    "guides/launch-autopsy.en.html": ("Not reliably measured", "0 new stars"),
 }
 # ---------------------------------------------------------------------------
 
@@ -116,20 +117,24 @@ class SiteCheck:
             return None
         if value.startswith("//"):
             return None
-        if re.match(r"^[a-zA-Z][a-zA-Z0-9+.-]*:", value):
+        absolute = bool(re.match(r"^[a-zA-Z][a-zA-Z0-9+.-]*:", value))
+        if absolute:
             if not value.startswith(self.site_base):
                 return None
-            value = "/" + value[len(self.site_base):]
-        value = unquote(value.split("#", 1)[0].split("?", 1)[0])
-        if not value:
-            return None
-        if value.startswith("/"):
-            prefix = urlparse(self.site_base).path
-            if not value.startswith(prefix):
-                return None
-            target = self.site_dir / value[len(prefix):]
+            value = value[len(self.site_base):]
+            value = unquote(value.split("#", 1)[0].split("?", 1)[0]) or "."
+            target = self.site_dir / value
         else:
-            target = page.parent / value
+            value = unquote(value.split("#", 1)[0].split("?", 1)[0])
+            if not value:
+                return None
+            if value.startswith("/"):
+                prefix = urlparse(self.site_base).path
+                if not value.startswith(prefix):
+                    return None
+                target = self.site_dir / value[len(prefix):]
+            else:
+                target = page.parent / value
         try:
             target = target.resolve()
         except OSError:
@@ -177,6 +182,7 @@ class SiteCheck:
             title = (self.extract(r"<title>(.*?)</title>", text) or [""])[0]
             description = (self.extract(r'<meta\s+name="description"\s+content="(.*?)"', text) or [""])[0]
             canonical = (self.extract(r'<link\s+rel="canonical"\s+href="(.*?)"', text) or [""])[0]
+            og_title = (self.extract(r'<meta\s+property="og:title"\s+content="(.*?)"', text) or [""])[0]
             if not title:
                 self.error(f"{rel}: missing <title>")
             elif title in titles:
@@ -184,15 +190,19 @@ class SiteCheck:
             else:
                 titles[title] = page
             if not description:
-                self.warn(f"{rel}: missing meta description")
+                self.error(f"{rel}: missing meta description")
             if not canonical:
-                self.warn(f"{rel}: missing canonical")
+                self.error(f"{rel}: missing canonical")
             elif canonical != self.url_of(page):
                 self.error(f"{rel}: canonical is {canonical!r}, expected {self.url_of(page)!r}")
+            if not og_title:
+                self.error(f"{rel}: missing og:title")
 
-            for index, block in enumerate(
-                self.extract(r'<script[^>]+application/ld\+json[^>]*>(.*?)</script>', text), 1
-            ):
+            jsonld_blocks = self.extract(
+                r'<script[^>]+application/ld\+json[^>]*>(.*?)</script>', text)
+            if not jsonld_blocks:
+                self.error(f"{rel}: missing JSON-LD")
+            for index, block in enumerate(jsonld_blocks, 1):
                 try:
                     payload = json.loads(block)
                 except json.JSONDecodeError as exc:
@@ -236,6 +246,70 @@ class SiteCheck:
                 continue
             if not sources:
                 self.error(f"{rel}: no in-body link points at this page (sitemap is not internal linking)")
+
+    @staticmethod
+    def _link_tags(text: str) -> list[str]:
+        return re.findall(r"<link\b[^>]*>", text, re.I)
+
+    def _hreflang_links(self, text: str) -> list[tuple[str, str]]:
+        out = []
+        for tag in self._link_tags(text):
+            if not re.search(r'rel\s*=\s*"alternate"', tag, re.I):
+                continue
+            code = re.search(r'hreflang\s*=\s*"([^"]+)"', tag, re.I)
+            href = re.search(r'href\s*=\s*"([^"]+)"', tag, re.I)
+            if code and href:
+                out.append((code.group(1).strip(), href.group(1).strip()))
+        return out
+
+    def check_hreflang(self) -> None:
+        """Every language alternate must exist and point back; lang pages need a self entry."""
+        links_by_page = {page: self._hreflang_links(meta["text"])
+                         for page, meta in self.info.items()}
+        for page, links in links_by_page.items():
+            if not links:
+                continue
+            rel = self.rel_of(page)
+            lang = (self.extract(r'<html[^>]*\blang="([^"]+)"', self.info[page]["text"])
+                    or [""])[0]
+            codes = [code.lower() for code, _ in links]
+            if lang and lang.lower() not in codes:
+                self.error(f"{rel}: hreflang has no self entry for <html lang={lang}>")
+            for code, href in links:
+                if code.lower() == "x-default":
+                    continue
+                target = self.resolve_internal(page, href)
+                inside = target is not None and (
+                    target == self.site_dir or self.site_dir in target.parents)
+                if not inside or not target.is_file():
+                    self.error(f"{rel}: hreflang {code} points at a missing page {href!r}")
+                    continue
+                back = [h for c, h in links_by_page.get(target, [])
+                        if c.lower() != "x-default"]
+                if not any(self.resolve_internal(target, h) == page for h in back):
+                    self.error(f"{rel}: hreflang {code} -> {self.rel_of(target)} "
+                               "is not reciprocal")
+
+    def check_resources(self) -> None:
+        """Local images/scripts/stylesheets referenced by a page must exist."""
+        for page, meta in self.info.items():
+            text = meta["text"]
+            refs = self.extract(r'<img\b[^>]*\bsrc="([^"]+)"', text)
+            refs += self.extract(r'<script\b[^>]*\bsrc="([^"]+)"', text)
+            refs += self.extract(
+                r'<meta\s+(?:property|name)="(?:og:image|twitter:image)"\s+content="([^"]+)"',
+                text)
+            for tag in self._link_tags(text):
+                if re.search(r'rel\s*=\s*"stylesheet"', tag, re.I):
+                    href = re.search(r'href\s*=\s*"([^"]+)"', tag, re.I)
+                    if href:
+                        refs.append(href.group(1))
+            for href in refs:
+                target = self.resolve_internal(page, href)
+                if target is None:
+                    continue
+                if not target.is_file():
+                    self.error(f"{self.rel_of(page)}: broken local resource {href!r}")
 
     def check_sitemap(self) -> None:
         if not self.sitemap.is_file():
@@ -332,6 +406,8 @@ class SiteCheck:
             return self.report
         self.check_pages()
         self.check_links()
+        self.check_hreflang()
+        self.check_resources()
         self.check_sitemap()
         self.check_review_dates()
         return self.report
@@ -349,33 +425,54 @@ def _write_selftest_site(
     a_canonical: str | None = None,
     index_links_a: bool = True,
     bad_jsonld: bool = False,
+    no_jsonld: bool = False,
     noindex_a: bool = False,
     lastmod: str | None = None,
     review_date: str | None = None,
+    og_title: bool = True,
+    hreflang_broken: bool = False,
+    broken_image: bool = False,
 ) -> Path:
     site = root / "website"
     site.mkdir(parents=True)
     a_url = SELFTEST_BASE + "a.html"
     canonical_a = a_canonical or a_url
-    jsonld = "{not valid json" if bad_jsonld else json.dumps(
-        {"@context": "https://schema.org", "@type": "WebSite", "name": "selftest"}
-    )
+    if no_jsonld:
+        jsonld_script = ""
+    else:
+        jsonld = "{not valid json" if bad_jsonld else json.dumps(
+            {"@context": "https://schema.org", "@type": "WebSite", "name": "selftest"})
+        jsonld_script = (
+            f'<script type="application/ld+json">{jsonld}</script>')
+    index_og = '<meta property="og:title" content="Home">' if og_title else ""
+    a_og = '<meta property="og:title" content="A">' if og_title else ""
     link = '<a href="a.html">a</a>' if index_links_a else ""
     review = f"<p>复核日期 {review_date}</p>" if review_date else ""
+    image = '<img src="missing.png" alt="missing">' if broken_image else ""
+    index_alt = (
+        f'<link rel="alternate" hreflang="zh-CN" href="{SELFTEST_BASE}">'
+        '<link rel="alternate" hreflang="en" href="a.html">'
+    )
+    a_alt = (
+        f'<link rel="alternate" hreflang="en" href="{a_url}">'
+        + ("" if hreflang_broken
+           else f'<link rel="alternate" hreflang="zh-CN" href="{SELFTEST_BASE}">')
+    )
     (site / "index.html").write_text(
-        "<!doctype html><html><head><title>Home</title>"
+        '<!doctype html><html lang="zh-CN"><head><title>Home</title>'
         '<meta name="description" content="home">'
         f'<link rel="canonical" href="{SELFTEST_BASE}">'
-        f'<script type="application/ld+json">{jsonld}</script></head>'
-        f"<body>{link}{review}</body></html>",
+        f"{index_og}{index_alt}{jsonld_script}</head>"
+        f"<body>{link}{image}{review}</body></html>",
         encoding="utf-8",
     )
     if a_exists:
         robots = '<meta name="robots" content="noindex">' if noindex_a else ""
         (site / "a.html").write_text(
-            "<!doctype html><html><head><title>A</title>"
+            '<!doctype html><html lang="en"><head><title>A</title>'
             '<meta name="description" content="a">'
-            f'<link rel="canonical" href="{canonical_a}">{robots}</head>'
+            f'<link rel="canonical" href="{canonical_a}">{a_og}{a_alt}{robots}'
+            f'{jsonld_script}</head>'
             f'<body><a href="index.html">home</a></body></html>',
             encoding="utf-8",
         )
@@ -402,6 +499,10 @@ def selftest() -> int:
         ("future lastmod fails", {"lastmod": "2026-11-16"}, "is in the future"),
         ("stale review date fails", {"review_date": "2020-01-01"}, "older than"),
         ("fresh review date passes", {"review_date": "2026-11-01", "lastmod": "2026-11-15"}, None),
+        ("missing og:title fails", {"og_title": False}, "missing og:title"),
+        ("missing JSON-LD fails", {"no_jsonld": True}, "missing JSON-LD"),
+        ("unpaired hreflang fails", {"hreflang_broken": True}, "not reciprocal"),
+        ("broken local image fails", {"broken_image": True}, "broken local resource"),
     ]
     failures = 0
     for name, kwargs, expected in cases:

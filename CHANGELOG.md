@@ -1,6 +1,24 @@
 # Changelog
 
-## Unreleased
+## 0.15.0 — 2026-11-15
+
+### Demo: one successful delivery plus three blocked samples
+
+`mkt demo` now walks a complete success path first: a queue item passes the
+gates, is sent through an offline in-process transport (`demo-memory`), lands in
+the ledger as `committed`, gets one L1 receipt, and appears on the daily result
+card together with the three-layer view. The three blocked samples (dry-run /
+rejected / failed) stay as the counter-example. Every number comes from the
+demo ledger and L2/L3 remain `UNKNOWN`, never 0. The sandbox is rebuilt on every
+run, so the demo is repeatable even after a `committed` row exists.
+
+### Website: English launch-autopsy guide and stricter SEO gate
+
+`website/guides/launch-autopsy.en.html` is a faithful English translation of the
+Chinese guide (same numbers and limits); the two pages declare reciprocal
+`hreflang`. `scripts/seo_check.py` now also checks `og:title`, required JSON-LD,
+reciprocal `hreflang` and local resources, and the sitemap lists the English
+guide.
 
 ### C-01-Lite minimal delegation projection
 
