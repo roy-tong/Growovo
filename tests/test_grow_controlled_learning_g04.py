@@ -434,8 +434,12 @@ class EvidenceIdempotencyTests(unittest.TestCase):
         change = {"param": "target.audience", "from": "us-west",
                   "to": "us-east"}
         cl.apply_changes(data, [change], actor="human", evidence_hash="ev1")
-        second = cl.apply_changes(data, [change], actor="human",
-                                  evidence_hash="ev2")
+        # 同一改动重试现在是幂等 no_op（见 IdempotentRetryTests）；
+        # 这里用「不同证据 + 不同改动」证明 evidence 不是全局去重开关。
+        second = cl.apply_changes(
+            data, [{"param": "target.audience", "from": "us-east",
+                    "to": "eu-west"}],
+            actor="human", evidence_hash="ev2")
         self.assertEqual(1, len(second["applied"]))
         self.assertEqual(2, len(data["strategy_changes"]))
 
@@ -504,6 +508,67 @@ class RollbackTests(unittest.TestCase):
         self.assertEqual(1, len(Ledger(ledger_path).all()))
 
 
+class IdempotentRetryTests(unittest.TestCase):
+    """重试已落地的改动必须是 no_op，而不是「批准已被消费」的二次升权。"""
+
+    def test_single_change_retry_is_noop(self):
+        data = run_data()
+        change = {"param": "target.audience", "from": "us-west",
+                  "to": "us-east"}
+        first = cl.apply_changes(data, [change], actor="human", by="roy",
+                                 evidence_hash="ev1")
+        self.assertEqual(1, len(first["applied"]))
+        records = len(data["strategy_changes"])
+        second = cl.apply_changes(data, [change], actor="human", by="roy",
+                                  evidence_hash="ev2")
+        self.assertTrue(second["no_op"])
+        self.assertEqual("already_applied", second["reason"])
+        self.assertEqual("no_op", second["status"])
+        self.assertEqual([], second["applied"])
+        self.assertEqual(records, len(data["strategy_changes"]))
+        self.assertEqual("us-east", data["targeting"]["audience"])
+
+    def test_retry_consumed_reapproval_is_noop_not_held(self):
+        data = run_data()
+        change = {"param": "quota.max_per_day", "from": 1, "to": 3}
+        approval = cl.approve_change(data, change, by="roy")
+        cl.apply_changes(data, [change], actor="human", by="roy",
+                         approval=approval)
+        retry = cl.apply_changes(data, [change], actor="human", by="roy",
+                                 approval=approval)
+        self.assertTrue(retry["no_op"])
+        self.assertEqual("already_applied", retry["reason"])
+        self.assertEqual([], retry["held"])
+        self.assertEqual(3, data["quota"]["max_per_day"])
+
+    def test_partial_batch_retry_skips_landed_and_applies_rest(self):
+        data = run_data()
+        landed = {"param": "target.audience", "from": "us-west",
+                  "to": "us-east"}
+        risky = {"param": "quota.max_per_day", "from": 1, "to": 3}
+        first = cl.apply_changes(data, [landed, risky], actor="human",
+                                 by="roy")
+        self.assertEqual(1, len(first["applied"]))
+        self.assertEqual(1, len(first["held"]))
+        approval = cl.approve_change(data, risky, by="roy", note="再批一次")
+        second = cl.apply_changes(data, [landed, risky], actor="human",
+                                  by="roy", approval=approval)
+        self.assertEqual([], second["held"])
+        self.assertEqual(1, len(second["applied"]))
+        self.assertEqual(1, len(second["already_applied"]))
+        self.assertEqual(3, data["quota"]["max_per_day"])
+
+    def test_already_at_target_without_previous_record_is_noop(self):
+        data = run_data()
+        data["plan"]["actions_per_week"] = 3
+        data["quota"]["actions_per_week"] = 3
+        change = {"param": "actions_per_week", "from": 7, "to": 3}
+        result = cl.apply_changes(data, [change], actor="human", by="roy")
+        self.assertTrue(result["no_op"])
+        self.assertEqual("already_applied", result["reason"])
+        self.assertEqual([], data["strategy_changes"])
+
+
 class ApprovalConsumptionTests(unittest.TestCase):
     """D2：批准一次性消费；回滚作废旧批准，旧批准不能让升权复活。"""
 
@@ -529,10 +594,13 @@ class ApprovalConsumptionTests(unittest.TestCase):
         approval = cl.approve_change(data, change, by="roy")
         cl.apply_changes(data, [change], actor="human", by="roy",
                          approval=approval)
+        # 已落地改动的重试是幂等 no_op，不是二次升权（见 IdempotentRetryTests）；
+        # 一次性消费仍由「回滚后旧批准不能复活」守护。
         second = cl.apply_changes(data, [change], actor="human", by="roy",
                                   approval=approval)
-        self.assertEqual([], second["applied"])
-        self.assertEqual("REVIEW_REQUIRED", second["held"][0]["reason_code"])
+        self.assertTrue(second["no_op"])
+        self.assertEqual("already_applied", second["reason"])
+        self.assertEqual([], second["held"])
 
     def test_reapproval_after_rollback_works(self):
         data = run_data()
