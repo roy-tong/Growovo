@@ -317,29 +317,64 @@ def classify_change(change: Dict[str, Any]) -> Dict[str, Any]:
                   "未登记的改动参数按高风险处理：必须重新人审（fail closed）")
 
 
+def _approval_key(record: Dict[str, Any]) -> Tuple[str, str, str, str]:
+    return (_text(record.get("change_sha256")), _text(record.get("before_hash")),
+            _text(record.get("by")), _text(record.get("at")))
+
+
 def _find_approval(data: Dict[str, Any], change: Dict[str, Any],
                    approval: Optional[Dict[str, Any]],
                    before_hash: str) -> Tuple[bool, Optional[Dict[str, Any]], str]:
-    """批准必须同时匹配「哪项改动」和「改前策略 hash」，否则视为没批准。"""
+    """批准必须匹配改动 + 改前 hash，并且没有被消费/回滚作废。
+
+    一次性消费：批准一旦用来落地某项升权，就不能再被同一份证据复用。
+    回滚恢复旧 hash 时，绑定在旧 hash 上的未用批准也一并作废——否则
+    「批准 → 应用 → 回滚 → 用旧批准再来一次」会把升权批两次。
+    """
     target = change_sha256(change)
+    stored = [r for r in (data.get("change_approvals") or [])
+              if isinstance(r, dict)]
+    stored_keys = {_approval_key(r) for r in stored}
     records: List[Dict[str, Any]] = []
-    if isinstance(approval, dict):
+    if isinstance(approval, dict) and _approval_key(approval) not in stored_keys:
         records.append(approval)
-    records.extend([r for r in (data.get("change_approvals") or [])
-                    if isinstance(r, dict)])
-    stale = False
+    records.extend(stored)
+    stale = consumed = revoked = False
     for rec in reversed(records):
         if _text(rec.get("change_sha256")) != target:
             continue
         if not _text(rec.get("by")):
             continue
+        if _text(rec.get("consumed_at")):
+            consumed = True
+            continue
+        if _text(rec.get("revoked_by_rollback")):
+            revoked = True
+            continue
         if _text(rec.get("before_hash")) != before_hash:
             stale = True
             continue
         return True, rec, ""
+    if consumed:
+        return False, None, "批准已被消费：每次升权都要重新批准（同一份批准不能复用）"
+    if revoked:
+        return False, None, "批准已被回滚作废：回滚后重新批准才能再升权"
     if stale:
         return False, None, "批准已失效：策略在批准之后变过，需要按当前策略重新批准"
     return False, None, "这项改动还没有人审批准：先 mkt grow change approve 再应用"
+
+
+def _consume_approval(data: Dict[str, Any], record: Dict[str, Any],
+                      change_id: str, by: str) -> None:
+    """把实际用掉的批准标记为一次性；找不到原记录（显式传入）也标记。"""
+    stamp = {"consumed_at": _now(), "consumed_by_change": change_id,
+             "consumed_by": _text(by) or "human"}
+    target_key = _approval_key(record)
+    for stored in (data.get("change_approvals") or []):
+        if isinstance(stored, dict) and _approval_key(stored) == target_key:
+            stored.update(stamp)
+            return
+    record.update(stamp)
 
 
 def approve_change(data: Dict[str, Any], change: Dict[str, Any], *,
@@ -507,6 +542,7 @@ def apply_changes(data: Dict[str, Any], changes: Sequence[Dict[str, Any]], *,
         allowed = False
         reason_code: Optional[str] = None
         detail = ""
+        used_approval: Optional[Dict[str, Any]] = None
         if actor == "agent":
             if info["auto_allowed_on_extreme_failure"] and extreme_failure:
                 allowed = True
@@ -532,6 +568,7 @@ def apply_changes(data: Dict[str, Any], changes: Sequence[Dict[str, Any]], *,
                                                  before_hash)
                 if ok:
                     allowed = True
+                    used_approval = record
                     detail = "人审批准：" + (_text((record or {}).get("by")))
                 else:
                     reason_code = "REVIEW_REQUIRED"
@@ -583,6 +620,9 @@ def apply_changes(data: Dict[str, Any], changes: Sequence[Dict[str, Any]], *,
             "approved_by": _text(by) if actor == "human" else "",
             "external_actions_changed": False,
         }
+        if used_approval is not None:
+            _consume_approval(data, used_approval, record["change_id"],
+                              _text(by) or actor)
         data.setdefault("strategy_changes", []).append(record)
         data.setdefault("adjustments", []).append({
             "on": record["on"], "kind": record["kind"],
@@ -709,6 +749,14 @@ def rollback_changes(data: Dict[str, Any], *, by: str, on: str = "",
         raise ControlledLearningError(
             "回滚必须署名（by）：撤销是人对策略的决定，不能匿名")
     target = _eligible_rollback(data, _text(change_id))
+    reversed_ids = {_text(r.get("reverses"))
+                    for r in (data.get("strategy_changes") or [])
+                    if isinstance(r, dict) and _text(r.get("kind")) == "rollback"}
+    if target is not None and _text(target.get("change_id")) in reversed_ids:
+        return {"rolled_back": False,
+                "reason": ("这项改动已被回滚过：不能重复回滚；"
+                           "要重新升权请重新批准"),
+                "external_actions_unchanged": True, "record": None}
     if target is None:
         return {"rolled_back": False,
                 "reason": ("没有可撤销的人工策略改动（最近一次是自动安全动作、"
@@ -748,6 +796,17 @@ def rollback_changes(data: Dict[str, Any], *, by: str, on: str = "",
         "after": copy.deepcopy(strategy_view(data)),
         "external_actions_changed": False,
     }
+    # 回滚把策略恢复到旧 hash：绑定在旧 hash 上的未用批准一并作废，
+    # 否则它们会在回滚后「复活」。回滚之后新批的（at 更晚）不受影响。
+    for rec in (data.get("change_approvals") or []):
+        if not isinstance(rec, dict) or _text(rec.get("consumed_at")):
+            continue
+        if _text(rec.get("before_hash")) != restored_hash:
+            continue
+        if _text(rec.get("at")) > _text(record.get("at")):
+            continue
+        rec["revoked_by_rollback"] = record["change_id"]
+        rec["revoked_at"] = record.get("at")
     data.setdefault("strategy_changes", []).append(record)
     return {
         "rolled_back": True,

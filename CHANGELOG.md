@@ -4,6 +4,19 @@
 
 ### Fixed
 
+- **Approval consumption and rollback semantics (D2, G-04)**: a human approval
+  is now single-use. When it is used to land a privilege escalation it is
+  stamped `consumed_at` / `consumed_by_change` / `consumed_by`, and the same
+  record can never approve another escalation (the stale-hash check already
+  blocked some replays, but a rollback restored the old hash and made the old
+  approval valid again). Rolling back also revokes unused approvals bound to
+  the restored strategy hash (`revoked_by_rollback`), so no pre-rollback
+  approval can come back to life; approvals created after the rollback still
+  work. A change that has already been reversed cannot be rolled back again,
+  including via an explicit `change_id`; rolling back a rollback record remains
+  refused. The failure reason distinguishes consumed, revoked, stale and
+  never-approved.
+
 - **Signed, policy-bound arm (D4, G-05)**: `mkt grow arm` is an explicit
   human action, not something an agent can do after creating a plan.
   `--by <operator>` is required; anonymous or blank arm returns
