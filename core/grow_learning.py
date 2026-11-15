@@ -275,6 +275,22 @@ def _bucket(rows: List[Dict[str, Any]], key_fn) -> Dict[str, Dict[str, Any]]:
     return out
 
 
+def _business_block(data_dir, run_id):
+    """G-07: 业务读数与 L3 同口径（被撤销资格的事件不计入，原事件可审计）。"""
+    try:
+        from . import outcome_layers
+        summary = outcome_layers.layer_summary(data_dir, run_id=run_id)
+        return {"source": "outcome_layers(L3, qualified)",
+                "signup": int(summary["L3"].get("signup") or 0),
+                "activation": int(summary["L3"].get("activation") or 0),
+                "paid": int(summary["L3"].get("paid") or 0),
+                "note": ("学习样本之外的业务读数与 L3 同口径：被撤销资格的事件"
+                         "不计入，原事件仍可审计")}
+    except Exception:  # noqa: BLE001 读不到三层账本时不伪造业务数
+        return {"source": "unavailable", "paid": None,
+                "note": "三层账本读不到：不猜业务数"}
+
+
 def analyze(data_dir, run_id: str, data: Dict[str, Any]) -> Dict[str, Any]:
     """按公式/时间窗/受众分组；样本不足只给建议不调参。"""
     metrics = latest_metrics(load_metrics(data_dir, run_id))
@@ -290,7 +306,8 @@ def analyze(data_dir, run_id: str, data: Dict[str, Any]) -> Dict[str, Any]:
                          koc=bool(meta.get("koc"))))
     if not rows:
         return {"sample": 0, "buckets": {}, "changes": [],
-                "recommendation": "还没有帖子指标：先 mkt grow metrics 采集"}
+                "recommendation": "还没有帖子指标：先 mkt grow metrics 采集",
+                "business": _business_block(data_dir, run_id)}
     by_formula = _bucket(rows, lambda r: r.get("formula"))
     by_window = _bucket(rows, lambda r: r.get("window"))
     by_tier = _bucket(rows, lambda r: r.get("author_tier"))
@@ -336,6 +353,7 @@ def analyze(data_dir, run_id: str, data: Dict[str, Any]) -> Dict[str, Any]:
     if review_reasons:
         changes = []
         recommendation = "先复审：" + "；".join(review_reasons)
+    business = _business_block(data_dir, run_id)
     return {"sample": len(rows), "buckets": {"formula": by_formula,
                                              "window": by_window,
                                              "author_tier": by_tier},
@@ -346,7 +364,8 @@ def analyze(data_dir, run_id: str, data: Dict[str, Any]) -> Dict[str, Any]:
             "review_required": bool(review_reasons),
             "review_reasons": review_reasons,
             "limitations": ["公开指标与同期变化是相关，不是因果；不宣称策略胜出",
-                            "样本门槛不是统计功效保证；结论由人判断"]}
+                            "样本门槛不是统计功效保证；结论由人判断"],
+            "business": business}
 
 
 def write_learning(data_dir, run_id: str, payload: Dict[str, Any], *,
