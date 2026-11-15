@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+### C-01-Lite minimal delegation projection
+
+`mkt grow status <run> --explain` now also returns a `delegation` block with the
+eight frozen fields (task_id / task_state / next_actor / next_required_action /
+blocked_reason_code / result_ref / authorization_scope / recovery_entry) plus a
+one-line boundary. `task_state` maps the canonical run status onto the six-word
+C-01 vocabulary, PARTIAL when there are open gaps; the existing flat fields stay
+untouched.
+
 ### G-10 execution endpoint binding and G-11 strict qualification reads
 
 - **G-10**: the identity gate now refuses to send unless the CDP endpoint the

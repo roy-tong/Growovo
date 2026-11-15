@@ -1363,6 +1363,39 @@ def _data_coverage(data_dir, data: Dict[str, Any]) -> Dict[str, Any]:
                      else "业务事件源已接入")}
 
 
+
+#: C-01-Lite 状态词表（冻结，见 ai输出/ovo-C01-Lite-最小委托契约-v1-20261115.md）。
+_DELEGATION_STATE = {
+    "draft": "NEEDS_INPUT",
+    "ready_to_arm": "READY",
+    "active": "READY",
+    "needs_attention": "NEEDS_REVIEW",
+    "paused": "BLOCKED",
+    "completed": "DELIVERED",
+    "cancelled": "BLOCKED",
+}
+
+
+def delegation_block(*, run_id, canonical_status, next_actor, next_action,
+                     blocked_code, result_ref, scope, recovery_entry, gaps=0):
+    """C-01-Lite 最小委托投影：八个字段 + 一句边界。只投影，不改状态。"""
+    mapped = _DELEGATION_STATE.get(str(canonical_status or ""), "BLOCKED")
+    if mapped == "READY" and int(gaps or 0):
+        mapped = "PARTIAL"
+    return {
+        "task_id": str(run_id or ""),
+        "task_state": mapped,
+        "next_actor": str(next_actor or ""),
+        "next_required_action": str(next_action or ""),
+        "blocked_reason_code": blocked_code,
+        "result_ref": result_ref,
+        "authorization_scope": scope,
+        "recovery_entry": recovery_entry,
+        "delegation_boundary": ("投影只说明这次运行推进到哪一步；DELIVERED 不等于"
+                                "获得用户或收入，L3 UNKNOWN 不等于 0"),
+    }
+
+
 def explain_status(data_dir, run_path=None, *, run_id: str = "",
                    on: Optional[str] = None,
                    login_probe: Optional[Callable[[str], Dict[str, Any]]] = None,
@@ -1462,6 +1495,16 @@ def explain_status(data_dir, run_path=None, *, run_id: str = "",
         "next_required_action": next_action,
         "next_command": next_command,
         "blocked_reason_code": blocked_code,
+        "delegation": delegation_block(
+            run_id=run_id, canonical_status=status, next_actor=next_actor,
+            next_action=next_action, blocked_code=blocked_code,
+            result_ref=(artifacts[0] if artifacts else None),
+            scope={"actions": (data.get("quota") or {}).get("actions")
+                   if isinstance(data.get("quota"), dict) else None,
+                   "account_id": str((data.get("guards") or {}).get("account_id") or "")},
+            recovery_entry=(next_command if status in ("paused", "needs_attention", "cancelled")
+                            else None),
+            gaps=len((data.get("supply_state") or {}).get("gap_reasons") or [])),
         "last_updated_at": _last_updated(data, run.path),
         "has_pending_external_effect": bool(pending),
         "artifact_refs": artifacts,
