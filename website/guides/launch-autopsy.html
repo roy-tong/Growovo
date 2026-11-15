@@ -3,15 +3,15 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>一夜发布 73 条内容，0 增长：一次失败的增长实验复盘 | Growovo</title>
-<meta name="description" content="一个 31 粉丝的账号在 11 小时里发了 73 条内容，三个仓库 star 增长全部为零。完整记录：平台静默丢弃、读数分层、五个发现、以及下一轮实验怎么设计。所有数字可复现。">
+<title>一夜发布 73 条内容，0 个新 star：一次失败的增长实验复盘 | Growovo</title>
+<meta name="description" content="一个 31 粉丝的账号在 11 小时里发了 73 条内容，三个仓库 star 增长全部为零；关注与商业转化没有可靠读数。完整记录：平台静默丢弃、读数分层、五个发现、以及下一轮实验怎么设计。">
 <link rel="canonical" href="https://roy-tong.github.io/Growovo/guides/launch-autopsy.html">
 <meta name="theme-color" content="#fafbfc">
 <!-- GSC/Bing 验证码插在这行下面 -->
 <meta property="og:type" content="article">
 <meta property="og:site_name" content="Growovo">
-<meta property="og:title" content="一夜发布 73 条内容，0 增长：一次失败的增长实验">
-<meta property="og:description" content="31 粉丝、11 小时、73 条内容、0 个新 star。数字全部可复现的失败复盘，和它改变了什么。">
+<meta property="og:title" content="一夜发布 73 条内容，0 个新 star：一次失败的增长实验">
+<meta property="og:description" content="31 粉丝、11 小时、73 条内容、0 个新 star。关注与转化没有可靠读数——失败复盘和它改变了什么。">
 <meta property="og:url" content="https://roy-tong.github.io/Growovo/guides/launch-autopsy.html">
 <meta property="og:image" content="https://roy-tong.github.io/Growovo/assets/social-preview.png">
 <meta name="twitter:card" content="summary_large_image">
@@ -40,20 +40,22 @@ footer{border-top:1px solid var(--line);margin-top:56px;padding-top:18px;color:v
 </head>
 <body>
 <main>
-<h1>一夜发布 73 条内容，0 增长</h1>
-<p class="tagline">一次失败的增长实验完整复盘：31 个粉丝的账号，11 小时，73 条内容，三个仓库的 star 增长全部为零。</p>
-<p class="meta">实验窗口 2026-11-05 20:32 → 11-06 07:23（+08）。原始记录：<a href="https://github.com/roy-tong/Growovo/blob/main/docs/launch-autopsy-20261105.md">docs/launch-autopsy-20261105.md</a>（英文，每个数字带来源）。本文所有数字与原文一致，不新增任何未核实数据。</p>
+<h1>一夜发布 73 条内容，0 个新 star</h1>
+<p class="tagline">一次失败的增长实验完整复盘：31 个粉丝的账号，11 小时，73 条内容，三个仓库的 star 增长全部为零。关注与商业转化没有建立可靠测量，本文不把它们写成零。</p>
+<p class="meta">实验窗口 2026-11-05 20:32 → 11-06 07:23（+08）。原始记录：<a href="https://github.com/roy-tong/Growovo/blob/main/docs/launch-autopsy-20261105.md">docs/launch-autopsy-20261105.md</a>（英文，每个数字带来源）。本文数字与原文一致，不新增任何未核实数据。</p>
+<p class="note">先说清楚这次实验的身份：<strong>它没有走 Growovo 的账本和执行链路</strong>。当晚的进度由三个临时脚本写成 JSON，所以部分读数只能带限定词，而不是一个整齐的零。这正是复盘要暴露的问题之一——见下面第 3 个发现。</p>
 
 <h2>先分清楚四个东西：发布 ≠ 曝光 ≠ 关注 ≠ 商业结果</h2>
 <p>复盘之前先立标尺。增长讨论里最常见的混淆，是把四个不同层级的结果当成一个：</p>
 <table>
 <tr><th>层级</th><th>是什么</th><th>这一晚的读数</th></tr>
-<tr><td>发布</td><td>执行结果——内容确实发出去了</td><td>73+ 条（其中一部分被平台静默丢弃，见下）</td></tr>
-<tr><td>曝光</td><td>渠道反馈——平台给不给看</td><td>线程浏览量页面读数为 4，且该读数不可信</td></tr>
-<tr><td>关注</td><td>增长信号——陌生人决定留下</td><td>0 个新关注者</td></tr>
-<tr><td>商业结果</td><td>注册、激活、付费</td><td>0</td></tr>
+<tr><td>发布</td><td>执行结果——内容确实发出去了</td><td>73+ 条提交；36 个线程帖与 34 条回复有 ID 可核，独立帖至少 3 条确认发出，另 13 条无法确认（平台静默丢弃）</td></tr>
+<tr><td>曝光</td><td>渠道反馈——平台给不给看</td><td>线程浏览量页面读数为 4，该读数不可信；没有独立曝光测量</td></tr>
+<tr><td>关注</td><td>增长信号——陌生人决定留下</td><td><strong>未完成可靠测量</strong>：账号粉丝数没有逐日落盘，不能写成 0</td></tr>
+<tr><td>商业结果</td><td>注册、激活、付费</td><td><strong>未提供可验证的转化数据</strong>：当晚没有注册、激活或付费的观测链路</td></tr>
 </table>
 <p>「发了多少」是执行问题，「有没有人看」是渠道问题，「有没有人留下来」是增长问题，「有没有人用/付钱」是商业问题。<strong>执行量做得再满，也不能替代后面三层。</strong></p>
+<p>四层之外还有一个读数：<strong>GitHub star 增量</strong>。它是这次唯一可精确复现的硬读数——三个仓库都是 0（见下方结果表），由 GitHub API 在 11-04 和 11-06 两次读取。但 star 增量不等于关注、注册或付费；把「0 star」讲成「0 增长」，就是把未知写成零，这篇复盘不做这件事。</p>
 
 <h2>实验设置</h2>
 <table>

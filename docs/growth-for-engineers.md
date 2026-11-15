@@ -58,7 +58,7 @@ python3 mkt.py grow learn g1
 
 ## 先看证据再决定信不信
 
-- [发布尸检：11 小时 73 条推文，0 个新 star](launch-autopsy-20261105.md)——用这个工具跑的一次真实 campaign、拿到的数字、以及它暴露的我们自己的账本缺口。
+- [发布尸检：11 小时 73 条推文，0 个新 star](launch-autopsy-20261105.md)——一次真实的 GTM 发布实验（当晚没走账本，进度靠临时脚本记）：拿到的数字，以及它暴露的账本缺口。
 - [为什么不自己写个脚本，或者用通用自动化平台？Why not just write a script?](compare.md)（英文）——逐项对比，每条主张对应仓库文件。
 - [平台自动执行矩阵](platform-automation-matrix.md)——第一期 X + Email 全自动；GitHub、Reddit、Hacker News、LinkedIn 需人工首跑解锁；小红书、知乎等人工渠道只出作业单。
 

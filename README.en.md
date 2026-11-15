@@ -28,7 +28,7 @@ python3 mkt.py grow daemon g1          # foreground service; Ctrl-C stops it
 python3 mkt.py grow daily g1           # one screen a day: volume/readings/supply/guardrails
 ```
 
-**See the receipts first:** [Launch autopsy: 73 tweets in 11 hours, 0 new stars](docs/launch-autopsy-20261105.md) — the campaign we ran with this tool, the numbers it produced, and the ledger gap it exposed in our own process.
+**See the receipts first:** [Launch autopsy: 73 tweets in 11 hours, 0 new stars](docs/launch-autopsy-20261105.md) — a real launch experiment we ran without the ledger (throwaway scripts instead), the numbers it produced, and the ledger gap it exposed in our own process.
 
 <details>
 <summary>What's new (v0.8 – v0.13): Work OS, orchestration, design layer, execution integrity</summary>

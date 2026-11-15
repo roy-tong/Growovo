@@ -49,7 +49,7 @@
     { "@type": "Question", "name": "Growovo 能全自动发哪些平台？", "acceptedAnswer": { "@type": "Answer", "text": "第一期只有 X 和 Email（X 为 PROVEN，Email 为 PORTED）；GitHub、Reddit、Hacker News、LinkedIn 需要人工首跑一次才解锁；小红书、知乎这类人工渠道只出作业单，不计入自动发布量。用 mkt grow platforms 随时查看当前状态。" } },
     { "@type": "Question", "name": "会不会把我的账号搞封？", "acceptedAnswer": { "@type": "Answer", "text": "只用于你拥有、或被明确授权操作的账号。发送前有授权闸门和 dry-run，可以先看它打算做什么再放行；平台规则之外的路径不提供绕过。同时明确：不承诺平台算法给多少曝光。" } },
     { "@type": "Question", "name": "和定时发帖工具有什么区别？", "acceptedAnswer": { "@type": "Answer", "text": "定时发帖工具执行你写好的内容；Growovo 从产品事实和增长目标出发，自己定策略、排计划、执行，并把执行了多少、读数是多少落成可核验的账本。策略和周报是中间产物，交付的是每天的业务结果。" } },
-    { "@type": "Question", "name": "它说的结果怎么核实？", "acceptedAnswer": { "@type": "Answer", "text": "账本里每条执行记录逐条可查；每天落粉丝与曝光读数，截图留证、标证据级别；mkt demo 零网络零账号，本地一秒跑完完整闭环。反例也公开：发布尸检记录了一次 0 新增 star 的真实 campaign。" } },
+    { "@type": "Question", "name": "它说的结果怎么核实？", "acceptedAnswer": { "@type": "Answer", "text": "账本里每条执行记录逐条可查；每天落粉丝与曝光读数，截图留证、标证据级别；mkt demo 零网络零账号，本地一秒跑完完整闭环。反例也公开：发布尸检记录了一次没走账本的真实发布实验——0 个新 star，关注与转化没有可靠读数。" } },
     { "@type": "Question", "name": "要花钱吗？", "acceptedAnswer": { "@type": "Answer", "text": "工具本身 MIT 开源，没有付费版。运行消耗的本机资源与模型调用按你自己的环境计。" } },
     { "@type": "Question", "name": "出异常了怎么办？", "acceptedAnswer": { "@type": "Answer", "text": "异常停车待人工裁决，不会自行硬闯；完成率驱动调量建议；供给缺口提前报警，不会等用完了才说。" } }
   ]
@@ -82,6 +82,7 @@ footer{border-top:1px solid var(--line);margin-top:56px;padding-top:18px;color:v
 <h1>Growovo</h1>
 <p class="tagline">给产品事实和一个增长目标，它自己定策略、自己执行，每天交付业务结果。</p>
 <span class="badge">开源 MIT</span><span class="badge">CLI / MCP / Agent Skill</span><span class="badge">v0.14.0</span>
+<p><a href="#demo">看一个具体任务：一次被闸门拦下的执行 →</a></p>
 
 <h2>这是什么</h2>
 <p>Growovo 面向<strong>独立开发者与一人公司</strong>：你把产品事实和一个增长目标交给它，它自己定策略、自己执行，每天交付业务结果——发布多少条、日均曝光多少、新增多少关注者。策略、计划、周报都是中间产物，不是交付物。</p>
@@ -96,6 +97,17 @@ footer{border-top:1px solid var(--line);margin-top:56px;padding-top:18px;color:v
 </table>
 <p>不承诺平台算法给多少曝光，也不把未验证渠道包装成全自动。</p>
 
+<h2 id="demo">一个具体任务：一次被闸门拦下的执行</h2>
+<p>输入是一个计划（demo-p0）、一个 campaign 和三条队列项。下面是 <code>mkt demo</code> 的真实输出，零网络、零账号，本地一秒内可复现：</p>
+<table>
+<tr><th>步骤</th><th>发生了什么</th><th>结果</th></tr>
+<tr><td>计划校验</td><td>schema、beachhead、能力矩阵、是否超过内核日预算</td><td>PASS（本计划 3 条，日预算 100）</td></tr>
+<tr><td>人审闸门</td><td>campaign 属于计划 demo-p0，<code>human_approved=false</code></td><td><strong>拒绝执行并停车</strong>——人审是执行前置条件</td></tr>
+<tr><td>写路径事务</td><td>d-001 干跑未发送；d-002 占位符残留被门禁拒绝；d-003 回读不一致主动失败</td><td>1 条 dry-run · 1 条 rejected · 1 条 failed，全部留痕</td></tr>
+<tr><td>账本</td><td><code>data/demo/ledger.jsonl</code> 三条终态与预期一致</td><td>可逐条核对，失败也是记录</td></tr>
+</table>
+<p class="note">这个示例想说明的不是「它能发多少」，而是<strong>它在哪三处停下来</strong>：人审没通过、内容有占位符、发出去后读不回来。账本里只有 dry-run / rejected / failed 三种终态，<strong>没有 committed 行</strong>，传输是 <code>demo-memory</code>——没有任何真实发送。「宁可失败绝不发送」和「异常停车待人工裁决」写在代码路径里，不是写在文案里；<code>tests/test_demo.py</code> 把「可反复跑、终态不变、无 committed」固定成了回归测试。</p>
+
 <h2>安装与验证</h2>
 <pre><code>pipx install growovo
 mkt demo</code></pre>
@@ -105,7 +117,7 @@ mkt demo</code></pre>
 <pre><code>git clone https://github.com/roy-tong/Growovo.git &amp;&amp; cd Growovo
 python3 mkt.py demo                 # 一秒内返回，不需要任何账号
 python3 mkt.py grow platforms       # 看第一期哪些平台能全自动</code></pre>
-<p class="note">先看证据再决定信不信：<a href="https://github.com/roy-tong/Growovo/blob/main/docs/launch-autopsy-20261105.md">发布尸检：11 小时 73 条推文，0 个新 star</a>——用这个工具跑的一次真实 campaign、拿到的数字，以及它暴露出的我们自己的账本缺口。</p>
+<p class="note">先看证据再决定信不信：<a href="https://github.com/roy-tong/Growovo/blob/main/docs/launch-autopsy-20261105.md">发布尸检：11 小时 73 条推文，0 个新 star</a>——一次真实的 GTM 发布实验，当晚<strong>没有走 Growovo 的账本</strong>，进度靠临时脚本记；这是它拿到的数字，也是它暴露出的账本缺口。</p>
 
 <h2>Agent 接入</h2>
 <table>
@@ -123,7 +135,7 @@ python3 mkt.py grow platforms       # 看第一期哪些平台能全自动</code
 <h3>和定时发帖工具有什么区别？</h3>
 <p>定时发帖工具执行你写好的内容；Growovo 从产品事实和增长目标出发，自己定策略、排计划、执行，并把执行了多少、读数是多少落成可核验的账本。策略和周报是中间产物，交付的是每天的业务结果。更细的对照见<a href="https://github.com/roy-tong/Growovo/blob/main/docs/compare.md">对比页</a>。</p>
 <h3>它说的结果，我怎么核实？</h3>
-<p>三样都可查：账本里每条执行记录逐条可查；每天落粉丝与曝光读数，截图留证、标证据级别；<code>mkt demo</code> 零网络零账号，本地一秒跑完完整闭环。反例也公开：上面的发布尸检就是一次 0 新增 star 的真实 campaign。</p>
+<p>三样都可查：账本里每条执行记录逐条可查；每天落粉丝与曝光读数，截图留证、标证据级别；<code>mkt demo</code> 零网络零账号，本地一秒跑完完整闭环。反例也公开：上面的发布尸检是一次 0 新增 star 的真实发布实验，当晚绕过了账本——连失败都记不全，正是我们要修的问题。</p>
 <h3>要花钱吗？</h3>
 <p>工具本身 MIT 开源，没有付费版。运行消耗的本机资源与模型调用按你自己的环境计。</p>
 <h3>出异常了怎么办？</h3>
@@ -132,7 +144,7 @@ python3 mkt.py grow platforms       # 看第一期哪些平台能全自动</code
 <h2>相关链接</h2>
 <ul>
 <li>仓库与文档：<a href="https://github.com/roy-tong/Growovo">GitHub roy-tong/Growovo</a>（<a href="https://github.com/roy-tong/Growovo/blob/main/README.en.md">English README</a> · <a href="https://github.com/roy-tong/Growovo/blob/main/docs/feature-status.md">功能状态</a> · <a href="https://github.com/roy-tong/Growovo/blob/main/docs/platform-automation-matrix.md">平台自动执行矩阵</a>）</li>
-<li>增长复盘：<a href="./guides/launch-autopsy.html">一夜发布 73 条内容，0 增长</a> —— 完整失败记录与改法</li>
+<li>增长复盘：<a href="./guides/launch-autopsy.html">一夜发布 73 条内容，0 个新 star</a> —— 完整失败记录与改法</li>
 <li>LLM 标准入口：<a href="https://roy-tong.github.io/Growovo/llms.txt">/llms.txt</a> · <a href="https://raw.githubusercontent.com/roy-tong/Growovo/main/llms.txt">仓库 llms.txt</a> · <a href="./en.html" hreflang="en">English page</a></li>
 <li>ovo 家族：研究层 <a href="https://roy-tong.github.io/Askovo/">Askovo</a>（<a href="https://github.com/roy-tong/Askovo">仓库</a>） · 核验层 <a href="https://roy-tong.github.io/Verovo/">Verovo</a>（<a href="https://github.com/roy-tong/Verovo">仓库</a>）</li>
 </ul>
