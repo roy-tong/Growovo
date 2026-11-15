@@ -3310,7 +3310,7 @@ def cmd_x(args):
     if getattr(args, "thread", False):
         extra += ["--thread"]
     return x_run(args.action, extra, go=args.go, adhoc=args.adhoc,
-                campaign=args.campaign, ledger=_ledger(),
+                campaign=args.campaign, ledger=_ledger(), data_dir=DATA,
                 identity=identity_evidence)
 
 
