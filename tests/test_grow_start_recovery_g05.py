@@ -486,30 +486,41 @@ class ReconciliationTests(Workspace):
         self.assertEqual("needs_attention", run.load()["status"])
 
     def test_restart_does_not_resend_indeterminate(self):
+        """调度路径（tick→run_queue→adapter）也不能碰 vendor。"""
         from unittest.mock import patch
         from channels.x import adapter
+        from core import session_gate
+        run, path = self.launched()
         vendor = self.dir / "vendor"
         vendor.mkdir(parents=True, exist_ok=True)
         (vendor / "reply_x.py").write_text(
             "import pathlib\n"
             "pathlib.Path(__file__).parent.joinpath('called').write_text('1')\n",
             encoding="utf-8")
-        self.seed(result="indeterminate", ref="ref-ind",
-                  target="https://x.com/a/status/7")
+        target = "tweet:https://x.com/a/status/7"
+        self.seed(result="indeterminate", ref="ref-ind", target=target)
+        queue_path = self.dir / "queues" / f"{RUN}-20261103.json"
+        queue_path.parent.mkdir(parents=True, exist_ok=True)
+        queue_path.write_text(json.dumps({
+            "campaign": f"{RUN}-20261103", "channel": "x", "action": "reply",
+            "items": [{"id": "i1", "target": target,
+                       "body": "先说结论，再给一个可复现的细节。",
+                       "scheduled_for": "2026-11-03"}]}, ensure_ascii=False),
+            encoding="utf-8")
         before = len(self.ledger().all())
-
-        def restart_once():
-            with patch.object(adapter, "VENDOR", vendor):
-                return adapter.run(
-                    "reply", ["https://x.com/a/status/7"], go=True,
-                    adhoc=True, campaign=f"{RUN}-20261103",
-                    ledger=self.ledger(), log=lambda *a: None,
-                    data_dir=self.dir)
-
-        for _ in range(2):  # 第一次 + 模拟重启后的下一轮
-            with self.assertRaises(SystemExit) as ctx:
-                restart_once()
-            self.assertIn("不重试名单", str(ctx.exception))
+        logged_in = lambda channel: {"channel": channel,
+                                      "status": "logged_in"}
+        with patch.object(adapter, "VENDOR", vendor), \
+                patch.object(session_gate, "check_login", logged_in):
+            first = run.tick(self.dir, on="2026-11-03",
+                             now=_now("2026-11-03"))
+            second = run.tick(self.dir, on="2026-11-03",
+                              now=_now("2026-11-03"))
+        self.assertTrue(first["ran"])
+        self.assertTrue(any("不重试名单" in str(entry.get("error") or "")
+                            for entry in first["ran"]),
+                        f"tick 应报告不重试拦截：{first}")
+        self.assertTrue(second["ran"] or second.get("skipped"))
         self.assertFalse((vendor / "called").exists(),
                          "未裁决的 indeterminate 目标不得触碰 vendor")
         self.assertEqual(before, len(self.ledger().all()))
@@ -522,8 +533,8 @@ class PauseTests(Workspace):
         self.assertEqual("paused", data["status"])
         summary = run.tick(self.dir, on="2026-11-03",
                            runner=lambda *a, **k: [], now=_now("2026-11-03"))
-        self.assertEqual([], summary["ran"])
-        self.assertEqual("paused", summary["skipped"])
+        self.assertEqual([], summary.get("ran"))
+        self.assertEqual("paused", summary.get("skipped"))
         self.assertFalse((self.dir / "ledger.jsonl").exists())
         resumed = run.resume(note="接管结束", by="roy")
         self.assertEqual("active", resumed["status"])
@@ -533,8 +544,8 @@ class PauseTests(Workspace):
         safety.set_pause(self.dir, True, "事故")
         summary = run.tick(self.dir, on="2026-11-03",
                            runner=lambda *a, **k: [], now=_now("2026-11-03"))
-        self.assertEqual("paused", summary["skipped"])
-        self.assertEqual([], summary["ran"])
+        self.assertEqual("paused", summary.get("skipped"))
+        self.assertEqual([], summary.get("ran"))
         safety.set_pause(self.dir, False)
 
 
@@ -732,6 +743,36 @@ class CliTests(Workspace):
                      "--by", "roy", "--note", "平台后台已看到")
         proc = self.run_mkt("grow", "resume", RUN, "--after-reconciliation",
                             incident["event_id"], "--by", "roy")
+        self.assertIn("已恢复", proc.stdout)
+        self.assertEqual("active", GrowRunV2(path).load()["status"])
+
+    def test_resume_cli_default_path_requires_reconciliation(self):
+        run, path = self.launched()
+        self.seed(result="indeterminate", ref="ref-ind")
+        data = run.load()
+        data["status"] = "needs_attention"
+        run.save(data)
+        proc = self.run_mkt("grow", "resume", RUN, "--by", "roy",
+                            "--note", "处理好了", check=False)
+        self.assertEqual(2, proc.returncode)
+        self.assertIn("mkt ledger resolve", proc.stdout)
+        self.assertIn("--after-reconciliation", proc.stdout)
+        self.assertEqual("needs_attention", GrowRunV2(path).load()["status"])
+        incident = [i for i in rb.list_incidents(self.dir, path)["incidents"]
+                    if i["kind"] == "indeterminate_external_action"][0]
+        self.run_mkt("ledger", "resolve", "ref-ind", "--result", "committed",
+                     "--by", "roy", "--note", "平台后台已看到")
+        proc = self.run_mkt("grow", "resume", RUN, "--after-reconciliation",
+                            incident["event_id"], "--by", "roy",
+                            "--note", "平台后台已看到")
+        self.assertIn("已恢复", proc.stdout)
+        self.assertEqual("active", GrowRunV2(path).load()["status"])
+
+    def test_resume_cli_default_path_works_without_blocking(self):
+        run, path = self.launched()
+        run.pause(reason="人工接管", by="roy")
+        proc = self.run_mkt("grow", "resume", RUN, "--by", "roy",
+                            "--note", "接管结束")
         self.assertIn("已恢复", proc.stdout)
         self.assertEqual("active", GrowRunV2(path).load()["status"])
 
