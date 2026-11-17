@@ -2,6 +2,56 @@
 
 ## Unreleased
 
+### Golden chain preparation (review 2026-11-17: P2 unified operations log, P0 delivery contract, §5 procurement branch, §9 acceptance script)
+
+- **Unified operations log** (`core/operations_log.py`, `data/operations.jsonl`):
+  every real/dry-run action appends one complete record with the §4.2 minimum
+  field list (operation_id/run_id/queue_item_id, channel/action/target/
+  content_sha256, browser_context_ref — endpoint only, never credentials,
+  account.platform_user_id/handle/observed_at/proof_ref, operator/approval_ref/
+  policy_sha256, started_at/finished_at/result, receipt.id/url/readback_sha256,
+  artifacts[].path/sha256, error.code/retryable/recovery_ref). Validation fails
+  loud — a record missing fields, or whose artifact hash disagrees with the
+  file, is rejected whole rather than appended half-written. Entries are wired
+  at every send entry point: queue runner (queue_item_id + operator per item,
+  email batch included), single-action runner (`mkt action`/MCP), the `mkt x`
+  CLI passthrough (ledger capture, no time heuristics), and grow tick passes
+  `run_id`/`operator=grow:<run>`.
+- **Account switch never crosses identities**: each record carries only the
+  account observed for that operation; when the observed platform id changes
+  between consecutive operations on a channel the new record notes
+  `account.switched_from` (who/which operation) for audit. The G-01/G-01b gate
+  semantics are unchanged — bound authorizations still block a different
+  account outright.
+- **Readback consistency**: `receipt.readback_sha256` (or
+  `readback.status=mismatched`) differing from `content_sha256` forces the
+  record to `indeterminate` with `error.readback_mismatch`,
+  `retryable=false` and a `ledger resolve` recovery ref — reusing the
+  unknown-receipt no-retry mechanism. The X adapter maps a vendor reply
+  `readback {url,id,sha256}` onto the ledger row as a receipt and downgrades
+  hash-mismatched rows to `indeterminate` with a readback detail.
+- **requires_procurement branch** (`core/procurement.py`): paid channels/data
+  sources requested at strategy compile (x_ads/ads/google_ads/linkedin_ads/
+  x_api_paid/sales_navigator/paid_api …) raise a structured §5 JSON
+  (`terminal_state=BLOCKED_USER_INPUT`, `transaction_executed=false`,
+  item/why/user_action/alternatives) that survives `CompileError → GrowError →
+  mkt grow start` and prints as JSON. Growovo never buys, never silently skips.
+- **Machine-readable delivery contract** (`docs/delivery-contract.json`):
+  supported intentions, required inputs, the five terminal states, exclusions,
+  the procurement template, the operations-log minimum fields (asserted equal
+  to `core/operations_log.MINIMUM_FIELDS` by test), evidence grades, and an
+  honest live_status. `mkt init` renders the same boundaries from the same
+  file — CLI first interaction and docs cannot drift apart.
+- **Live X acceptance script** (`scripts/acceptance_live_x.py`): the §9
+  deliverable up to the step before live execution. `--dry-run` rehearses the
+  whole chain offline (real policy/identity/executor code paths, offline vendor
+  and readback stand-ins, six-party separation table, operations log, honest
+  UNKNOWN reading, `--simulate-readback-mismatch` rehearses the indeterminate
+  halt). Live mode requires explicit `--authorize-by <name>`, an isolated
+  profile and a CDP port other than 9222 (the campaign port is refused), and a
+  dedicated test tweet. **The live run has NOT been executed in this change** —
+  it is the user's explicit step; nothing here is marked live-proven.
+
 ### C-01-Lite minimal delegation projection
 
 `mkt grow status <run> --explain` now also returns a `delegation` block with the

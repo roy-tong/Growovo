@@ -6,12 +6,22 @@ Reviewed 2026-11-15. **Working baseline: v0.14.0 (grow v2).** Available means lo
 
 ## Verification snapshot
 
-- `python3 -m unittest discover -s tests`: **1440 tests pass** (same set as `pytest tests/`).
+- `python3 -m pytest tests/`: **1539 tests pass** (`unittest discover` covers the same set).
 - `python3 mkt.py demo`: plan validation, human approval, write pipeline and ledger pass.
 - `python3 mkt.py work-demo`: context → objective → WorkOrder → SOP → accepted deliverables → receiver handoff → approved plan/queue → independent KPI observation passes; no queue execution or send ledger.
 - v0.14.0 wheel acceptance runs outside the source checkout, covering packaged experience records, target management, goal compilation and scheduler workspace binding.
 - Grow v2: launch → stage → tick (virtual clock, 7/14-day simulations) → daily → decide → weekly report → install; zero real sends.
 - Real CLI checks also cover email queue approval and dry-run, X reply queue contract, manual work sheets, campaign isolation, opportunity discovery, value artifacts, journeys, account lifecycle and pricing experiments. No real account sends in tests.
+
+## Golden chain preparation (2026-11-17, review 后续优化评审 P0/P2)
+
+| Area | Local implementation | Verification and remaining boundary |
+|---|---|---|
+| Unified operations log | `core/operations_log.py` appends one complete record per real/dry-run action to `data/operations.jsonl` with the review's minimum field list (operation/run/queue ids, channel/action/target/content_sha256, browser endpoint ref, observed account with observed_at/proof_ref, operator/approval_ref/policy_sha256, timestamps/result, receipt id/url/readback_sha256, artifact hashes, error code/retryable/recovery_ref). Fail-loud validation rejects incomplete records or artifact-hash mismatches. Wired at queue runner (per-item queue_item_id/operator; email batch included), single-action runner, `mkt x` CLI passthrough (ledger capture), grow tick (run_id + operator). | Unit + integration tests offline; `switched_from` records account switches without identity cross-over. Pre-dispatch gate rejections that never reach the ledger are not logged as operations (same boundary as the ledger itself). |
+| Readback consistency | `receipt.readback_sha256` / `readback.status=mismatched` vs `content_sha256` mismatch forces `indeterminate` + `error.readback_mismatch` (retryable=false, `ledger resolve` recovery ref). X adapter maps vendor reply `readback {url,id,sha256}` to a ledger receipt and downgrades mismatches. | Mismatch halt + no-retry verified offline with fake vendor result files. Live post-readback itself runs in the acceptance script (not yet executed live). |
+| requires_procurement | `core/procurement.py`: paid channels/data sources requested at compile raise the structured §5 JSON (`BLOCKED_USER_INPUT`, `transaction_executed=false`), propagated through `CompileError`/`GrowError` and printed by `mkt grow start`. | Trigger covers the known paid registry (ads/x_api_paid/sales_navigator/paid_api…); no engine path can execute a purchase. |
+| Delivery contract | `docs/delivery-contract.json` (intentions, inputs, five terminal states, exclusions, procurement template, operations-log minimum fields, evidence grades, honest live_status); `mkt init` renders the same boundaries from the same file; a test asserts field-list parity between contract and code. | Contract is product-level documentation with machine checks, not a runtime gate. |
+| Live X acceptance chain | `scripts/acceptance_live_x.py`: policy → observed identity → six-party separation table → single low-risk reply → readback (ID/URL/content hash) → operations log → reading or UNKNOWN. `--dry-run` rehearses the full chain offline (real engine paths, offline vendor/readback stand-ins; `--simulate-readback-mismatch` rehearses the halt). Live requires `--authorize-by`, a CDP port other than 9222, an isolated profile and a dedicated test tweet. | **Live run not executed.** Dry-run is covered by tests; the real send is the user's explicit step, so nothing is marked live-proven. |
 
 ## Feedback loop corrections (2026-11-14)
 
