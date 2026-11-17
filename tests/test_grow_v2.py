@@ -330,6 +330,15 @@ class OpsTests(unittest.TestCase):
                          handle="verovo", data_dir=self.dir, skip_probe=True)
         self.run = GrowRunV2(self.path)
 
+    def test_review_before_full_week_clamps_to_start(self):
+        """第 1–6 天做 7 天复盘时，窗口应按 run 开始日截断，而不是抛 ScheduleError。"""
+        result = self.run.review(self.dir, days=7, on="2026-11-02")
+        self.assertEqual(2, result["summary"]["days"])
+        self.assertEqual("2026-11-01", result["summary"]["start"])
+        self.assertEqual(7, result["summary"]["requested_days"])
+        self.assertIn("请求 7 天", result["markdown"])
+        self.assertIn("本次按已积累的 2 天窗口复盘", result["markdown"])
+
     def test_review_aggregates_days(self):
         _queue(self.dir, "g1", "2026-11-01", count=1)
         self.run.arm(by="roy")

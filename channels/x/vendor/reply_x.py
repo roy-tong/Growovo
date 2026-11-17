@@ -72,6 +72,9 @@ def main() -> int:
             return 2
         ctx = browser.contexts[0] if browser.contexts else browser.new_context()
         page = automation_page(ctx)
+        # Growovo 局部可靠性补丁（2026-11-15）：后台标签页会因渲染节流导致点击
+        # 卡在 "stable" 检查；先把标签页提到前台，再滚动到按钮。
+        page.bring_to_front()
         page.goto(args.tweet_url, wait_until="domcontentloaded", timeout=45000)
         page.wait_for_timeout(5000)
 
@@ -84,7 +87,16 @@ def main() -> int:
         # 打开回复框
         reply = page.locator(SELECTORS["reply_button"]).first
         reply.wait_for(state="visible", timeout=15000)
-        reply.click()
+        try:
+            page.keyboard.press("Escape")          # 清掉可能残留的弹层
+            reply.scroll_into_view_if_needed(timeout=5000)
+        except Exception:
+            pass
+        try:
+            reply.click(timeout=15000)
+        except Exception as exc:
+            log(f"常规点击失败，改用 force 点击: {str(exc)[:140]}", "WARN")
+            reply.click(force=True)
         page.wait_for_timeout(2000)
 
         ta = page.locator(SELECTORS["textarea"]).first

@@ -195,8 +195,22 @@ def produce(run, data_dir, *, on=None, writer=None, discover=None, max_items=3):
                     meta = {}
                     if channel == "x" and action == "reply":
                         if prospects is None:
-                            found = (discover() if discover else run.prospects(
-                                data_dir, [], top=max(8, budget * 2), limit=20, on=on))
+                            if discover:
+                                found = discover()
+                            else:
+                                from . import grow_fit as _fit
+                                try:
+                                    profile = _fit.product_profile(facts)
+                                except Exception:  # noqa: BLE001
+                                    profile = {}
+                                # 每次补货轮换 query 起点，并排除 7 天内已看过的人；
+                                # 否则固定 3 个 query 会把同一批作者反复富化。
+                                rotate = int(state.get("attempts") or 0)
+                                found = run.prospects(
+                                    data_dir,
+                                    _fit.auto_queries(profile, rotate=rotate) if profile else [],
+                                    top=max(8, budget * 2), limit=20, on=on,
+                                    seen_days=7)
                             prospects = list(found.get("prospects") or [])
                         strategy = data.get("growth_strategy") or {}
                         require_koc = (strategy.get("focus") == "koc"

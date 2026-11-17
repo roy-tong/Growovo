@@ -869,7 +869,11 @@ class GrowRunV2:
             if dup:
                 entry["note"] = f"{len(dup)} 条此前已发过，未重复发送"
             ran.append(entry)
-            data.setdefault("last_queue_run", {})[str(queue_path)] = marker
+            # 队列级错误（如身份门禁/锁失败）发生在发送之前时，不占用本小时的
+            # marker；否则一次可修复的错误会把整小时的重试挡在门外。
+            # 未知/失败结果（blocking）仍写 marker 并停车，防止自动重发。
+            if not err:
+                data.setdefault("last_queue_run", {})[str(queue_path)] = marker
             if needs_attention:
                 break
 
@@ -1934,7 +1938,8 @@ class GrowRunV2:
                   enricher=None, koc_only: Optional[bool] = None,
                   min_followers: Optional[int] = None,
                   max_followers: Optional[int] = None,
-                  include_engaged: bool = False) -> Dict[str, Any]:
+                  include_engaged: bool = False,
+                  seen_days: int = 0) -> Dict[str, Any]:
         """账号级候选：先搜帖子，再读作者主页，按契合度排序。"""
         from . import grow_fit
         data = self.load()
@@ -1955,6 +1960,14 @@ class GrowRunV2:
         if not queries:
             queries = grow_fit.auto_queries(profile)
         engaged = self._engaged_handles(data)
+        if seen_days and not include_engaged:
+            # 最近 N 天出现在名单里的人不再重复富化：发现端要的是新人，
+            # 不是把同一批作者每小时重读一遍主页。
+            try:
+                engaged |= grow_fit.recently_seen(data_dir, data["id"], on=on,
+                                                  days=int(seen_days))
+            except Exception:  # noqa: BLE001 读名单失败不阻塞发现
+                pass
         target_result = self.targets(
             data_dir, queries, limit=limit, max_age_hours=max_age_hours,
             min_likes=min_likes, pages=pages, on=on)
@@ -2011,8 +2024,24 @@ class GrowRunV2:
         data = self.load()
         data_dir = Path(data_dir)
         on = on or _today()
-        days = max(1, int(days))
-        start = (date.fromisoformat(on) - timedelta(days=days - 1)).isoformat()
+        requested_days = max(1, int(days))
+        days = requested_days
+        end_date = date.fromisoformat(on)
+        started = date.fromisoformat(str(data["started"]))
+        if end_date < started:
+            text = (f"# 业务复盘 · {data['id']}（{on}）\n\n"
+                    f"任务尚未开始（开始于 {data['started']}）；今天没有可复盘的数据。\n\n"
+                    "边界：committed 只证明发出，不代表转化；本窗口没有执行记录。\n")
+            return {"markdown": text, "paths": {}, "summary": {
+                "days": 0, "requested_days": requested_days,
+                "start": on, "end": on, "published": 0, "coverage": 0,
+                "advice": ["任务尚未开始：到期后再复盘"],
+                "shortfalls": [], "next_actions": [f"mkt grow status {data['id']}"]}}
+        # 7 天窗口不能回看到 run 开始日之前：按任务开始日截断，而不是抛
+        # ScheduleError。第 1–6 天做周复盘时，窗口会自动缩成已积累天数。
+        start_date = max(end_date - timedelta(days=days - 1), started)
+        days = (end_date - start_date).days + 1
+        start = start_date.isoformat()
         ledger = Ledger(data_dir / "ledger.jsonl")
         days_data = data.get("telemetry", {}).get("days") or {}
         rows = []
@@ -2054,8 +2083,11 @@ class GrowRunV2:
             advice.append("这几天没有记录决定：看完复盘用 mkt grow decide 明确继续或优化")
         if not advice:
             advice.append("数据与供给正常：默认继续；若要加量，等完成率与读数覆盖都稳定")
-        lines = [f"# 业务复盘 · {data['id']}（{start} ~ {on}）", "",
-                 f"目标：{goal.get('target_text') or goal.get('metric')}"
+        lines = [f"# 业务复盘 · {data['id']}（{start} ~ {on}）", ""]
+        if requested_days != days:
+            lines += [f"> 请求 {requested_days} 天；任务开始于 {data['started']}，"
+                      f"本次按已积累的 {days} 天窗口复盘。", ""]
+        lines += [f"目标：{goal.get('target_text') or goal.get('metric')}"
                  f"｜当前 {goal.get('current') if goal.get('current') is not None else '取不到'}"
                  f"｜基线 {goal.get('baseline') if goal.get('baseline') is not None else '取不到'}"
                  + (f"｜{goal['progress']}%" if goal.get("progress") is not None else ""),
@@ -2197,7 +2229,8 @@ class GrowRunV2:
             fallback.parent.mkdir(parents=True, exist_ok=True)
             fallback.write_text(text, encoding="utf-8")
             paths = {"markdown": str(fallback)}
-        summary = {"days": days, "start": start, "end": on,
+        summary = {"days": days, "requested_days": requested_days,
+                   "start": start, "end": on,
                    "published": total_published, "coverage": coverage,
                    "koc_touches": koc_touches, "koc_share": koc_share,
                    "content_avg": content_avg,

@@ -6,7 +6,7 @@
 时间范围不需要单独参数——直接把 since:/until: 操作符写进 query 即可，如:
   python3 search_x.py "agent observability since:2026-08-18 until:2026-08-19"
 """
-from session_page import connect_browser
+from session_page import connect_browser, automation_page, release_page
 import argparse
 import os
 import sys
@@ -39,10 +39,21 @@ def main() -> int:
     with sync_playwright() as p:
         browser = connect_browser(p.chromium, CDP_URL)
         ctx = browser.contexts[0] if browser.contexts else browser.new_context()
-        page = ctx.new_page()
+        page = automation_page(ctx)
+        page.bring_to_front()
         q = args.query.replace(" ", "%20")
         page.goto(f"https://x.com/search?q={q}&src=typed_query&f=live", wait_until="domcontentloaded", timeout=45000)
-        page.wait_for_timeout(7000)
+        try:
+            page.wait_for_selector('article[data-testid="tweet"]', timeout=12000)
+        except Exception:
+            # X 偶发空结果：重载一次再等，仍空才返回空。
+            page.reload(wait_until="domcontentloaded")
+            page.wait_for_timeout(6000)
+            try:
+                page.wait_for_selector('article[data-testid="tweet"]', timeout=10000)
+            except Exception:
+                pass
+        page.wait_for_timeout(2000)
         if "x.com/login" in page.url:
             log("未登录")
             page.close()
@@ -76,7 +87,7 @@ def main() -> int:
             print(f"\n[{i}] {tw['author']}")
             print(f"    {tw['text']}")
             print(f"    {tw['url']}")
-        page.close()
+        release_page(page)
     return 0
 
 

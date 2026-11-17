@@ -263,6 +263,7 @@ def run_check() -> int:
             return 2
         ctx = browser.contexts[0] if browser.contexts else browser.new_context()
         page = automation_page(ctx)
+        page.bring_to_front()  # 后台标签页渲染节流会让发帖按钮卡在 stable 检查
         ok = verify_login(page)
         log("X 登录态正常，可以发布" if ok else "X 未登录或页面结构变化，请人工检查 x.com")
         release_page(page)
@@ -310,6 +311,7 @@ def main() -> int:
             return 2
         ctx = browser.contexts[0] if browser.contexts else browser.new_context()
         page = automation_page(ctx)
+        page.bring_to_front()  # 后台标签页渲染节流会让发帖按钮卡在 stable 检查
 
         if args.check:
             ok = verify_login(page)

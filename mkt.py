@@ -1249,6 +1249,10 @@ def cmd_grow(args):
             else:
                 result = run.produce(DATA, on=args.on or None, max_items=args.max_items)
             print(json.dumps(result, ensure_ascii=False, indent=2))
+            # 内容供给是“产出驱动”的命令：有拒绝且一条都没补进队列时，不能
+            # 用 exit 0 让 cron/脚本误以为今天已经供上货。agent 开关命令不受影响。
+            if act == "produce" and not result.get("added") and result.get("rejected"):
+                return 1
             return 0
         except (V2Error, AgentError, BusyRun, FileNotFoundError) as exc:
             print(f"自动供给未完成：{exc}")
@@ -1573,7 +1577,8 @@ def cmd_grow(args):
                                              (False if args.all_accounts else None)),
                                    min_followers=args.min_followers or None,
                                    max_followers=args.max_followers or None,
-                                   include_engaged=args.include_engaged)
+                                   include_engaged=args.include_engaged,
+                                   seen_days=args.exclude_seen_days)
         except Exception as exc:  # noqa: BLE001
             print(f"账号发现失败：{exc}")
             return 2
@@ -1808,7 +1813,22 @@ def cmd_grow(args):
                 cards = data.get("result_cards") or []
                 if args.week is not None:
                     cards = [c for c in cards if int(c.get("week") or 0) == int(args.week)]
-                print(json.dumps(cards[-1] if cards else {}, ensure_ascii=False, indent=1))
+                if cards:
+                    payload = cards[-1]
+                else:
+                    from datetime import date
+                    on = args.on or date.today().isoformat()
+                    payload = {
+                        "run": data["id"],
+                        "status": "not_ready",
+                        "reason": ("week not completed yet" if args.week is None
+                                   else f"week {args.week} has no result card yet"),
+                        "started": data.get("started"),
+                        "on": on,
+                        "result_cards": 0,
+                        "next": f"mkt grow report {data['id']}",
+                    }
+                print(json.dumps(payload, ensure_ascii=False, indent=1))
             else:
                 print(run.report(DATA, week=getattr(args, "week", None),
                                  on=args.on or None))
@@ -4866,6 +4886,8 @@ def build_parser():
                    help="包含已触达账号（默认排除，避免重复打扰）")
     a.add_argument("--min-followers", type=int, default=0)
     a.add_argument("--max-followers", type=int, default=0)
+    a.add_argument("--exclude-seen-days", type=int, default=0,
+                   help="排除最近 N 天已进过名单的 handle（0=不排除）")
     a.add_argument("--on", default=""); a.add_argument("--json", action="store_true")
     a = gsub.add_parser("koc", help="KOC 名单：已触达/未触达、分数与量级")
     a.add_argument("id"); a.add_argument("--json", action="store_true")
