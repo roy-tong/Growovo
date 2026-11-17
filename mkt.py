@@ -753,6 +753,11 @@ def cmd_grow(args):
                 continue
             print(f"  ⚠️  {row['platform']:<12} {row['status']:<8} {row['reason']}")
         print("\n只能出人工作业单（不假装自动）：其余平台。")
+        from core import platform_strategy
+        rows = platform_strategy.summary_rows()
+        stale = [r["platform"] for r in rows if r["stale"]]
+        note = f"，{len(stale)} 个待刷新" if stale else "，全部在复核窗口内"
+        print(f"\n平台策略卡：{len(rows)} 个平台（节奏/上限/门禁/证据{note}）；mkt strategy cards 查看。")
         return 0
 
     if act == "experiment":
@@ -2183,7 +2188,8 @@ def cmd_content(args):
         return 0 if res["ok"] else 2
     if args.action == "plan":
         channels = [x.strip() for x in (args.channels or "").split(",") if x.strip()]
-        p = content_ops.plan(start=args.start, days=args.days, channels=channels)
+        p = content_ops.plan(start=args.start, days=args.days, channels=channels,
+                             cadence=getattr(args, "cadence", "evidence"))
         if args.json:
             text = json.dumps(p, ensure_ascii=False, indent=1)
         else:
@@ -2758,6 +2764,30 @@ def _goal_plan_from_selection(path, facts):
 def cmd_strategy(args):
     from core import gtm, strategy, cadence, retro, logscan
     act = args.action
+
+    if act in ("card", "cards", "validate"):
+        from core import platform_strategy
+        if act == "card":
+            payload = platform_strategy.card(args.platform)
+            if getattr(args, "json", False):
+                print(json.dumps(payload, ensure_ascii=False, indent=1))
+            else:
+                print(platform_strategy.render_card(args.platform))
+            return 0 if not payload["validator"] else 1
+        if act == "cards":
+            print(platform_strategy.render_summary())
+            return 0
+        problems = platform_strategy.validate()
+        if getattr(args, "json", False):
+            print(json.dumps(problems, ensure_ascii=False, indent=1))
+        elif problems:
+            for pid, issues in problems.items():
+                print(f"{pid}：")
+                for issue in issues:
+                    print(f"  - {issue}")
+        else:
+            print(f"策略层校验通过：{len(platform_strategy.STRATEGY)} 个平台")
+        return 0 if not problems else 1
 
     if act == "build":
         facts = _load_facts(args.facts)
@@ -4376,6 +4406,13 @@ def build_parser():
     a.add_argument("--out", default="")
     a.add_argument("--json", action="store_true", help="输出策略 JSON（供 mkt execute 用）")
     a.add_argument("--selection", default="", help="mkt goal select 写出的选择契约 JSON")
+    a = ssub.add_parser("card", help="平台策略卡：节奏、上限、门禁、变现、证据与复核状态")
+    a.add_argument("platform", choices=["xiaohongshu", "wechat", "zhihu", "douyin",
+                                        "x", "reddit", "hackernews", "linkedin"])
+    a.add_argument("--json", action="store_true")
+    a = ssub.add_parser("cards", help="平台策略层覆盖表")
+    a = ssub.add_parser("validate", help="校验策略层：claim 追溯、参数自洽、检测器实现")
+    a.add_argument("--json", action="store_true")
     a = ssub.add_parser("cadence", help="四周动作表")
     a.add_argument("--start", required=True, help="开始日期 YYYY-MM-DD")
     a.add_argument("--facts", default="")
@@ -4416,9 +4453,9 @@ def build_parser():
     sp = sub.add_parser("content", help="内容运营：渠道规则、brief、审稿与多渠道路排期")
     csub = sp.add_subparsers(dest="action", required=True)
     a = csub.add_parser("rules", help="看某个渠道的内容规则")
-    a.add_argument("channel", choices=["xiaohongshu", "wechat", "blog"])
+    a.add_argument("channel", choices=["xiaohongshu", "wechat", "zhihu", "douyin", "blog"])
     a = csub.add_parser("brief", help="生成渠道原生内容 brief")
-    a.add_argument("channel", choices=["xiaohongshu", "wechat", "blog"])
+    a.add_argument("channel", choices=["xiaohongshu", "wechat", "zhihu", "douyin", "blog"])
     a.add_argument("--topic", required=True)
     a.add_argument("--audience", default="")
     a.add_argument("--product", default="")
@@ -4427,13 +4464,13 @@ def build_parser():
     a.add_argument("--title", default="")
     a.add_argument("--json", action="store_true")
     a = csub.add_parser("review", help="整篇审稿：生成版本绑定清单，或校验填写后的记录")
-    a.add_argument("channel", choices=["xiaohongshu", "wechat", "blog"])
+    a.add_argument("channel", choices=["xiaohongshu", "wechat", "zhihu", "douyin", "blog"])
     a.add_argument("--file", default="")
     a.add_argument("--text", default="")
     a.add_argument("--title", default="")
     a.add_argument("--record", default="", help="填写后的审稿 JSON；省略时生成待填写清单")
     a = csub.add_parser("audit", help="审稿：元叙述、产品出场、标题、CTA、证据与联系方式")
-    a.add_argument("channel", choices=["xiaohongshu", "wechat", "blog"])
+    a.add_argument("channel", choices=["xiaohongshu", "wechat", "zhihu", "douyin", "blog"])
     a.add_argument("--file", default="")
     a.add_argument("--text", default="")
     a.add_argument("--title", default="")
@@ -4444,6 +4481,8 @@ def build_parser():
     a.add_argument("--start", default="2026-11-07")
     a.add_argument("--days", type=int, default=14)
     a.add_argument("--channels", default="xiaohongshu,wechat,blog")
+    a.add_argument("--cadence", default="evidence", choices=["evidence", "daily-two"],
+                   help="evidence=平台策略层的证据档周节奏；daily-two=用户指定的小红书每天两篇战术")
     a.add_argument("--out", default="")
     a.add_argument("--json", action="store_true")
     sp.set_defaults(fn=cmd_content)

@@ -20,6 +20,7 @@ import re
 from datetime import date, timedelta
 from difflib import SequenceMatcher
 from core.editorial_review import CRITERIA
+from . import platform_strategy
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 SCHEMA_VERSION = "1.0"
@@ -47,10 +48,6 @@ POSITIONING: Dict[str, Any] = {
 CHANNELS: Dict[str, Dict[str, Any]] = {
     "xiaohongshu": {
         "label": "小红书",
-        "cadence": {"per_day": 2, "per_week": 14},
-        "length": {"min": 300, "max": 700},
-        "title_max": 20,
-        "title_note": "20 字是编辑预算，不是已确认的平台硬上限",
         "tone": "短段落、口语、讲具体过程，不写产品广告",
         "structure": [
             "一个具体场景或冲突",
@@ -69,10 +66,6 @@ CHANNELS: Dict[str, Dict[str, Any]] = {
     },
     "wechat": {
         "label": "公众号",
-        "cadence": {"per_week": 2},
-        "length": {"min": 1200, "max": 3500},
-        "title_max": 64,
-        "title_note": "标题以读者任务或冲突为主，不用震惊式空话",
         "tone": "叙事推进：一个人、一件事、一个判断怎么被改掉",
         "structure": [
             "一个具体人物/事件开场",
@@ -110,7 +103,66 @@ CHANNELS: Dict[str, Dict[str, Any]] = {
         "images": "命令输出、对比表、结构图；不用营销海报",
         "reuse": "展开专业读者的判断、证据与取舍；来源和复现置于必要附录",
     },
+    "zhihu": {
+        "label": "知乎",
+        "tone": "先给判断，再给过程和证据；第一人称实测，不用「首先其次」",
+        "structure": [
+            "结论先行（一句）",
+            "我的具体场景",
+            "做法与数据",
+            "哪里不成立（边界）",
+            "读者怎么复用",
+        ],
+        "cta": {"A": "主页有完整清单", "B": "评论区留下你的场景",
+                "C": "私信说清任务，约首次协助"},
+        "metrics": ["阅读", "收藏", "咨询", "关注"],
+        "images": "至少 2 张：结构图或结果对比；不堆截图",
+        "reuse": "同题换问题场景重写；不搬运旧答",
+    },
+    "douyin": {
+        "label": "抖音",
+        "tone": "前 3 秒给结果或冲突；口语、短句、大字幕",
+        "structure": [
+            "3 秒钩子：结果或反差",
+            "演示（一步一个画面）",
+            "结果与代价",
+            "一句行动",
+        ],
+        "cta": {"A": "关注看系列", "B": "评论区要清单", "C": "主页有完整流程"},
+        "metrics": ["完播", "点赞", "评论", "主页点击"],
+        "images": "视频竖屏 9:16；不用静态图代替演示",
+        "reuse": "同题换开头钩子和演示顺序；不重复发同一条",
+    },
 }
+
+# 平台硬参数只有一份：节奏、字数、标题、变现与门禁来自 core/platform_strategy.py。
+# 这里只保留写作契约（语气、结构、CTA、指标），不重复写数字。
+for _pid in ("xiaohongshu", "wechat", "zhihu", "douyin"):
+    _spec = platform_strategy.get(_pid)
+    _lim = platform_strategy.limits(_pid)
+    _channel = CHANNELS[_pid]
+    _channel["length"] = {"min": int(_lim.get("body_min") or 0),
+                          "max": int(_lim.get("body_max") or 0)}
+    _channel["title_max"] = int(_lim.get("title_max") or 0)
+    _channel["title_note"] = str(_lim.get("title_note") or "")
+    if _lim.get("title_ideal"):
+        _channel["title_ideal"] = str(_lim["title_ideal"])
+    _channel["cadence"] = platform_strategy.cadence(_pid)
+    _channel["gates"] = platform_strategy.gates(_pid, scope="content")
+    _channel["execution_gates"] = platform_strategy.gates(_pid, scope="execution")
+    _channel["strategy_checklist"] = platform_strategy.checklist(_pid)
+    _channel["overrides"] = platform_strategy.overrides(_pid)
+    for _key in ("images_min", "images_max", "hashtag_max"):
+        if _lim.get(_key) is not None:
+            _channel[_key] = int(_lim[_key])
+    if _pid == "wechat":
+        _ad = _spec.get("ad_slots") or {}
+        _channel["monetization"] = {
+            "ad_slot_floor_chars": int(_ad.get("floor_chars") or 600),
+            "ad_slot_full_chars": int(_ad.get("full_chars") or 1000),
+            "note": "广告前后各需 300 字：600 字=文中 1+文末 1，千字以上=文中 2+文末 1；"
+                    "图片挤占广告位；自己点广告或引导读者点流量主=限流到永久封禁",
+        }
 
 PRODUCTS: Dict[str, Dict[str, Any]] = {
     "Askovo": {"own": True, "what": "需求与用户研究工具，把评论、访谈和资料整理成支持/反对/缺口"},
@@ -143,6 +195,101 @@ CONTACT_PATTERN = re.compile(r"(微信|加V|加v|vx|VX|二维码|公众号[：:]
 ABSOLUTE_HARD = ("全网首发", "行业震惊", "100%", "保证", "稳赚", "零风险", "必赚", "永久有效")
 ABSOLUTE_SOFT = ("最好", "第一", "顶级", "绝对")
 COINED = ("赋能", "闭环", "抓手", "颗粒度", "打法", "破圈", "势能", "组合拳", "发射")
+
+# 平台门禁的文本检测器：key 必须与 platform_strategy.DETECTORS 一一对应。
+INDUCE_FOLLOW = (
+    re.compile(r"关注[^。\n]{0,12}(回复|发送|输入|私信|领取|获取|免费|资料|模板|礼包)"),
+    re.compile(r"(点赞|收藏|四连)[^。\n]{0,10}(领取|获取|送|拿图|自取)"),
+)
+INDUCE_SHARE = (
+    re.compile(r"集赞"),
+    re.compile(r"分享[^。\n]{0,8}(解锁|抽奖|领)"),
+    re.compile(r"转发[^。\n]{0,8}(抽奖|领)"),
+    re.compile(r"邀请\s*\d+\s*人"),
+)
+CLICKBAIT = ("震惊", "速看", "必看", "惊呆", "绝了", "不看后悔", "爆款密码")
+ANXIETY = ("再不", "就晚了", "会毁掉", "废掉", "落后于", "同龄人已经", "不学就")
+AD_BEGGING = re.compile(r"(点|戳)[^。\n]{0,4}(一下|击)?[^。\n]{0,4}广告|广告[^。\n]{0,4}支持")
+EXTERNAL_LINK = re.compile(r"https?://[^\s，。；）)]+")
+HASHTAG = re.compile(r"#[^\s#，。！？；：]{1,30}")
+
+
+def _detect_contact(body: str, title: str, rules: Dict[str, Any]) -> List[str]:
+    return [m.group(0) for m in CONTACT_PATTERN.finditer(body)]
+
+
+def _detect_link(body: str, title: str, rules: Dict[str, Any]) -> List[str]:
+    return EXTERNAL_LINK.findall(body)
+
+
+def _detect_induce_follow(body: str, title: str, rules: Dict[str, Any]) -> List[str]:
+    out: List[str] = []
+    for pattern in INDUCE_FOLLOW:
+        out += [m.group(0) for m in pattern.finditer(body)]
+    return out
+
+
+def _detect_induce_share(body: str, title: str, rules: Dict[str, Any]) -> List[str]:
+    out: List[str] = []
+    for pattern in INDUCE_SHARE:
+        out += [m.group(0) for m in pattern.finditer(body)]
+    return out
+
+
+def _detect_absolute(body: str, title: str, rules: Dict[str, Any]) -> List[str]:
+    hit = _claim_hit(body, ABSOLUTE_HARD)
+    return [hit] if hit else []
+
+
+def _detect_clickbait(body: str, title: str, rules: Dict[str, Any]) -> List[str]:
+    return [word for word in CLICKBAIT if word in (title or "") or word in body]
+
+
+def _detect_anxiety(body: str, title: str, rules: Dict[str, Any]) -> List[str]:
+    return [word for word in ANXIETY if word in body]
+
+
+def _detect_ad_begging(body: str, title: str, rules: Dict[str, Any]) -> List[str]:
+    return [m.group(0) for m in AD_BEGGING.finditer(body)]
+
+
+def _detect_images(body: str, title: str, rules: Dict[str, Any]) -> List[str]:
+    count = len(re.findall(r"!\[", body))
+    low = int((rules.get("images_min") or 0))
+    high = int((rules.get("images_max") or 0))
+    if low and count < low:
+        return [f"正文 {count} 张图，低于建议的 {low} 张"]
+    if high and count > high:
+        return [f"正文 {count} 张图，超过建议的 {high} 张"]
+    return []
+
+
+def _detect_hashtags(body: str, title: str, rules: Dict[str, Any]) -> List[str]:
+    high = int(rules.get("hashtag_max") or 0)
+    count = len(HASHTAG.findall(body))
+    if high and count > high:
+        return [f"话题标签 {count} 个，超过建议的 {high} 个"]
+    return []
+
+
+DETECTOR_IMPL = {
+    "contact_info": _detect_contact,
+    "external_link": _detect_link,
+    "induce_follow": _detect_induce_follow,
+    "induce_share": _detect_induce_share,
+    "absolute_claim": _detect_absolute,
+    "clickbait": _detect_clickbait,
+    "anxiety_sell": _detect_anxiety,
+    "ad_begging": _detect_ad_begging,
+    "image_count": _detect_images,
+    "hashtag_count": _detect_hashtags,
+}
+
+# 通用检查已经覆盖的检测器：平台门禁只补充策略说明，不重复报同一处。
+_GATE_ALIASES = {"contact_info": ("private_contact",)}
+# 关键词类检测器只报第一条，避免同一句话被拆成多条提醒。
+_SINGLE_HIT = {"absolute_claim", "clickbait", "anxiety_sell", "ad_begging",
+               "image_count", "hashtag_count"}
 
 JARGON = (
     "工具调用", "参数", "渲染", "Token", "PSD", "Agent", "API", "MCP", "CLI",
@@ -204,6 +351,10 @@ def _mentions(text: str, name: str) -> int:
 
 def _cta_type(text: str, channel: str) -> Optional[str]:
     if channel == "xiaohongshu":
+        # 2026-11 采集：笔记/评论区引导私信、留联系方式属高频违规。
+        # 允许不依赖私信的站内承接：关注 + 评论区/收藏。
+        if "私信" not in text and "关注" in text and ("评论区" in text or "收藏" in text):
+            return "B-safe"
         if "关注我一波" in text and "私信" in text:
             return "A"
         if "关注并私信" in text:
@@ -215,6 +366,22 @@ def _cta_type(text: str, channel: str) -> Optional[str]:
         return "B" if ("关注" in text or "评论区" in text) else None
     if channel == "blog":
         return "B" if ("仓库" in text or "模板" in text or "更新" in text or "评论区" in text) else None
+    if channel == "zhihu":
+        if "主页" in text and ("清单" in text or "完整" in text):
+            return "A"
+        if "评论区" in text:
+            return "B"
+        if "私信" in text and "任务" in text:
+            return "C"
+        return None
+    if channel == "douyin":
+        if "关注" in text:
+            return "A"
+        if "评论区" in text:
+            return "B"
+        if "主页" in text:
+            return "C"
+        return None
     return None
 
 
@@ -257,6 +424,34 @@ def _add(target: List[Dict[str, str]], code: str, message: str, excerpt: str = "
     target.append({"code": code, "message": message, "excerpt": excerpt[:120]})
 
 
+def _apply_gates(channel: str, rules: Dict[str, Any], body: str, title: str,
+                 errors: List[Dict[str, str]], warnings: List[Dict[str, str]],
+                 infos: List[Dict[str, str]]) -> None:
+    """跑平台策略门禁：只跑有检测器的；已有同类发现时不重复报。"""
+    buckets = {"error": errors, "warning": warnings, "info": infos}
+    existing = {item["code"] for item in errors + warnings + infos}
+    for gate in rules.get("gates") or []:
+        detector = gate.get("detector")
+        if not detector or detector not in DETECTOR_IMPL:
+            continue
+        aliases = _GATE_ALIASES.get(detector, ())
+        if gate.get("code") in existing or any(alias in existing for alias in aliases):
+            continue
+        hits = DETECTOR_IMPL[detector](body, title, rules)
+        if not hits:
+            continue
+        message = gate.get("statement", "")
+        if gate.get("fix"):
+            message += " → " + gate["fix"]
+        bucket = buckets.get(gate.get("level"), warnings)
+        unique = list(dict.fromkeys(str(x) for x in hits))
+        if detector in _SINGLE_HIT:
+            unique = unique[:1]
+        for hit in unique[:3]:
+            _add(bucket, gate["code"], message, hit)
+        existing.add(gate["code"])
+
+
 def audit_text(channel: str, text: str, *, title: str = "", strict: bool = False,
                check_title: bool = True) -> Dict[str, Any]:
     """Audit one draft. Errors are structural; warnings are editorial risks."""
@@ -290,7 +485,7 @@ def audit_text(channel: str, text: str, *, title: str = "", strict: bool = False
             break
 
     if CONTACT_PATTERN.search(body):
-        _add(errors if channel == "xiaohongshu" else warnings, "private_contact",
+        _add(errors if channel in ("xiaohongshu", "zhihu") else warnings, "private_contact",
              "出现微信/加V/二维码等站外联系方式", CONTACT_PATTERN.search(body).group(0))
 
     if check_title:
@@ -304,8 +499,29 @@ def audit_text(channel: str, text: str, *, title: str = "", strict: bool = False
 
     length = _chars(body)
     lo, hi = rules["length"]["min"], rules["length"]["max"]
-    if length < lo or length > hi:
+    if hi and (length < lo or length > hi):
         _add(warnings, "length", f"正文 {length} 字，建议 {lo}—{hi} 字")
+
+    if channel == "wechat":
+        monet = rules.get("monetization", {})
+        ad_floor = int(monet.get("ad_slot_floor_chars", 600))
+        ad_full = int(monet.get("ad_slot_full_chars", 1000))
+        if length < ad_floor:
+            _add(warnings, "ad_slot_floor",
+                 f"正文 {length} 字：文中广告要求广告前后各 300 字，{ad_floor} 字以下没有文中广告位；"
+                 f"{ad_full} 字以上解锁文中 2+文末 1")
+        img_count = len(re.findall(r"!\[", text))
+        if img_count > 2:
+            _add(warnings, "ad_slot_images",
+                 f"图片 {img_count} 张：图片截断文字计数、挤占广告位；建议 ≤1 张且放首段后")
+        ideal = str(rules.get("title_ideal") or "")
+        m = re.match(r"^(\d+)-(\d+)$", ideal)
+        if check_title and title and m:
+            if not (int(m.group(1)) <= len(title) <= int(m.group(2))):
+                _add(infos, "title_ideal",
+                     f"标题 {len(title)} 字，建议 {ideal} 字（真诚、清晰、戳需求）", title)
+
+    _apply_gates(channel, rules, body, title, errors, warnings, infos)
 
     cta = _cta_type(body, channel)
     if not cta:
@@ -454,65 +670,123 @@ def brief(channel: str, topic: str, *, audience: str = "", product: str = "",
             "证据支持读者要做的判断；不为凑信息密度强塞数字",
             "写清哪里做不到、什么还没有验证",
             "结尾给一个渠道原生动作",
-        ],
+        ] + list(rules.get("strategy_checklist") or []),
     }
 
 
 def plan(*, start: str = "2026-11-07", days: int = 14,
-         channels: Sequence[str] = ("xiaohongshu", "wechat", "blog")) -> Dict[str, Any]:
-    """Build a 14-day multi-channel schedule skeleton.
+         channels: Sequence[str] = ("xiaohongshu", "wechat", "blog"),
+         cadence: str = "evidence") -> Dict[str, Any]:
+    """Build a multi-channel schedule skeleton from the platform strategy layer.
 
-    Xiaohongshu runs twice a day. WeChat runs on day 2 and day 6 of each
-    7-day block; blog runs on day 4 of each block. These are editorial
-    defaults, not platform-optimal times.
+    ``cadence='evidence'`` 用平台策略层的证据档周节奏：小红书 3 篇/周、
+    公众号 2 篇/周、知乎 2 篇/周、抖音 3 条/周、博客 1 篇/周。
+    ``cadence='daily-two'`` 复现用户指定的小红书每天两篇战术；它不是平台
+    默认节奏，执行条件与效果都未验证。
+
+    这是编辑排班，不是平台定时；所有行都是 planned，未发布、未回执。
     """
     if days < 1:
         raise ValueError("days 至少为 1")
-    allowed = {"xiaohongshu", "wechat", "blog"}
+    mode = str(cadence or "evidence").strip().lower()
+    if mode not in ("evidence", "daily-two"):
+        raise ValueError("cadence 只能是 evidence 或 daily-two")
+    allowed = set(CHANNELS)
     picked = [c for c in channels if c in allowed]
     if not picked:
-        raise ValueError("至少选择一个渠道：xiaohongshu/wechat/blog")
+        raise ValueError("至少选择一个渠道：" + "/".join(CHANNELS))
+    if mode == "daily-two" and "xiaohongshu" not in picked:
+        mode = "evidence"
     start_date = date.fromisoformat(start)
     xhs_themes = ["跨圈层项目", "自有研究", "产品场景", "比较/答疑"]
     wechat_themes = ["硬件主线", "视频工具", "交付验收", "复盘"]
+    zhihu_themes = ["关键词选题", "实测复盘"]
+    douyin_themes = ["15 秒演示", "对比实验", "失败复盘"]
     blog_themes = ["方法/复现", "流程"]
     rows = []
+
+    def _slot(channel: str, prefix: str) -> str:
+        return f"{prefix}-{len([r for r in rows if r['channel'] == channel]) + 1:02d}"
+
     for offset in range(days):
         d = start_date + timedelta(days=offset)
         if "xiaohongshu" in picked:
-            for i, (hhmm, theme) in enumerate(zip(("12:15", "20:30"), xhs_themes[offset % 4:]+xhs_themes[:offset % 4])):
-                rows.append({
-                    "date": d.isoformat(), "time": hhmm, "channel": "xiaohongshu",
-                    "slot": f"XHS-{offset * 2 + i + 1:02d}", "theme": theme,
-                    "length": "300—700 字", "cta": ("B", "A", "B", "C", "B", "A", "B", "C", "B", "A", "B", "C", "A", "C")[(offset * 2 + i) % 14],
-                    "status": "planned",
-                })
+            times = ("12:15", "20:30") if mode == "daily-two" else ("12:15",)
+            if mode == "daily-two" or offset % 7 in (0, 2, 4):
+                for i, hhmm in enumerate(times):
+                    k = offset * len(times) + i
+                    rows.append({
+                        "date": d.isoformat(), "time": hhmm, "channel": "xiaohongshu",
+                        "slot": _slot("xiaohongshu", "XHS"),
+                        "theme": xhs_themes[k % 4],
+                        "length": f"{CHANNELS['xiaohongshu']['length']['min']}—"
+                                  f"{CHANNELS['xiaohongshu']['length']['max']} 字",
+                        "cta": ("B", "A", "B", "C", "B", "A", "B", "C",
+                                "B", "A", "B", "C", "A", "C")[k % 14], "status": "planned",
+                    })
         if "wechat" in picked and offset % 7 in (1, 5):
             rows.append({
                 "date": d.isoformat(), "time": "20:00", "channel": "wechat",
-                "slot": f"GZH-{len([r for r in rows if r['channel'] == 'wechat']) + 1:02d}",
+                "slot": _slot("wechat", "GZH"),
                 "theme": wechat_themes[(offset // 7 * 2 + (0 if offset % 7 == 1 else 1)) % 4],
-                "length": f"{CHANNELS['wechat']['length']['min']}—{CHANNELS['wechat']['length']['max']} 字", "cta": "B", "status": "planned",
+                "length": f"{CHANNELS['wechat']['length']['min']}—{CHANNELS['wechat']['length']['max']} 字",
+                "cta": "B", "status": "planned",
+            })
+        if "zhihu" in picked and offset % 7 in (0, 3):
+            rows.append({
+                "date": d.isoformat(), "time": "21:00", "channel": "zhihu",
+                "slot": _slot("zhihu", "ZH"),
+                "theme": zhihu_themes[(offset // 7 * 2 + (0 if offset % 7 == 0 else 1)) % 2],
+                "length": f"{CHANNELS['zhihu']['length']['min']}—{CHANNELS['zhihu']['length']['max']} 字",
+                "cta": "B", "status": "planned",
+            })
+        if "douyin" in picked and offset % 7 in (1, 4, 6):
+            rows.append({
+                "date": d.isoformat(), "time": "19:00", "channel": "douyin",
+                "slot": _slot("douyin", "DY"),
+                "theme": douyin_themes[len([r for r in rows if r['channel'] == 'douyin']) % 3],
+                "length": "15—30 秒", "cta": "A", "status": "planned",
             })
         if "blog" in picked and offset % 7 == 3:
             rows.append({
                 "date": d.isoformat(), "time": "09:00", "channel": "blog",
-                "slot": f"BLOG-{len([r for r in rows if r['channel'] == 'blog']) + 1:02d}",
+                "slot": _slot("blog", "BLOG"),
                 "theme": blog_themes[(offset // 7) % 2],
-                "length": f"{CHANNELS['blog']['length']['min']}—{CHANNELS['blog']['length']['max']} 字", "cta": "B", "status": "planned",
+                "length": f"{CHANNELS['blog']['length']['min']}—{CHANNELS['blog']['length']['max']} 字",
+                "cta": "B", "status": "planned",
             })
     counts: Dict[str, int] = {}
     for r in rows:
         counts[r["channel"]] = counts.get(r["channel"], 0) + 1
+    note = ("编辑建议，按证据档周节奏排班；不是平台定时，未发布、未回执。"
+            if mode == "evidence" else
+            "编辑建议，小红书按「每天两篇」战术档排班（用户指定，非平台默认，效果未验证）；"
+            "不是平台定时，未发布、未回执。")
     return {
         "schema_version": SCHEMA_VERSION,
         "start": start_date.isoformat(),
         "days": days,
+        "cadence": mode,
         "channels": picked,
         "counts": counts,
         "rows": rows,
-        "note": "编辑建议，不是平台定时；未发布、未回执。",
+        "note": note,
     }
+
+
+def _cadence_text(cadence: Any) -> str:
+    if not isinstance(cadence, dict):
+        return str(cadence)
+    low, high = cadence.get("per_week_min"), cadence.get("per_week_max")
+    if low and high and low != high:
+        text = f"每周 {low}–{high} 篇"
+    elif high:
+        text = f"每周约 {high} 篇"
+    else:
+        text = "未定"
+    if cadence.get("note"):
+        text += f"；{cadence['note']}"
+    return text
 
 
 def render_rules(channel: str) -> str:
@@ -521,9 +795,13 @@ def render_rules(channel: str) -> str:
         raise ValueError(f"未知渠道：{channel}")
     r = CHANNELS[channel]
     lines = [f"# {r['label']}内容规则", ""]
-    lines.append(f"- 频率：{r['cadence']}")
-    lines.append(f"- 长度：{r['length']['min']}—{r['length']['max']} 字")
-    lines.append(f"- 标题：最多 {r['title_max']} 字；{r['title_note']}")
+    lines.append(f"- 频率：{_cadence_text(r.get('cadence'))}")
+    if r["length"].get("max"):
+        lines.append(f"- 长度：{r['length']['min']}—{r['length']['max']} 字")
+    else:
+        lines.append("- 长度：视频/短文，无正文字数硬要求；重点在前 3 秒")
+    if r.get("title_max"):
+        lines.append(f"- 标题：最多 {r['title_max']} 字；{r['title_note']}")
     lines.append(f"- 语气：{r['tone']}")
     lines.append(f"- 结构：{' → '.join(r['structure'])}")
     lines.append(f"- 配图：{r['images']}")
@@ -532,6 +810,26 @@ def render_rules(channel: str) -> str:
     lines += ["", "## CTA", ""]
     for k, v in r["cta"].items():
         lines.append(f"- {k}：{v}")
+    if channel == "xiaohongshu":
+        lines.append("- B-safe：不带私信，用「关注我，评论区说说你的场景」；"
+                     "平台规则把私信导流列为高频违规，审稿同样接受这种站内承接。")
+    overrides = r.get("overrides") or []
+    if overrides:
+        lines += ["", "## 战术覆盖（不是平台默认）", ""]
+        for ov in overrides:
+            lines.append(f"- {ov['id']}：每天 {ov.get('per_day')} 篇 / 每周 {ov.get('per_week')} 篇"
+                         f" — {ov.get('note', '')}（{ov.get('guide', '')}）")
+    gates = r.get("gates") or []
+    if gates:
+        lines += ["", "## 平台门禁（审稿会拦）", ""]
+        for gate in gates:
+            how = "自动" if gate.get("detector") else "人工清单"
+            lines.append(f"- [{gate['level']}] {gate['statement']} → {gate.get('fix', '')}"
+                         f"（{how}；{gate.get('source', '')}）")
+    checklist = r.get("strategy_checklist") or []
+    if checklist:
+        lines += ["", "## 发布前人工检查", ""]
+        lines += [f"- [ ] {item}" for item in checklist]
     return "\n".join(lines)
 
 

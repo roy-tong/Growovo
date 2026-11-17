@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
-"""Email SMTP 写通道 —— 验证等级：PORTED。
+"""Email SMTP 写通道 —— 验证等级：PROVEN（本机环境）。
 
 模式来源（PROVEN）：newoutreach/do_send.py + smtp_followup.py（事故后已实跑 1300 封量级）；
 本封装接入框架管道后未整跑，首跑清单见 03 渠道文档 §5。
+2026-11-17 WorkingPlan 供应商 BD 用同模式实跑 10 封（含 6.9MB PDF 附件、SOCKS5 代理）全部成功，
+据此补齐：MKT_EMAIL_SOCKS 代理、MKT_EMAIL_TIMEOUT、attachments 附件支持——见 docs/email-pipeline-20261117.md。
 
 凭据只走环境变量：MKT_EMAIL_USER / MKT_EMAIL_APP_PASSWORD（App Password）。
 事务语义：SMTP 协议层 sendmail 无异常 = COMMITTED；异常 = FAILED。
@@ -11,9 +13,10 @@
 import json
 import os
 import smtplib
+import ssl
 import time
 from email.header import Header
-from email.mime.text import MIMEText
+from email.message import EmailMessage
 from email.utils import formataddr
 from pathlib import Path
 
@@ -24,6 +27,74 @@ from core.pipeline import WritePipeline
 from core.throttle import Throttle
 
 DATA = Path(__file__).resolve().parents[1] / "data"  # 仓库根/data（原 parents[2] 误指仓库外层，人审/暂停闸查空目录）
+
+DEFAULT_TIMEOUT = 60.0
+ATTACHMENT_TYPES = {
+    "pdf": ("application", "pdf"),
+    "png": ("image", "png"),
+    "jpg": ("image", "jpeg"),
+    "jpeg": ("image", "jpeg"),
+    "gif": ("image", "gif"),
+    "txt": ("text", "plain"),
+    "html": ("text", "html"),
+}
+
+
+def guess_attachment_type(path):
+    """按扩展名推断 MIME；未知类型退回 octet-stream，不让发送因为没有映射而失败。"""
+    ext = Path(path).suffix.lstrip(".").lower()
+    return ATTACHMENT_TYPES.get(ext, ("application", "octet-stream"))
+
+
+def parse_socks_proxy(value):
+    """解析 MKT_EMAIL_SOCKS（host:port）；格式不对立刻报错，不要在发送时才炸。"""
+    raw = str(value or "").strip()
+    host, _, port = raw.rpartition(":")
+    if not host or not port.isdigit() or not (0 < int(port) < 65536):
+        raise RuntimeError(f"MKT_EMAIL_SOCKS 格式应为 host:port，收到 {raw!r}")
+    return host, int(port)
+
+
+def resolve_attachments(item, queue_file=None):
+    """把队列里的附件路径解析成绝对路径；相对路径按队列文件所在目录解析。"""
+    base = Path(queue_file).resolve().parent if queue_file else Path.cwd()
+    out = []
+    for raw in item.get("attachments") or []:
+        path = Path(str(raw)).expanduser()
+        out.append(path if path.is_absolute() else (base / path))
+    return out
+
+
+def validate_attachments(items, queue_file=None):
+    """发送前检查附件：不存在/不是文件/空的都要先拦住，dry-run 同样跑。"""
+    problems = []
+    for item in items:
+        label = item.get("id") or item.get("target") or "?"
+        for path in resolve_attachments(item, queue_file):
+            if not path.is_file():
+                problems.append(f"{label}: 附件不存在 {path}")
+            elif path.stat().st_size == 0:
+                problems.append(f"{label}: 附件是空文件 {path}")
+    return problems
+
+
+def build_message(item, user):
+    """构造一封完整的 MIME 邮件（含附件）；拆出来是为了能在不连网时被测试。
+
+    用 EmailMessage 而不是 MIMEText：compat32 的 Message 没有
+    add_attachment，带附件时会抛 AttributeError；EmailMessage 还能正确
+    编码非 ASCII 的主题和附件名。
+    """
+    msg = EmailMessage()
+    msg.set_content(item["_body"])
+    msg["Subject"] = item.get("subject", "")
+    msg["From"] = formataddr((str(Header(item.get("from_name", ""), "utf-8")), user))
+    msg["To"] = item.get("target") or item.get("to")
+    for path in resolve_attachments(item, item.get("_queue_file")):
+        maintype, subtype = guess_attachment_type(path)
+        msg.add_attachment(path.read_bytes(), maintype=maintype, subtype=subtype,
+                           filename=path.name)
+    return msg
 
 
 def load_queue(path):
@@ -47,7 +118,34 @@ class SMTPChannel:
         if self._smtp is None:
             if not self.user or not self.pw:
                 raise RuntimeError("缺 MKT_EMAIL_USER / MKT_EMAIL_APP_PASSWORD 环境变量")
-            self._smtp = smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=60)
+            try:
+                timeout = float(os.environ.get("MKT_EMAIL_TIMEOUT", str(DEFAULT_TIMEOUT)))
+            except ValueError:
+                raise RuntimeError("MKT_EMAIL_TIMEOUT 必须是秒数，例如 60 或 300")
+            socks_proxy = os.environ.get("MKT_EMAIL_SOCKS", "")  # 如 127.0.0.1:7890；不设则直连
+            if socks_proxy:
+                # 本机网络直连 smtp.gmail.com 465/587 均不通（2026-11-17 WorkingPlan BD 实测），
+                # 需经系统代理（SOCKS5）。PySocks 按需导入，保持无代理环境零依赖。
+                host, port = parse_socks_proxy(socks_proxy)
+                try:
+                    import socks as _socks
+                except ImportError:
+                    raise RuntimeError("设置 MKT_EMAIL_SOCKS 需要 PySocks：pip install PySocks")
+                ctx = ssl.create_default_context()
+
+                class _SocksSMTP(smtplib.SMTP_SSL):
+                    _ctx = ctx
+
+                    def _get_socket(self, h, p, t=-1):
+                        s0 = _socks.socksocket()
+                        s0.set_proxy(_socks.SOCKS5, host, port)
+                        s0.settimeout(t if isinstance(t, (int, float)) and t > 0 else timeout)
+                        s0.connect((h, p))
+                        return self._ctx.wrap_socket(s0, server_hostname=h)
+
+                self._smtp = _SocksSMTP("smtp.gmail.com", 465, timeout=timeout)
+            else:
+                self._smtp = smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=timeout)
             self._smtp.login(self.user, self.pw)
         return self._smtp
 
@@ -84,6 +182,8 @@ def send_queue(queue_file, *, go=False, only=None, only_ids=None, campaign=None,
                       action="message", account=account)  # fail-fast；逐条由管道复核
         else:
             _approval(campaign)  # 原 plan/adhoc fail-fast，行为不变
+    for item in items:
+        item["_queue_file"] = str(queue_file)
     if only:
         items = [i for i in items if i.get("id") == only or i.get("target") == only]
     if only_ids:
@@ -91,6 +191,9 @@ def send_queue(queue_file, *, go=False, only=None, only_ids=None, campaign=None,
         items = [i for i in items
                  if str(i.get("id") or "") in wanted
                  or str(i.get("target") or "") in wanted]
+    problems = validate_attachments(items, queue_file)
+    if problems:
+        raise SystemExit("附件检查未通过：\n" + "\n".join(problems))
 
     throttle.check_run("email", "message", len(items))
     if not throttle.daily_allows("email", "message", len(items)):
@@ -123,12 +226,7 @@ def send_queue(queue_file, *, go=False, only=None, only_ids=None, campaign=None,
             def _send(item, _it=it, _ch=ch, _go=go):
                 if not _go:
                     return  # dry-run 管道在 send 前已拦截，这里兜底
-                msg = MIMEText(_it["_body"], "plain", "utf-8")
-                msg["Subject"] = Header(_it.get("subject", ""), "utf-8")
-                msg["From"] = formataddr(
-                    (str(Header(_it.get("from_name", ""), "utf-8")), _ch.user))
-                msg["To"] = _it.get("target") or _it.get("to")
-                _ch._client().send_message(msg)
+                _ch._client().send_message(build_message(_it, _ch.user))
 
             def _confirm(item, timeout=0):
                 return True  # 协议层无异常即 committed

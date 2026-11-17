@@ -2,6 +2,54 @@
 
 ## Unreleased
 
+### Platform strategy layer: the 2026-11-17 harvest becomes executable (v0.15.0)
+
+The 2026-11-17 collection grew the experience library from 210 to 594
+records and added the WeChat operations manual. Most of that growth is
+summary-level, single-source or outright article noise, so folding it into
+the kernel needed a filter, not a bulk import:
+
+- **`core/platform_strategy.py`** (new) is the layer between platform facts
+  and writing rules: role, cadence, limits, content/execution gates,
+  monetisation thresholds, cold-start ladder, and claim-cited evidence for
+  xiaohongshu, wechat, zhihu, douyin, X, Reddit, Hacker News and LinkedIn.
+  Every `craft` rule must exist verbatim in `经验库/experience.jsonl` with
+  **at least two independent sources**; official rules cite a manual section;
+  single-source secondhand leads (all 27 new X records) are shown but never
+  become gates or defaults. `validate()` fails the build when a claim is
+  rewritten, deleted, or has its support inflated.
+- **A freshness window is code, not prose**: 60 days after `reviewed_at`
+  `stale()` marks the card "待刷新"; the card never pretends an old rule
+  still holds.
+- **`core/content_ops.py`** now has five channel contracts (xiaohongshu,
+  wechat, zhihu, douyin, blog). Cadence, body/title/image limits and gates
+  are read from the strategy layer, so numbers live in one place. Ten text
+  detectors enforce the rules that can be checked offline: contact/ diverted
+  traffic, external links, follow/share inducement, absolute claims,
+  clickbait, anxiety selling, ad begging, image count and hashtag count.
+  Gates that cannot be checked from text (AIGC labelling, 90-day repost,
+  Reddit 10:1, HN no-AI/no-auto-post, LinkedIn third-party automation) stay
+  in the human checklist and execution-scope list instead of being faked.
+- **Default cadence corrected to the evidence**: xiaohongshu now schedules
+  3–5 posts/week, not two a day. The user-specified "daily two" tactic is
+  still available via `mkt content plan --cadence daily-two`, is labelled as
+  a tactic rather than a platform default, and its effect remains unverified.
+- **CLI/MCP**: `mkt strategy card <platform>`, `mkt strategy cards`,
+  `mkt strategy validate`; `mkt content plan --cadence`; read-only
+  `mkt_platform_strategy` (card or coverage table).
+- **Email channel completed**: `attachments` (pre-flight existence/empty
+  check, MIME by extension, relative paths resolved against the queue file),
+  `MKT_EMAIL_SOCKS` (validated `host:port`, clear error when PySocks is
+  missing) and `MKT_EMAIL_TIMEOUT`. `build_message` now uses `EmailMessage`:
+  the previous `MIMEText.add_attachment` call does not exist and would have
+  crashed on the first attachment send. 10 offline tests cover it.
+
+Boundaries kept explicit: the layer constrains content and operations; it
+does not prove platform distribution, growth or revenue. X's automation
+policy (official API only) is recorded as an execution boundary, not
+silently resolved, and the existing CDP write path is flagged rather than
+changed in this release.
+
 ### Logged-in is not usable: suspended/locked account gate (live finding 2026-11-17)
 
 The isolated live-acceptance browser turned out to hold a **suspended** X

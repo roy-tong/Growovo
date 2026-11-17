@@ -1,17 +1,28 @@
 # Growovo: implementation status
 
-Reviewed 2026-11-15. **Working baseline: v0.14.0 (grow v2).** Available means local implementation and local tests, not production validation on every platform or proof of business outcomes.
+Reviewed 2026-11-17. **Working baseline: v0.15.0 (platform strategy layer).** Available means local implementation and local tests, not production validation on every platform or proof of business outcomes.
 
 > Business architecture: [GTM 业务操作系统 v5](gtm-os/README.md) covers role families 07–46, work-order/SOP/deliverable/handoff contracts, KPI definitions and templates. R0/R1 are now locally implemented; see [implementation and remaining boundaries](gtm-os/05-implementation.md). Registry coverage is not equivalent to all 40 professional SOPs being executable or externally effective.
 
 ## Verification snapshot
 
-- `python3 -m pytest tests/`: **1539 tests pass** (`unittest discover` covers the same set).
+- `python3 -m pytest tests/`: **1581 tests pass** (`unittest discover` covers the same set).
 - `python3 mkt.py demo`: plan validation, human approval, write pipeline and ledger pass.
 - `python3 mkt.py work-demo`: context → objective → WorkOrder → SOP → accepted deliverables → receiver handoff → approved plan/queue → independent KPI observation passes; no queue execution or send ledger.
 - v0.14.0 wheel acceptance runs outside the source checkout, covering packaged experience records, target management, goal compilation and scheduler workspace binding.
 - Grow v2: launch → stage → tick (virtual clock, 7/14-day simulations) → daily → decide → weekly report → install; zero real sends.
 - Real CLI checks also cover email queue approval and dry-run, X reply queue contract, manual work sheets, campaign isolation, opportunity discovery, value artifacts, journeys, account lifecycle and pricing experiments. No real account sends in tests.
+
+## Platform strategy layer (2026-11-17 harvest)
+
+| Area | Local implementation | Verification and remaining boundary |
+|---|---|---|
+| Strategy registry | `core/platform_strategy.py`: role, cadence, limits, content/execution gates, monetisation thresholds, cold-start ladder and claim-cited evidence for xiaohongshu, wechat, zhihu, douyin, X, Reddit, Hacker News and LinkedIn. Every `craft` rule must exist verbatim in `经验库/experience.jsonl` with at least two independent sources; official rules cite a manual section; single-source secondhand leads (all 27 new X records) are display-only. `validate()` rejects rewritten/deleted claims and inflated support. | The layer is a curated projection of the playbooks, not a second copy: a claim mismatch breaks `mkt strategy validate` and the test suite. Coverage is 8 platforms, not all 37; missing platforms fall back to their existing registry facts and have no strategy card. |
+| Freshness | `reviewed_at` + `REVIEW_WINDOW_DAYS = 60`: `stale()` flags cards older than the window, and the rendered card says "待刷新" instead of silently reusing them. | The window is a discipline, not platform truth; a rule can be wrong inside 60 days and right after. |
+| Content contracts | `core/content_ops.py` now ships five channels (xiaohongshu, wechat, zhihu, douyin, blog). Limits and cadence are read from the strategy layer, so numbers have one source. Ten offline detectors enforce checkable gates: contact/diverted traffic, external links, follow/share inducement, absolute claims, clickbait, anxiety selling, ad begging, image count, hashtag count. | Structural audit only; it cannot verify facts, AIGC labelling, image quality, platform distribution or audience response. Gates without a text detector stay in the human checklist/execution scope (AIGC label, 90-day repost, Reddit 10:1, HN no-AI/no-auto-post, LinkedIn automation). |
+| Cadence default | `mkt content plan` now schedules xiaohongshu at 3–5 posts/week (the multi-source evidence default); `--cadence daily-two` keeps the user-specified tactic explicitly labelled as a tactic, not a platform default. | A schedule is an editorial hypothesis; neither mode is proven to grow followers. |
+| Email channel | `attachments` (pre-flight existence/empty check, MIME by extension, queue-relative paths), `MKT_EMAIL_SOCKS` (validated `host:port`, clear PySocks error) and `MKT_EMAIL_TIMEOUT`; `build_message` uses `EmailMessage` because `MIMEText.add_attachment` does not exist. | 10 offline tests; no live SMTP send in tests. Live credentials and proxy remain environment facts, not product guarantees. |
+| CLI/MCP | `mkt strategy card|cards|validate`, `mkt content plan --cadence`, read-only `mkt_platform_strategy`. | Read-only surfaces; no new write path, approval or policy scope. |
 
 ## Golden chain preparation (2026-11-17, review 后续优化评审 P0/P2)
 
@@ -71,7 +82,7 @@ See [requirements, implemented fixes and remaining gaps](grow-feedback-improveme
 | Experience pipeline | `core/experience.py` + `mkt exp` + harvest/build/render scripts + `mkt_experience` | 129 raw records in the current snapshot. Raw records do not automatically become eligible. Official rules, reproducible methods, single-expert experience, short-term tactics and own tests have different eligibility rules. No fabricated fresh coverage |
 | Experience eligibility | `eligible()` / `assess_eligibility()` require canonical URL, access rights, relevance, independent support where applicable, human review, ASR status and type-specific freshness | `as_prompt_lines`, strategy and MCP use eligible records only. Expired, unreviewed, irrelevant, URL-less or single-source claims cannot be presented as general rules. Single-expert input can only generate an experiment |
 | Plain language | `core/expression.py` + `mkt voice plain` + `mkt_plain_language`: one rule (no coined metaphor nouns), a term map, find/fix, CLI exit 2 when it fires | A check is a spelling-level guard, not an editor: mechanical replacement can still produce a wrong sentence, so the writer must re-read. Machine keys (JSON field names) are out of scope |
-| Content operations | `core/content_ops.py` + `mkt content rules|brief|audit|plan` + `mkt_content`: three channel contracts (XHS/WeChat/blog), positioning, A/B/C CTA, product-intro checks, draft audit and a 14-day schedule skeleton | Audit checks the local writing contract only; it does not verify facts, platform distribution, images or audience response. 14 dedicated tests |
+| Content operations | `core/content_ops.py` + `mkt content rules|brief|audit|plan` + `mkt_content`: five channel contracts (XHS/WeChat/zhihu/douyin/blog) fed by the platform strategy layer, positioning, A/B/C CTA, product-intro checks, platform gates, draft audit and a schedule skeleton with evidence/daily-two cadence | Audit checks the local writing contract and offline-checkable platform gates only; it does not verify facts, AIGC labelling, platform distribution, images or audience response. Contract tests + `tests/test_platform_strategy.py` |
 | Voice and value content | `core/voice.py` has 37 platform profiles with tone, sentence style, openers and taboos; `mkt voice` and `mkt_voice_lint` | `check_preservation` checks facts, URLs, numbers and disclosures. Profile skeletons do not prove content value or platform acceptance |
 | Platform source | `core/platforms.py` has 37 unique platform entries and 6 write-action mappings | Registration is not research completion or execution verification. Every platform must pass strategy, cadence and manual-sheet contract tests; generic Verovo numbers, duplicate `_CORE` and Star gates were removed |
 | Platform × Motion × Vertical | `core/playbook_model.py` composes platform rules, reusable growth motions and vertical-specific value/acceptance constraints | A composed playbook is a candidate workflow, not evidence of channel effectiveness or platform permission |

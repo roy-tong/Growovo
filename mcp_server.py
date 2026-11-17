@@ -320,6 +320,14 @@ TOOLS = [
             "retro_facts": {"type": "object"}}, "required": ["facts"]},
     },
     {
+        "name": "mkt_platform_strategy",
+        "description": "只读平台策略卡：节奏、字数/标题上限、内容与执行门禁、变现门槛、证据出处与复核状态；也可以看整层覆盖表。",
+        "inputSchema": {"type": "object", "properties": {
+            "platform": {"type": "string", "description": "xiaohongshu/wechat/zhihu/douyin/x/reddit/hackernews/linkedin"},
+            "summary": {"type": "boolean", "default": False}},
+            "required": []},
+    },
+    {
         "name": "mkt_cadence",
         "description": "只读落地设计：按四周切出动作表，每条带负责人、人工分钟与验收物。",
         "inputSchema": {"type": "object", "properties": {
@@ -867,6 +875,18 @@ def _call_tool(name, args):
                             analysis=analysis)
         return _text({"strategy": st, "rendered": strategy.render(st)})
 
+    if name == "mkt_platform_strategy":
+        from core import platform_strategy
+        if args.get("summary"):
+            return _text({"coverage": platform_strategy.coverage(),
+                          "rendered": platform_strategy.render_summary()})
+        pid = args.get("platform") or ""
+        try:
+            return _text({"card": platform_strategy.card(pid),
+                          "rendered": platform_strategy.render_card(pid)})
+        except ValueError as e:
+            return _err(str(e))
+
     if name == "mkt_cadence":
         from core import gtm, strategy, cadence
         payload = gtm.diagnose(args["facts"])
@@ -1107,7 +1127,7 @@ def handle(msg):
         return {"jsonrpc": "2.0", "id": mid, "result": {
             "protocolVersion": PROTOCOL_VERSION,
             "capabilities": {"tools": {}},
-            "serverInfo": {"name": "mkt-server", "version": "0.14.0"},
+            "serverInfo": {"name": "mkt-server", "version": "0.15.0"},
         }}
     if method == "ping":
         return {"jsonrpc": "2.0", "id": mid, "result": {}}
