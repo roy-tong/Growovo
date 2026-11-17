@@ -2072,6 +2072,30 @@ def _retro_markdown(a, claims, data, root):
 
 
 
+def _git_first_recorded(claims):
+    """用 git 历史给没有日期的记录定一个可追溯的「首次记录日」。
+
+    这不是来源发布日期，是这条经验第一次进入经验库的日期；只在采集核验里
+    当 observed_at 用，并在 ingest.date_basis 里写明。
+    """
+    import subprocess
+    target = "docs/playbooks/经验库/experience.jsonl"
+    out = {}
+    for claim in claims:
+        if not claim:
+            continue
+        try:
+            proc = subprocess.run(
+                ["git", "log", "--format=%ad", "--date=short", f"-S{claim}", "--", target],
+                cwd=BASE, capture_output=True, text=True, timeout=15)
+        except (OSError, subprocess.SubprocessError):
+            continue
+        dates = [line.strip() for line in proc.stdout.splitlines() if line.strip()]
+        if dates:
+            out[claim] = dates[-1]
+    return out
+
+
 def cmd_exp(args):
     from core import experience
     if args.action == "assess":
@@ -2079,6 +2103,51 @@ def cmd_exp(args):
         payload = experience.assess_eligibility(row, purpose=args.purpose, on=args.on or None)
         print(json.dumps(payload, ensure_ascii=False, indent=1))
         return 0 if payload["eligible"] else 2
+    if args.action == "adopt":
+        rows = experience.load()
+        dates = None
+        if getattr(args, "date_from_git", False):
+            def _sup(row):
+                try:
+                    return int(row.get("support") or 0)
+                except (TypeError, ValueError):
+                    return 0
+            pending = [r.get("claim") for r in rows
+                       if (_sup(r) >= args.min_support
+                           and len(r.get("sources") or []) >= args.min_support
+                           and not (r.get("collected_at") or r.get("published")
+                                    or r.get("observed_at")))]
+            dates = _git_first_recorded(pending)
+        new, report = experience.adopt_rows(rows, min_support=args.min_support,
+                                            on=args.on or None, dates=dates,
+                                            revisit_leads=getattr(args, "revisit_leads", False))
+        if args.json:
+            print(json.dumps(report, ensure_ascii=False, indent=1))
+        else:
+            print(f"共 {report['total']} 条：已有类型 {report['already_typed']}，"
+                  f"补成多源实践 {report['multi_source']}，标为单源线索 {report['lead']}")
+            for pid, n in sorted(report["platforms"].items()):
+                print(f"  {pid}: +{n}")
+            if not args.apply:
+                print("\ndry-run：没有写盘；加 --apply 写回 experience.jsonl")
+        if args.apply:
+            path = experience.save_rows(new)
+            print(f"已写回 {path}：{report['multi_source']} 条多源实践，"
+                  f"{report['lead']} 条单源线索")
+        return 0
+    if args.action == "usable":
+        rows = experience.eligible(args.platform, purpose="craft")[:args.limit]
+        if args.json:
+            print(json.dumps(rows, ensure_ascii=False, indent=1))
+        elif not rows:
+            print("没有通过内容工艺口径的经验；先跑 mkt exp adopt --apply")
+        else:
+            for r in rows:
+                kind = experience.normalize_knowledge_type(r.get("knowledge_type"))
+                print(f"- [{kind}] {r['claim']}")
+                if r.get("action"):
+                    print(f"  → {r['action']}")
+        return 0
     if args.action == "show":
         print(experience.render(args.platform))
     elif args.action == "coverage":
@@ -2088,7 +2157,13 @@ def cmd_exp(args):
             newest = q[0]["newest_days"] if q else None
             age = f"最新 {newest} 天前" if newest is not None else "无发布时间"
             print(f"  {pid:<18} {n:>3} 条   {age}")
-        print(f"\n窗口 {fresh['window_days']} 天：{fresh['fresh_claims']}/{fresh['claims']} 条在窗口内"
+        by_type = {}
+        for row in experience.load():
+            kind = experience.normalize_knowledge_type(row.get("knowledge_type"))
+            by_type[kind or "unknown"] = by_type.get(kind or "unknown", 0) + 1
+        print("\n证据轨道：" + "，".join(f"{k} {v}" for k, v in
+              sorted(by_type.items(), key=lambda x: -x[1])))
+        print(f"窗口 {fresh['window_days']} 天：{fresh['fresh_claims']}/{fresh['claims']} 条在窗口内"
               f"，{'达标' if fresh['meets_window'] else '不达标（需要重采）'}")
     elif args.action == "stale":
         plan = experience.maintenance_plan()
@@ -4432,8 +4507,22 @@ def build_parser():
     a = esub.add_parser("stale", help="哪些平台的经验该重采了")
     a = esub.add_parser("assess", help="只读资格复核：权利依据/确认人/时间/复核记录/来源域")
     a.add_argument("--file", required=True, help="单条经验 JSON")
-    a.add_argument("--purpose", choices=["strategy", "experiment", "generalization"], default="strategy")
+    a.add_argument("--purpose", choices=["strategy", "craft", "experiment", "generalization"],
+                   default="strategy")
     a.add_argument("--on", default="", help="资格评估日期 YYYY-MM-DD")
+    a = esub.add_parser("adopt", help="给缺 knowledge_type 的旧记录补分类：多源实践/单源线索（默认 dry-run）")
+    a.add_argument("--min-support", type=int, default=2)
+    a.add_argument("--on", default="", help="采集核验日期 YYYY-MM-DD；默认今天")
+    a.add_argument("--apply", action="store_true", help="写回 experience.jsonl")
+    a.add_argument("--revisit-leads", action="store_true",
+                   help="重新评估已标为单源线索的记录（补到第二个来源后可升级）")
+    a.add_argument("--date-from-git", action="store_true",
+                   help="缺失日期时用 git 首次记录日补 observed_at（date_basis 会写明）")
+    a.add_argument("--json", action="store_true")
+    a = esub.add_parser("usable", help="按内容工艺口径列出可用经验（多源实践，附复核等级）")
+    a.add_argument("--platform", required=True)
+    a.add_argument("--limit", type=int, default=10)
+    a.add_argument("--json", action="store_true")
     sp.set_defaults(fn=cmd_exp)
 
     sp = sub.add_parser("voice", help="平台语气：怎么说话、开头怎么写、会不会像广告")

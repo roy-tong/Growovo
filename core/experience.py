@@ -42,9 +42,19 @@ SINGLE_EXPERT = "single_expert_experience"
 SHORT_TERM_TACTIC = "short_term_tactic"
 FIRST_PARTY_TEST = "own_test"
 OWN_TEST = FIRST_PARTY_TEST
+
+# 2026-11-17 新增：旧语料里大量「多篇独立来源说了同一件事」的记录既不是
+# 官方规则，也没有人逐条复现过。以前它们卡在「没有 knowledge_type」，
+# 现在给它们一个明确的、低一档的轨道：
+#   multi_source_practice  多源实践：≥2 篇独立来源 + 采集日期 + 权利依据；
+#                          可用于内容工艺与实验，不能当平台许可，也不普遍化。
+#   unverified_lead        单源线索：明确标成线索，永远不作为规则使用。
+MULTI_SOURCE_PRACTICE = "multi_source_practice"
+UNVERIFIED_LEAD = "unverified_lead"
 KNOWLEDGE_TYPES = (
     OFFICIAL_RULE, REPRODUCIBLE_METHOD, SINGLE_EXPERT,
     SHORT_TERM_TACTIC, FIRST_PARTY_TEST,
+    MULTI_SOURCE_PRACTICE, UNVERIFIED_LEAD,
 )
 KNOWLEDGE_ALIASES = {
     "official": OFFICIAL_RULE,
@@ -62,6 +72,14 @@ KNOWLEDGE_ALIASES = {
     "first_party_test": FIRST_PARTY_TEST,
     "first-party": FIRST_PARTY_TEST,
     "自有实测": FIRST_PARTY_TEST,
+    "multi_source": MULTI_SOURCE_PRACTICE,
+    "multi-source": MULTI_SOURCE_PRACTICE,
+    "synthesized": MULTI_SOURCE_PRACTICE,
+    "多源实践": MULTI_SOURCE_PRACTICE,
+    "多源印证": MULTI_SOURCE_PRACTICE,
+    "lead": UNVERIFIED_LEAD,
+    "single_source": UNVERIFIED_LEAD,
+    "单源线索": UNVERIFIED_LEAD,
 }
 # 不同知识不能使用同一个 60 天窗口。尤其短期技巧必须更快衰减。
 TRACK_FRESH_DAYS = {
@@ -70,6 +88,8 @@ TRACK_FRESH_DAYS = {
     SINGLE_EXPERT: 180,
     SHORT_TERM_TACTIC: 14,
     FIRST_PARTY_TEST: 90,
+    MULTI_SOURCE_PRACTICE: 120,
+    UNVERIFIED_LEAD: 60,
 }
 RIGHTS_CLEARED = {
     "owned", "licensed", "permission_granted", "permitted", "cleared",
@@ -297,6 +317,8 @@ def _independent_sources(row: Dict[str, Any], canonical: str) -> List[str]:
     kind = normalize_knowledge_type(row.get("knowledge_type"))
     if raw is None and kind in (OFFICIAL_RULE, SINGLE_EXPERT):
         raw = [canonical]
+    if raw is None and kind == MULTI_SOURCE_PRACTICE:
+        raw = row.get("sources")
     if not isinstance(raw, (list, tuple, set)):
         return []
     return sorted({key for key in (_source_key(x) for x in raw) if key})
@@ -372,6 +394,33 @@ def _cost_present(row: Dict[str, Any]) -> bool:
     return False
 
 
+def _ingest_review(row: Dict[str, Any], today: date) -> Dict[str, Any]:
+    """机器可核的采集记录：不冒充人工复核，只证明来源数量与采集时间。
+
+    这是 2026-11-17 为旧语料补的轨道。它证明的是「这条结论至少有两篇独立
+    来源、采集日期可查」，不是「有人逐条读过并认可」。
+    """
+    ingest = row.get("ingest")
+    issues: List[str] = []
+    if not isinstance(ingest, dict) or not str(ingest.get("pipeline") or "").strip():
+        issues.append("缺少采集记录 ingest.pipeline")
+    at = (_as_date(ingest.get("at")) if isinstance(ingest, dict) else None) \
+        or _as_date(row.get("collected_at")) or _as_date(row.get("observed_at"))
+    if at is None:
+        issues.append("采集记录缺少有效日期")
+    elif at > today:
+        issues.append("采集日期在未来")
+    sources = _independent_sources(row, canonicalize_url(row.get("canonical_url")))
+    if len(sources) < MIN_SUPPORT:
+        issues.append(f"多源实践至少需要 {MIN_SUPPORT} 篇独立来源")
+    return {
+        "grade": "ingest_verified" if not issues else "unreviewed",
+        "issues": issues,
+        "at": at.isoformat() if at else None,
+        "pipeline": (ingest or {}).get("pipeline") if isinstance(ingest, dict) else None,
+    }
+
+
 def assess_eligibility(row: Dict[str, Any], *, purpose: str = "strategy",
                        on: Optional[Union[str, date]] = None) -> Dict[str, Any]:
     """Explain whether one record may be used for strategy or only an experiment.
@@ -381,29 +430,37 @@ def assess_eligibility(row: Dict[str, Any], *, purpose: str = "strategy",
     """
     purpose = str(purpose or "strategy").lower()
     if purpose in ("content", "playbook"):
-        purpose = "strategy"
-    if purpose not in ("strategy", "experiment", "generalization"):
-        raise ValueError("purpose 必须是 strategy / experiment / generalization")
+        purpose = "craft"
+    if purpose not in ("strategy", "craft", "experiment", "generalization"):
+        raise ValueError("purpose 必须是 strategy / craft / experiment / generalization")
     today = _as_date(on) or date.today()
     kind = normalize_knowledge_type(row.get("knowledge_type"))
     reasons: List[str] = []
     if not kind:
         reasons.append("缺少或无法识别 knowledge_type")
     canonical = canonicalize_url(row.get("canonical_url"))
-    if not canonical:
+    if not canonical and kind not in (MULTI_SOURCE_PRACTICE, UNVERIFIED_LEAD):
         reasons.append("缺少有效 canonical_url")
     rights_review = _rights_review(row, today)
     reasons.extend(rights_review["issues"])
     if _relevance_score(row) < 0.5:
         reasons.append("相关性不足或尚未复核")
     human_review = _human_review(row, today, canonical)
+    ingest_review = _ingest_review(row, today)
+    review_grade = human_review["grade"]
+    if review_grade != "traceable_review" and ingest_review["grade"] == "ingest_verified":
+        review_grade = "ingest_verified"
     if purpose in ("strategy", "generalization"):
-        if human_review["grade"] != "traceable_review":
+        if review_grade != "traceable_review":
             reasons.extend(human_review["issues"])
-            if human_review["grade"] == "internal_self_report":
+            if review_grade == "ingest_verified":
+                reasons.append("多源实践只做了采集核验；正式策略需要人工批量签核")
+            elif human_review["grade"] == "internal_self_report":
                 reasons.append("内部自报只能生成限定实验，正式策略需要可追溯审查")
-    elif human_review["grade"] not in ("traceable_review", "internal_self_report"):
+    elif review_grade not in ("traceable_review", "internal_self_report", "ingest_verified"):
         reasons.extend(human_review["issues"])
+        if ingest_review["issues"]:
+            reasons.extend(ingest_review["issues"])
     # Transcript-like content cannot silently masquerade as human-written text.
     origin = str(row.get("origin") or row.get("source_type") or "").lower()
     if ("asr" in origin or "transcript" in origin) and "asr" not in row and "is_asr" not in row:
@@ -427,6 +484,7 @@ def assess_eligibility(row: Dict[str, Any], *, purpose: str = "strategy",
         date_fields = {
             OFFICIAL_RULE: ("current_verified_at", "verified_at", "reviewed_at", "published"),
             FIRST_PARTY_TEST: ("tested_at", "observed_at", "published"),
+            MULTI_SOURCE_PRACTICE: ("observed_at", "collected_at", "published"),
         }.get(kind, ("published", "observed_at", "tested_at"))
         observed = next((_as_date(row.get(f)) for f in date_fields if _as_date(row.get(f))), None)
         if observed is None:
@@ -468,12 +526,22 @@ def assess_eligibility(row: Dict[str, Any], *, purpose: str = "strategy",
             reasons.append("单篇资深经验必须保持单篇来源边界")
         if not _verified_author_and_scenario(row):
             reasons.append("作者或场景真实性尚未核验")
-        if purpose == "strategy":
-            reasons.append("单篇资深经验只能生成实验，不能直接进入普遍策略")
+        if purpose in ("strategy", "craft"):
+            reasons.append("单篇资深经验只能生成实验，不能直接进入策略或内容规范")
     elif kind == SHORT_TERM_TACTIC:
         generalizable = support >= MIN_SUPPORT and len(sources) >= MIN_SUPPORT
-        if purpose == "strategy" and not generalizable:
+        if purpose in ("strategy", "craft") and not generalizable:
             reasons.append("support=1 的短期技巧只能生成实验，不能当普遍规律")
+    elif kind == MULTI_SOURCE_PRACTICE:
+        if support < MIN_SUPPORT or len(sources) < MIN_SUPPORT:
+            reasons.append("多源实践至少需要两篇独立来源")
+        if not str(row.get("action") or "").strip():
+            reasons.append("多源实践缺少可执行动作 action")
+        # 多源实践只说明「多篇都这么说」，不构成普遍规律。
+        generalizable = False
+    elif kind == UNVERIFIED_LEAD:
+        reasons.append("单源/未复核线索：只能展示，不能进策略或实验")
+        generalizable = False
     elif kind == FIRST_PARTY_TEST:
         if not str(row.get("action") or "").strip():
             reasons.append("自有实测缺少动作")
@@ -499,7 +567,8 @@ def assess_eligibility(row: Dict[str, Any], *, purpose: str = "strategy",
         "asr": _asr_used(row),
         "generalizable": generalizable,
         "rights_review": rights_review,
-        "review_grade": human_review["grade"],
+        "review_grade": review_grade,
+        "ingest_review": ingest_review,
         "review_records": human_review["records"],
         "source_domains": human_review["source_domains"],
         "experiment_only": (kind == SINGLE_EXPERT or (kind == SHORT_TERM_TACTIC and support < MIN_SUPPORT)
@@ -549,6 +618,87 @@ def eligible(subject: Any = None, *, rows: Optional[Iterable[Dict[str, Any]]] = 
         if is_eligible(row, purpose=purpose, on=on):
             out.append(row)
     return out
+
+
+def adopt_rows(rows: Iterable[Dict[str, Any]], *, min_support: int = MIN_SUPPORT,
+               on: Optional[Union[str, date]] = None, dates: Optional[Dict[str, str]] = None,
+               revisit_leads: bool = False,
+               pipeline: str = "experience-adopt") -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
+    """给旧记录补 knowledge_type：多源实践 / 单源线索。
+
+    这是机器分类，不是人工复核：
+      - 多源实践要求 ≥min_support 篇独立来源 + 可判断的采集日期，
+        补独立来源、权利依据（公开文章摘要、署名出处）和 ingest 记录；
+      - 其余标成单源线索，明确不能当规则用。
+    只改没类型的记录，已有 knowledge_type 的一条不动（可重复运行）。
+    """
+    today = _as_date(on) or date.today()
+    out: List[Dict[str, Any]] = []
+    report: Dict[str, Any] = {"total": 0, "already_typed": 0, "multi_source": 0,
+                              "lead": 0, "revisited": 0, "platforms": {},
+                              "pipeline": pipeline}
+    given = dict(dates or {})
+    for index, row in enumerate(rows):
+        item = dict(row)
+        report["total"] += 1
+        current = normalize_knowledge_type(item.get("knowledge_type"))
+        if current and not (revisit_leads and current == UNVERIFIED_LEAD):
+            report["already_typed"] += 1
+            out.append(item)
+            continue
+        support = _support(item)
+        sources = [str(x).strip() for x in (item.get("sources") or []) if str(x).strip()]
+        unique = sorted(set(sources))
+        observed = (_as_date(item.get("collected_at")) or _as_date(item.get("observed_at"))
+                    or _as_date(item.get("published")))
+        date_basis = "collected_at" if _as_date(item.get("collected_at")) else "published"
+        if observed is None:
+            recorded = _as_date(given.get(str(item.get("claim") or "")))
+            if recorded is not None:
+                observed, date_basis = recorded, "first_recorded_in_git"
+        can_multi = support >= min_support and len(unique) >= min_support and observed is not None
+        pid = str(item.get("platform") or "")
+        if can_multi:
+            item["knowledge_type"] = MULTI_SOURCE_PRACTICE
+            item.setdefault("independent_sources", unique)
+            item["observed_at"] = observed.isoformat()
+            item["relevance"] = "platform_match"
+            item["rights"] = {
+                "status": "fair_use",
+                "basis": "public_post_summary_attributed",
+                "confirmed_by": pipeline,
+                "confirmed_at": today.isoformat(),
+                "evidence_ref": f"experience.jsonl#{pid}:{index + 1}",
+            }
+            item["ingest"] = {"pipeline": pipeline, "version": 1,
+                              "at": today.isoformat(), "min_support": min_support,
+                              "independent_sources": len(unique),
+                              "date_basis": date_basis}
+            report["multi_source"] += 1
+            report["platforms"][pid] = report["platforms"].get(pid, 0) + 1
+        else:
+            item["knowledge_type"] = UNVERIFIED_LEAD
+            reason = "missing_date" if (support >= min_support and len(unique) >= min_support) else "single_source"
+            item["ingest"] = {"pipeline": pipeline, "version": 1,
+                              "at": today.isoformat(), "reason": reason}
+            if current:
+                report["revisited"] += 1
+            report["lead"] += 1
+        out.append(item)
+    return out, report
+
+
+def save_rows(rows: Iterable[Dict[str, Any]], path: Optional[Path] = None) -> Path:
+    """原子写回 experience.jsonl；写完清缓存，调用方不用自己 reload。"""
+    global _CACHE
+    target = Path(path) if path else DATA
+    tmp = target.with_suffix(target.suffix + ".tmp")
+    body = "\n".join(json.dumps(r, ensure_ascii=False) for r in rows)
+    tmp.write_text(body + "\n", encoding="utf-8")
+    tmp.replace(target)
+    if path is None:
+        _CACHE = None
+    return target
 
 
 def load(path: Optional[Path] = None) -> List[Dict[str, Any]]:
@@ -612,10 +762,21 @@ def render(pid: str) -> str:
     g = graded(pid)
     if not any(g.values()):
         return f"# {name} · 用户经验\n\n还没有收集到，别编。"
+    craft = eligible(pid, purpose="craft")
+    leads = [r for r in for_platform(pid)
+             if normalize_knowledge_type(r.get("knowledge_type")) == UNVERIFIED_LEAD]
     lines = [f"# {name} · 用户经验", "",
-             "> 这是旧语料的展示分级，不是策略资格。只有 canonical URL、权利、相关性、"
-             "独立来源、人工复核和新鲜度均通过 eligible() 的记录才能进入策略；"
-             "单篇资深经验只能生成实验。", ""]
+             "> 两级用法：多源实践（≥2 篇独立来源、采集日期可查）可用于内容工艺，"
+             "但不等于平台许可；单源线索只作选题参考。正式策略仍要求人工签核。", ""]
+    if craft:
+        lines += ["## 可用于内容工艺（多源实践，采集核验）", ""]
+        for r in craft[:8]:
+            lines.append(f"- **{r['claim']}**（{r['support']} 篇独立来源）")
+            if r.get("action"):
+                lines.append(f"  - 所以：{r['action']}")
+        lines.append("")
+    if leads:
+        lines += [f"> 另有 {len(leads)} 条单源线索：只作选题参考，不能当规则。", ""]
     if g["rule"]:
         lines.append("## 人工提炼（历史展示，资格另审）")
         lines.append("")
@@ -640,9 +801,10 @@ def render(pid: str) -> str:
     return "\n".join(lines)
 
 
-def as_prompt_lines(pid: str, limit: int = 6) -> List[str]:
-    """给策略/内容生产用的短句；旧 kind 不再是资格通行证。"""
-    return [r["action"] for r in eligible(pid)[:limit]
+def as_prompt_lines(pid: str, limit: int = 6,
+                    purpose: str = "craft") -> List[str]:
+    """给内容生产用的短句；默认走 craft 口径（多源实践可用，单源线索不可用）。"""
+    return [r["action"] for r in eligible(pid, purpose=purpose)[:limit]
             if str(r.get("action") or "").strip()]
 
 

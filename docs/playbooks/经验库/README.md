@@ -13,19 +13,45 @@
 B 站视频里讲小红书/抖音运营的很多，所以采集后有一道**归位**：按内容判断这段讲的是哪个平台，
 归到那个平台去，而不是都算 B 站。
 
-## 三档证据
+## 证据轨道（knowledge_type）
 
-| 档 | 含义 | 能不能当依据 |
+旧字段 `kind`（rule/verbatim/topic）只用于历史展示，**不再是资格**。现在每条记录必须带一个轨道：
+
+| 轨道 | 含义 | 能用来做什么 |
 |---|---|---|
-| `rule` | 人工提炼，有出处 | 可以 |
-| `verbatim` | 同一句话在 ≥2 篇文章里出现 | 可以 |
-| `topic` | 很多篇都谈到这个主题 | **不可以**，只说明这个变量重要 |
+| `official_rule` | 平台/法规明文 | 当规则 |
+| `reproducible_method` | 机制清楚、≥2 独立来源、有人复现过 | 进策略 |
+| `single_expert_experience` | 单篇资深作者经验 | 只能生成实验 |
+| `short_term_tactic` | 短期技巧，14 天窗口 | 2 源以上才能进策略 |
+| `own_test` | 自己实测（动作/结果/样本/成本齐全） | 只在自己的场景算数 |
+| `multi_source_practice` | ≥2 篇独立来源 + 采集日期可查 | **内容工艺/实验**；不能当平台许可，也不普遍化 |
+| `unverified_lead` | 单源或未复核 | 只作选题参考，永远不当规则 |
+
+两级用法：`multi_source_practice` 可以进内容工艺（`mkt exp usable`、`as_prompt_lines`、语气提示），
+但正式策略（`purpose=strategy`）仍要求人工批量签核；`unverified_lead` 在任何用途下都不放行。
+
+2026-11-17 对 412 条缺类型的旧记录做了采集核验迁移：
+
+```bash
+python3 mkt.py exp adopt                 # dry-run：多少条能升成多源实践
+python3 mkt.py exp adopt --apply         # 写回 experience.jsonl
+python3 mkt.py exp adopt --apply --revisit-leads --date-from-git
+                                         # 缺日期的用 git 首次记录日补（会写明 date_basis）
+python3 mkt.py exp usable --platform xiaohongshu   # 内容工艺口径下的可用条目
+```
+
+迁移只补「多源 + 日期 + 权利依据 + ingest 记录」，**不伪造人工复核**。要升到正式策略，
+需要按批量签核加 review 记录（`reviewer/reviewed_at/record_ref/source_domains`）。
 
 ## 新鲜度（写进代码的硬约束）
 
 ```python
-FRESH_DAYS = 60      # 超过 60 天的来源视为过期
-MIN_SUPPORT = 2      # 少于两篇独立来源只能算线索
+MIN_SUPPORT = 2                 # 少于两篇独立来源只能算线索
+TRACK_FRESH_DAYS = {            # 不同轨道不同窗口
+    "official_rule": 365, "reproducible_method": 180,
+    "single_expert_experience": 180, "short_term_tactic": 14,
+    "own_test": 90, "multi_source_practice": 120,
+}
 ```
 
 - `mkt exp coverage` — 每个平台多少条、最新一条多久之前

@@ -6,7 +6,7 @@ Reviewed 2026-11-17. **Working baseline: v0.15.0 (platform strategy layer).** Av
 
 ## Verification snapshot
 
-- `python3 -m pytest tests/`: **1581 tests pass** (`unittest discover` covers the same set).
+- `python3 -m pytest tests/`: **1590 tests pass** (`unittest discover` covers the same set).
 - `python3 mkt.py demo`: plan validation, human approval, write pipeline and ledger pass.
 - `python3 mkt.py work-demo`: context → objective → WorkOrder → SOP → accepted deliverables → receiver handoff → approved plan/queue → independent KPI observation passes; no queue execution or send ledger.
 - v0.14.0 wheel acceptance runs outside the source checkout, covering packaged experience records, target management, goal compilation and scheduler workspace binding.

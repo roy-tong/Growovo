@@ -151,11 +151,18 @@ class EligibilityTests(unittest.TestCase):
         self.assertEqual(experience.eligible(rows=rows, knowledge_type="official", on=ON), [off])
         self.assertEqual(experience.eligible(rows=rows, knowledge_type="unknown", on=ON), [])
 
-    def test_bundled_records_are_preserved_but_not_promoted(self):
+    def test_bundled_records_are_typed_but_not_strategy_eligible(self):
         rows = experience.load()
-        self.assertGreaterEqual(len(rows), 108)
+        self.assertGreaterEqual(len(rows), 594)
+        # 2026-11-17：旧记录补了 knowledge_type，多源实践可用于内容工艺，
+        # 但没有任何一条因此获得正式策略资格。
         self.assertEqual(experience.eligible(rows=rows, on=ON), [])
-        self.assertEqual(experience.as_prompt_lines("xiaohongshu"), [])
+        self.assertEqual([r for r in rows if not r.get("knowledge_type")], [])
+        craft = experience.eligible(rows=rows, purpose="craft", on="2026-11-17")
+        self.assertGreaterEqual(len(craft), 40)
+        self.assertTrue(all(r["knowledge_type"] == experience.MULTI_SOURCE_PRACTICE
+                            for r in craft))
+        self.assertTrue(experience.as_prompt_lines("xiaohongshu"))
         # Legacy display remains available for human review.
         self.assertTrue(experience.graded("xiaohongshu")["rule"])
 
@@ -288,8 +295,8 @@ class VoicePreservationTests(unittest.TestCase):
     def test_stale_experience_is_not_rendered_as_current_playbook(self):
         self.assertEqual(voice.current_experience("xiaohongshu"), [])
         md = voice.render("xiaohongshu")
-        self.assertIn("不能写成这个平台的当前做法", md)
-        self.assertNotIn("当前有", md)
+        self.assertIn("通过采集核验", md)
+        self.assertIn("未逐条人工复核", md)
 
 
 if __name__ == "__main__":

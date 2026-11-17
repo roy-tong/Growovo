@@ -2,6 +2,32 @@
 
 ## Unreleased
 
+### Experience library: every record now has an evidence track (2026-11-17)
+
+412 of 594 records had no `knowledge_type`, so `eligible()` rejected them and
+they were display-only. The fix is classification with an explicit lower
+track, not a bulk promotion:
+
+- **Two new tracks**: `multi_source_practice` (≥2 independent sources, a
+  recorded observation date, rights basis and an `ingest` record) and
+  `unverified_lead` (single-source or undated: display only, never a rule).
+  `multi_source_practice` is usable for **content craft** (`craft` purpose,
+  `mkt exp usable`, `as_prompt_lines`, voice tips); `purpose=strategy` still
+  requires a human batch review, so nothing gained formal strategy status by
+  this migration.
+- **`mkt exp adopt [--apply] [--revisit-leads] [--date-from-git]`**:
+  idempotent migration of untyped records. 60 records qualified as
+  multi-source practice (42 from a recorded collection date, 18 dated from
+  the git commit that first recorded the claim; `ingest.date_basis` says
+  which). The remaining 352 became `unverified_lead`.
+- **No fabricated review**: the migration adds sources, dates, rights basis
+  and an ingest pipeline record; it never writes a reviewer, a review time
+  or a source-domain claim. Legacy `kind`/`human_reviewed` booleans still do
+  not restore eligibility.
+- `single_expert_experience` stays experiment-only; single-source short-term
+  tactics cannot enter craft. Tests cover the promotion, the lead track and
+  the strategy boundary.
+
 ### Platform strategy layer: the 2026-11-17 harvest becomes executable (v0.15.0)
 
 The 2026-11-17 collection grew the experience library from 210 to 594
