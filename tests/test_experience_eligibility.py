@@ -153,7 +153,9 @@ class EligibilityTests(unittest.TestCase):
 
     def test_bundled_records_are_typed_but_not_strategy_eligible(self):
         rows = experience.load()
-        self.assertGreaterEqual(len(rows), 594)
+        # 2026-11-17：594 → 582，删除 reddit 12 条无空格英文抓取噪声（零信息量，非经验）。
+        self.assertGreaterEqual(len(rows), 582)
+        self.assertFalse([r for r in rows if r["platform"] == "reddit"])
         # 2026-11-17：旧记录补了 knowledge_type，多源实践可用于内容工艺，
         # 但没有任何一条因此获得正式策略资格。
         self.assertEqual(experience.eligible(rows=rows, on=ON), [])

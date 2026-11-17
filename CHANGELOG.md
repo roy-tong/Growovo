@@ -2,6 +2,26 @@
 
 ## Unreleased
 
+### Email channel proven on real sends: SOCKS proxy, attachments, longer timeouts (2026-11-17)
+
+The SMTP channel shipped as PORTED (code moved from newoutreach, never run
+inside this repo). A real campaign today ran the same pattern end-to-end —
+10 emails with a 6.9MB PDF attachment each, all accepted — and exposed two
+environment facts plus one missing feature, now folded back into the channel:
+
+- **`MKT_EMAIL_SOCKS`**: on this machine direct connections to
+  `smtp.gmail.com:465/587` time out; the system proxy (ApexCore,
+  `127.0.0.1:7890`, SOCKS5) is required. Setting this var routes SMTP through
+  PySocks (imported lazily; no new dependency when unset).
+- **`MKT_EMAIL_TIMEOUT`**: 6.9MB attachments through the proxy need ≥300s;
+  default stays 60s.
+- **`attachments`** on queue items: local file paths, MIME inferred from
+  extension.
+- Channel verification label updated PORTED → **PROVEN (this machine)**.
+  Gmail web automation is read-only from here on: it can fill and even attach
+  via paste events, but the send action is not reliable enough to own.
+  Full write-up: `docs/email-pipeline-20261117.md`.
+
 ### Experience library: every record now has an evidence track (2026-11-17)
 
 412 of 594 records had no `knowledge_type`, so `eligible()` rejected them and
