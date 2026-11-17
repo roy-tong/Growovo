@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import copy
+import hashlib
 import json
 import sys
 import tempfile
@@ -50,6 +51,32 @@ class WorkOSCase(unittest.TestCase):
             store.import_snapshot(self.context, by="human-owner")
         loaded = store.get(self.context["context_id"], self.context["version"])
         self.assertEqual("user_declared", loaded["source"]["kind"])
+
+    def test_askovo_context_requires_existing_file_and_matching_hash(self):
+        src = self.data / "chain.json"
+        src.write_text('{"chains":[]}', encoding="utf-8")
+        digest = hashlib.sha256(src.read_bytes()).hexdigest()
+        base = copy.deepcopy(self.context)
+        base.update({
+            "context_id": "ctx-askovo-ok",
+            "source": {"kind": "askovo", "ref": str(src), "chain_id": "PR01"},
+            "content_sha256": digest,
+        })
+        ContextStore(self.data).import_snapshot(base, by="human-owner")
+
+        bad_hash = copy.deepcopy(base)
+        bad_hash["context_id"] = "ctx-askovo-bad-hash"
+        bad_hash["content_sha256"] = "0" * 64
+        with self.assertRaises(WorkError):
+            ContextStore(self.data).import_snapshot(bad_hash, by="human-owner")
+
+        missing = copy.deepcopy(base)
+        missing["context_id"] = "ctx-askovo-missing"
+        missing["source"] = {"kind": "askovo",
+                             "ref": str(self.data / "nope.json"),
+                             "chain_id": "PR01"}
+        with self.assertRaises(WorkError):
+            ContextStore(self.data).import_snapshot(missing, by="human-owner")
 
     def test_work_order_requires_accepted_inputs_before_ready(self):
         store = WorkStore(self.data)

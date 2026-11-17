@@ -8,6 +8,7 @@ and queue pipeline.
 from __future__ import annotations
 
 import copy
+import hashlib
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
 
@@ -36,6 +37,20 @@ def lint_context(snapshot: Dict[str, Any]) -> List[str]:
         errors.append("context.source.kind 必须是 askovo 或 user_declared")
     if not _text(source.get("ref")):
         errors.append("context.source.ref 必填")
+    elif source.get("kind") == "askovo":
+        # askovo 快照必须指向真实文件，且哈希与声明一致；否则下游会把
+        # 一个不存在/已被改写的上游当成“不可变上下文”。
+        ref = str(source.get("ref") or "").strip()
+        path = Path(ref)
+        if not path.is_file():
+            errors.append(f"context.source.ref 文件不存在或不可读: {ref}")
+        else:
+            actual = hashlib.sha256(path.read_bytes()).hexdigest()
+            declared = _text(snapshot.get("content_sha256")).lower()
+            if actual != declared:
+                errors.append(
+                    "context.content_sha256 与 source.ref 不一致: "
+                    f"declared={declared[:12]}… actual={actual[:12]}…")
     for key in ("value_event_definitions", "non_goals"):
         if not isinstance(snapshot.get(key), list) or not snapshot.get(key):
             errors.append(f"context.{key} 必须是非空数组")

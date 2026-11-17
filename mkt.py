@@ -179,7 +179,12 @@ def cmd_contacts(args):
     from core.contacts import Contacts
     c = Contacts(DATA / "contacts.jsonl")
     if args.action == "add":
-        rec = c.add(**json.loads(args.json))
+        try:
+            rec = c.add(**json.loads(args.json))
+        except (TypeError, ValueError, json.JSONDecodeError) as exc:
+            print(f"不能加入线索库：{exc}")
+            print("字段示例：--json '{\"name\":\"Alice\",\"platforms\":{\"x\":\"alice\"}}'")
+            return 2
         print(json.dumps(rec, ensure_ascii=False, indent=1))
     elif args.action == "find":
         rows = c.find(platform=args.platform, value=args.value, org=args.org,
@@ -191,11 +196,19 @@ def cmd_contacts(args):
                   f"tier{r.get('tier', '?')}  dnc={st.get('dnc', False)}  "
                   f"{json.dumps(r.get('platforms', {}), ensure_ascii=False)}")
     elif args.action == "dnc":
-        c.mark(args.contact_id, dnc=True)
+        try:
+            c.mark(args.contact_id, dnc=True)
+        except ValueError as exc:
+            print(f"不能标记 DNC：{exc}")
+            return 2
         print(f"{args.contact_id} 已标记 DNC")
     elif args.action == "mark":
-        updates = json.loads(args.json)
-        rec = c.mark(args.contact_id, **updates)
+        try:
+            updates = json.loads(args.json)
+            rec = c.mark(args.contact_id, **updates)
+        except (TypeError, ValueError, json.JSONDecodeError) as exc:
+            print(f"不能更新线索：{exc}")
+            return 2
         print(json.dumps(rec, ensure_ascii=False, indent=1))
     elif args.action == "import":
         print(json.dumps(c.import_legacy(args.file), ensure_ascii=False))
@@ -3039,7 +3052,10 @@ def cmd_plan(args):
             raise SystemExit(f"{path} 已存在（加 --force 覆盖）")
         approval.save_plan(plan, path)
         print(f"已写入 {path}")
-        print(f"下一步：mkt plan approve --id {pid} --by <你的名字>")
+        print("下一步：先生成队列，再审批（审批会绑定队列内容，队列不存在会拒绝）：")
+        print(f"  mkt queue build --campaign {Path(queue).stem} --channel {channel} "
+              f"--wave-action {wave_action} --template <模板文件> --targets <目标CSV>")
+        print(f"  mkt plan approve --id {pid} --by <你的名字>")
         return 0
 
     if act == "lint":
@@ -3078,9 +3094,24 @@ def cmd_plan(args):
         if not args.by:
             raise SystemExit(f"plan {act} 需要 --by <你的名字>（无署名的审批不是审批）")
         if act == "approve":
-            plan, path, event = approval.approve_plan(
-                DATA, args.id, by=args.by, note=args.note or "", days=args.days,
-                account=getattr(args, "account", None), workspace=getattr(args, "workspace", None))
+            try:
+                plan, path, event = approval.approve_plan(
+                    DATA, args.id, by=args.by, note=args.note or "", days=args.days,
+                    account=getattr(args, "account", None), workspace=getattr(args, "workspace", None))
+            except approval.ApprovalError as exc:
+                print(f"不能批准：{exc}")
+                try:
+                    pending, _ = _load_plan_arg(args)
+                    wave = (pending.get("waves") or [{}])[0]
+                    queue_ref = (wave.get("queue") or f"data/queues/{args.id}-w1.json")
+                    print("先构建队列，再审批：")
+                    print(f"  mkt queue build --campaign {Path(queue_ref).stem} "
+                          f"--channel {wave.get('channel') or 'email'} "
+                          f"--wave-action {wave.get('action') or 'message'} "
+                          f"--template <模板文件> --targets <目标CSV>")
+                except Exception:
+                    print(f"先构建计划声明的队列，再：mkt plan approve --id {args.id} --by {args.by}")
+                return 2
             print(f"已批准 {args.id}（{path}）")
             print(json.dumps(event, ensure_ascii=False, indent=1))
             queue = ((plan.get("waves") or [{}])[0].get("queue")
@@ -3407,6 +3438,11 @@ def cmd_x(args):
         extra += ["--file", args.file]
     if getattr(args, "thread", False):
         extra += ["--thread"]
+    # reply 的 vendor 参数原先只能靠 "--" 透传，argparse 会拒绝；显式暴露两个参数。
+    if getattr(args, "tweet_url", None):
+        extra += ["--tweet-url", args.tweet_url]
+    if getattr(args, "text", None):
+        extra += ["--text", args.text]
     return x_run(args.action, extra, go=args.go, adhoc=args.adhoc,
                 campaign=args.campaign, ledger=_ledger(), data_dir=DATA,
                 identity=identity_evidence)
@@ -5109,6 +5145,8 @@ def build_parser():
     sp.add_argument("--file", help="publish 内容文件（默认 thread.json）")
     sp.add_argument("--thread", action="store_true")
     sp.add_argument("--handle", default="", help="stats：要读数的账号")
+    sp.add_argument("--tweet-url", help="reply：目标推文 URL")
+    sp.add_argument("--text", help="reply：回复正文")
     sp.add_argument("--record", action="store_true", help="stats：人工对数后落 outcome 计数")
     sp.add_argument("--go", action="store_true")
     sp.add_argument("--campaign")

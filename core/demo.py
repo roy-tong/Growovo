@@ -9,6 +9,7 @@
   4. 账本       三条终态留痕：dry-run / rejected / failed
 """
 import json
+import shutil
 from datetime import date, datetime
 from pathlib import Path
 
@@ -60,6 +61,10 @@ def run_demo(base):
     """base = 仓库根。返回 0 = 四步全部按预期；1 = 有一步偏离（演示即自检）。"""
     base = Path(base)
     data = base / "data" / "demo"
+    # 演示沙盒按“每次运行”隔离：旧版本留下的 d-000 / 审批行不能污染
+    # 当前四步终态。目录本身就是一次性的（README/输出都写明可整目录删除）。
+    if data.exists():
+        shutil.rmtree(data)
     (data / "plans").mkdir(parents=True, exist_ok=True)
     (data / "queues").mkdir(parents=True, exist_ok=True)
     plan_file = data / "plans" / "demo-p0.json"
