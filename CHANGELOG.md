@@ -4,6 +4,11 @@
 
 ### Golden chain preparation (review 2026-11-17: P2 unified operations log, P0 delivery contract, §5 procurement branch, §9 acceptance script)
 
+- **Live preflight** (`scripts/acceptance_live_x.py --preflight`): read-only
+  checks for the authorizing human, isolated empty profile, independent CDP
+  port (9222 refused), dedicated X test target, content and browser endpoint.
+  It never sends, creates a policy or touches profiles; `ready=true` still
+  requires the human to run the live command explicitly.
 - **Unified operations log** (`core/operations_log.py`, `data/operations.jsonl`):
   every real/dry-run action appends one complete record with the §4.2 minimum
   field list (operation_id/run_id/queue_item_id, channel/action/target/

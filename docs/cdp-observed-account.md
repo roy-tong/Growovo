@@ -97,6 +97,18 @@ mkt account log --limit 20 --json   # 查看完整字段、实际账号 proof �
 - 离线测试使用注入 `AccountIdentityProof` 和本地假 vendor，覆盖连续 A→B、receipt 对账、缺身份零 vendor 调用及重复意图零新增发送。**这些只证明本地代码路径和状态机，不等于 live-proven，也不证明真实平台权限、真实账号切换或外部送达。**
 - 测试不发送真实账号内容、不读取或修改 `profiles/`、不联网。页面挑战/验证码仍必须停止，不做对抗。
 
+## live 前置检查（只读）
+
+```bash
+python3 scripts/acceptance_live_x.py --preflight \
+  --authorize-by "<你的人名>" \
+  --profile-dir /tmp/growovo-live-profile \
+  --cdp-url http://127.0.0.1:9223 \
+  --target-url https://x.com/<测试账号>/status/<专用测试推文>
+```
+
+它只检查授权人、隔离空 profile、独立 CDP 端口（拒绝 9222）、专用 X 测试推文、正文和浏览器端点，输出 `ready=true/false`；**不发送、不创建授权、不触碰 profiles**。`ready=true` 仍需要人显式执行 live 命令。
+
 ## 仍需人工 live 验收
 
 以下步骤必须由有权操作真实账号的人显式执行；仓库测试不会自动执行：

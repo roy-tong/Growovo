@@ -94,6 +94,7 @@
   "acceptance": {
     "script": "scripts/acceptance_live_x.py",
     "dry_run": "python3 scripts/acceptance_live_x.py --dry-run（全链离线，不碰网络/浏览器/9222/profiles）",
+    "preflight": "python3 scripts/acceptance_live_x.py --preflight …（只读检查授权人/隔离 profile/独立端口/测试目标/浏览器端点；不发送、不建授权）",
     "live": "用户显式执行：隔离 profile + 独立 CDP 端口（默认 9223，拒绝 9222）+ 专用测试推文 + --authorize-by <人名>；六方分离表随运行打印"
   }
 }

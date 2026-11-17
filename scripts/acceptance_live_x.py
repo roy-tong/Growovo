@@ -28,6 +28,9 @@ import os
 import sys
 import tempfile
 import time
+import urllib.error
+import urllib.parse
+import urllib.request
 from pathlib import Path
 from unittest.mock import patch
 
@@ -191,6 +194,91 @@ def live_readback(cdp_url: str, tweet_url: str, handle: str, text: str) -> dict:
 
 
 # --------------------------------------------------------------------------- #
+# 只读 live 前置检查（不发送、不建授权、不碰 profiles）
+# --------------------------------------------------------------------------- #
+
+def preflight(args) -> int:
+    checks = []
+
+    def add(name: str, ok: bool, detail: str) -> None:
+        checks.append({"check": name, "ok": bool(ok), "detail": detail})
+
+    authorize_by = str(args.authorize_by or "").strip()
+    add("authorized_by", bool(authorize_by),
+        "已署名" if authorize_by else "缺少 --authorize-by（正式发送前必须由人署名）")
+
+    target = str(args.target_url or "").strip()
+    parsed_target = urllib.parse.urlparse(target)
+    target_ok = (parsed_target.scheme == "https"
+                 and parsed_target.hostname in ("x.com", "www.x.com", "twitter.com",
+                                                "www.twitter.com")
+                 and "/status/" in parsed_target.path)
+    add("dedicated_test_target", target_ok,
+        "专用测试推文 URL" if target_ok else "需要 https://x.com/<测试账号>/status/<id>")
+
+    cdp = str(args.cdp_url or "").strip().rstrip("/")
+    parsed_cdp = urllib.parse.urlparse(cdp)
+    port = parsed_cdp.port or 80
+    cdp_shape_ok = (parsed_cdp.scheme == "http"
+                    and parsed_cdp.hostname in ("127.0.0.1", "::1", "localhost")
+                    and not parsed_cdp.username and not parsed_cdp.password)
+    add("independent_cdp_endpoint", cdp_shape_ok and str(port) != FORBIDDEN_PORT,
+        cdp if cdp_shape_ok and str(port) != FORBIDDEN_PORT
+        else "CDP 必须是回环 http 端点且不能使用 campaign 的 9222")
+
+    profile = str(args.profile_dir or "").strip()
+    profile_path = Path(profile) if profile else None
+    profile_norm = profile.rstrip("/")
+    shared_profile = (profile_norm.endswith("/profiles")
+                      or "/profiles/" in (profile_norm + "/"))
+    profile_ok = bool(profile_path and profile_path.is_dir() and not shared_profile)
+    add("isolated_profile", profile_ok,
+        str(profile_path) if profile_ok
+        else "需要独立的已登录 browser profile 目录（--profile-dir，不能是共享 profiles/）")
+
+    text = str(args.text or "").strip()
+    add("content", bool(text) and len(text) <= 280,
+        "%d 字符" % len(text) if text else "回复正文为空")
+
+    endpoint = None
+    if cdp_shape_ok:
+        try:
+            with urllib.request.urlopen(cdp + "/json/version", timeout=2) as resp:
+                payload = json.loads(resp.read(4096).decode("utf-8", "replace"))
+                endpoint = str(payload.get("Browser") or "reachable")
+            add("browser_endpoint", True, endpoint)
+            # Read-only login check on the same endpoint: opening the X home
+            # page is enough; never credentials, never a write.
+            try:
+                from core import cdp, session_gate
+                session_gate.clear_cache()
+                login = session_gate.check_login(
+                    "x", connect=lambda: cdp.connect(cdp))
+                add("x_login", login.get("status") == session_gate.LOGGED_IN,
+                    "status=%s%s" % (login.get("status"),
+                                     " url=%s" % login.get("url") if login.get("url") else ""))
+            except Exception as exc:  # noqa: BLE001
+                add("x_login", False, "登录态检查失败：%s" % str(exc)[:160])
+        except (urllib.error.URLError, OSError, ValueError) as exc:
+            add("browser_endpoint", False, "无法连接 %s：%s" % (cdp, str(exc)[:160]))
+    else:
+        add("browser_endpoint", False, "CDP 端点本身不合法，未尝试连接")
+
+    ready = all(item["ok"] for item in checks)
+    next_steps = [item["detail"] for item in checks if not item["ok"]]
+    print(json.dumps({
+        "mode": "preflight",
+        "live_proven": False,
+        "ready": ready,
+        "checks": checks,
+        "next_required_actions": next_steps,
+        "note": ("只读前置检查：未发送、未创建授权、未触碰 profiles；"
+                 "ready=true 仍需要人显式执行 live 命令并承担发送责任"),
+    }, ensure_ascii=False, indent=1))
+    return 0 if ready else 2
+
+
+# --------------------------------------------------------------------------- #
 # 主链
 # --------------------------------------------------------------------------- #
 
@@ -198,6 +286,8 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--dry-run", action="store_true",
                     help="全链离线彩排：不碰网络/浏览器/9222/profiles")
+    ap.add_argument("--preflight", action="store_true",
+                    help="只读检查 live 前置条件：不发送/不建授权/不碰 profiles")
     ap.add_argument("--authorize-by", default="",
                     help="live 必填：授权并担责的人名")
     ap.add_argument("--cdp-url", default=DEFAULT_CDP,
@@ -213,6 +303,11 @@ def main(argv=None) -> int:
                     help="仅 dry-run：彩排「回读内容哈希不一致→indeterminate 停机」分支")
     args = ap.parse_args(argv)
 
+    if args.preflight and args.dry_run:
+        _say("--preflight 与 --dry-run 不能同时使用。")
+        return 2
+    if args.preflight:
+        return preflight(args)
     if args.simulate_readback_mismatch and not args.dry_run:
         _say("--simulate-readback-mismatch 只用于 --dry-run 彩排。")
         return 2

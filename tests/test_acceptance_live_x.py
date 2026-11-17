@@ -93,5 +93,37 @@ class LiveGuardTests(unittest.TestCase):
             self.assertIn("offline", proc.stdout.lower())
 
 
+class PreflightTests(unittest.TestCase):
+    def test_preflight_blocks_missing_authorization_profile_and_browser(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            proc = run_script("--preflight", "--workspace", tmp,
+                              "--cdp-url", "http://127.0.0.1:9223",
+                              "--target-url", "https://x.com/growovo_test/status/1")
+            self.assertEqual(2, proc.returncode)
+            payload = json.loads(proc.stdout)
+            self.assertFalse(payload["ready"])
+            checks = {item["check"]: item for item in payload["checks"]}
+            self.assertFalse(checks["authorized_by"]["ok"])
+            self.assertFalse(checks["isolated_profile"]["ok"])
+            self.assertFalse(checks["browser_endpoint"]["ok"])
+            self.assertFalse((Path(tmp) / "operations.jsonl").exists())
+            self.assertFalse((Path(tmp) / "ledger.jsonl").exists())
+
+    def test_preflight_refuses_campaign_port(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            profile = Path(tmp) / "profile"
+            profile.mkdir()
+            proc = run_script("--preflight", "--workspace", tmp,
+                              "--authorize-by", "tester",
+                              "--profile-dir", str(profile),
+                              "--cdp-url", "http://127.0.0.1:9222",
+                              "--target-url", "https://x.com/growovo_test/status/1")
+            self.assertEqual(2, proc.returncode)
+            payload = json.loads(proc.stdout)
+            checks = {item["check"]: item for item in payload["checks"]}
+            self.assertFalse(checks["independent_cdp_endpoint"]["ok"])
+            self.assertIn("9222", checks["independent_cdp_endpoint"]["detail"])
+
+
 if __name__ == "__main__":
     unittest.main()
