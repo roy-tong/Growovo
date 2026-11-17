@@ -1,6 +1,17 @@
 # Changelog
 
-## 0.15.0 — 2026-11-15
+## 0.15.0 — 2026-11-18
+
+This release closes the delivery golden chain end to end: a unified append-only
+operations log with readback consistency, a machine-readable delivery contract
+with the §5 procurement branch, live X acceptance tooling (read-only preflight,
+dry-run rehearsal, isolated-profile rules) and the suspended/locked account
+gate from the 2026-11-17 live finding. On top of it: the platform strategy
+layer compiles the 2026-11-17 harvest into craft rules with source tracing,
+the collection engine gains a diagnostic-probe tactics family and HN content
+contract, the experience library moves to evidence tracks (594 records), and
+`mkt demo` now walks one full successful delivery before the three blocked
+counter-examples. 1590 tests pass.
 
 ### Demo: one successful delivery plus three blocked samples
 
