@@ -82,8 +82,8 @@ footer{border-top:1px solid var(--line);margin-top:56px;padding-top:18px;color:v
 <main>
 <h1>Growovo</h1>
 <p class="tagline">Give it product facts and a growth goal. It plans, runs, and delivers daily results — automatically.</p>
-<span class="badge">MIT open source</span><span class="badge">CLI / MCP / Agent Skill</span><span class="badge">v0.14.0</span>
-<p><a href="#demo">One concrete task: a run the gate stops →</a></p>
+<span class="badge">MIT open source</span><span class="badge">CLI / MCP / Agent Skill</span><span class="badge">v0.15.0</span>
+<p><a href="#demo">One concrete task: one successful delivery, and three runs stopped by the gate →</a></p>
 
 <h2>What it is</h2>
 <p>Growovo is for <strong>indie developers and one-person companies</strong> — and for engineers who went full-stack and got handed GTM along with the codebase. You give it product facts and one growth goal; it sets the strategy, runs it, and delivers a daily business result: how many pieces went out, daily impressions, new followers. Strategy, plans and weekly reports are internal artifacts, not the deliverable.</p>
@@ -98,23 +98,24 @@ footer{border-top:1px solid var(--line);margin-top:56px;padding-top:18px;color:v
 </table>
 <p>It does not promise platform reach, and does not dress unverified channels up as full automation.</p>
 
-<h2 id="demo">One concrete task: a run the gate stops</h2>
-<p>The input is a plan (demo-p0), one campaign and three queue items. Below is the real <code>mkt demo</code> output — zero network, zero accounts, reproducible locally in about a second:</p>
+<h2 id="demo">One concrete task: one successful delivery, and three runs stopped by the gate</h2>
+<p>The input is a plan (demo-p0), one campaign and four queue items. Below is the real <code>mkt demo</code> output — zero network, zero accounts; the sandbox is rebuilt on every run and the whole thing is reproducible locally in about a second:</p>
 <table>
 <tr><th>Step</th><th>What happened</th><th>Result</th></tr>
-<tr><td>Plan check</td><td>schema, beachhead, capability matrix, daily kernel budget</td><td>PASS (3 items against a 100/day budget)</td></tr>
+<tr><td>Plan check</td><td>schema, beachhead, capability matrix, daily kernel budget</td><td>PASS (4 items against a 100/day budget)</td></tr>
 <tr><td>Human gate</td><td>the campaign belongs to plan demo-p0 with <code>human_approved=false</code></td><td><strong>Refused and stopped</strong> — human approval is a precondition</td></tr>
-<tr><td>Simulated approval</td><td><code>mkt plan approve</code>: signature, plan fingerprint and an approval event set <code>human_approved=true</code></td><td>Released; the write-path tests below still run in the sandbox, not as a real authorization</td></tr>
-<tr><td>Write path</td><td>d-001 dry-run, nothing sent; d-002 rejected for placeholder text; d-003 failed on read-back mismatch</td><td>1 dry-run · 1 rejected · 1 failed, all recorded</td></tr>
-<tr><td>Ledger</td><td><code>data/demo/ledger.jsonl</code> holds three terminal states</td><td>Line-by-line inspectable; failures are records too</td></tr>
+<tr><td>Simulated approval</td><td><code>mkt plan approve</code>: signature, plan fingerprint and an approval event set <code>human_approved=true</code></td><td>Released; the write path below still runs in the sandbox, not as a real authorization</td></tr>
+<tr><td>Successful delivery</td><td>d-000 passes the gates → read-back matches → offline send (<code>demo-memory</code>, in-process memory) → committed; one L1 receipt is added</td><td>1 committed row, inspectable line by line</td></tr>
+<tr><td>Three blocked runs</td><td>d-001 dry-run, nothing sent; d-002 rejected for placeholder text; d-003 failed on read-back mismatch</td><td>1 dry-run · 1 rejected · 1 failed, all recorded</td></tr>
+<tr><td>Ledger and daily card</td><td>4 terminal states match expectations; the daily result card reads only the ledger and the receipt layers</td><td>published 1 (planned 1); L1 observed; L2/L3 UNKNOWN, never written as 0</td></tr>
 </table>
-<p class="note">The point is not volume — it is <strong>where it stops</strong>: approval missing, placeholders present, read-back inconsistent. The ledger holds only dry-run / rejected / failed terminal states, <strong>no committed row</strong>, and the transport is <code>demo-memory</code> — nothing was sent. "Rather fail than send" and "stop for human adjudication" live in the code path, not in the copy; <code>tests/test_demo.py</code> pins "rerunnable, same terminal states, no committed" as a regression test.</p>
+<p class="note">The example shows both what it delivers and where it stops: one complete success path (gate → read-back → offline send → committed → daily result card) and three blocked runs (approval missing, placeholders present, read-back inconsistent). The send is an in-process memory simulation (<code>demo-memory</code>) — nothing was sent; committed only proves the action went out, not conversion; the daily card keeps L2/L3 UNKNOWN instead of writing the unknown as 0. <code>tests/test_demo.py</code> pins "success + three blocked paths + rerunnable" as a regression test.</p>
 
 <h2>Install and verify</h2>
 <pre><code>pipx install growovo
 mkt demo</code></pre>
-<p>v0.14.0 integrates goal-driven execution, local Codex production and review, KOC ranking, 82 tactics and read-only competitor monitoring. Real execution needs authorized actions, signed-in sessions and an online device; missing readings are shown as missing.</p>
-<p><a href="https://github.com/roy-tong/Growovo/releases/tag/v0.14.0">Release notes</a> · <a href="https://pypi.org/project/growovo/">PyPI</a> · <a href="https://github.com/roy-tong/Growovo/blob/main/docs/grow-autonomous-operations.md">Autonomous operations config</a></p>
+<p>v0.15.0 opens the demo with one complete successful delivery (gates, readback, offline send, committed ledger row, daily card) before showing the three blocked paths; a grow run exposes the C-01-Lite eight-field delegation block; G-10/G-11 tighten account-identity and qualification reads. Real execution still needs authorized actions, a signed-in session and an online device.</p>
+<p><a href="https://github.com/roy-tong/Growovo/releases/tag/v0.15.0">Release notes</a> · <a href="https://pypi.org/project/growovo/">PyPI</a> · <a href="https://github.com/roy-tong/Growovo/blob/main/docs/grow-autonomous-operations.md">Autonomous operations config</a></p>
 
 <h2>Verify from source (demo is zero-network, zero-account)</h2>
 <pre><code>git clone https://github.com/roy-tong/Growovo.git &amp;&amp; cd Growovo
@@ -148,7 +149,7 @@ python3 mkt.py grow platforms       # what phase one can fully automate</code></
 <h2>Links</h2>
 <ul>
 <li>Repo and docs: <a href="https://github.com/roy-tong/Growovo">GitHub roy-tong/Growovo</a> (<a href="https://github.com/roy-tong/Growovo/blob/main/README.md">中文 README</a> · <a href="https://github.com/roy-tong/Growovo/blob/main/docs/feature-status.md">feature status</a> · <a href="https://github.com/roy-tong/Growovo/blob/main/docs/platform-automation-matrix.md">platform automation matrix</a>)</li>
-<li>Growth post-mortem: <a href="./guides/launch-autopsy.html">73 posts in one night, 0 new stars</a> — the full failure record and what changed</li>
+<li>Growth post-mortem: <a href="./guides/launch-autopsy.en.html">73 posts in one night, 0 new stars</a> (English) · <a href="./guides/launch-autopsy.html" hreflang="zh-CN">中文版</a> — the full failure record and what changed</li>
 <li>LLM entry: <a href="https://roy-tong.github.io/Growovo/llms.txt">/llms.txt</a> · <a href="https://raw.githubusercontent.com/roy-tong/Growovo/main/llms.txt">repo llms.txt</a> · <a href="./" hreflang="zh-CN">中文页面</a></li>
 <li>ovo family: research layer <a href="https://roy-tong.github.io/Askovo/">Askovo</a> (<a href="https://github.com/roy-tong/Askovo">repo</a>) · verification layer <a href="https://roy-tong.github.io/Verovo/">Verovo</a> (<a href="https://github.com/roy-tong/Verovo">repo</a>)</li>
 </ul>

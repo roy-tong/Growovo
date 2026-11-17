@@ -9,7 +9,7 @@
 **--adhoc** 放行（账本记 adhoc=true；MCP 不开放该通道，也不开放授权管理）。
   mkt status                账本聚合（channel/campaign/result）
   mkt check                 CDP 会话与各渠道登录态检查
-  mkt demo                  零网络零账号演示（lint→人审→写路径 dry-run→账本）
+  mkt demo                  零网络零账号演示（lint→人审→成功投递→三道拦截→账本/日结果卡）
   mkt work-demo             GTM Work OS 全闭环演示（不执行队列）
   mkt orchestrate …         按产品/目标/任务选最小岗位与表达方式
   mkt policy …              日常营销常驻授权（不开放付款等高风险动作）
@@ -4342,7 +4342,7 @@ def build_parser():
     sp.add_argument("--format", choices=["json", "md"], default="json",
                     help="md = 给人看的报告")
     sp.set_defaults(fn=cmd_report)
-    sp = sub.add_parser("demo", help="零网络零账号演示：计划校验→人审闸门→写路径 dry-run→账本")
+    sp = sub.add_parser("demo", help="零网络零账号演示：计划校验→人审闸门→成功投递→三道拦截→账本与日结果卡")
     sp.set_defaults(fn=cmd_demo)
     sp = sub.add_parser("work-demo", help="零网络 GTM Work OS：上下文→工作单→SOP→交付→交接→KPI→plan/queue")
     sp.set_defaults(fn=cmd_work_demo)

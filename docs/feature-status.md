@@ -1,15 +1,15 @@
 # Growovo: implementation status
 
-Reviewed 2026-11-17. **Working baseline: v0.15.0 (platform strategy layer).** Available means local implementation and local tests, not production validation on every platform or proof of business outcomes.
+Reviewed 2026-11-18. **Working baseline: v0.15.0 (delivery golden chain, platform strategy layer and grow v2).** Available means local implementation and local tests, not production validation on every platform or proof of business outcomes.
 
 > Business architecture: [GTM 业务操作系统 v5](gtm-os/README.md) covers role families 07–46, work-order/SOP/deliverable/handoff contracts, KPI definitions and templates. R0/R1 are now locally implemented; see [implementation and remaining boundaries](gtm-os/05-implementation.md). Registry coverage is not equivalent to all 40 professional SOPs being executable or externally effective.
 
 ## Verification snapshot
 
 - `python3 -m pytest tests/`: **1590 tests pass** (`unittest discover` covers the same set).
-- `python3 mkt.py demo`: plan validation, human approval, write pipeline and ledger pass.
+- `python3 mkt.py demo`: plan validation, human approval, one successful offline delivery, three blocked samples and the daily result card pass.
 - `python3 mkt.py work-demo`: context → objective → WorkOrder → SOP → accepted deliverables → receiver handoff → approved plan/queue → independent KPI observation passes; no queue execution or send ledger.
-- v0.14.0 wheel acceptance runs outside the source checkout, covering packaged experience records, target management, goal compilation and scheduler workspace binding.
+- v0.15.0 wheel acceptance runs outside the source checkout, covering packaged experience records, target management, goal compilation and scheduler workspace binding.
 - Grow v2: launch → stage → tick (virtual clock, 7/14-day simulations) → daily → decide → weekly report → install; zero real sends.
 - Real CLI checks also cover email queue approval and dry-run, X reply queue contract, manual work sheets, campaign isolation, opportunity discovery, value artifacts, journeys, account lifecycle and pricing experiments. No real account sends in tests.
 

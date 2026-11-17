@@ -54,7 +54,7 @@ python3 mkt.py grow produce g1 --max-items 3
 
 [![tests](https://github.com/roy-tong/Growovo/actions/workflows/tests.yml/badge.svg)](https://github.com/roy-tong/Growovo/actions/workflows/tests.yml)
 
-**先试一个结果：** `python3 mkt.py demo` 在本地完成计划校验、审批、dry-run 和账本演示；`python3 mkt.py work-demo` 继续演示 WorkOrder→SOP→交付验收→交接→KPI→已审批 plan/queue，全程无需账号或网络且不执行队列。实际平台命令的验证等级见下表。[能力进度与技术取舍](docs/feature-status.md)。
+**先试一个结果：** `python3 mkt.py demo` 在本地完成计划校验、审批、一条成功投递、三道拦截和日结果卡演示；`python3 mkt.py work-demo` 继续演示 WorkOrder→SOP→交付验收→交接→KPI→已审批 plan/queue，全程无需账号或网络且不执行队列。实际平台命令的验证等级见下表。[能力进度与技术取舍](docs/feature-status.md)。
 
 > 为什么不自己写个脚本，或者用通用自动化平台？[对比页](docs/compare.md)（英文）逐项写了 Growovo 在哪输、在哪赢，并给出每条主张对应的仓库文件。
 
@@ -82,7 +82,7 @@ python3 mkt.py grow produce g1 --max-items 3
 
 ```bash
 git clone https://github.com/roy-tong/Growovo.git && cd Growovo
-python3 mkt.py demo               # 零网络零账号，不到 1 秒过内核四步：lint→人审→写路径→账本
+python3 mkt.py demo               # 零网络零账号，不到 1 秒过内核五步：lint→人审→成功投递→三道拦截→账本与日结果卡
 ```
 
 要连真实渠道（X / Gmail / GitHub 写）再装运行时，并初始化工作区：
@@ -101,7 +101,7 @@ python3 mkt.py check              # 确认 CDP 会话与 X/Gmail 登录态
 |---|---|---|
 | `python3 mkt.py status` | 全局账本聚合 | — |
 | `python3 mkt.py check` | CDP 会话检查（X/Gmail/Reddit/LinkedIn） | — |
-| `python3 mkt.py demo` | 零网络零账号演示（计划校验→人审闸门→写路径 dry-run→账本，沙盒可删） | — |
+| `python3 mkt.py demo` | 零网络零账号演示（计划校验→人审闸门→成功投递→三道拦截→账本与日结果卡；沙盒每次重建） | — |
 | `python3 mkt.py doctor [--selftest]` | 环境体检：内核导入/数据契约/凭据/CDP/暂停态 | — |
 | `python3 mkt.py report [--hours 24] [--format md]` | 一页纸运营报告（异常/暂停态/抑制名单） | — |
 | `python3 mkt.py init` | 工作区初始化：建目录/报凭据缺口/给下一步（`--workspace` 或 `MKT_HOME` 隔离多产品） | — |
