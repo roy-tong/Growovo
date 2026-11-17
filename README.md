@@ -33,6 +33,8 @@ python3 mkt.py grow agent g1          # 已有任务可用此命令启用 Codex 
 python3 mkt.py grow produce g1 --max-items 3
 ```
 
+**CDP 账号观测（v0.14+ 新增）：** 用户提供已登录的调试浏览器，Growovo 不预绑定账号；`mkt policy enable --observe-account` 后，每次动作读取当前浏览器实际账号并写入账本。`mkt account observe` 只读探测，`mkt account log` 查看操作日志。详见 [CDP 账号观测](docs/cdp-observed-account.md)。
+
 **先看证据再决定信不信：** [发布尸检：11 小时 73 条推文，0 个新 star](docs/launch-autopsy-20261105.md)——一次真实的 GTM 发布实验，当晚**没走 Growovo 的账本**（进度靠临时脚本记）；这是它拿到的数字，也是它暴露出的账本缺口。
 
 <details>

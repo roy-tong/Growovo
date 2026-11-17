@@ -562,6 +562,31 @@ class GrowRunV2:
         except OSError as exc:
             raise GrowError(f"POLICY_DENIED：授权文件读不到（{exc}）") from exc
         account = str((data.get("guards") or {}).get("account_id") or "")
+        # CDP-observed mode: record which browser account is actually logged in
+        # at arm time. It is informational; the action gate re-probes per send.
+        try:
+            from . import account_identity
+            policy_obj = account_identity.load_policy(base)
+            if account_identity.policy_state(policy_obj, account)["mode"] == "observed":
+                proof = account_identity.observe(
+                    "x", data_dir=base,
+                    env={**os.environ, "MKT_CDP_IDENTITY": "1"})
+                if proof is not None:
+                    data["observed_account"] = {
+                        "status": "observed", "channel": proof.channel,
+                        "handle": proof.handle, "user_id": proof.user_id,
+                        "observed_at": proof.observed_at,
+                        "proof_ref": proof.source_ref,
+                    }
+                else:
+                    data["observed_account"] = {
+                        "status": "unavailable",
+                        "reason": (account_identity.last_probe() or {}).get("reason"),
+                    }
+                self.save(data)
+        except Exception as exc:  # noqa: BLE001 观测失败不阻止开闸；动作门会 fail closed
+            data["observed_account"] = {"status": "error", "reason": str(exc)[:200]}
+            self.save(data)
         for item in (data.get("actions") or []):
             text = str(item)
             if ":" not in text:

@@ -13,6 +13,7 @@
   x        publish / reply / message / engage（message/engage 透传 vendor 参数）
   email    仅队列（action_runner 拒绝单条发信）
 """
+import os
 from pathlib import Path
 
 from .ledger import Ledger
@@ -125,7 +126,8 @@ def gate_account_identity(channel, data_dir, account=""):
             "账号身份门禁: %s %s: %s；下一步：%s"
             % (blocker["code"], blocker["reason"], blocker["detail"],
                blocker["next"]))
-    if account_identity.policy_state(policy, account)["mode"] in ("absent", "invalid"):
+    state = account_identity.policy_state(policy, account)
+    if state["mode"] in ("absent", "invalid"):
         return None
     # G-10：身份必须来自真实执行所用的那个调试浏览器。端点不一致就直接拒绝，
     # 免得「在 A 上验证、在 B 上发送」。
@@ -137,7 +139,12 @@ def gate_account_identity(channel, data_dir, account=""):
             "账号身份门禁: %s %s：%s" % (cdp_identity.ENDPOINT_MISMATCH, exc.reason, exc)) from exc
     except cdp_identity.EndpointRejected as exc:
         raise ActionError("账号身份门禁: identity_endpoint_invalid：%s" % exc) from exc
-    proof = account_identity.observe(channel, data_dir=data_dir)
+    # CDP-observed mode: the user provides the browser; force the read-only
+    # identity probe on for this call so the ledger can record which account
+    # actually performed the operation.
+    env = ({**os.environ, "MKT_CDP_IDENTITY": "1"}
+           if state["mode"] == "observed" else None)
+    proof = account_identity.observe(channel, data_dir=data_dir, env=env)
     try:
         return account_identity.enforce_identity(
             data_dir, channel, account, proof, policy=policy)
@@ -205,6 +212,9 @@ def _dispatch_action_inner(*, channel, action, data_dir=None, campaign="", go=Fa
         if identity_evidence and isinstance(rec, dict) and "identity" not in rec:
             rec = dict(rec)
             rec["identity"] = dict(identity_evidence)
+        if account and isinstance(rec, dict) and "account" not in rec:
+            rec = dict(rec)
+            rec["account"] = account
         return rec
     ledger = Ledger(data / "ledger.jsonl")
     extra = list(extra or [])

@@ -140,7 +140,7 @@ def _write(data_dir, policy):
 
 
 def authorize(data_dir, by, actions=None, accounts=None, days=None, now=None,
-              identities=None, require_identity=False):
+              identities=None, require_identity=False, observe_identity=False):
     """Create/replace the workspace routine policy and return its dict.
 
     ``actions=None`` grants only ``email:message``, never the full routine set.
@@ -168,6 +168,11 @@ def authorize(data_dir, by, actions=None, accounts=None, days=None, now=None,
                        if days is not None else None),
         "revoked": False,
     }
+    if observe_identity:
+        # CDP-observed mode: the user provides the browser; the engine records
+        # whichever account is actually logged in instead of requiring a
+        # pre-bound platform identity. It never skips observation.
+        policy["identity_mode"] = "cdp_observed"
     return _write(data_dir, policy)
 
 

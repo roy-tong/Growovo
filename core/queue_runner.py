@@ -177,6 +177,8 @@ def run_queue(queue_path, *, data_dir=None, go=False, allow_unverified=False,
         rec.setdefault("ref", item.get("id", ""))
         if identity_evidence:
             rec.setdefault("identity", dict(identity_evidence))
+        if account and "account" not in rec:
+            rec["account"] = account
         results.append(rec)
         log(f"[{idx + 1}/{len(items)}] {item.get('id', '')} {target}: {rec.get('result')}")
         # 人类节奏：真实发送之间随机停顿；dry-run 不碰平台，不需要等。

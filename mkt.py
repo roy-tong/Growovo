@@ -1342,6 +1342,15 @@ def cmd_grow(args):
             return 2
         print(f"{args.id} 实跑已开闸（{data.get('armed_by')}）。"
               "急停随时可用：mkt pause --on '原因'（暂停闸优先于一切写操作）")
+        observed = data.get("observed_account") or {}
+        if observed:
+            if observed.get("status") == "observed":
+                print(f"  当前浏览器账号：{observed.get('handle') or '(no handle)'}"
+                      f"（id={observed.get('user_id')}，{observed.get('channel')}）"
+                      "；每次动作会重新探测并写入账本")
+            else:
+                print(f"  ⚠ 当前浏览器账号未能读取（{observed.get('reason') or 'unknown'}）；"
+                      "真实动作会被 CDP 身份门禁挡住")
         return 0
 
     if act == "pause":
@@ -2308,7 +2317,8 @@ def cmd_policy(args):
             policy = execution_policy.authorize(DATA, by=args.by, actions=actions,
                                                 accounts=accounts, days=days,
                                                 identities=args.identity or None,
-                                                require_identity=args.require_identity)
+                                                require_identity=args.require_identity,
+                                                observe_identity=args.observe_account)
         except ValueError as exc:
             print(f"授权失败：{exc}", file=sys.stderr)
             return 2
@@ -2832,6 +2842,41 @@ def cmd_account(args):
     from core.accounts import AccountRegistry
     registry = AccountRegistry(DATA / "accounts.json")
     act = args.action
+    if act == "observe":
+        from core import account_identity
+        channel = str(args.channel or "x").strip().lower()
+        proof = account_identity.observe(
+            channel, data_dir=DATA,
+            env={**os.environ, "MKT_CDP_IDENTITY": "1"})
+        if proof is None:
+            print(json.dumps({"status": "unavailable",
+                              "channel": channel,
+                              "probe": account_identity.last_probe()},
+                             ensure_ascii=False, indent=1))
+            return 2
+        payload = {"status": "observed", "channel": proof.channel,
+                   "handle": proof.handle, "user_id": proof.user_id,
+                   "observed_at": proof.observed_at,
+                   "proof_ref": proof.source_ref}
+        print(json.dumps(payload, ensure_ascii=False, indent=1))
+        return 0
+    if act == "log":
+        from core.ledger import Ledger
+        rows = Ledger(DATA / "ledger.jsonl").all()[-max(1, int(args.limit)):]
+        if args.json:
+            print(json.dumps(rows, ensure_ascii=False, indent=1))
+            return 0
+        if not rows:
+            print("（无操作记录）")
+            return 0
+        for rec in rows:
+            ident = rec.get("identity") or {}
+            account = (ident.get("handle") or ident.get("observed_platform_identity")
+                       or ident.get("authorized_account") or "—")
+            print(f"{rec.get('ts','')}  {rec.get('channel','')}/{rec.get('action','')}"
+                  f"  {rec.get('result','')}  account={account}"
+                  f"  target={rec.get('target','')}")
+        return 0
     if act == "add":
         rec = registry.register(
             args.platform, args.handle, args.identity_type, account_id=args.account_id or None,
@@ -4343,6 +4388,8 @@ def build_parser():
                    help="账号身份 account=platform:user_id，可重复")
     a.add_argument("--require-identity", action="store_true",
                    help="执行时必须提供匹配的平台用户 ID；未提供则拒绝")
+    a.add_argument("--observe-account", action="store_true",
+                   help="CDP 观测模式：不预绑定账号，执行时记录当前浏览器实际登录账号（仍需可读平台身份）")
     a = psub.add_parser("migrate-identity",
                         help="旧授权迁移：列出缺身份绑定的常驻授权，--apply 绑定后解阻真实发送")
     a.add_argument("--by", default="", help="执行迁移的人；--apply 时必填")
@@ -5001,6 +5048,12 @@ def build_parser():
         a.add_argument("--evidence", default="")
         a.add_argument("--by", default="")
         a.add_argument("--note", default="")
+    a = asub.add_parser("observe", help="只读：从 CDP 浏览器读取当前实际账号并留痕")
+    a.add_argument("--channel", default="x")
+    a.add_argument("--json", action="store_true")
+    a = asub.add_parser("log", help="只读：账本里的操作日志（含实际账号）")
+    a.add_argument("--limit", type=int, default=20)
+    a.add_argument("--json", action="store_true")
     sp.set_defaults(fn=cmd_account)
 
     sp = sub.add_parser("network", help="代理环境引用绑定：不读凭据、不提高配额、不绕封禁")

@@ -81,7 +81,9 @@ python3 mkt.py work-action materialize --work-order-id <id> --step-id <step> \
 
 ## 日常营销执行与高风险决定的边界
 
-日常发帖、私信回复和邮件可以在工作区已有有效 `routine-policy` 时直接执行，不必逐次 plan 人审：
+日常发帖、私信回复和邮件可以在工作区已有有效 `routine-policy` 时直接执行，不必逐次 plan 人审。
+
+账号可以用用户自己已登录的浏览器：`mkt policy enable --observe-account` 进入 `cdp_observed` 模式，不预绑定账号；执行前读取当前浏览器实际账号，写入账本 `identity`/`account`，`mkt account log` 可查。当前该身份观测只覆盖 X。
 
 ```bash
 # 授权管理只能由人通过 CLI 完成；agent 不自我创建/扩大授权
