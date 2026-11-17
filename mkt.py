@@ -1193,6 +1193,10 @@ def cmd_grow(args):
                                  go=args.go, data_dir=DATA, owner=args.owner or "")
         except GrowErrors as exc:
             print(f"不能开始：{exc}")
+            payload = getattr(exc, "payload", None)
+            if payload:
+                from core import procurement
+                print(procurement.render(payload))
             return 2
         goal = data["goal"]
         print(f"闭环已建：{data['id']}（{data['started']} 起，渠道 {'、'.join(data['channels'])}）")
@@ -1269,6 +1273,10 @@ def cmd_grow(args):
             return 0
         except (V2Error, AgentError, BusyRun, FileNotFoundError) as exc:
             print(f"自动供给未完成：{exc}")
+            payload = getattr(exc, "payload", None)
+            if payload:
+                from core import procurement
+                print(procurement.render(payload))
             return 2
 
     if act == "briefs":

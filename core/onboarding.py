@@ -4,10 +4,22 @@
 mkt init 做三件事：建目录、报告凭据缺口、给出当前状态下的唯一优先动作。
 它不安装依赖、不改系统配置、不碰账号——只把"接下来做什么"缩成一行。
 """
+import json
 import os
 from pathlib import Path
 
 from .workspace import describe, ensure
+
+_CONTRACT_PATH = Path(__file__).resolve().parents[1] / "docs" / "delivery-contract.json"
+
+
+def delivery_contract():
+    """机器可读交付合同（docs/delivery-contract.json）；读不到时不硬失败。"""
+    try:
+        contract = json.loads(_CONTRACT_PATH.read_text(encoding="utf-8"))
+        return contract if isinstance(contract, dict) else None
+    except (OSError, ValueError):
+        return None
 
 ENV_CHECKS = (
     ("MKT_EMAIL_USER", "SMTP 发信账号（email 写）", False),
@@ -47,6 +59,7 @@ def init(data_dir, *, env=None):
         "path": str(Path(data_dir)),
         "env": env_status(env),
         "counts": counts(data_dir),
+        "delivery_contract": delivery_contract(),
     }
     try:
         probe = Path(data_dir) / ".write-probe"
@@ -76,6 +89,19 @@ def render_init(info):
     if c["plans"] == 0 and (c["events"] or c["experiments"] or c["ledger"]):
         lines.append("注意：有事件/实验/账本但没有计划——可能来自其他产品混在同一工作区；"
                      "建议 --workspace 或 MKT_HOME 一个产品一个目录。")
+    contract = info.get("delivery_contract") or {}
+    if contract:
+        states = contract.get("terminal_states") or {}
+        lines += ["", "交付合同（docs/delivery-contract.json）："]
+        if states:
+            lines.append("  终态：" + " / ".join(states))
+        exclusions = contract.get("exclusions") or []
+        if exclusions:
+            lines.append("  不做：" + "；".join(exclusions))
+        lines.append("  需要采购/授权时：requires_procurement 分支"
+                     "（terminal_state=BLOCKED_USER_INPUT，transaction_executed=false）")
+        lines.append("  写操作默认 dry-run；真实发送需人工授权"
+                     "（mkt policy enable --by <你的名字>）")
     n = info["next"]
     lines += ["", f"下一步：{n['title']}", f"  {n['command']}"]
     if n.get("why"):

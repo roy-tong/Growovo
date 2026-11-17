@@ -40,7 +40,11 @@ STALE_DAYS = 2
 
 
 class GrowError(RuntimeError):
-    pass
+    """闭环操作失败。requires_procurement 拒绝携带结构化 payload（§5）。"""
+
+    def __init__(self, message, payload=None):
+        super().__init__(message)
+        self.payload = payload
 
 
 def _today() -> str:
@@ -144,7 +148,8 @@ class GrowRunV2:
                                handle=handle, audience=audience,
                                actions=actions, data_dir=data_dir)
         except CompileError as exc:
-            raise GrowError(f"策略编译失败：{exc}") from exc
+            raise GrowError(f"策略编译失败：{exc}",
+                            payload=getattr(exc, "payload", None)) from exc
         except Exception as exc:  # goal 库的 GoalError 等统一带上上下文
             raise GrowError(f"策略编译失败：{exc}") from exc
         spec["facts_ref"] = str(facts_file)
