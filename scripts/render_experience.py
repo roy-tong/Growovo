@@ -16,7 +16,8 @@ FRESH_DAYS = 60
 
 NAME = {"xiaohongshu": "小红书", "zhihu": "知乎", "wechat": "微信公众号", "douyin": "抖音",
         "bilibili": "B站", "zhishixingqiu": "知识星球", "weibo": "微博", "jike": "即刻",
-        "juejin": "掘金", "v2ex": "V2EX", "sspai": "少数派", "wechat-official": "微信公众号"}
+        "juejin": "掘金", "v2ex": "V2EX", "sspai": "少数派", "wechat-official": "微信公众号",
+        "x": "X（二手playbook提炼，非站内一手）"}
 
 
 def main() -> None:
