@@ -84,7 +84,7 @@ class TestDemo(unittest.TestCase):
         self.assertEqual(len(self._ledger()), len(EXPECTED_RESULTS))
 
     def test_stale_sandbox_is_reset(self):
-        """旧版本留下的 d-000 不能污染当前四步终态。"""
+        """旧版本留下的 d-000 不能污染当前五步终态。"""
         data = self.base / "data" / "demo"
         data.mkdir(parents=True)
         (data / "ledger.jsonl").write_text(
@@ -92,7 +92,7 @@ class TestDemo(unittest.TestCase):
             encoding="utf-8")
         rc, out = self._run()
         self.assertEqual(rc, 0)
-        self.assertIn("三条终态与预期一致", out)
+        self.assertIn("4 条终态与预期一致", out)
 
     def test_human_gate_act_is_real(self):
         """第二步必须真的调 enforce_approval：跑完后沙盒 plan 已翻为 human_approved=true。"""
