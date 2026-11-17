@@ -2,7 +2,7 @@
 """统一操作日志（评审 2026-11-17 §4.2 最低字段清单）。
 
 每次真实/干跑动作必须 append-only 落一条完整记录：operation_id/run_id/
-queue_item_id、channel/action/target/content_sha256、browser_context_ref、
+campaign/queue_item_id、channel/action/target/content_sha256、browser_context_ref、
 account.platform_user_id/handle/observed_at/proof_ref、operator/approval_ref/
 policy_sha256、started_at/finished_at/result、receipt.id/url/readback_sha256、
 artifacts[].path/sha256、error.code/retryable/recovery_ref。
@@ -23,8 +23,9 @@ from core.queue_runner import run_queue
 
 def _full_entry(**over):
     base = dict(
-        operation_id="op-accept-0001", run_id="g-accept", queue_item_id="q1",
-        channel="x", action="reply", target="https://x.com/a/status/1",
+        operation_id="op-accept-0001", run_id="g-accept", campaign="accept-campaign",
+        queue_item_id="q1", channel="x", action="reply",
+        target="https://x.com/a/status/1",
         content_sha256=operations_log.content_sha256("验收回复内容"),
         browser_context_ref="cdp:http://127.0.0.1:9223",
         account={"platform_user_id": "1234567890", "handle": "accept_bot",
@@ -63,6 +64,30 @@ class MinimumFieldTests(unittest.TestCase):
                              receipt={"id": "", "url": "", "readback_sha256": ""})
         operations_log.OperationsLog(self.dir).append(second)
         self.assertEqual(2, len(operations_log.OperationsLog(self.dir).all()))
+
+    def test_missing_optional_evidence_is_explicit_null(self):
+        entry = operations_log.OperationsLog(self.dir).append(_full_entry(
+            run_id=None, campaign=None, queue_item_id=None,
+            browser_context_ref=None, approval_ref=None, policy_sha256=None,
+            receipt={}, result="dry-run",
+            account={"platform_user_id": "1234567890", "handle": None,
+                     "observed_at": None, "proof_ref": None}))
+        for field in ("run_id", "campaign", "queue_item_id", "browser_context_ref",
+                      "approval_ref", "policy_sha256"):
+            self.assertIsNone(entry[field], field)
+        for field in ("handle", "observed_at", "proof_ref", "authorized_account"):
+            self.assertIsNone(entry["account"][field], field)
+        for field in ("id", "url", "readback_sha256"):
+            self.assertIsNone(entry["receipt"][field], field)
+
+    def test_secret_fields_are_rejected_without_writing(self):
+        log = operations_log.OperationsLog(self.dir)
+        with self.assertRaises(operations_log.OperationsLogError):
+            log.append(_full_entry(cookie="must-not-be-written"))
+        self.assertEqual([], log.all())
+        self.assertIsNone(operations_log.browser_context_ref(env={
+            "MKT_CDP_IDENTITY_URL": "http://127.0.0.1:9223/?token=must-not-be-written",
+        }))
 
     def test_missing_content_hash_fails_loud_for_committed_write(self):
         log = operations_log.OperationsLog(self.dir)
@@ -184,11 +209,13 @@ class RunActionIntegrationTests(unittest.TestCase):
         }, ensure_ascii=False), encoding="utf-8")
         with patch("channels.x.adapter.run", _OfflineVendor("dry-run")):
             rows = run_queue(qdir / "accq.json", data_dir=self.dir,
-                             go=False, log=lambda *_: None)
+                             go=False, run_id="run-q", log=lambda *_: None)
         self.assertEqual(1, len(rows))
         ops_rows = operations_log.OperationsLog(self.dir).all()
         self.assertEqual(1, len(ops_rows))
         self.assertEqual("i1", ops_rows[0]["queue_item_id"])
+        self.assertEqual("run-q", ops_rows[0]["run_id"])
+        self.assertEqual("accq", ops_rows[0]["campaign"])
         self.assertTrue(ops_rows[0]["operator"].startswith("queue"),
                         "队列入口的操作者要可识别")
         self.assertEqual(operations_log.content_sha256("队列验收内容"),
@@ -241,6 +268,34 @@ class RunActionIntegrationTests(unittest.TestCase):
         self.assertEqual(operations_log.content_sha256("CLI 直通验收内容"),
                          ops_rows[0]["content_sha256"])
         self.assertTrue(ops_rows[0]["operator"].startswith("cli"))
+
+
+class AccountLogCliTests(unittest.TestCase):
+    def test_account_log_reads_unified_operations_and_actual_account_proof(self):
+        import contextlib
+        import io
+        from types import SimpleNamespace
+        import mkt
+
+        with tempfile.TemporaryDirectory() as tmp:
+            data = Path(tmp)
+            expected = operations_log.OperationsLog(data).append(_full_entry(
+                operation_id="op-cli-log", campaign="cli-log-campaign",
+                account={"platform_user_id": "1234567890", "handle": "actual-a",
+                         "observed_at": "2026-11-17T09:00:00+00:00",
+                         "proof_ref": "offline:proof:1234567890"}))
+            output = io.StringIO()
+            args = SimpleNamespace(action="log", limit=20, json=True)
+            with patch.object(mkt, "DATA", data), contextlib.redirect_stdout(output):
+                rc = mkt.cmd_account(args)
+            self.assertEqual(0, rc)
+            rows = json.loads(output.getvalue())
+            self.assertEqual(1, len(rows))
+            self.assertEqual(expected["operation_id"], rows[0]["operation_id"])
+            self.assertEqual("actual-a", rows[0]["account"]["handle"])
+            self.assertEqual("offline:proof:1234567890",
+                             rows[0]["account"]["proof_ref"])
+            self.assertEqual("cli-log-campaign", rows[0]["campaign"])
 
 
 if __name__ == "__main__":

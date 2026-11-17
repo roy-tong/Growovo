@@ -1242,6 +1242,10 @@ def cmd_grow(args):
                 probe=probe, skip_probe=getattr(args, "skip_probe", False))
         except GrowErrors as exc:
             print(f"不能启动：{exc}")
+            payload = getattr(exc, "payload", None)
+            if payload:
+                from core import procurement
+                print(procurement.render(payload))
             return 2
         run = result["run"]
         print(f"闭环已启动：{run['id']}（{run['started']} 起，自动执行渠道 "
@@ -2903,7 +2907,15 @@ def cmd_account(args):
         return 0
     if act == "log":
         from core.ledger import Ledger
-        rows = Ledger(DATA / "ledger.jsonl").all()[-max(1, int(args.limit)):]
+        from core.operations_log import OPERATIONS_LOG_NAME, OperationsLog
+        # 新链路读完整操作日志；旧工作区没有 operations.jsonl 时保留账本回退。
+        if (DATA / OPERATIONS_LOG_NAME).is_file():
+            rows = OperationsLog(DATA).all()
+            source = "operations"
+        else:
+            rows = Ledger(DATA / "ledger.jsonl").all()
+            source = "ledger"
+        rows = rows[-max(1, int(args.limit)):]
         if args.json:
             print(json.dumps(rows, ensure_ascii=False, indent=1))
             return 0
@@ -2911,6 +2923,20 @@ def cmd_account(args):
             print("（无操作记录）")
             return 0
         for rec in rows:
+            if source == "operations":
+                proof = rec.get("account") or {}
+                account = (proof.get("handle") or proof.get("platform_user_id")
+                           or proof.get("authorized_account") or "—")
+                receipt = rec.get("receipt") or {}
+                receipt_ref = receipt.get("id") or receipt.get("url") or "—"
+                print(f"{rec.get('finished_at') or rec.get('started_at') or ''}  "
+                      f"{rec.get('channel','')}/{rec.get('action','')}  "
+                      f"{rec.get('result','')}  account={account}  "
+                      f"operation={rec.get('operation_id') or '—'}  "
+                      f"campaign={rec.get('campaign') or '—'}  "
+                      f"queue_item={rec.get('queue_item_id') or '—'}  "
+                      f"receipt={receipt_ref}  target={rec.get('target') or '—'}")
+                continue
             ident = rec.get("identity") or {}
             account = (ident.get("handle") or ident.get("observed_platform_identity")
                        or ident.get("authorized_account") or "—")
@@ -5131,7 +5157,7 @@ def build_parser():
     a = asub.add_parser("observe", help="只读：从 CDP 浏览器读取当前实际账号并留痕")
     a.add_argument("--channel", default="x")
     a.add_argument("--json", action="store_true")
-    a = asub.add_parser("log", help="只读：账本里的操作日志（含实际账号）")
+    a = asub.add_parser("log", help="只读：统一操作日志（实际账号/回执；旧工作区回退账本）")
     a.add_argument("--limit", type=int, default=20)
     a.add_argument("--json", action="store_true")
     sp.set_defaults(fn=cmd_account)

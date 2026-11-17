@@ -44,8 +44,9 @@ class ReadbackFinalizeTests(unittest.TestCase):
     def _entry(self, **over):
         text = "回读验收内容"
         base = dict(
-            operation_id="op-rb-1", run_id="", queue_item_id="",
-            channel="x", action="reply", target="https://x.com/a/status/1",
+            operation_id="op-rb-1", run_id=None, campaign="rb-campaign",
+            queue_item_id=None, channel="x", action="reply",
+            target="https://x.com/a/status/1",
             content_sha256=operations_log.content_sha256(text),
             browser_context_ref="cdp:http://127.0.0.1:9223",
             account={"platform_user_id": "123", "handle": "acc",

@@ -339,7 +339,7 @@ def main(argv=None) -> int:
     readback_entry = operations_log.OperationsLog(workspace).append({
         "kind": "readback",
         "operation_id": f"{op_id}::readback",
-        "run_id": "", "queue_item_id": "",
+        "run_id": None, "campaign": CAMPAIGN, "queue_item_id": None,
         "channel": "x", "action": "reply", "target": target_url,
         "content_sha256": operations_log.content_sha256(text),
         "browser_context_ref": browser_ref,

@@ -14,6 +14,7 @@
   email    仅队列（action_runner 拒绝单条发信）
 """
 import os
+from datetime import datetime, timezone
 from pathlib import Path
 
 from .ledger import Ledger
@@ -392,9 +393,11 @@ def run_action(**kwargs):
     Operations-log context (operator / queue_item_id / run_id) is consumed here
     and never reaches the channel dispatch.
     """
-    ops_context = {key: kwargs.pop(key, "")
+    ops_context = {key: kwargs.pop(key, None)
                    for key in ("operator", "queue_item_id", "run_id")}
+    started_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
     record = _dispatch_action(**kwargs)
+    finished_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
     if kwargs.get("go") and isinstance(record, dict):
         data = Path(kwargs.get("data_dir") or resolve())
         try:
@@ -410,8 +413,9 @@ def run_action(**kwargs):
                 data, record,
                 channel=kwargs.get("channel"), action=kwargs.get("action"),
                 target=kwargs.get("target"), text=kwargs.get("text"),
-                campaign=str(kwargs.get("campaign") or ""),
+                campaign=kwargs.get("campaign"),
                 go=bool(kwargs.get("go")), routine=kwargs.get("routine"),
+                started_at=started_at, finished_at=finished_at,
                 **ops_context)
         except Exception as exc:  # 日志失败不掩盖动作结果，但必须大声可见
             (kwargs.get("log") or print)(f"[opslog] 操作日志写入失败：{exc}")

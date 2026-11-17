@@ -29,7 +29,7 @@ class ContractFileTests(unittest.TestCase):
 
     def test_required_sections(self):
         for key in ("product", "version", "supported_intentions",
-                    "required_inputs", "terminal_states", "exclusions",
+                    "required_inputs", "terminal_states", "business_goal", "exclusions",
                     "requires_procurement_template",
                     "operations_log_minimum_fields", "evidence_grades",
                     "live_status"):
@@ -38,6 +38,19 @@ class ContractFileTests(unittest.TestCase):
     def test_terminal_states_use_review_vocabulary(self):
         self.assertEqual(sorted(TERMINAL_STATES),
                          sorted(self.contract["terminal_states"]))
+
+    def test_business_goal_does_not_equate_sends_with_business_success(self):
+        goal = self.contract["business_goal"]
+        self.assertEqual("持续执行已授权动作并交付每日结果", goal["product_goal"])
+        self.assertEqual(["qualified_interaction", "activation", "value_event"],
+                         goal["business_outcomes"])
+        self.assertEqual(["independent", "verified"], goal["required_evidence"])
+        for item in ("committed", "发送量", "日结果单"):
+            self.assertIn(item, goal["not_business_success"])
+        self.assertEqual("not_observed",
+                         goal["unobserved_outcome"]["outcome_status"])
+        self.assertEqual("unknown", goal["unobserved_outcome"]["reading"])
+        self.assertIsNone(goal["unobserved_outcome"]["value"])
 
     def test_evidence_grades_use_review_vocabulary(self):
         self.assertEqual(list(EVIDENCE_GRADES), self.contract["evidence_grades"])
