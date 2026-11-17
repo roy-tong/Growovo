@@ -383,12 +383,17 @@ def record_ledger_outcome(data_dir, record, *, log=print):
 
 
 def run_action(**kwargs):
-    """Execute one write action, then record its task outcome.
+    """Execute one write action, then record its task outcome and operations log.
 
     The dispatch path is unchanged. Recording is best-effort: a send that
     already happened must not be reported as failed because a local JSONL write
     failed, so the error is logged and the ledger record is returned unchanged.
+
+    Operations-log context (operator / queue_item_id / run_id) is consumed here
+    and never reaches the channel dispatch.
     """
+    ops_context = {key: kwargs.pop(key, "")
+                   for key in ("operator", "queue_item_id", "run_id")}
     record = _dispatch_action(**kwargs)
     if kwargs.get("go") and isinstance(record, dict):
         data = Path(kwargs.get("data_dir") or resolve())
@@ -396,4 +401,18 @@ def run_action(**kwargs):
             record_ledger_outcome(data, record, log=kwargs.get("log") or print)
         except Exception as exc:  # recording must not mask the action result
             (kwargs.get("log") or print)(f"[outcome] task outcome not recorded: {exc}")
+    # 统一操作日志（§4.2 最低字段）：单动作/队列/MCP 共用此路径，dry-run 也落。
+    if isinstance(record, dict):
+        data = Path(kwargs.get("data_dir") or resolve())
+        try:
+            from . import operations_log
+            operations_log.record_action(
+                data, record,
+                channel=kwargs.get("channel"), action=kwargs.get("action"),
+                target=kwargs.get("target"), text=kwargs.get("text"),
+                campaign=str(kwargs.get("campaign") or ""),
+                go=bool(kwargs.get("go")), routine=kwargs.get("routine"),
+                **ops_context)
+        except Exception as exc:  # 日志失败不掩盖动作结果，但必须大声可见
+            (kwargs.get("log") or print)(f"[opslog] 操作日志写入失败：{exc}")
     return record

@@ -438,7 +438,9 @@ def enforce_identity(data_dir, channel, account, proof, *, policy=None,
                 "observed_platform_identity": proof.user_id,
                 "identity_proof_ref": proof.source_ref
                 or f"{proof.channel}:{proof.observed_at}",
-                "handle": proof.handle}
+                "handle": proof.handle,
+                "observed_at": proof.observed_at,
+                "browser_context": proof.browser_context}
     if state["mode"] == "unbound":
         raise _blocked("authorization_not_identity_bound", _block_message(
             "旧授权没有绑定实际平台账号身份：真实发送已拒绝", data_dir, account))
@@ -472,7 +474,9 @@ def enforce_identity(data_dir, channel, account, proof, *, policy=None,
             "observed_platform_identity": proof.user_id,
             "identity_proof_ref": proof.source_ref
             or f"{proof.channel}:{proof.observed_at}",
-            "handle": proof.handle}
+            "handle": proof.handle,
+            "observed_at": proof.observed_at,
+            "browser_context": proof.browser_context}
 
 
 # ---------- 旧授权迁移（G-01b / PRD AC-H） ----------

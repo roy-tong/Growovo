@@ -27,8 +27,8 @@ def _fake_vendor(dirpath: Path, script: str, *, result: str = ""):
         body += (
             "logs = pathlib.Path(__file__).parent / 'logs'\n"
             "logs.mkdir(exist_ok=True)\n"
-            "(logs / ('reply-%d.json' %% %d)).write_text(%r, encoding='utf-8')\n"
-            % (stamp, stamp, result)
+            "(logs / ('reply-%%d.json' %% %d)).write_text(%r, encoding='utf-8')\n"
+            % (stamp, result)
         )
     body += "sys.exit(0)\n"
     (dirpath / script).write_text(body, encoding="utf-8")

@@ -77,8 +77,8 @@ class MinimumFieldTests(unittest.TestCase):
         good = operations_log.OperationsLog(self.dir).append(
             _full_entry(artifacts=[{"path": str(art),
                                     "sha256": operations_log.file_sha256(art)}]))
-        self.assertEqual(1, good["artifacts"][0]["sha256"],
-                         operations_log.file_sha256(art))
+        self.assertEqual(operations_log.file_sha256(art),
+                         good["artifacts"][0]["sha256"])
         with self.assertRaises(operations_log.OperationsLogError):
             operations_log.OperationsLog(self.dir).append(
                 _full_entry(operation_id="op-x",

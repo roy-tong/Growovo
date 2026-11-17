@@ -3443,9 +3443,23 @@ def cmd_x(args):
         extra += ["--tweet-url", args.tweet_url]
     if getattr(args, "text", None):
         extra += ["--text", args.text]
-    return x_run(args.action, extra, go=args.go, adhoc=args.adhoc,
-                campaign=args.campaign, ledger=_ledger(), data_dir=DATA,
-                identity=identity_evidence)
+    # CLI 直通入口也要落统一操作日志（§4.2）：捕获本次动作新增的账本行，
+    # 结束后按动作现场扩写成完整记录（不依赖事后扫账本的时间启发式）。
+    from core import operations_log
+    recorder = operations_log.LedgerRecorder(_ledger())
+    rc = x_run(args.action, extra, go=args.go, adhoc=args.adhoc,
+               campaign=args.campaign, ledger=recorder, data_dir=DATA,
+               identity=identity_evidence)
+    try:
+        recorder.flush_operations(
+            DATA, channel="x", action=args.action,
+            target=getattr(args, "tweet_url", None) or "",
+            text=getattr(args, "text", None),
+            campaign=args.campaign or "", go=bool(args.go),
+            operator="cli:mkt-x")
+    except Exception as exc:  # noqa: BLE001 日志失败不掩盖动作结果
+        print(f"[opslog] 操作日志写入失败：{exc}")
+    return rc
 
 
 def cmd_email(args):

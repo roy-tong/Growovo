@@ -829,6 +829,7 @@ class GrowRunV2:
                     routine=True, account=str((data.get("guards") or {}).get("account_id") or ""),
                     continue_on_duplicate=True, only_ids=[c["id"] for c in candidates],
                     interval_seconds=tuple((data.get("quota") or {}).get("interval_seconds") or ()) or None,
+                    operator=f"grow:{data['id']}", run_id=str(data["id"]),
                     log=log) or [])
             except Exception as exc:  # noqa: BLE001 队列级失败不吞
                 err = f"{type(exc).__name__}: {exc}"[:300]
