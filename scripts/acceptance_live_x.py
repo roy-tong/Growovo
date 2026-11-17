@@ -250,13 +250,15 @@ def preflight(args) -> int:
             # Read-only login check on the same endpoint: opening the X home
             # page is enough; never credentials, never a write.
             try:
-                from core import cdp, session_gate
+                from core import cdp as cdp_mod, session_gate
                 session_gate.clear_cache()
                 login = session_gate.check_login(
-                    "x", connect=lambda: cdp.connect(cdp))
+                    "x", connect=lambda: cdp_mod.connect(cdp))
                 add("x_login", login.get("status") == session_gate.LOGGED_IN,
-                    "status=%s%s" % (login.get("status"),
-                                     " url=%s" % login.get("url") if login.get("url") else ""))
+                    "status=%s%s%s" % (
+                        login.get("status"),
+                        " url=%s" % login.get("url") if login.get("url") else "",
+                        " error=%s" % login.get("error") if login.get("error") else ""))
             except Exception as exc:  # noqa: BLE001
                 add("x_login", False, "登录态检查失败：%s" % str(exc)[:160])
         except (urllib.error.URLError, OSError, ValueError) as exc:

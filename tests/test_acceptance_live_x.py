@@ -97,7 +97,7 @@ class PreflightTests(unittest.TestCase):
     def test_preflight_blocks_missing_authorization_profile_and_browser(self):
         with tempfile.TemporaryDirectory() as tmp:
             proc = run_script("--preflight", "--workspace", tmp,
-                              "--cdp-url", "http://127.0.0.1:9223",
+                              "--cdp-url", "http://127.0.0.1:9231",
                               "--target-url", "https://x.com/growovo_test/status/1")
             self.assertEqual(2, proc.returncode)
             payload = json.loads(proc.stdout)
