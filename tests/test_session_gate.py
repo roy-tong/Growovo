@@ -11,13 +11,14 @@ from core.session_gate import CDP_UNAVAILABLE, LOGGED_IN, LOGGED_OUT
 
 
 class FakePage:
-    def __init__(self, landing):
+    def __init__(self, landing, body_text="app shell"):
         self._landing = landing  # url -> 落点 url
+        self._body_text = body_text
         self.url = ""
 
     def locator(self, selector):
         from unittest.mock import Mock
-        return Mock()
+        return Mock(**{"inner_text.return_value": self._body_text})
 
     def goto(self, url, **kwargs):
         self.url = self._landing(url)
@@ -42,6 +43,31 @@ class SessionGateTests(unittest.TestCase):
         state = session_gate.check_login("x", connect=connect)
         self.assertEqual(LOGGED_IN, state["status"])
         self.assertEqual(1, len(calls))
+
+    def test_logged_in_without_adverse_banner_reports_no_account_state(self):
+        connect, _ = self._connect_body(lambda url: url, body="For you | Following")
+        state = session_gate.check_login("x", connect=connect)
+        self.assertEqual(LOGGED_IN, state["status"])
+        self.assertIsNone(state.get("account_state"))
+
+    def test_suspended_account_is_logged_in_but_unusable(self):
+        connect, _ = self._connect_body(
+            lambda url: url, body="Your Home Timeline | Your account is suspended")
+        state = session_gate.check_login("x", connect=connect)
+        self.assertEqual(LOGGED_IN, state["status"])
+        self.assertEqual(session_gate.ACCOUNT_SUSPENDED, state.get("account_state"))
+
+    def test_locked_account_marker_detected(self):
+        connect, _ = self._connect_body(
+            lambda url: url, body="你的账号已被锁定，请验证身份")
+        state = session_gate.check_login("x", connect=connect)
+        self.assertEqual(session_gate.ACCOUNT_LOCKED, state.get("account_state"))
+
+    def _connect_body(self, landing, body):
+        page = FakePage(landing, body_text=body)
+        def connect(cdp_url=None):
+            return (object(), page)
+        return connect, []
 
     def test_logged_out_marker(self):
         connect, _ = self._connect(lambda url: "https://x.com/login" if "x.com" in url else url)
@@ -86,6 +112,19 @@ class PrecheckLoginGateTests(unittest.TestCase):
             calls.append(channel)
             return {"channel": channel, "status": status}
         return probe, calls
+
+    def test_suspended_account_rejected_before_dispatch(self):
+        authorize(self.dir, by="tester", actions=["x:reply"], days=30)
+        probe, _ = self._probe(LOGGED_IN)
+        probe.__wrapped__ = None
+        def suspended_probe(channel):
+            return {"channel": channel, "status": LOGGED_IN,
+                    "account_state": session_gate.ACCOUNT_SUSPENDED}
+        with self.assertRaises(ActionError) as ctx:
+            precheck("x", "reply", self.dir, "c1", True, False,
+                     routine=True, login_probe=suspended_probe)
+        self.assertIn("账号不可用", str(ctx.exception))
+        self.assertIn("suspended", str(ctx.exception))
 
     def test_missing_login_rejected_before_dispatch(self):
         authorize(self.dir, by="tester", actions=["x:reply"], days=30)

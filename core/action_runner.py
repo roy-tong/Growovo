@@ -88,7 +88,7 @@ def gate_browser_login(channel, entry, *, login_probe=None):
     dry-run 不进此门（保持零浏览器副作用）。缺失抛 ActionError →
     账本记 rejected，而不是 vendor rc=3 之后的 indeterminate。
     """
-    from .session_gate import CDP_UNAVAILABLE, LOGGED_IN, PROBES, check_login
+    from .session_gate import ACCOUNT_LOCKED, ACCOUNT_SUSPENDED, CDP_UNAVAILABLE, LOGGED_IN, PROBES, check_login
     # 只拦「声明了登录探测」的渠道：email 这类 smtp 主通道（cdp 仅降级）不按浏览器登录态门控。
     if channel not in PROBES or "cdp" not in entry.get("transports", set()):
         return
@@ -99,6 +99,11 @@ def gate_browser_login(channel, entry, *, login_probe=None):
         raise ActionError(f"{channel} 浏览器通道不可用：先运行 ./launch.command 启动调试 Chrome，再重试")
     if status != LOGGED_IN:
         raise ActionError(f"{channel} 浏览器登录态缺失：请在浏览器登录该站点后重试（引擎只检测登录态，不管理账号）")
+    account_state = state.get("account_state")
+    if account_state in (ACCOUNT_SUSPENDED, ACCOUNT_LOCKED):
+        raise ActionError(
+            f"{channel} 登录态正常但账号不可用（account_state={account_state}）："
+            "平台已冻结/锁定该账号，任何动作都会被拒绝；请换一个可用账号的浏览器会话再试")
 
 
 def gate_account_identity(channel, data_dir, account=""):

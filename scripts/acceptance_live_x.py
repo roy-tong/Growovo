@@ -259,6 +259,13 @@ def preflight(args) -> int:
                         login.get("status"),
                         " url=%s" % login.get("url") if login.get("url") else "",
                         " error=%s" % login.get("error") if login.get("error") else ""))
+                account_state = login.get("account_state")
+                add("x_account_usable", account_state not in (
+                    session_gate.ACCOUNT_SUSPENDED, session_gate.ACCOUNT_LOCKED),
+                    ("account_state=%s：平台已冻结/锁定该账号，发送会被拒绝" % account_state)
+                    if account_state in (session_gate.ACCOUNT_SUSPENDED,
+                                         session_gate.ACCOUNT_LOCKED)
+                    else "account_state=%s" % (account_state or "no_adverse_signal"))
             except Exception as exc:  # noqa: BLE001
                 add("x_login", False, "登录态检查失败：%s" % str(exc)[:160])
         except (urllib.error.URLError, OSError, ValueError) as exc:

@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+### Logged-in is not usable: suspended/locked account gate (live finding 2026-11-17)
+
+The isolated live-acceptance browser turned out to hold a **suspended** X
+account: login markers all passed and the preflight said `ready=true`, but
+every send would have been refused by the platform. Login state and account
+standing are now separate signals:
+
+- `session_gate.check_login` reads the logged-in page body (stability-polling
+  through progressive hydration) and reports `account_state`:
+  `suspended` / `locked` when the platform banner is rendered, `None` when no
+  adverse signal is present. `status=logged_in` semantics are unchanged.
+- `action_runner.gate_browser_login` raises `ActionError` (ledger records
+  rejected) when `account_state` is suspended/locked — a usable account is a
+  precondition for any real send, exactly like login itself.
+- `acceptance_live_x.py --preflight` gains an `x_account_usable` check, so
+  `ready=true` now also means the account is not platform-suspended.
+
 ### Golden chain preparation (review 2026-11-17: P2 unified operations log, P0 delivery contract, §5 procurement branch, §9 acceptance script)
 
 - **Live preflight** (`scripts/acceptance_live_x.py --preflight`): read-only
