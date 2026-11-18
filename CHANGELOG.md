@@ -1,4 +1,23 @@
-# Changelog
+## 0.15.2 — 2026-11-18
+
+Earlier review follow-ups now rebased onto 0.15.1.
+
+### Fixed
+
+- **G-5 — SMTP acceptance receipts**: every committed email carries a receipt
+  (message_id generated before the send, `stage: smtp_accepted`) that records
+  what the protocol can honestly prove — server acceptance, not delivery.
+- **Guided commands are copy-pasteable** (e2e pass): `review`, `execute`,
+  `next`, queue build and work-action outputs print the exact accepted forms
+  (`mkt plan approve --id <pid>`, `mkt queue run <queue>`); `pause --on
+  'reason'` works as documented; the pause gate covers dry-run too; evidence
+  writes respect workspace isolation (`MKT_HOME`/`--workspace`); `goal list`
+  shows goal ids; cadence placeholders and input errors give actionable text.
+
+### Performance
+
+- **G-6 — ledger read dedup**: ledger reads reuse one stat-keyed view until
+  the underlying files change.
 
 ## 0.15.1 — 2026-11-18
 
