@@ -31,6 +31,10 @@ from typing import Any, Dict, List, Mapping, Optional, Sequence
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_CASES = ROOT / "tests" / "fixtures" / "github_benchmark" / "cases.jsonl"
+# Holdout 与 dev 物理分文件（G-9，review 2026-11-09）：开发迭代调参默认只读
+# DEFAULT_CASES（21 例 dev）；holdout 只能显式 --cases <holdout.jsonl> 加载，
+# 不再与 dev 同文件——迭代视角无法顺手看到 holdout 样例。
+HOLDOUT_CASES = ROOT / "tests" / "fixtures" / "github_benchmark" / "holdout.jsonl"
 
 SCHEMA_VERSION = "1.0"
 KIND = "growovo.github_benchmark"
@@ -522,10 +526,10 @@ def render_json(report: Mapping[str, Any]) -> str:
 def main(argv: Optional[Sequence[str]] = None) -> int:
     parser = argparse.ArgumentParser(
         description="Run the deterministic keyword/rule baseline on the GitHub benchmark.")
-    parser.add_argument("--split", choices=("dev", "holdout", "all"), default="all",
-                        help="which fixture split to evaluate (default: all)")
+    parser.add_argument("--split", choices=("dev", "holdout", "all"), default="dev",
+                        help="which fixture split to evaluate (default: dev; holdout/all 显式加载 holdout 文件)")
     parser.add_argument("--cases", default=None,
-                        help="path to cases.jsonl (default: tests/fixtures/github_benchmark/cases.jsonl)")
+                        help="path to a cases.jsonl (default: split 对应的 fixture 文件；dev=21 例，holdout=12 例)")
     parser.add_argument("--format", choices=("json", "md", "both"), default="both",
                         help="stdout format (default: both)")
     parser.add_argument("--out-dir", default=None,
@@ -535,7 +539,16 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     args = parser.parse_args(argv)
 
     try:
-        cases = load_cases(args.cases)
+        if args.cases is None:
+            # 分文件加载（G-9）：dev 迭代默认只见 dev；holdout/all 必须显式请求。
+            if args.split == "dev":
+                cases = load_cases(DEFAULT_CASES)
+            elif args.split == "holdout":
+                cases = load_cases(HOLDOUT_CASES)
+            else:
+                cases = load_cases(DEFAULT_CASES) + load_cases(HOLDOUT_CASES)
+        else:
+            cases = load_cases(args.cases)
         report = evaluate(cases, split=args.split)
     except BenchmarkError as exc:
         print(f"github benchmark: {exc}", file=sys.stderr)

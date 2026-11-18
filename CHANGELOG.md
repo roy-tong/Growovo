@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.15.1 — 2026-11-18
+
+Review follow-up from the 2026-11-17 audit (G-9): the benchmark holdout set
+splits into its own file (`tests/fixtures/github_benchmark/holdout.jsonl`)
+and is invisible to dev iteration, so the benchmark gate measures generalisation,
+not memorisation of the dev split.
+
+
 ## 0.15.0 — 2026-11-18
 
 This release closes the delivery golden chain end to end: a unified append-only
