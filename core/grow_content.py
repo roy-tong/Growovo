@@ -187,14 +187,37 @@ def _ends_with_question(text: str) -> bool:
     return str(text or "").strip().endswith(("?", "？"))
 
 
+
+def _cjk_ack(text: str, target_text: str, min_len: int = 5) -> bool:
+    """中文回帖的「接上具体观点」判定：共享一段连续汉字即算接上。
+
+    terms() 对长中文句子几乎切不出词（整句 >8 字被丢弃），所以英文的
+    overlap 判定会把所有中文回复判成「没接上」。这里用连续片段兜底，
+    只影响 acknowledge 一项，不改变 fit 打分。
+    """
+    def runs(s: str):
+        return [r for r in re.findall(r"[\u4e00-\u9fff]+", str(s or ""))
+                if len(r) >= min_len]
+    target_runs = runs(target_text)
+    if not target_runs:
+        return False
+    for run in runs(text):
+        for tr in target_runs:
+            for i in range(len(run) - min_len + 1):
+                if run[i:i + min_len] in tr:
+                    return True
+    return False
+
+
 def _score_beats(text: str, target_text: str, beats: Sequence[str],
                  *, product_name: str = "") -> Dict[str, bool]:
     low = str(text or "").lower()
     target_terms = terms(target_text)
     text_terms = terms(text)
     overlap = target_terms & text_terms
-    acknowledge = bool(overlap) and any(
-        word in low for word in list(overlap)[:20]) if target_text else False
+    acknowledge = (bool(overlap) and any(
+        word in low for word in list(overlap)[:20]) if target_text else False) \
+        or _cjk_ack(text, target_text)
     contribution = bool(re.search(
         r"\d|%|\bwe\b|\bour\b|\bi\b|我们|我用|in practice|first-hand|"
         r"the fix|the trap|the hard part|具体|例如|"

@@ -27,7 +27,38 @@ LOGGED_IN = "logged_in"
 LOGGED_OUT = "logged_out"
 CDP_UNAVAILABLE = "cdp_unavailable"  # 浏览器通道不在：与「未登录」是两种缺失，不互相冒充
 
+# 登录态 ≠ 账号可用。平台会在已登录界面里直接宣布账号被冻结/锁定：
+# 这类账号发任何动作都会被拒绝，必须在发送门禁里单独拦截。
+ACCOUNT_SUSPENDED = "suspended"
+ACCOUNT_LOCKED = "locked"
+_ACCOUNT_STATE_MARKERS = {
+    ACCOUNT_SUSPENDED: (
+        "your account is suspended",
+        "account has been suspended",
+        "account is suspended",
+        "账号已被冻结",
+        "账号已被停用",
+        "你的账号已被冻结",
+    ),
+    ACCOUNT_LOCKED: (
+        "your account is locked",
+        "account has been locked",
+        "账号已被锁定",
+    ),
+}
+
+
+def account_state_from_text(text: str) -> Optional[str]:
+    """从已登录页面正文识别冻结/锁定横幅；无信号返回 None。"""
+    lowered = str(text or "").lower()
+    for state, markers in _ACCOUNT_STATE_MARKERS.items():
+        for marker in markers:
+            if marker in lowered:
+                return state
+    return None
+
 _TTL_SECONDS = 300.0
+_ACCOUNT_STATE_WAIT_SECONDS = 4.0
 _CACHE: Dict[str, Tuple[float, Dict[str, Any]]] = {}
 
 
@@ -37,10 +68,10 @@ def clear_cache() -> None:
 
 
 def _state(channel: str, status: str, *, url: str = "", marker: str = "",
-           error: str = "") -> Dict[str, Any]:
+           error: str = "", account_state: Optional[str] = None) -> Dict[str, Any]:
     return {"channel": channel, "status": status, "url": url or None,
             "marker": marker or None, "checked_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
-            "error": error or None}
+            "error": error or None, "account_state": account_state}
 
 
 def check_login(channel: str, *, connect: Optional[Callable[..., Any]] = None,
@@ -85,7 +116,28 @@ def _probe(key: str, probe: Dict[str, Any], *,
             page.locator(probe["ready"]).first.wait_for(state="visible", timeout=5000)
         except Exception:
             return _state(key, "unknown", url=landed, error="未检测到已登录界面标记，不能确认登录")
-        return _state(key, LOGGED_IN, url=landed)
+        # 登录态确认后再看账号可用性：平台把冻结/锁定横幅直接渲染在已登录页里。
+        # 页面是渐进水合的：读早了只有导航没有时间线横幅。轮询到连续两次
+        # 读数一致（或超时），再判账号态。
+        def _read_body() -> str:
+            try:
+                return page.locator("body").inner_text(timeout=1000) or ""
+            except Exception:  # noqa: BLE001 文本读不到只影响账号态，不影响登录态结论
+                return ""
+        body_text = ""
+        previous = _read_body()
+        deadline = time.monotonic() + _ACCOUNT_STATE_WAIT_SECONDS
+        while time.monotonic() < deadline:
+            time.sleep(0.6)
+            current = _read_body()
+            if current and current == previous:
+                body_text = current
+                break
+            previous = current
+        else:
+            body_text = previous
+        return _state(key, LOGGED_IN, url=landed,
+                      account_state=account_state_from_text(body_text))
     except Exception as exc:  # noqa: BLE001
         return _state(key, CDP_UNAVAILABLE, error=str(exc)[:160])
     # 不 close 复用页：cdp._reuse_page 的约定是自动化标签页保持稳定。

@@ -45,7 +45,7 @@ python3 mkt.py grow daily g1           # one screen a day: volume/readings/suppl
 
 [![tests](https://github.com/roy-tong/Growovo/actions/workflows/tests.yml/badge.svg)](https://github.com/roy-tong/Growovo/actions/workflows/tests.yml)
 
-**Try one result now:** `python3 mkt.py demo` runs plan validation, approval, dry-run, and a ledger demo locally. `python3 mkt.py work-demo` adds the full WorkOrder → SOP → deliverable acceptance → handoff → KPI → approved plan/queue flow, with no accounts, network, queue execution or sends. Verification levels for live platform commands are in the table below. See [feature status & trade-offs](docs/feature-status.md).
+**Try one result now:** `python3 mkt.py demo` runs plan validation, approval, one successful delivery, three blocked runs, and a daily result card locally. `python3 mkt.py work-demo` adds the full WorkOrder → SOP → deliverable acceptance → handoff → KPI → approved plan/queue flow, with no accounts, network, queue execution or sends. Verification levels for live platform commands are in the table below. See [feature status & trade-offs](docs/feature-status.md).
 
 > Why not write your own script, or use a general automation platform? [How Growovo compares](docs/compare.md) says where it loses and where it wins, and maps every claim to a file you can check.
 
@@ -73,7 +73,7 @@ Each can be used independently. The `mkt.py` and `growovo-gtm` identifiers are k
 
 ```bash
 git clone https://github.com/roy-tong/Growovo.git && cd Growovo
-python3 mkt.py demo               # zero network, zero accounts; under a second through the 4 core steps: lint → review → write path → ledger
+python3 mkt.py demo               # zero network, zero accounts; under a second through 5 steps: lint → review → delivery → three blocked runs → ledger + daily card
 ```
 
 For real channels (X / Gmail / GitHub writes), install the runtime and initialise a workspace:
@@ -92,7 +92,7 @@ python3 mkt.py check              # verify the CDP session and X/Gmail login sta
 |---|---|---|
 | `python3 mkt.py status` | Global ledger aggregation | — |
 | `python3 mkt.py check` | CDP session check (X/Gmail/Reddit/LinkedIn) | — |
-| `python3 mkt.py demo` | Zero-network zero-account demo (plan lint → human-review gate → write-path dry-run → ledger; sandbox, safe to delete) | — |
+| `python3 mkt.py demo` | Zero-network zero-account demo (plan lint → human-review gate → successful delivery → three blocked runs → ledger + daily card; sandbox rebuilt each run) | — |
 | `python3 mkt.py doctor [--selftest]` | Environment check: core imports / data contracts / credentials / CDP / pause state | — |
 | `python3 mkt.py report [--hours 24] [--format md]` | One-page operations report (anomalies / paused state / suppression list) | — |
 | `python3 mkt.py init` | Workspace bootstrap: create directories / report credential gaps / next steps (`--workspace` or `MKT_HOME` isolates multiple products) | — |

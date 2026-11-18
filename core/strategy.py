@@ -289,7 +289,7 @@ def render(strategy: Dict[str, Any]) -> str:
     lines.append("")
     from . import experience
     if hasattr(experience, "eligible"):
-        exp_rules = experience.eligible(strategy["primary"]["id"])
+        exp_rules = experience.eligible(strategy["primary"]["id"], purpose="craft")
     else:
         exp_rules = experience.graded(strategy["primary"]["id"])["rule"]
     if exp_rules:

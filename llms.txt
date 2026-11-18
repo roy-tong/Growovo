@@ -13,8 +13,9 @@
 
 ## Interfaces
 
-- CLI `mkt.py`: `demo`, `grow platforms|launch|arm|daemon|daily|review|prospects|learn`, `policy enable`, queue and channel ops. Approval-gated with dry-run; deterministic outputs.
+- CLI `mkt.py`: `demo`, `grow platforms|launch|arm|daemon|daily|review|prospects|learn`, `strategy card|cards|validate`, `content rules|brief|audit|plan`, `policy enable`, queue and channel ops. Approval-gated with dry-run; deterministic outputs.
 - MCP server `mcp_server.py` (`mkt-server`): stdio JSON-RPC 2.0, zero third-party dependencies — Claude Desktop, Codex and any MCP client can attach without the MCP SDK.
+- Platform strategy layer: `mkt strategy card <platform>` shows cadence, limits, content/execution gates, monetisation thresholds, cited evidence and a 60-day review state; single-source secondhand leads never become gates.
 - Agent Skill [skills/growovo-gtm/SKILL.md](https://github.com/roy-tong/Growovo/blob/main/skills/growovo-gtm/SKILL.md): GTM judgment and protocol for agents.
 
 ## Promise discipline

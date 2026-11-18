@@ -26,7 +26,11 @@ DEFAULT_INTERVAL = [60, 120]
 
 
 class CompileError(RuntimeError):
-    pass
+    """编译失败。requires_procurement 拒绝会携带结构化 payload（§5）。"""
+
+    def __init__(self, message, payload=None):
+        super().__init__(message)
+        self.payload = payload
 
 
 def _platform_channel(platform_id: str) -> Optional[str]:
@@ -95,6 +99,16 @@ def compile_run(*, run_id: str, facts: Dict[str, Any], goal_id: str,
     requested = [c.strip() for c in (channels or ["x", "email"]) if str(c).strip()]
     if not requested:
         raise CompileError("至少要指定一个渠道（第一期自动执行：x、email）")
+    # requires_procurement 显式分支（评审 §5）：付费渠道/数据源在规划期就
+    # 转成结构化用户行动项，不静默跳过、不代购买、也不当作普通编译错误。
+    from . import procurement
+    paid = procurement.match_paid_channel(requested)
+    if paid:
+        payload = procurement.blocked(
+            item=paid["item"], why=paid["why"],
+            user_action="由用户自行开通/采购并承担费用后，把数据或授权交给 "
+                        "Growovo；或改用免费替代（organic 渠道/CDP 可见页）")
+        raise CompileError(procurement.message(payload), payload=payload)
     try:
         platform_caps.assert_auto(requested)
     except platform_caps.PlatformError as exc:

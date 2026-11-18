@@ -18,14 +18,22 @@ GOOD_XHS = """很多团队做AI硬件，第一反应是接一个大模型让设�
 
 
 class ContentOpsTests(unittest.TestCase):
-    def test_channels_cover_three(self):
-        self.assertEqual(set(content_ops.CHANNELS), {"xiaohongshu", "wechat", "blog"})
+    def test_channels_cover_five(self):
+        self.assertEqual(set(content_ops.CHANNELS),
+                         {"xiaohongshu", "wechat", "zhihu", "douyin", "blog"})
 
     def test_plan_counts_for_14_days(self):
         p = content_ops.plan(start="2026-11-07", days=14)
+        self.assertEqual(p["counts"], {"xiaohongshu": 6, "wechat": 4, "blog": 2})
+        self.assertEqual(len(p["rows"]), 12)
+        self.assertEqual(p["rows"][0]["date"], "2026-11-07")
+        self.assertEqual(p["cadence"], "evidence")
+
+    def test_plan_daily_two_tactic_is_explicit(self):
+        p = content_ops.plan(start="2026-11-07", days=14, cadence="daily-two")
         self.assertEqual(p["counts"], {"xiaohongshu": 28, "wechat": 4, "blog": 2})
         self.assertEqual(len(p["rows"]), 34)
-        self.assertEqual(p["rows"][0]["date"], "2026-11-07")
+        self.assertIn("用户指定", p["note"])
 
     def test_audit_rejects_meta_narration(self):
         text = "很多团队做AI硬件。\n\n这篇只回答一件事：第一步做什么。\n\n先列10条指令。"
@@ -53,6 +61,17 @@ class ContentOpsTests(unittest.TestCase):
         res = content_ops.audit_text("xiaohongshu", GOOD_XHS, title="硬件加AI，先列10条指令")
         self.assertTrue(res["ok"], res["errors"])
         self.assertEqual(res["cta"], "B")
+
+    def test_audit_accepts_platform_safe_xhs_cta(self):
+        # 2026-11 采集：私信导流属高频违规；关注 + 评论区/收藏应被视为有效站内承接。
+        text = GOOD_XHS.replace(
+            "后续会继续更新这类具体工作方法，感兴趣可以关注并私信我，我会发你完整方法。",
+            "后续会继续更新这类具体工作方法。关注我，评论区说说你的场景。",
+        )
+        res = content_ops.audit_text("xiaohongshu", text, title="硬件加AI，先列10条指令")
+        self.assertTrue(res["ok"], res["errors"])
+        self.assertEqual(res["cta"], "B-safe")
+        self.assertNotIn("private_contact", [e["code"] for e in res["errors"]])
 
     def test_audit_file_ignores_editorial_and_footer(self):
         doc = "# 首周\n\n## D2-01｜硬件加AI，先列10条指令\n\n> 编辑定位（不发布）：写给硬件产品经理。\n\n" + GOOD_XHS + "\n\n## Growovo 复核记录\n\n这不是正文。\n"
@@ -101,7 +120,7 @@ class ContentOpsTests(unittest.TestCase):
 
     def test_render_rules_and_plan(self):
         self.assertIn("小红书", content_ops.render_rules("xiaohongshu"))
-        self.assertIn("28", content_ops.render_plan(content_ops.plan(days=14)))
+        self.assertIn("12", content_ops.render_plan(content_ops.plan(days=14)))
 
 
 if __name__ == "__main__":

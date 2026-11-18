@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>73 posts in one night, 0 new stars: a failed growth experiment, reviewed | Growovo</title>
+<meta name="description" content="A 31-follower account published 73 pieces in 11 hours and all three repositories gained zero stars; followers and business conversion were never reliably measured. The full record: silent platform drops, layered readings, five findings, and how the next experiment is designed.">
+<link rel="canonical" href="https://roy-tong.github.io/Growovo/guides/launch-autopsy.en.html">
+<meta name="theme-color" content="#fafbfc">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="Growovo">
+<meta property="og:title" content="73 posts in one night, 0 new stars: a failed growth experiment">
+<meta property="og:description" content="31 followers, 11 hours, 73 pieces, 0 new stars. Followers and conversion were never reliably measured — the failure review and what it changed.">
+<meta property="og:url" content="https://roy-tong.github.io/Growovo/guides/launch-autopsy.en.html">
+<meta property="og:image" content="https://roy-tong.github.io/Growovo/assets/social-preview.png">
+<meta property="og:locale" content="en_US">
+<meta property="og:locale:alternate" content="zh_CN">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="73 posts in one night, 0 new stars: a failed growth experiment">
+<meta name="twitter:description" content="31 followers, 11 hours, 73 pieces, 0 new stars. Followers and conversion were never reliably measured — the failure review and what it changed.">
+<meta name="twitter:image" content="https://roy-tong.github.io/Growovo/assets/social-preview.png">
+<link rel="alternate" hreflang="en" href="https://roy-tong.github.io/Growovo/guides/launch-autopsy.en.html">
+<link rel="alternate" hreflang="zh-CN" href="https://roy-tong.github.io/Growovo/guides/launch-autopsy.html">
+<link rel="alternate" hreflang="x-default" href="https://roy-tong.github.io/Growovo/guides/launch-autopsy.html">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "Article",
+  "headline": "73 posts in one night, 0 new stars",
+  "description": "A 31-follower account published 73 pieces in 11 hours and all three repositories gained zero stars; followers and business conversion were never reliably measured. The full record: silent platform drops, layered readings, five findings, and how the next experiment is designed.",
+  "inLanguage": "en",
+  "url": "https://roy-tong.github.io/Growovo/guides/launch-autopsy.en.html",
+  "mainEntityOfPage": "https://roy-tong.github.io/Growovo/guides/launch-autopsy.en.html",
+  "author": { "@type": "Person", "name": "Roy Tong", "url": "https://github.com/roy-tong" },
+  "publisher": { "@type": "Organization", "name": "Growovo", "url": "https://roy-tong.github.io/Growovo/" },
+  "isBasedOn": "https://github.com/roy-tong/Growovo/blob/main/docs/launch-autopsy-20261105.md",
+  "datePublished": "2026-11-06"
+}
+</script>
+<style>
+:root{--ink:#1a1d21;--mut:#5b6470;--line:#e4e7ec;--bg:#fafbfc;--accent:#0d6b3f;--warn:#8a5a00}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font:16px/1.75 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:var(--ink);background:#fff}
+main{max-width:760px;margin:0 auto;padding:48px 20px 80px}
+h1{font-size:28px;line-height:1.35;letter-spacing:-.5px}
+h2{font-size:20px;margin:44px 0 12px}
+p{margin:10px 0}
+a{color:var(--accent)}
+.tagline{font-size:17px;color:var(--mut);margin-top:10px}
+table{width:100%;border-collapse:collapse;margin:14px 0;font-size:15px}
+th,td{text-align:left;padding:9px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font-weight:600;background:var(--bg)}
+code,pre{font:13.5px/1.6 ui-monospace,SFMono-Regular,Menlo,monospace}
+code{background:var(--bg);border:1px solid var(--line);border-radius:4px;padding:1px 5px}
+pre{background:var(--ink);color:#e8edf2;border-radius:8px;padding:14px 16px;overflow-x:auto;margin:14px 0}
+pre code{background:none;border:none;color:inherit;padding:0}
+.note{border-left:3px solid var(--warn);background:#fffaf0;padding:10px 14px;border-radius:0 6px 6px 0;margin:14px 0}
+.meta{color:var(--mut);font-size:14px;margin-top:8px}
+footer{border-top:1px solid var(--line);margin-top:56px;padding-top:18px;color:var(--mut);font-size:14px}
+</style>
+</head>
+<body>
+<main>
+<h1>73 posts in one night, 0 new stars</h1>
+<p class="meta">Language: <strong>English</strong> · <a href="./launch-autopsy.html" hreflang="zh-CN">中文</a></p>
+<p class="tagline">A complete review of a failed growth experiment: a 31-follower account, 11 hours, 73 pieces of content, and zero star growth across all three repositories. Followers and business conversion were never reliably measured, so this article does not write them as zero.</p>
+<p class="meta">Experiment window 2026-11-05 20:32 → 11-06 07:23 (+08). Source record: <a href="https://github.com/roy-tong/Growovo/blob/main/docs/launch-autopsy-20261105.md">docs/launch-autopsy-20261105.md</a> (English; every number carries its source). The numbers here match that document; no new unverified data is added.</p>
+<p class="note">First, what this experiment was: <strong>it did not go through Growovo's ledger or execution path</strong>. That night's progress was written as JSON by three throwaway scripts, so some readings can only carry qualifiers rather than a tidy zero. That is one of the problems this review exposes — see finding 3 below.</p>
+
+<h2>Separate four things first: publication ≠ reach ≠ followers ≠ business outcome</h2>
+<p>Set the ruler before reviewing. The most common confusion in growth discussions is treating four results at different layers as one:</p>
+<table>
+<tr><th>Layer</th><th>What it is</th><th>Reading that night</th></tr>
+<tr><td>Publication</td><td>Execution result — the content actually went out</td><td>73+ submissions; 36 thread posts and 34 replies have verifiable IDs; at least 3 standalone posts were confirmed published; 13 others could not be confirmed (silently dropped by the platform)</td></tr>
+<tr><td>Reach</td><td>Channel feedback — whether the platform shows it</td><td>The thread-view page reading was 4; that reading is not trustworthy. There was no independent reach measurement.</td></tr>
+<tr><td>Followers</td><td>Growth signal — strangers decide to stay</td><td><strong>Not reliably measured</strong>: the account's follower count was not saved day by day, so it cannot be written as 0.</td></tr>
+<tr><td>Business outcome</td><td>Sign-up, activation, payment</td><td><strong>No verifiable conversion data</strong>: there was no observation chain for sign-up, activation or payment that night.</td></tr>
+</table>
+<p>"How much went out" is an execution question; "did anyone see it" is a channel question; "did anyone stay" is a growth question; "did anyone use it or pay" is a business question. <strong>No amount of execution volume substitutes for the next three layers.</strong></p>
+<p>Beyond those four layers there is one more reading: <strong>GitHub star delta</strong>. It is the only precisely reproducible hard reading in this experiment — all three repositories were 0 (see the results table below), read through the GitHub API on 11-04 and 11-06. But a star delta is not followers, sign-ups or payments; telling "0 stars" as "0 growth" would be writing the unknown as zero, which this review does not do.</p>
+
+<h2>Experiment setup</h2>
+<table>
+<tr><th>Item</th><th>Count</th></tr>
+<tr><td>Publishing threads</td><td>3 (one per product), 12 posts each, 36 posts total</td></tr>
+<tr><td>Replies to others</td><td>34 (each traceable)</td></tr>
+<tr><td>Standalone posts</td><td>At least 3 confirmed published; 13 more drafts could not be confirmed as published</td></tr>
+<tr><td>Total</td><td><strong>73+ pieces / 10 hours 51 minutes</strong>, from a 31-follower account</td></tr>
+</table>
+<p>The account had published 1,644 posts before this; that night's output was about 4.4% of its historical total.</p>
+
+<h2>Results</h2>
+<table>
+<tr><th>Product</th><th>Before (11-04, GitHub API)</th><th>After (11-06, GitHub API)</th><th>Delta</th></tr>
+<tr><td>Verovo</td><td>218</td><td>218</td><td><strong>0</strong></td></tr>
+<tr><td>Askovo</td><td>1</td><td>1</td><td><strong>0</strong></td></tr>
+<tr><td>Growovo</td><td>1</td><td>1</td><td><strong>0</strong></td></tr>
+</table>
+<p>No forks, no issues, no replies from strangers. Star counts are independent of the page and precisely reproducible; they are the only trustworthy hard reading in this experiment.</p>
+
+<h2>What happened during the night</h2>
+<p>The timeline is decoded from post IDs (the high bits of an X post ID encode its creation time), not from notes taken at the time:</p>
+<table>
+<tr><th>Time (+08)</th><th>Event</th></tr>
+<tr><td>20:32</td><td>First thread post</td></tr>
+<tr><td>21:10</td><td>The platform began <strong>silently dropping</strong> standalone posts: the submit call returned success, with no error, banner or rejection notice, but the post did not exist</td></tr>
+<tr><td>23:00</td><td>Probe: all 3 posts were absent from search and the profile; the queue was stopped</td></tr>
+<tr><td>02:00</td><td>Third probe passed; publishing resumed</td></tr>
+<tr><td>07:23</td><td>Last reply sent</td></tr>
+</table>
+<p class="note">Silent dropping was the most valuable finding of the night: any pipeline that only checks whether the submit call succeeded would record this night as 100% successful, when in fact about one third of the standalone posts never existed. The second check — search for the text again after publishing — is what saved us.</p>
+
+<h2>Five findings</h2>
+<p><strong>1. Replies really do reach people; cold-start broadcast from a small account does not.</strong> All 34 replies to others were delivered; the 36 thread posts were almost unseen. A 31-follower account posting cold threads does not lack quality; it lacks a distribution path — replies work because they land in an audience someone else already has.</p>
+<p><strong>2. Volume does not create a reason to care.</strong> None of the 73 pieces gave a stranger a reason to say "this solves the problem in front of me". The only product with 218 stars got them through a completely different mechanism: earlier we audited token metering for about 110 tools with synthetic samples, found 45+ reproducible bugs and filed issues, and 10 fixes were merged upstream — those stars came from that work months earlier.</p>
+<p><strong>3. Our own tool could have caught this failure, but we did not use it.</strong> Growovo's core claim is a verifiable ledger (every action recorded as success, failure or unknown). That night bypassed the ledger and wrote progress JSON with three throwaway scripts — which is why "at least 3" carries a qualifier: we cannot fully reconstruct that night from our own records. The product's pipeline would have recorded silent drops as "unknown result" rows instead of letting them disappear.</p>
+<p><strong>4. The limit is attention, not a rate quota.</strong> The daily allowance was 50 posts + 200 replies; we used 73 pieces. What decides whether something goes out is the platform's anti-automation heuristics, not the quota; but even if everything had gone out, the result would not change — the bottleneck was never capacity, it was that nobody was waiting.</p>
+<p><strong>5. "Building in public" through volume is just keeping a diary.</strong> "We shipped twice this week" gives nobody anything to act on; "we published 73 pieces, got nothing, here is why, and here is what we changed" is usable public knowledge.</p>
+
+<h2>What we changed</h2>
+<ul>
+<li>Canceled the planned 500-post / 14-day volume campaign.</li>
+<li>Each product <strong>first publishes a verifiable artifact</strong> (a reproducible bug, a dataset, a traceable claim) before any promotion — strangers may not trust us, but they can verify the artifact themselves.</li>
+<li>X is reduced to a notice board: at most 3 posts per week, each pointing to an artifact; no more "we exist" announcements.</li>
+<li><strong>All actions go through the ledger</strong>, including failed ones. This article exists precisely because that night had no ledger and could only be reconstructed from post IDs.</li>
+</ul>
+
+<h2>Reproduce these numbers</h2>
+<pre><code># star readings
+curl -s https://api.github.com/repos/roy-tong/Verovo   # stargazers_count, compare with 218 on 11-04
+
+# post times (the high bits of an X post ID encode creation time)
+python3 -c "from datetime import datetime; print(datetime.fromtimestamp((ID &gt;&gt; 22) + 1288834974657))"
+
+# ledger gap: repo data/ledger.jsonl has only 3 rows from 2026-11-02, none from launch night</code></pre>
+
+<h2>What this experiment cannot prove</h2>
+<ul>
+<li>It does not prove the product is wrong — 73 posts were a distribution test, not a product test.</li>
+<li>It does not prove X is useless for everyone — only that an account with 31 followers and no verifiable artifact was useless on X.</li>
+<li>It does not prove the audit mechanism can be replicated — it worked once, on one product, with real technical findings. Treating one success as a formula is the same mistake as this experiment.</li>
+</ul>
+
+<h2>Growovo's role here</h2>
+<p>It is not the cure for this failure; it is the tool that keeps the next failure from being unclear: the ledger records execution volume line by line, daily readings are captured with an evidence grade, and failures stop for human adjudication. It does not promise how much reach the platform algorithm will give — nobody can promise that layer. The <a href="../en.html#faq">FAQ</a> describes the scope and boundaries of full automation; the <a href="https://github.com/roy-tong/Growovo/blob/main/docs/compare.md">comparison page</a> says where it loses and where it wins.</p>
+<p><a href="../en.html">← Back to Growovo</a> · <a href="./launch-autopsy.html" hreflang="zh-CN">中文版</a> · <a href="../" hreflang="zh-CN">中文首页</a></p>
+
+<footer>Growovo · MIT License · All numbers come from <a href="https://github.com/roy-tong/Growovo/blob/main/docs/launch-autopsy-20261105.md">launch-autopsy-20261105.md</a> (written 2026-11-06).<br>
+ovo family: research <a href="https://roy-tong.github.io/Askovo/">Askovo</a> → execution Growovo → verification <a href="https://roy-tong.github.io/Verovo/">Verovo</a></footer>
+</main>
+</body>
+</html>

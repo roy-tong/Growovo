@@ -139,6 +139,14 @@ MECHANISMS: Dict[str, Dict[str, str]] = {
                      "直接试用产品成为新的'可爬取性'）。",
         "ask": "我的产品装得进 agent 的默认搜索路径吗？产品页能被 agent 转述吗？",
     },
+    # ---- 来自 2026-11-17 图文策略采集轮（四平台一手语料 594 条） ----
+    "diagnostic_probe": {
+        "name": "用平台接口当探针",
+        "principle": "平台的付费投放入口、店铺开通接口、审核驳回信号本身是免费的诊断"
+                     "通道：它们会先于任何通知告诉你平台怎么看你这条内容/这个账号；"
+                     "读探针比猜测限流便宜一个数量级。",
+        "ask": "这个平台的哪个入口会对我做真实判定？我能不能用最小成本让它先判一次？",
+    },
 }
 
 # 风险分档：白帽可以长期持有；浅灰守住体验底线；灰只在特定窗口有正期望。
@@ -188,6 +196,8 @@ TACTICS: Dict[str, Dict[str, Any]] = {
             "自家实测（2026-11）：回帖触达明显大于原创帖",
             "Teract 追踪 300 个小账号：84% 以回帖为主要增长手段",
             "X 2023 开源算法分析：回复权重约 9 倍于点赞（dev.to/axrisi）",
+            "2026 playbook 分值口径（二手，2026-11-17 采集）：回复≈13.5 / 转发≈20 / "
+            "点赞≈1；40 回复 0 点赞的帖子优于 500 点赞 0 回复",
         ],
         "caution": "手写为主，X 对自动化互动敏感；回复被折叠进'更多回复'时停 24 小时再降频恢复。",
         "evidence_date": "2026-11-14",
@@ -1798,6 +1808,135 @@ TACTICS: Dict[str, Dict[str, Any]] = {
         "evidence_date": "2026-11-14",
         "revalidate_days": 120,
     },
+    # ---- 以下六条来自 2026-11-17 图文策略采集轮（四平台一手语料，582 条经验库） ----
+    "xhs-fanshi-probe": {
+        "name": "小红书薯条违禁词探针",
+        "channel": "xiaohongshu",
+        "mechanism": "diagnostic_probe",
+        "status": "usable",
+        "risk": "white",
+        "idea": "薯条（官方付费投流）的审核驳回信号可以当免费的违禁词体检用：发布 10 分钟后"
+                "试投薯条，能投=无违禁词；次日再点一次复核。比等流量异常再猜快得多。",
+        "steps": [
+            "笔记发布 10 分钟后进入薯条投放页，选最小额度试投",
+            "能进入投放=当前无违禁词判定；被驳回=按驳回提示定位敏感词后修改",
+            "第二天对同一笔记再试投一次复核（部分判定有延迟）",
+            "驳回记录与修改结果记入经验库，沉淀本账号的违禁词地图",
+        ],
+        "quota": {"probe_delay_minutes": 10, "recheck_next_day": True, "spend_min": 0},
+        "verdict_metrics": ["probe_pass_rate", "rejected_words_found_per_month"],
+        "evidence": [
+            "经验库 xiaohongshu（2026-11-17 采集）：多条一手笔记提及，站内实测口径",
+        ],
+        "caution": "只读驳回信号，不实际投放付费；频繁试投不投可能被识别，单篇≤2 次。",
+        "evidence_date": "2026-11-17",
+        "revalidate_days": 60,
+    },
+    "xhs-shop-probe": {
+        "name": "小红书店铺开通探针查限流",
+        "channel": "xiaohongshu",
+        "mechanism": "diagnostic_probe",
+        "status": "usable",
+        "risk": "white",
+        "idea": "尝试开通店铺时平台会做一次真实的账号风控判定：提示异常≈账号已被限流。"
+                "用电商开通接口反查账号风控状态，比看流量猜准。",
+        "steps": [
+            "流量异常下跌时，进入开店流程走到风控判定步骤（不真开店）",
+            "提示异常=账号侧被限流；正常=问题大概率在内容，回到内容自查",
+            "结果与流量曲线对照记录，建立本账号『异常基线』",
+        ],
+        "quota": {"per_month_max": 2},
+        "verdict_metrics": ["probe_signal_vs_traffic_drop_correlation"],
+        "evidence": ["经验库 xiaohongshu（2026-11-17 采集）：站内流传的自查法，多源提及"],
+        "caution": "只走到判定步，不提交开店；判定结果不外显限流原因，只作参考信号。",
+        "evidence_date": "2026-11-17",
+        "revalidate_days": 60,
+    },
+    "xhs-dual-account-pool": {
+        "name": "公众号/小红书双号进出流量池",
+        "channel": "xiaohongshu",
+        "mechanism": "compound_loop",
+        "status": "proposed",
+        "risk": "light_gray",
+        "idea": "同主体两个号写同一选题，哪号先进推荐池就集中资源推哪个；未进池的号当实验田。"
+                "流量池判定按号不按人，双号等于把入池概率翻倍。",
+        "steps": [
+            "A/B 两号同题各写一篇（标题/封面差异化，不做同文复制）",
+            "发布后 48h 观察哪号拿到推荐流量",
+            "进池号追加同选题续篇吃满窗口；未进池号保留做选题实验",
+            "公众号侧同理（多篇提到双号进出流量池玩法）",
+        ],
+        "quota": {"accounts": 2, "decision_window_hours": 48},
+        "evidence": ["经验库 wechat（2026-11-17 采集）：双号进出流量池策略，知乎一手复盘"],
+        "caution": "多号同设备登录会被平台查出（小红书矩阵打击先例）；须分终端；两号别写同一领域",
+        "evidence_date": "2026-11-17",
+        "revalidate_days": 60,
+    },
+    "wechat-toutiao-sync": {
+        "name": "头条首发 72h 后同步公众号",
+        "channel": "wechat",
+        "mechanism": "compound_loop",
+        "status": "usable",
+        "risk": "white",
+        "idea": "同一篇文章吃两个平台的首发红利：先发头条（勾选首发拿补贴），72 小时后同步"
+                "公众号吃推荐池——实证单篇 1000 字头条收益 100+，公众号侧另算。",
+        "steps": [
+            "文章先发头条号并勾选『首发』（享受首发补贴单价）",
+            "72 小时后同步到公众号（注意公众号侧不重复标原创冲突）",
+            "两端数据分开记录，验证哪个领域在哪个端单价更高",
+        ],
+        "quota": {"sync_delay_hours": 72},
+        "verdict_metrics": ["toutiao_income_per_post", "wechat_reads_per_synced_post"],
+        "evidence": ["经验库 wechat（2026-11-17 采集）：知乎 223 赞 Q&A 一手学员实证"],
+        "caution": "头条首发有独家期约束；公众号端标原创前确认头条侧授权关系，防被判搬运。",
+        "evidence_date": "2026-11-17",
+        "revalidate_days": 60,
+    },
+    "wechat-hot-two-tier": {
+        "name": "热点文两档时间窗",
+        "channel": "wechat",
+        "mechanism": "sequence_window",
+        "status": "usable",
+        "risk": "white",
+        "idea": "热点内容有两个互斥的进入窗口：事发 1-2 小时内抢首发（不需要见解，用户只要"
+                "吃瓜）；十几小时后进入的必须给独家剖析，否则不发。窗口错了内容再好也沉。",
+        "steps": [
+            "热点发生后 1-2 小时内能发：发快讯式内容，抢时间戳，不求深度",
+            "超过窗口才动笔：只发有独家数据/独家剖析的版本，否则放弃这个热点",
+            "两档内容的数据分开统计，建立自己账号的热点响应基线",
+        ],
+        "quota": {"fast_window_hours": 2, "analysis_window_hours": 12},
+        "verdict_metrics": ["hot_post_read_median_tier1_vs_tier2"],
+        "evidence": ["经验库 wechat（2026-11-17 采集）：超问题高赞作者（柴桑）一手方法论"],
+        "caution": "公众号推荐对同题扎堆有衰减，第二档没有增量就放弃。",
+        "evidence_date": "2026-11-17",
+        "revalidate_days": 60,
+    },
+    "dy-tuwen-official-tag": {
+        "name": "抖音图文挂官方活动话题",
+        "channel": "douyin",
+        "mechanism": "proven_demand",
+        "status": "usable",
+        "risk": "white",
+        "idea": "抖音图文是供给洼地（搜『图文运营』九成结果是视频），官方用流量券补贴供给："
+                "图文掘金计划 0 粉可参与、GMV 达标返 5% 优惠券（上限 1 万流量券）。"
+                "发图文必挂当期官方活动话题，等于自动报名流量补贴。",
+        "steps": [
+            "App 搜『图文掘金计划』进官方卡片，或【我】-【≡】-【创作者服务中心】-【电商带货】报名",
+            "每篇图文：≥3 张高清图+原创文案，挂当期官方活动话题（#图文来了 等）",
+            "标题写长、关键信息带全（1.4 万赞实证的官方建议）",
+            "活动有周期，每月核对在跑的活动名",
+        ],
+        "quota": {"images_min": 3, "gmv_rebate_pct": 5, "coupon_cap": 10000},
+        "verdict_metrics": ["coupon_received_per_post", "tuwen_impressions_vs_video_baseline"],
+        "evidence": [
+            "抖音站内 AI 规则总结（2026-11-17 一手采集）：官方活动口径",
+            "站内采集观察：图文内容占比 <10%，供给洼地判断",
+        ],
+        "caution": "需开通商品橱窗（实名+绑定手机）才有带货收益；纯流量玩法不需要。",
+        "evidence_date": "2026-11-17",
+        "revalidate_days": 30,
+    },
 }
 
 # ---------------------------------------------------------------------------
@@ -2049,6 +2188,7 @@ MECHANISM_ROUNDS = {
     "paid_amplify": "III", "competitor_events": "III",
     "own_the_venue": "IV", "alliance_bundle": "IV", "event_waves": "IV",
     "radical_transparency": "IV", "agent_surfaces": "IV",
+    "diagnostic_probe": "V（2026-11-17 采集）",
 }
 
 

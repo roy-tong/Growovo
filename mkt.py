@@ -9,7 +9,7 @@
 **--adhoc** 放行（账本记 adhoc=true；MCP 不开放该通道，也不开放授权管理）。
   mkt status                账本聚合（channel/campaign/result）
   mkt check                 CDP 会话与各渠道登录态检查
-  mkt demo                  零网络零账号演示（lint→人审→写路径 dry-run→账本）
+  mkt demo                  零网络零账号演示（lint→人审→成功投递→三道拦截→账本/日结果卡）
   mkt work-demo             GTM Work OS 全闭环演示（不执行队列）
   mkt orchestrate …         按产品/目标/任务选最小岗位与表达方式
   mkt policy …              日常营销常驻授权（不开放付款等高风险动作）
@@ -179,7 +179,12 @@ def cmd_contacts(args):
     from core.contacts import Contacts
     c = Contacts(DATA / "contacts.jsonl")
     if args.action == "add":
-        rec = c.add(**json.loads(args.json))
+        try:
+            rec = c.add(**json.loads(args.json))
+        except (TypeError, ValueError, json.JSONDecodeError) as exc:
+            print(f"不能加入线索库：{exc}")
+            print("字段示例：--json '{\"name\":\"Alice\",\"platforms\":{\"x\":\"alice\"}}'")
+            return 2
         print(json.dumps(rec, ensure_ascii=False, indent=1))
     elif args.action == "find":
         rows = c.find(platform=args.platform, value=args.value, org=args.org,
@@ -191,11 +196,19 @@ def cmd_contacts(args):
                   f"tier{r.get('tier', '?')}  dnc={st.get('dnc', False)}  "
                   f"{json.dumps(r.get('platforms', {}), ensure_ascii=False)}")
     elif args.action == "dnc":
-        c.mark(args.contact_id, dnc=True)
+        try:
+            c.mark(args.contact_id, dnc=True)
+        except ValueError as exc:
+            print(f"不能标记 DNC：{exc}")
+            return 2
         print(f"{args.contact_id} 已标记 DNC")
     elif args.action == "mark":
-        updates = json.loads(args.json)
-        rec = c.mark(args.contact_id, **updates)
+        try:
+            updates = json.loads(args.json)
+            rec = c.mark(args.contact_id, **updates)
+        except (TypeError, ValueError, json.JSONDecodeError) as exc:
+            print(f"不能更新线索：{exc}")
+            return 2
         print(json.dumps(rec, ensure_ascii=False, indent=1))
     elif args.action == "import":
         print(json.dumps(c.import_legacy(args.file), ensure_ascii=False))
@@ -740,6 +753,11 @@ def cmd_grow(args):
                 continue
             print(f"  ⚠️  {row['platform']:<12} {row['status']:<8} {row['reason']}")
         print("\n只能出人工作业单（不假装自动）：其余平台。")
+        from core import platform_strategy
+        rows = platform_strategy.summary_rows()
+        stale = [r["platform"] for r in rows if r["stale"]]
+        note = f"，{len(stale)} 个待刷新" if stale else "，全部在复核窗口内"
+        print(f"\n平台策略卡：{len(rows)} 个平台（节奏/上限/门禁/证据{note}）；mkt strategy cards 查看。")
         return 0
 
     if act == "experiment":
@@ -1180,6 +1198,10 @@ def cmd_grow(args):
                                  go=args.go, data_dir=DATA, owner=args.owner or "")
         except GrowErrors as exc:
             print(f"不能开始：{exc}")
+            payload = getattr(exc, "payload", None)
+            if payload:
+                from core import procurement
+                print(procurement.render(payload))
             return 2
         goal = data["goal"]
         print(f"闭环已建：{data['id']}（{data['started']} 起，渠道 {'、'.join(data['channels'])}）")
@@ -1225,6 +1247,10 @@ def cmd_grow(args):
                 probe=probe, skip_probe=getattr(args, "skip_probe", False))
         except GrowErrors as exc:
             print(f"不能启动：{exc}")
+            payload = getattr(exc, "payload", None)
+            if payload:
+                from core import procurement
+                print(procurement.render(payload))
             return 2
         run = result["run"]
         print(f"闭环已启动：{run['id']}（{run['started']} 起，自动执行渠道 "
@@ -1249,9 +1275,17 @@ def cmd_grow(args):
             else:
                 result = run.produce(DATA, on=args.on or None, max_items=args.max_items)
             print(json.dumps(result, ensure_ascii=False, indent=2))
+            # 内容供给是“产出驱动”的命令：有拒绝且一条都没补进队列时，不能
+            # 用 exit 0 让 cron/脚本误以为今天已经供上货。agent 开关命令不受影响。
+            if act == "produce" and not result.get("added") and result.get("rejected"):
+                return 1
             return 0
         except (V2Error, AgentError, BusyRun, FileNotFoundError) as exc:
             print(f"自动供给未完成：{exc}")
+            payload = getattr(exc, "payload", None)
+            if payload:
+                from core import procurement
+                print(procurement.render(payload))
             return 2
 
     if act == "briefs":
@@ -1342,6 +1376,15 @@ def cmd_grow(args):
             return 2
         print(f"{args.id} 实跑已开闸（{data.get('armed_by')}）。"
               "急停随时可用：mkt pause --on '原因'（暂停闸优先于一切写操作）")
+        observed = data.get("observed_account") or {}
+        if observed:
+            if observed.get("status") == "observed":
+                print(f"  当前浏览器账号：{observed.get('handle') or '(no handle)'}"
+                      f"（id={observed.get('user_id')}，{observed.get('channel')}）"
+                      "；每次动作会重新探测并写入账本")
+            else:
+                print(f"  ⚠ 当前浏览器账号未能读取（{observed.get('reason') or 'unknown'}）；"
+                      "真实动作会被 CDP 身份门禁挡住")
         return 0
 
     if act == "pause":
@@ -1564,7 +1607,8 @@ def cmd_grow(args):
                                              (False if args.all_accounts else None)),
                                    min_followers=args.min_followers or None,
                                    max_followers=args.max_followers or None,
-                                   include_engaged=args.include_engaged)
+                                   include_engaged=args.include_engaged,
+                                   seen_days=args.exclude_seen_days)
         except Exception as exc:  # noqa: BLE001
             print(f"账号发现失败：{exc}")
             return 2
@@ -1799,7 +1843,22 @@ def cmd_grow(args):
                 cards = data.get("result_cards") or []
                 if args.week is not None:
                     cards = [c for c in cards if int(c.get("week") or 0) == int(args.week)]
-                print(json.dumps(cards[-1] if cards else {}, ensure_ascii=False, indent=1))
+                if cards:
+                    payload = cards[-1]
+                else:
+                    from datetime import date
+                    on = args.on or date.today().isoformat()
+                    payload = {
+                        "run": data["id"],
+                        "status": "not_ready",
+                        "reason": ("week not completed yet" if args.week is None
+                                   else f"week {args.week} has no result card yet"),
+                        "started": data.get("started"),
+                        "on": on,
+                        "result_cards": 0,
+                        "next": f"mkt grow report {data['id']}",
+                    }
+                print(json.dumps(payload, ensure_ascii=False, indent=1))
             else:
                 print(run.report(DATA, week=getattr(args, "week", None),
                                  on=args.on or None))
@@ -2013,6 +2072,30 @@ def _retro_markdown(a, claims, data, root):
 
 
 
+def _git_first_recorded(claims):
+    """用 git 历史给没有日期的记录定一个可追溯的「首次记录日」。
+
+    这不是来源发布日期，是这条经验第一次进入经验库的日期；只在采集核验里
+    当 observed_at 用，并在 ingest.date_basis 里写明。
+    """
+    import subprocess
+    target = "docs/playbooks/经验库/experience.jsonl"
+    out = {}
+    for claim in claims:
+        if not claim:
+            continue
+        try:
+            proc = subprocess.run(
+                ["git", "log", "--format=%ad", "--date=short", f"-S{claim}", "--", target],
+                cwd=BASE, capture_output=True, text=True, timeout=15)
+        except (OSError, subprocess.SubprocessError):
+            continue
+        dates = [line.strip() for line in proc.stdout.splitlines() if line.strip()]
+        if dates:
+            out[claim] = dates[-1]
+    return out
+
+
 def cmd_exp(args):
     from core import experience
     if args.action == "assess":
@@ -2020,6 +2103,51 @@ def cmd_exp(args):
         payload = experience.assess_eligibility(row, purpose=args.purpose, on=args.on or None)
         print(json.dumps(payload, ensure_ascii=False, indent=1))
         return 0 if payload["eligible"] else 2
+    if args.action == "adopt":
+        rows = experience.load()
+        dates = None
+        if getattr(args, "date_from_git", False):
+            def _sup(row):
+                try:
+                    return int(row.get("support") or 0)
+                except (TypeError, ValueError):
+                    return 0
+            pending = [r.get("claim") for r in rows
+                       if (_sup(r) >= args.min_support
+                           and len(r.get("sources") or []) >= args.min_support
+                           and not (r.get("collected_at") or r.get("published")
+                                    or r.get("observed_at")))]
+            dates = _git_first_recorded(pending)
+        new, report = experience.adopt_rows(rows, min_support=args.min_support,
+                                            on=args.on or None, dates=dates,
+                                            revisit_leads=getattr(args, "revisit_leads", False))
+        if args.json:
+            print(json.dumps(report, ensure_ascii=False, indent=1))
+        else:
+            print(f"共 {report['total']} 条：已有类型 {report['already_typed']}，"
+                  f"补成多源实践 {report['multi_source']}，标为单源线索 {report['lead']}")
+            for pid, n in sorted(report["platforms"].items()):
+                print(f"  {pid}: +{n}")
+            if not args.apply:
+                print("\ndry-run：没有写盘；加 --apply 写回 experience.jsonl")
+        if args.apply:
+            path = experience.save_rows(new)
+            print(f"已写回 {path}：{report['multi_source']} 条多源实践，"
+                  f"{report['lead']} 条单源线索")
+        return 0
+    if args.action == "usable":
+        rows = experience.eligible(args.platform, purpose="craft")[:args.limit]
+        if args.json:
+            print(json.dumps(rows, ensure_ascii=False, indent=1))
+        elif not rows:
+            print("没有通过内容工艺口径的经验；先跑 mkt exp adopt --apply")
+        else:
+            for r in rows:
+                kind = experience.normalize_knowledge_type(r.get("knowledge_type"))
+                print(f"- [{kind}] {r['claim']}")
+                if r.get("action"):
+                    print(f"  → {r['action']}")
+        return 0
     if args.action == "show":
         print(experience.render(args.platform))
     elif args.action == "coverage":
@@ -2029,7 +2157,13 @@ def cmd_exp(args):
             newest = q[0]["newest_days"] if q else None
             age = f"最新 {newest} 天前" if newest is not None else "无发布时间"
             print(f"  {pid:<18} {n:>3} 条   {age}")
-        print(f"\n窗口 {fresh['window_days']} 天：{fresh['fresh_claims']}/{fresh['claims']} 条在窗口内"
+        by_type = {}
+        for row in experience.load():
+            kind = experience.normalize_knowledge_type(row.get("knowledge_type"))
+            by_type[kind or "unknown"] = by_type.get(kind or "unknown", 0) + 1
+        print("\n证据轨道：" + "，".join(f"{k} {v}" for k, v in
+              sorted(by_type.items(), key=lambda x: -x[1])))
+        print(f"窗口 {fresh['window_days']} 天：{fresh['fresh_claims']}/{fresh['claims']} 条在窗口内"
               f"，{'达标' if fresh['meets_window'] else '不达标（需要重采）'}")
     elif args.action == "stale":
         plan = experience.maintenance_plan()
@@ -2129,7 +2263,8 @@ def cmd_content(args):
         return 0 if res["ok"] else 2
     if args.action == "plan":
         channels = [x.strip() for x in (args.channels or "").split(",") if x.strip()]
-        p = content_ops.plan(start=args.start, days=args.days, channels=channels)
+        p = content_ops.plan(start=args.start, days=args.days, channels=channels,
+                             cadence=getattr(args, "cadence", "evidence"))
         if args.json:
             text = json.dumps(p, ensure_ascii=False, indent=1)
         else:
@@ -2308,7 +2443,8 @@ def cmd_policy(args):
             policy = execution_policy.authorize(DATA, by=args.by, actions=actions,
                                                 accounts=accounts, days=days,
                                                 identities=args.identity or None,
-                                                require_identity=args.require_identity)
+                                                require_identity=args.require_identity,
+                                                observe_identity=args.observe_account)
         except ValueError as exc:
             print(f"授权失败：{exc}", file=sys.stderr)
             return 2
@@ -2704,6 +2840,30 @@ def cmd_strategy(args):
     from core import gtm, strategy, cadence, retro, logscan
     act = args.action
 
+    if act in ("card", "cards", "validate"):
+        from core import platform_strategy
+        if act == "card":
+            payload = platform_strategy.card(args.platform)
+            if getattr(args, "json", False):
+                print(json.dumps(payload, ensure_ascii=False, indent=1))
+            else:
+                print(platform_strategy.render_card(args.platform))
+            return 0 if not payload["validator"] else 1
+        if act == "cards":
+            print(platform_strategy.render_summary())
+            return 0
+        problems = platform_strategy.validate()
+        if getattr(args, "json", False):
+            print(json.dumps(problems, ensure_ascii=False, indent=1))
+        elif problems:
+            for pid, issues in problems.items():
+                print(f"{pid}：")
+                for issue in issues:
+                    print(f"  - {issue}")
+        else:
+            print(f"策略层校验通过：{len(platform_strategy.STRATEGY)} 个平台")
+        return 0 if not problems else 1
+
     if act == "build":
         facts = _load_facts(args.facts)
         goal_plan = None
@@ -2832,6 +2992,63 @@ def cmd_account(args):
     from core.accounts import AccountRegistry
     registry = AccountRegistry(DATA / "accounts.json")
     act = args.action
+    if act == "observe":
+        from core import account_identity
+        channel = str(args.channel or "x").strip().lower()
+        proof = account_identity.observe(
+            channel, data_dir=DATA,
+            env={**os.environ, "MKT_CDP_IDENTITY": "1"})
+        if proof is None:
+            print(json.dumps({"status": "unavailable",
+                              "channel": channel,
+                              "probe": account_identity.last_probe()},
+                             ensure_ascii=False, indent=1))
+            return 2
+        payload = {"status": "observed", "channel": proof.channel,
+                   "handle": proof.handle, "user_id": proof.user_id,
+                   "observed_at": proof.observed_at,
+                   "proof_ref": proof.source_ref}
+        print(json.dumps(payload, ensure_ascii=False, indent=1))
+        return 0
+    if act == "log":
+        from core.ledger import Ledger
+        from core.operations_log import OPERATIONS_LOG_NAME, OperationsLog
+        # 新链路读完整操作日志；旧工作区没有 operations.jsonl 时保留账本回退。
+        if (DATA / OPERATIONS_LOG_NAME).is_file():
+            rows = OperationsLog(DATA).all()
+            source = "operations"
+        else:
+            rows = Ledger(DATA / "ledger.jsonl").all()
+            source = "ledger"
+        rows = rows[-max(1, int(args.limit)):]
+        if args.json:
+            print(json.dumps(rows, ensure_ascii=False, indent=1))
+            return 0
+        if not rows:
+            print("（无操作记录）")
+            return 0
+        for rec in rows:
+            if source == "operations":
+                proof = rec.get("account") or {}
+                account = (proof.get("handle") or proof.get("platform_user_id")
+                           or proof.get("authorized_account") or "—")
+                receipt = rec.get("receipt") or {}
+                receipt_ref = receipt.get("id") or receipt.get("url") or "—"
+                print(f"{rec.get('finished_at') or rec.get('started_at') or ''}  "
+                      f"{rec.get('channel','')}/{rec.get('action','')}  "
+                      f"{rec.get('result','')}  account={account}  "
+                      f"operation={rec.get('operation_id') or '—'}  "
+                      f"campaign={rec.get('campaign') or '—'}  "
+                      f"queue_item={rec.get('queue_item_id') or '—'}  "
+                      f"receipt={receipt_ref}  target={rec.get('target') or '—'}")
+                continue
+            ident = rec.get("identity") or {}
+            account = (ident.get("handle") or ident.get("observed_platform_identity")
+                       or ident.get("authorized_account") or "—")
+            print(f"{rec.get('ts','')}  {rec.get('channel','')}/{rec.get('action','')}"
+                  f"  {rec.get('result','')}  account={account}"
+                  f"  target={rec.get('target','')}")
+        return 0
     if act == "add":
         rec = registry.register(
             args.platform, args.handle, args.identity_type, account_id=args.account_id or None,
@@ -2974,7 +3191,10 @@ def cmd_plan(args):
             raise SystemExit(f"{path} 已存在（加 --force 覆盖）")
         approval.save_plan(plan, path)
         print(f"已写入 {path}")
-        print(f"下一步：mkt plan approve --id {pid} --by <你的名字>")
+        print("下一步：先生成队列，再审批（审批会绑定队列内容，队列不存在会拒绝）：")
+        print(f"  mkt queue build --campaign {Path(queue).stem} --channel {channel} "
+              f"--wave-action {wave_action} --template <模板文件> --targets <目标CSV>")
+        print(f"  mkt plan approve --id {pid} --by <你的名字>")
         return 0
 
     if act == "lint":
@@ -3013,9 +3233,24 @@ def cmd_plan(args):
         if not args.by:
             raise SystemExit(f"plan {act} 需要 --by <你的名字>（无署名的审批不是审批）")
         if act == "approve":
-            plan, path, event = approval.approve_plan(
-                DATA, args.id, by=args.by, note=args.note or "", days=args.days,
-                account=getattr(args, "account", None), workspace=getattr(args, "workspace", None))
+            try:
+                plan, path, event = approval.approve_plan(
+                    DATA, args.id, by=args.by, note=args.note or "", days=args.days,
+                    account=getattr(args, "account", None), workspace=getattr(args, "workspace", None))
+            except approval.ApprovalError as exc:
+                print(f"不能批准：{exc}")
+                try:
+                    pending, _ = _load_plan_arg(args)
+                    wave = (pending.get("waves") or [{}])[0]
+                    queue_ref = (wave.get("queue") or f"data/queues/{args.id}-w1.json")
+                    print("先构建队列，再审批：")
+                    print(f"  mkt queue build --campaign {Path(queue_ref).stem} "
+                          f"--channel {wave.get('channel') or 'email'} "
+                          f"--wave-action {wave.get('action') or 'message'} "
+                          f"--template <模板文件> --targets <目标CSV>")
+                except Exception:
+                    print(f"先构建计划声明的队列，再：mkt plan approve --id {args.id} --by {args.by}")
+                return 2
             print(f"已批准 {args.id}（{path}）")
             print(json.dumps(event, ensure_ascii=False, indent=1))
             queue = ((plan.get("waves") or [{}])[0].get("queue")
@@ -3342,9 +3577,28 @@ def cmd_x(args):
         extra += ["--file", args.file]
     if getattr(args, "thread", False):
         extra += ["--thread"]
-    return x_run(args.action, extra, go=args.go, adhoc=args.adhoc,
-                campaign=args.campaign, ledger=_ledger(), data_dir=DATA,
-                identity=identity_evidence)
+    # reply 的 vendor 参数原先只能靠 "--" 透传，argparse 会拒绝；显式暴露两个参数。
+    if getattr(args, "tweet_url", None):
+        extra += ["--tweet-url", args.tweet_url]
+    if getattr(args, "text", None):
+        extra += ["--text", args.text]
+    # CLI 直通入口也要落统一操作日志（§4.2）：捕获本次动作新增的账本行，
+    # 结束后按动作现场扩写成完整记录（不依赖事后扫账本的时间启发式）。
+    from core import operations_log
+    recorder = operations_log.LedgerRecorder(_ledger())
+    rc = x_run(args.action, extra, go=args.go, adhoc=args.adhoc,
+               campaign=args.campaign, ledger=recorder, data_dir=DATA,
+               identity=identity_evidence)
+    try:
+        recorder.flush_operations(
+            DATA, channel="x", action=args.action,
+            target=getattr(args, "tweet_url", None) or "",
+            text=getattr(args, "text", None),
+            campaign=args.campaign or "", go=bool(args.go),
+            operator="cli:mkt-x")
+    except Exception as exc:  # noqa: BLE001 日志失败不掩盖动作结果
+        print(f"[opslog] 操作日志写入失败：{exc}")
+    return rc
 
 
 def cmd_email(args):
@@ -4088,7 +4342,7 @@ def build_parser():
     sp.add_argument("--format", choices=["json", "md"], default="json",
                     help="md = 给人看的报告")
     sp.set_defaults(fn=cmd_report)
-    sp = sub.add_parser("demo", help="零网络零账号演示：计划校验→人审闸门→写路径 dry-run→账本")
+    sp = sub.add_parser("demo", help="零网络零账号演示：计划校验→人审闸门→成功投递→三道拦截→账本与日结果卡")
     sp.set_defaults(fn=cmd_demo)
     sp = sub.add_parser("work-demo", help="零网络 GTM Work OS：上下文→工作单→SOP→交付→交接→KPI→plan/queue")
     sp.set_defaults(fn=cmd_work_demo)
@@ -4227,6 +4481,13 @@ def build_parser():
     a.add_argument("--out", default="")
     a.add_argument("--json", action="store_true", help="输出策略 JSON（供 mkt execute 用）")
     a.add_argument("--selection", default="", help="mkt goal select 写出的选择契约 JSON")
+    a = ssub.add_parser("card", help="平台策略卡：节奏、上限、门禁、变现、证据与复核状态")
+    a.add_argument("platform", choices=["xiaohongshu", "wechat", "zhihu", "douyin",
+                                        "x", "reddit", "hackernews", "linkedin"])
+    a.add_argument("--json", action="store_true")
+    a = ssub.add_parser("cards", help="平台策略层覆盖表")
+    a = ssub.add_parser("validate", help="校验策略层：claim 追溯、参数自洽、检测器实现")
+    a.add_argument("--json", action="store_true")
     a = ssub.add_parser("cadence", help="四周动作表")
     a.add_argument("--start", required=True, help="开始日期 YYYY-MM-DD")
     a.add_argument("--facts", default="")
@@ -4246,8 +4507,22 @@ def build_parser():
     a = esub.add_parser("stale", help="哪些平台的经验该重采了")
     a = esub.add_parser("assess", help="只读资格复核：权利依据/确认人/时间/复核记录/来源域")
     a.add_argument("--file", required=True, help="单条经验 JSON")
-    a.add_argument("--purpose", choices=["strategy", "experiment", "generalization"], default="strategy")
+    a.add_argument("--purpose", choices=["strategy", "craft", "experiment", "generalization"],
+                   default="strategy")
     a.add_argument("--on", default="", help="资格评估日期 YYYY-MM-DD")
+    a = esub.add_parser("adopt", help="给缺 knowledge_type 的旧记录补分类：多源实践/单源线索（默认 dry-run）")
+    a.add_argument("--min-support", type=int, default=2)
+    a.add_argument("--on", default="", help="采集核验日期 YYYY-MM-DD；默认今天")
+    a.add_argument("--apply", action="store_true", help="写回 experience.jsonl")
+    a.add_argument("--revisit-leads", action="store_true",
+                   help="重新评估已标为单源线索的记录（补到第二个来源后可升级）")
+    a.add_argument("--date-from-git", action="store_true",
+                   help="缺失日期时用 git 首次记录日补 observed_at（date_basis 会写明）")
+    a.add_argument("--json", action="store_true")
+    a = esub.add_parser("usable", help="按内容工艺口径列出可用经验（多源实践，附复核等级）")
+    a.add_argument("--platform", required=True)
+    a.add_argument("--limit", type=int, default=10)
+    a.add_argument("--json", action="store_true")
     sp.set_defaults(fn=cmd_exp)
 
     sp = sub.add_parser("voice", help="平台语气：怎么说话、开头怎么写、会不会像广告")
@@ -4267,9 +4542,9 @@ def build_parser():
     sp = sub.add_parser("content", help="内容运营：渠道规则、brief、审稿与多渠道路排期")
     csub = sp.add_subparsers(dest="action", required=True)
     a = csub.add_parser("rules", help="看某个渠道的内容规则")
-    a.add_argument("channel", choices=["xiaohongshu", "wechat", "blog"])
+    a.add_argument("channel", choices=["xiaohongshu", "wechat", "zhihu", "douyin", "blog"])
     a = csub.add_parser("brief", help="生成渠道原生内容 brief")
-    a.add_argument("channel", choices=["xiaohongshu", "wechat", "blog"])
+    a.add_argument("channel", choices=["xiaohongshu", "wechat", "zhihu", "douyin", "blog"])
     a.add_argument("--topic", required=True)
     a.add_argument("--audience", default="")
     a.add_argument("--product", default="")
@@ -4278,13 +4553,13 @@ def build_parser():
     a.add_argument("--title", default="")
     a.add_argument("--json", action="store_true")
     a = csub.add_parser("review", help="整篇审稿：生成版本绑定清单，或校验填写后的记录")
-    a.add_argument("channel", choices=["xiaohongshu", "wechat", "blog"])
+    a.add_argument("channel", choices=["xiaohongshu", "wechat", "zhihu", "douyin", "blog"])
     a.add_argument("--file", default="")
     a.add_argument("--text", default="")
     a.add_argument("--title", default="")
     a.add_argument("--record", default="", help="填写后的审稿 JSON；省略时生成待填写清单")
     a = csub.add_parser("audit", help="审稿：元叙述、产品出场、标题、CTA、证据与联系方式")
-    a.add_argument("channel", choices=["xiaohongshu", "wechat", "blog"])
+    a.add_argument("channel", choices=["xiaohongshu", "wechat", "zhihu", "douyin", "blog"])
     a.add_argument("--file", default="")
     a.add_argument("--text", default="")
     a.add_argument("--title", default="")
@@ -4295,6 +4570,8 @@ def build_parser():
     a.add_argument("--start", default="2026-11-07")
     a.add_argument("--days", type=int, default=14)
     a.add_argument("--channels", default="xiaohongshu,wechat,blog")
+    a.add_argument("--cadence", default="evidence", choices=["evidence", "daily-two"],
+                   help="evidence=平台策略层的证据档周节奏；daily-two=用户指定的小红书每天两篇战术")
     a.add_argument("--out", default="")
     a.add_argument("--json", action="store_true")
     sp.set_defaults(fn=cmd_content)
@@ -4343,6 +4620,8 @@ def build_parser():
                    help="账号身份 account=platform:user_id，可重复")
     a.add_argument("--require-identity", action="store_true",
                    help="执行时必须提供匹配的平台用户 ID；未提供则拒绝")
+    a.add_argument("--observe-account", action="store_true",
+                   help="CDP 观测模式：不预绑定账号，执行时记录当前浏览器实际登录账号（仍需可读平台身份）")
     a = psub.add_parser("migrate-identity",
                         help="旧授权迁移：列出缺身份绑定的常驻授权，--apply 绑定后解阻真实发送")
     a.add_argument("--by", default="", help="执行迁移的人；--apply 时必填")
@@ -4819,6 +5098,8 @@ def build_parser():
                    help="包含已触达账号（默认排除，避免重复打扰）")
     a.add_argument("--min-followers", type=int, default=0)
     a.add_argument("--max-followers", type=int, default=0)
+    a.add_argument("--exclude-seen-days", type=int, default=0,
+                   help="排除最近 N 天已进过名单的 handle（0=不排除）")
     a.add_argument("--on", default=""); a.add_argument("--json", action="store_true")
     a = gsub.add_parser("koc", help="KOC 名单：已触达/未触达、分数与量级")
     a.add_argument("id"); a.add_argument("--json", action="store_true")
@@ -5001,6 +5282,12 @@ def build_parser():
         a.add_argument("--evidence", default="")
         a.add_argument("--by", default="")
         a.add_argument("--note", default="")
+    a = asub.add_parser("observe", help="只读：从 CDP 浏览器读取当前实际账号并留痕")
+    a.add_argument("--channel", default="x")
+    a.add_argument("--json", action="store_true")
+    a = asub.add_parser("log", help="只读：统一操作日志（实际账号/回执；旧工作区回退账本）")
+    a.add_argument("--limit", type=int, default=20)
+    a.add_argument("--json", action="store_true")
     sp.set_defaults(fn=cmd_account)
 
     sp = sub.add_parser("network", help="代理环境引用绑定：不读凭据、不提高配额、不绕封禁")
@@ -5034,6 +5321,8 @@ def build_parser():
     sp.add_argument("--file", help="publish 内容文件（默认 thread.json）")
     sp.add_argument("--thread", action="store_true")
     sp.add_argument("--handle", default="", help="stats：要读数的账号")
+    sp.add_argument("--tweet-url", help="reply：目标推文 URL")
+    sp.add_argument("--text", help="reply：回复正文")
     sp.add_argument("--record", action="store_true", help="stats：人工对数后落 outcome 计数")
     sp.add_argument("--go", action="store_true")
     sp.add_argument("--campaign")

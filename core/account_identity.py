@@ -302,10 +302,13 @@ def policy_state(policy, account: str = "") -> Dict[str, Any]:
                       if isinstance(item, str)]
     records = policy_identity_records(policy, account)
     bound = bool(policy.get("require_identity")) or bool(allow_accounts) or bool(records)
-    return {"mode": "bound" if bound else "unbound", "active": True,
+    observed_mode = str(policy.get("identity_mode") or "") == "cdp_observed"
+    mode = "bound" if bound else ("observed" if observed_mode else "unbound")
+    return {"mode": mode, "active": True,
             "account": account,
             "require_identity": bool(policy.get("require_identity")),
             "allow_accounts": allow_accounts, "records": list(records),
+            "observe_identity": observed_mode,
             "policy": policy}
 
 
@@ -416,6 +419,28 @@ def enforce_identity(data_dir, channel, account, proof, *, policy=None,
                       account=account, reason=reason, proof=proof)
         return IdentityBlocked(reason, detail, c01_code=c01)
 
+    if state["mode"] == "observed":
+        # CDP-observed mode: any logged-in account is allowed, but the operation
+        # must carry the observed account. No match against a pre-bound identity.
+        if proof is None:
+            raise _blocked("identity_unknown",
+                           "CDP 观测模式无法读取当前浏览器账号：请确认调试浏览器已登录并开放回环端口")
+        if proof.channel != channel:
+            raise _blocked("identity_channel_mismatch",
+                           f"proof 渠道 {proof.channel!r} 与执行渠道 {channel!r} 不符")
+        if proof.age_seconds(now=now) > max_age_seconds:
+            raise _blocked("identity_stale",
+                           f"身份观测已过期（>{int(max_age_seconds)}s）：必须重新探测")
+        _record_event(data_dir, decision="allowed", channel=channel,
+                      account=account, proof=proof)
+        return {"enforced": True, "mode": "cdp_observed",
+                "authorized_account": account,
+                "observed_platform_identity": proof.user_id,
+                "identity_proof_ref": proof.source_ref
+                or f"{proof.channel}:{proof.observed_at}",
+                "handle": proof.handle,
+                "observed_at": proof.observed_at,
+                "browser_context": proof.browser_context}
     if state["mode"] == "unbound":
         raise _blocked("authorization_not_identity_bound", _block_message(
             "旧授权没有绑定实际平台账号身份：真实发送已拒绝", data_dir, account))
@@ -449,7 +474,9 @@ def enforce_identity(data_dir, channel, account, proof, *, policy=None,
             "observed_platform_identity": proof.user_id,
             "identity_proof_ref": proof.source_ref
             or f"{proof.channel}:{proof.observed_at}",
-            "handle": proof.handle}
+            "handle": proof.handle,
+            "observed_at": proof.observed_at,
+            "browser_context": proof.browser_context}
 
 
 # ---------- 旧授权迁移（G-01b / PRD AC-H） ----------

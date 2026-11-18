@@ -1,6 +1,201 @@
 # Changelog
 
-## Unreleased
+## 0.15.0 — 2026-11-18
+
+This release closes the delivery golden chain end to end: a unified append-only
+operations log with readback consistency, a machine-readable delivery contract
+with the §5 procurement branch, live X acceptance tooling (read-only preflight,
+dry-run rehearsal, isolated-profile rules) and the suspended/locked account
+gate from the 2026-11-17 live finding. On top of it: the platform strategy
+layer compiles the 2026-11-17 harvest into craft rules with source tracing,
+the collection engine gains a diagnostic-probe tactics family and HN content
+contract, the experience library moves to evidence tracks (594 records), and
+`mkt demo` now walks one full successful delivery before the three blocked
+counter-examples. 1590 tests pass.
+
+### Demo: one successful delivery plus three blocked samples
+
+`mkt demo` now walks a complete success path first: a queue item passes the
+gates, is sent through an offline in-process transport (`demo-memory`), lands in
+the ledger as `committed`, gets one L1 receipt, and appears on the daily result
+card together with the three-layer view. The three blocked samples (dry-run /
+rejected / failed) stay as the counter-example. Every number comes from the
+demo ledger and L2/L3 remain `UNKNOWN`, never 0. The sandbox is rebuilt on every
+run, so the demo is repeatable even after a `committed` row exists.
+
+### Website: English launch-autopsy guide and stricter SEO gate
+
+`website/guides/launch-autopsy.en.html` is a faithful English translation of the
+Chinese guide (same numbers and limits); the two pages declare reciprocal
+`hreflang`. `scripts/seo_check.py` now also checks `og:title`, required JSON-LD,
+reciprocal `hreflang` and local resources, and the sitemap lists the English
+guide.
+
+### Email channel proven on real sends: SOCKS proxy, attachments, longer timeouts (2026-11-17)
+
+The SMTP channel shipped as PORTED (code moved from newoutreach, never run
+inside this repo). A real campaign today ran the same pattern end-to-end —
+10 emails with a 6.9MB PDF attachment each, all accepted — and exposed two
+environment facts plus one missing feature, now folded back into the channel:
+
+- **`MKT_EMAIL_SOCKS`**: on this machine direct connections to
+  `smtp.gmail.com:465/587` time out; the system proxy (ApexCore,
+  `127.0.0.1:7890`, SOCKS5) is required. Setting this var routes SMTP through
+  PySocks (imported lazily; no new dependency when unset).
+- **`MKT_EMAIL_TIMEOUT`**: 6.9MB attachments through the proxy need ≥300s;
+  default stays 60s.
+- **`attachments`** on queue items: local file paths, MIME inferred from
+  extension.
+- Channel verification label updated PORTED → **PROVEN (this machine)**.
+  Gmail web automation is read-only from here on: it can fill and even attach
+  via paste events, but the send action is not reliable enough to own.
+  Full write-up: `docs/email-pipeline-20261117.md`.
+
+### Experience library: every record now has an evidence track (2026-11-17)
+
+412 of 594 records had no `knowledge_type`, so `eligible()` rejected them and
+they were display-only. The fix is classification with an explicit lower
+track, not a bulk promotion:
+
+- **Two new tracks**: `multi_source_practice` (≥2 independent sources, a
+  recorded observation date, rights basis and an `ingest` record) and
+  `unverified_lead` (single-source or undated: display only, never a rule).
+  `multi_source_practice` is usable for **content craft** (`craft` purpose,
+  `mkt exp usable`, `as_prompt_lines`, voice tips); `purpose=strategy` still
+  requires a human batch review, so nothing gained formal strategy status by
+  this migration.
+- **`mkt exp adopt [--apply] [--revisit-leads] [--date-from-git]`**:
+  idempotent migration of untyped records. 60 records qualified as
+  multi-source practice (42 from a recorded collection date, 18 dated from
+  the git commit that first recorded the claim; `ingest.date_basis` says
+  which). The remaining 352 became `unverified_lead`.
+- **No fabricated review**: the migration adds sources, dates, rights basis
+  and an ingest pipeline record; it never writes a reviewer, a review time
+  or a source-domain claim. Legacy `kind`/`human_reviewed` booleans still do
+  not restore eligibility.
+- `single_expert_experience` stays experiment-only; single-source short-term
+  tactics cannot enter craft. Tests cover the promotion, the lead track and
+  the strategy boundary.
+
+### Platform strategy layer: the 2026-11-17 harvest becomes executable (v0.15.0)
+
+The 2026-11-17 collection grew the experience library from 210 to 594
+records and added the WeChat operations manual. Most of that growth is
+summary-level, single-source or outright article noise, so folding it into
+the kernel needed a filter, not a bulk import:
+
+- **`core/platform_strategy.py`** (new) is the layer between platform facts
+  and writing rules: role, cadence, limits, content/execution gates,
+  monetisation thresholds, cold-start ladder, and claim-cited evidence for
+  xiaohongshu, wechat, zhihu, douyin, X, Reddit, Hacker News and LinkedIn.
+  Every `craft` rule must exist verbatim in `经验库/experience.jsonl` with
+  **at least two independent sources**; official rules cite a manual section;
+  single-source secondhand leads (all 27 new X records) are shown but never
+  become gates or defaults. `validate()` fails the build when a claim is
+  rewritten, deleted, or has its support inflated.
+- **A freshness window is code, not prose**: 60 days after `reviewed_at`
+  `stale()` marks the card "待刷新"; the card never pretends an old rule
+  still holds.
+- **`core/content_ops.py`** now has five channel contracts (xiaohongshu,
+  wechat, zhihu, douyin, blog). Cadence, body/title/image limits and gates
+  are read from the strategy layer, so numbers live in one place. Ten text
+  detectors enforce the rules that can be checked offline: contact/ diverted
+  traffic, external links, follow/share inducement, absolute claims,
+  clickbait, anxiety selling, ad begging, image count and hashtag count.
+  Gates that cannot be checked from text (AIGC labelling, 90-day repost,
+  Reddit 10:1, HN no-AI/no-auto-post, LinkedIn third-party automation) stay
+  in the human checklist and execution-scope list instead of being faked.
+- **Default cadence corrected to the evidence**: xiaohongshu now schedules
+  3–5 posts/week, not two a day. The user-specified "daily two" tactic is
+  still available via `mkt content plan --cadence daily-two`, is labelled as
+  a tactic rather than a platform default, and its effect remains unverified.
+- **CLI/MCP**: `mkt strategy card <platform>`, `mkt strategy cards`,
+  `mkt strategy validate`; `mkt content plan --cadence`; read-only
+  `mkt_platform_strategy` (card or coverage table).
+- **Email channel completed**: `attachments` (pre-flight existence/empty
+  check, MIME by extension, relative paths resolved against the queue file),
+  `MKT_EMAIL_SOCKS` (validated `host:port`, clear error when PySocks is
+  missing) and `MKT_EMAIL_TIMEOUT`. `build_message` now uses `EmailMessage`:
+  the previous `MIMEText.add_attachment` call does not exist and would have
+  crashed on the first attachment send. 10 offline tests cover it.
+
+Boundaries kept explicit: the layer constrains content and operations; it
+does not prove platform distribution, growth or revenue. X's automation
+policy (official API only) is recorded as an execution boundary, not
+silently resolved, and the existing CDP write path is flagged rather than
+changed in this release.
+
+### Logged-in is not usable: suspended/locked account gate (live finding 2026-11-17)
+
+The isolated live-acceptance browser turned out to hold a **suspended** X
+account: login markers all passed and the preflight said `ready=true`, but
+every send would have been refused by the platform. Login state and account
+standing are now separate signals:
+
+- `session_gate.check_login` reads the logged-in page body (stability-polling
+  through progressive hydration) and reports `account_state`:
+  `suspended` / `locked` when the platform banner is rendered, `None` when no
+  adverse signal is present. `status=logged_in` semantics are unchanged.
+- `action_runner.gate_browser_login` raises `ActionError` (ledger records
+  rejected) when `account_state` is suspended/locked — a usable account is a
+  precondition for any real send, exactly like login itself.
+- `acceptance_live_x.py --preflight` gains an `x_account_usable` check, so
+  `ready=true` now also means the account is not platform-suspended.
+
+### Golden chain preparation (review 2026-11-17: P2 unified operations log, P0 delivery contract, §5 procurement branch, §9 acceptance script)
+
+- **Live preflight** (`scripts/acceptance_live_x.py --preflight`): read-only
+  checks for the authorizing human, isolated empty profile, independent CDP
+  port (9222 refused), dedicated X test target, content and browser endpoint.
+  It never sends, creates a policy or touches profiles; `ready=true` still
+  requires the human to run the live command explicitly.
+- **Unified operations log** (`core/operations_log.py`, `data/operations.jsonl`):
+  every real/dry-run action appends one complete record with the §4.2 minimum
+  field list (operation_id/run_id/queue_item_id, channel/action/target/
+  content_sha256, browser_context_ref — endpoint only, never credentials,
+  account.platform_user_id/handle/observed_at/proof_ref, operator/approval_ref/
+  policy_sha256, started_at/finished_at/result, receipt.id/url/readback_sha256,
+  artifacts[].path/sha256, error.code/retryable/recovery_ref). Validation fails
+  loud — a record missing fields, or whose artifact hash disagrees with the
+  file, is rejected whole rather than appended half-written. Entries are wired
+  at every send entry point: queue runner (queue_item_id + operator per item,
+  email batch included), single-action runner (`mkt action`/MCP), the `mkt x`
+  CLI passthrough (ledger capture, no time heuristics), and grow tick passes
+  `run_id`/`operator=grow:<run>`.
+- **Account switch never crosses identities**: each record carries only the
+  account observed for that operation; when the observed platform id changes
+  between consecutive operations on a channel the new record notes
+  `account.switched_from` (who/which operation) for audit. The G-01/G-01b gate
+  semantics are unchanged — bound authorizations still block a different
+  account outright.
+- **Readback consistency**: `receipt.readback_sha256` (or
+  `readback.status=mismatched`) differing from `content_sha256` forces the
+  record to `indeterminate` with `error.readback_mismatch`,
+  `retryable=false` and a `ledger resolve` recovery ref — reusing the
+  unknown-receipt no-retry mechanism. The X adapter maps a vendor reply
+  `readback {url,id,sha256}` onto the ledger row as a receipt and downgrades
+  hash-mismatched rows to `indeterminate` with a readback detail.
+- **requires_procurement branch** (`core/procurement.py`): paid channels/data
+  sources requested at strategy compile (x_ads/ads/google_ads/linkedin_ads/
+  x_api_paid/sales_navigator/paid_api …) raise a structured §5 JSON
+  (`terminal_state=BLOCKED_USER_INPUT`, `transaction_executed=false`,
+  item/why/user_action/alternatives) that survives `CompileError → GrowError →
+  mkt grow start` and prints as JSON. Growovo never buys, never silently skips.
+- **Machine-readable delivery contract** (`docs/delivery-contract.json`):
+  supported intentions, required inputs, the five terminal states, exclusions,
+  the procurement template, the operations-log minimum fields (asserted equal
+  to `core/operations_log.MINIMUM_FIELDS` by test), evidence grades, and an
+  honest live_status. `mkt init` renders the same boundaries from the same
+  file — CLI first interaction and docs cannot drift apart.
+- **Live X acceptance script** (`scripts/acceptance_live_x.py`): the §9
+  deliverable up to the step before live execution. `--dry-run` rehearses the
+  whole chain offline (real policy/identity/executor code paths, offline vendor
+  and readback stand-ins, six-party separation table, operations log, honest
+  UNKNOWN reading, `--simulate-readback-mismatch` rehearses the indeterminate
+  halt). Live mode requires explicit `--authorize-by <name>`, an isolated
+  profile and a CDP port other than 9222 (the campaign port is refused), and a
+  dedicated test tweet. **The live run has NOT been executed in this change** —
+  it is the user's explicit step; nothing here is marked live-proven.
 
 ### C-01-Lite minimal delegation projection
 

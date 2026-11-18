@@ -58,14 +58,17 @@ def rejection_kind(rec) -> str:
 
 def run_queue(queue_path, *, data_dir=None, go=False, allow_unverified=False,
               only=None, only_ids=None, log=print, routine=False, account=None,
-              continue_on_duplicate=False, interval_seconds=None, sleeper=None):
+              continue_on_duplicate=False, interval_seconds=None, sleeper=None,
+              operator="", run_id=""):
     """执行队列，返回逐条记录列表。
 
     account=None 继承队列顶层 account；显式字符串覆盖它。账号范围始终按
     routine policy 精确校验，routine=False 时这些新参数不参与旧审批逻辑。
+    operator/run_id 只进操作日志（§4.2），不影响任何门禁。
     """
     data = Path(data_dir or resolve())
     queue_path = Path(queue_path)
+    operator = str(operator or ("queue:%s" % queue_path.name))
     q = load_queue(queue_path)
     campaign = q.get("campaign") or queue_path.stem
     channel, action = q.get("channel"), q.get("action")
@@ -94,7 +97,29 @@ def run_queue(queue_path, *, data_dir=None, go=False, allow_unverified=False,
                   "campaign": campaign, "data_dir": data, "log": log}
         if routine is True:
             kwargs.update(routine=True, account=account)
-        return send_queue(queue_path, **kwargs)
+        records = send_queue(queue_path, **kwargs)
+        # email 整队执行不走逐条 run_action，这里补统一操作日志（§4.2）。
+        try:
+            from . import operations_log
+            for rec in (records or []):
+                if not isinstance(rec, dict):
+                    continue
+                item = next((i for i in items
+                             if str(i.get("target") or i.get("to") or "")
+                             == str(rec.get("target") or "")
+                             or str(i.get("id") or "") == str(rec.get("ref") or "")),
+                            {})
+                operations_log.record_action(
+                    data, rec, channel="email", action=action,
+                    target=rec.get("target") or item.get("target"),
+                    text=item.get("_body") or item.get("body") or item.get("text"),
+                    campaign=campaign, go=go, routine=(routine is True),
+                    operator=operator,
+                    queue_item_id=str(item.get("id") or rec.get("ref") or ""),
+                    run_id=run_id)
+        except Exception as exc:  # noqa: BLE001 日志失败不掩盖发送结果
+            log(f"[opslog] 操作日志写入失败：{exc}")
+        return records
 
     if channel == "x" and action not in ("reply", "publish"):
         raise QueueRunError("x 队列支持 reply / 单条 publish；"
@@ -159,13 +184,18 @@ def run_queue(queue_path, *, data_dir=None, go=False, allow_unverified=False,
             "extra": item.get("extra"), "log": log,
         }
         if routine is True:
-            action_kwargs.update(routine=True, account=account)
+            action_kwargs.update(routine=True, account=account,
+                                 operator=operator, run_id=run_id,
+                                 queue_item_id=str(item.get("id") or ""))
             if identity_evidence:
                 # G-01：把队列级观测到的实际 user_id 传给逐条执行——
                 # 审批校验（allows）在 require_identity 下需要它；传的是
                 # 观测值，不是调用方自报值。
                 action_kwargs["platform_user_id"] = identity_evidence[
                     "observed_platform_identity"]
+        else:
+            action_kwargs.update(operator=operator, run_id=run_id,
+                                 queue_item_id=str(item.get("id") or ""))
         try:
             rec = run_action(**action_kwargs)
         except SystemExit as exc:
@@ -177,6 +207,8 @@ def run_queue(queue_path, *, data_dir=None, go=False, allow_unverified=False,
         rec.setdefault("ref", item.get("id", ""))
         if identity_evidence:
             rec.setdefault("identity", dict(identity_evidence))
+        if account and "account" not in rec:
+            rec["account"] = account
         results.append(rec)
         log(f"[{idx + 1}/{len(items)}] {item.get('id', '')} {target}: {rec.get('result')}")
         # 人类节奏：真实发送之间随机停顿；dry-run 不碰平台，不需要等。

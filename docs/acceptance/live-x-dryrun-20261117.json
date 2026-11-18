@@ -1,0 +1,40 @@
+[1/7] 模式：dry-run（offline 彩排：不碰网络/浏览器/9222/profiles）
+[2/7] 常驻授权已签发：routine-policy x:reply（by=acceptance-owner(dry-run)，identity_mode=cdp_observed，sha256=21e4ad908f28…）
+[3/7] 账号观测：dryrun-000000 @ dryrun_accept（observed_at=2026-11-17T02:56:43+00:00）
+
+六方分离表（谁授权 / 谁操作 / 凭什么批 / 哪个账号 / 哪个浏览器 / 怎么核验）
+  ① 授权人（用户）      ：acceptance-owner(dry-run)
+  ② 操作者（引擎入口）  ：acceptance-live-x:dry-run
+  ③ 审批依据            ：routine-policy（policy sha256=21e4ad908f28…）
+  ④ 执行账号（平台观测）：dryrun-000000 @ dryrun_accept（observed_at=2026-11-17T02:56:43+00:00）
+  ⑤ 浏览器上下文        ：offline:synthetic（不保存凭据）
+  ⑥ 回读与证据          ：动作后回读 ID/URL/内容哈希并与预期比对（dry-run 用离线回读替身）
+       操作日志：/var/folders/3c/d_p9mv9510z4wvbzlbcptj140000gn/T/growovo-acceptance-pnfc_8qz/operations.jsonl
+       账本：/var/folders/3c/d_p9mv9510z4wvbzlbcptj140000gn/T/growovo-acceptance-pnfc_8qz/ledger.jsonl
+
+[5/7] 动作完成：result=dry-run（0.0s）；vendor：[offline-vendor] reply -> https://x.com/growovo_test/status/0000000000000000000
+[6/7] 回读核验：status=matched → 操作日志 result=verified
+[7/7] 结果读数：UNKNOWN（本链只验收单条动作与回执；连续读数走 mkt grow watch / mkt x stats，首周人工对数）
+
+{
+ "mode": "dry-run",
+ "live_proven": false,
+ "chain": "policy→identity→action(dry-run)→readback(matched)→operations-log→reading",
+ "operation_id": "op-x-49cff8354b82",
+ "account": {
+  "platform_user_id": "dryrun-000000",
+  "handle": "dryrun_accept",
+  "observed_at": "2026-11-17T02:56:43+00:00",
+  "proof_ref": "offline:dry-run"
+ },
+ "receipt": {
+  "id": "1790000000000000000",
+  "url": "https://x.com/growovo_test/status/0000000000000000000",
+  "readback_sha256": "8d4ff3f693fd3c1fa70229f9356bc104a7969205acb6cff82f29cb8d86e934ee"
+ },
+ "evidence": {
+  "operations_log": "/var/folders/3c/d_p9mv9510z4wvbzlbcptj140000gn/T/growovo-acceptance-pnfc_8qz/operations.jsonl",
+  "ledger": "/var/folders/3c/d_p9mv9510z4wvbzlbcptj140000gn/T/growovo-acceptance-pnfc_8qz/ledger.jsonl"
+ },
+ "note": "dry-run 彩排通过：真实执行需人工运行本脚本并显式 --authorize-by"
+}

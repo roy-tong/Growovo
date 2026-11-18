@@ -13,6 +13,8 @@
   x        publish / reply / message / engage（message/engage 透传 vendor 参数）
   email    仅队列（action_runner 拒绝单条发信）
 """
+import os
+from datetime import datetime, timezone
 from pathlib import Path
 
 from .ledger import Ledger
@@ -86,7 +88,7 @@ def gate_browser_login(channel, entry, *, login_probe=None):
     dry-run 不进此门（保持零浏览器副作用）。缺失抛 ActionError →
     账本记 rejected，而不是 vendor rc=3 之后的 indeterminate。
     """
-    from .session_gate import CDP_UNAVAILABLE, LOGGED_IN, PROBES, check_login
+    from .session_gate import ACCOUNT_LOCKED, ACCOUNT_SUSPENDED, CDP_UNAVAILABLE, LOGGED_IN, PROBES, check_login
     # 只拦「声明了登录探测」的渠道：email 这类 smtp 主通道（cdp 仅降级）不按浏览器登录态门控。
     if channel not in PROBES or "cdp" not in entry.get("transports", set()):
         return
@@ -97,6 +99,11 @@ def gate_browser_login(channel, entry, *, login_probe=None):
         raise ActionError(f"{channel} 浏览器通道不可用：先运行 ./launch.command 启动调试 Chrome，再重试")
     if status != LOGGED_IN:
         raise ActionError(f"{channel} 浏览器登录态缺失：请在浏览器登录该站点后重试（引擎只检测登录态，不管理账号）")
+    account_state = state.get("account_state")
+    if account_state in (ACCOUNT_SUSPENDED, ACCOUNT_LOCKED):
+        raise ActionError(
+            f"{channel} 登录态正常但账号不可用（account_state={account_state}）："
+            "平台已冻结/锁定该账号，任何动作都会被拒绝；请换一个可用账号的浏览器会话再试")
 
 
 def gate_account_identity(channel, data_dir, account=""):
@@ -125,7 +132,8 @@ def gate_account_identity(channel, data_dir, account=""):
             "账号身份门禁: %s %s: %s；下一步：%s"
             % (blocker["code"], blocker["reason"], blocker["detail"],
                blocker["next"]))
-    if account_identity.policy_state(policy, account)["mode"] in ("absent", "invalid"):
+    state = account_identity.policy_state(policy, account)
+    if state["mode"] in ("absent", "invalid"):
         return None
     # G-10：身份必须来自真实执行所用的那个调试浏览器。端点不一致就直接拒绝，
     # 免得「在 A 上验证、在 B 上发送」。
@@ -137,7 +145,12 @@ def gate_account_identity(channel, data_dir, account=""):
             "账号身份门禁: %s %s：%s" % (cdp_identity.ENDPOINT_MISMATCH, exc.reason, exc)) from exc
     except cdp_identity.EndpointRejected as exc:
         raise ActionError("账号身份门禁: identity_endpoint_invalid：%s" % exc) from exc
-    proof = account_identity.observe(channel, data_dir=data_dir)
+    # CDP-observed mode: the user provides the browser; force the read-only
+    # identity probe on for this call so the ledger can record which account
+    # actually performed the operation.
+    env = ({**os.environ, "MKT_CDP_IDENTITY": "1"}
+           if state["mode"] == "observed" else None)
+    proof = account_identity.observe(channel, data_dir=data_dir, env=env)
     try:
         return account_identity.enforce_identity(
             data_dir, channel, account, proof, policy=policy)
@@ -205,6 +218,9 @@ def _dispatch_action_inner(*, channel, action, data_dir=None, campaign="", go=Fa
         if identity_evidence and isinstance(rec, dict) and "identity" not in rec:
             rec = dict(rec)
             rec["identity"] = dict(identity_evidence)
+        if account and isinstance(rec, dict) and "account" not in rec:
+            rec = dict(rec)
+            rec["account"] = account
         return rec
     ledger = Ledger(data / "ledger.jsonl")
     extra = list(extra or [])
@@ -373,17 +389,39 @@ def record_ledger_outcome(data_dir, record, *, log=print):
 
 
 def run_action(**kwargs):
-    """Execute one write action, then record its task outcome.
+    """Execute one write action, then record its task outcome and operations log.
 
     The dispatch path is unchanged. Recording is best-effort: a send that
     already happened must not be reported as failed because a local JSONL write
     failed, so the error is logged and the ledger record is returned unchanged.
+
+    Operations-log context (operator / queue_item_id / run_id) is consumed here
+    and never reaches the channel dispatch.
     """
+    ops_context = {key: kwargs.pop(key, None)
+                   for key in ("operator", "queue_item_id", "run_id")}
+    started_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
     record = _dispatch_action(**kwargs)
+    finished_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
     if kwargs.get("go") and isinstance(record, dict):
         data = Path(kwargs.get("data_dir") or resolve())
         try:
             record_ledger_outcome(data, record, log=kwargs.get("log") or print)
         except Exception as exc:  # recording must not mask the action result
             (kwargs.get("log") or print)(f"[outcome] task outcome not recorded: {exc}")
+    # 统一操作日志（§4.2 最低字段）：单动作/队列/MCP 共用此路径，dry-run 也落。
+    if isinstance(record, dict):
+        data = Path(kwargs.get("data_dir") or resolve())
+        try:
+            from . import operations_log
+            operations_log.record_action(
+                data, record,
+                channel=kwargs.get("channel"), action=kwargs.get("action"),
+                target=kwargs.get("target"), text=kwargs.get("text"),
+                campaign=kwargs.get("campaign"),
+                go=bool(kwargs.get("go")), routine=kwargs.get("routine"),
+                started_at=started_at, finished_at=finished_at,
+                **ops_context)
+        except Exception as exc:  # 日志失败不掩盖动作结果，但必须大声可见
+            (kwargs.get("log") or print)(f"[opslog] 操作日志写入失败：{exc}")
     return record

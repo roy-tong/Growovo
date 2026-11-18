@@ -12,7 +12,8 @@ class ContentReviewRegressions(unittest.TestCase):
         self.assertIn('有阻断项', content_ops.render_audit(result))
 
     def test_weekly_schedule_includes_all_three_mechanisms(self):
-        rows = [r for r in content_ops.plan(days=14)['rows'] if r['channel'] == 'xiaohongshu']
+        rows = [r for r in content_ops.plan(days=14, cadence='daily-two')['rows']
+                if r['channel'] == 'xiaohongshu']
         for start in (0, 14):
             self.assertEqual(Counter(r['cta'] for r in rows[start:start+14]), {'A': 4, 'B': 6, 'C': 4})
 

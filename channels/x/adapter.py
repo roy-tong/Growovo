@@ -71,7 +71,8 @@ def _identity_fields(identity):
 
 
 def _log_to_ledger(action, campaign, ledger, before_lines, log=None, approval_mode=None,
-                   op_ref=None, before_time=None, logical_target=None, identity=None):
+                   op_ref=None, before_time=None, logical_target=None, identity=None,
+                   content_sha=None):
     """把 vendor 运行结果回写全局账本（审计 + 跨渠道幂等视图）。
 
     op_ref：本次执行意图的稳定引用，每条记录 ref=op_ref::target，
@@ -144,10 +145,33 @@ def _log_to_ledger(action, campaign, ledger, before_lines, log=None, approval_mo
                     else:
                         result = "failed"
                     target = rec.get("url") or "?"
-                    ledger.append(channel="x", transport="cdp", action=action,
-                                  campaign=campaign, target=target,
-                                  result=result, ref=_ref(target),
-                                  evidence=str(f), detail=detail, **identity_fields)
+                    # 回读一致性（评审 §4.2）：vendor 结果带 readback
+                    # {url,id,sha256} 时映射成回执并核对内容哈希；
+                    # 哈希不一致 → indeterminate（unknown 回执机制：禁止自动重发）。
+                    rb = rec.get("readback") if isinstance(rec.get("readback"), dict) else {}
+                    receipt = None
+                    mismatch = False
+                    if rb:
+                        receipt = {"id": str(rb.get("id") or ""),
+                                   "url": str(rb.get("url") or ""),
+                                   "readback_sha256": str(rb.get("sha256") or "")}
+                        if (content_sha and rb.get("sha256")
+                                and str(rb["sha256"]).lower() != content_sha):
+                            mismatch = True
+                    extra_detail = detail
+                    if mismatch:
+                        result = "indeterminate"
+                        extra_detail = (detail + "；" if detail else "") + (
+                            "readback 内容哈希不一致（期望 %s… 实读 %s…）："
+                            "未知状态禁止自动重发，人工核对后 ledger.resolve"
+                            % (content_sha[:12], str(rb.get("sha256"))[:12]))
+                    row = {"channel": "x", "transport": "cdp", "action": action,
+                           "campaign": campaign, "target": target,
+                           "result": result, "ref": _ref(target),
+                           "evidence": str(f), "detail": extra_detail}
+                    if receipt is not None:
+                        row["receipt"] = receipt
+                    ledger.append(**row, **identity_fields)
                     recorded_targets.add(target)
                     has_unknown = has_unknown or result == "indeterminate"
                     wrote += 1
@@ -325,11 +349,19 @@ def run(action, extra_args, *, go=False, adhoc=False, campaign=None, ledger=None
     recorded_targets = set()
     has_unknown = False
     if ledger is not None and proc.returncode == 0:
+        # 回读一致性：reply 的期望正文哈希从命令行参数取（--text 后一个参数）。
+        content_sha = None
+        if action == "reply":
+            argv = [str(a) for a in extra_args]
+            if "--text" in argv:
+                from core.operations_log import content_sha256
+                content_sha = content_sha256(argv[argv.index("--text") + 1])
         try:
             _, recorded_targets, has_unknown = _log_to_ledger(
                 action, campaign or "", ledger, before_lines, log=log,
                 approval_mode=mode, op_ref=op_ref, before_time=run_started,
-                logical_target=logical_target, identity=identity)
+                logical_target=logical_target, identity=identity,
+                content_sha=content_sha)
         except Exception as exc:  # 记账失败不掩盖 vendor 结果
             log(f"账本回写失败（不影响本次执行）: {exc}", "WARN")
             has_unknown = True

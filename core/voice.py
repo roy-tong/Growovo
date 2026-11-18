@@ -679,10 +679,10 @@ def render(pid: str) -> str:
         lines.append(f"- {t}")
     try:
         from . import experience
-        current = experience.eligible(pid)
+        current = experience.eligible(pid, purpose="craft")
         if current:
             lines.append("")
-            lines.append(f"> 当前有 {len(current)} 条通过资格与新鲜度校验的经验，"
+            lines.append(f"> 当前有 {len(current)} 条通过采集核验的经验（多源实践，未逐条人工复核），"
                          f"见 `docs/playbooks/经验库/{pid}.md`；语气只是外壳，实操细节在那。")
         elif experience.for_platform(pid):
             lines.append("")

@@ -16,6 +16,8 @@ import json
 import math
 import re
 import time
+from datetime import date, timedelta
+from pathlib import Path
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Set
 
@@ -44,6 +46,8 @@ INTENT_CUES = (
 PROMO_MARKERS = (
     "link in bio", "dm me", "dm for", "free trial", "sign up", "limited offer",
     "giveaway", "airdrop", "click here", "buy now", "discount code",
+    "promote the brand", "cooperate to promote", "paid promotion",
+    "sponsored post", "商务合作", "推广合作", "合作推广", "涨粉",
     "私信", "加微", "扫码", "限时", "免费领", "抽奖",
 )
 
@@ -352,7 +356,8 @@ def group_by_handle(rows: Sequence[Dict[str, Any]]) -> Dict[str, List[Dict[str, 
     return grouped
 
 
-def auto_queries(profile: Dict[str, Any], *, limit: int = 3) -> List[str]:
+def auto_queries(profile: Dict[str, Any], *, limit: int = 3,
+                 rotate: int = 0) -> List[str]:
     """从产品关键词自动拼搜索词：优先领域短语，其次中文术语，最后长词。"""
     words = {str(k).lower() for k in profile.get("keywords") or ()}
     product = str(profile.get("name") or "").lower()
@@ -365,18 +370,61 @@ def auto_queries(profile: Dict[str, Any], *, limit: int = 3) -> List[str]:
     for first, second in pairs:
         if first in words and second in words:
             phrases.append(f"{first} {second}")
+    # 中文关键词常被切成句子碎片（如「但没有预算」），只保留像术语的 2–6 字片段，
+    # 且不以连词/代词开头；宁可少给 query，也不拿碎片去搜。
+    bad_prefix = ("但", "而", "所", "就", "也", "还", "并", "其", "这", "那",
+                  "因", "为", "如", "果", "没", "有", "把", "被", "让", "给",
+                  "对", "在", "是", "和", "与")
     cjk = [str(k) for k in profile.get("keywords") or ()
-           if not str(k).isascii() and len(str(k)) >= 3 and str(k) != product]
+           if not str(k).isascii() and 2 <= len(str(k)) <= 6 and str(k) != product
+           and not str(k).startswith(bad_prefix)]
     phrases.extend(cjk[:2])
+    core_count = len(phrases)  # 领域短语/短语对/中文术语：轮换只在这部分里转
     for word in sorted(words, key=lambda w: (-len(w), w)):
-        if len(word) >= 5 and word != product and not any(word in p for p in phrases):
+        if (len(word) >= 5 and word != product
+                and "-" not in word and "_" not in word       # ICP 标签不是搜索词
+                and not any(word in p for p in phrases)):
             phrases.append(word)
     seen, out = set(), []
     for phrase in phrases:
         if phrase and phrase not in seen:
             seen.add(phrase)
             out.append(phrase)
-    return out[:max(1, int(limit))]
+    core, extras = out[:core_count], out[core_count:]
+    if rotate and core:
+        k = int(rotate) % len(core)
+        core = core[k:] + core[:k]
+    pool = core + [w for w in extras if w not in core]
+    return pool[:max(1, int(limit))]
+
+
+def recently_seen(data_dir, run_id: str, *, on: Optional[str] = None,
+                  days: int = 7) -> Set[str]:
+    """返回最近 days 天内已经在名单里出现过的 handle。
+
+    发现端用它排除「刚看过的人」，避免每小时把同一批作者重新富化一遍。
+    只读 watchlist，不修改任何状态。
+    """
+    path = Path(data_dir) / "grow" / str(run_id) / "koc_watchlist.json"
+    if not path.is_file():
+        return set()
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return set()
+    accounts = payload.get("accounts") or {}
+    if not isinstance(accounts, dict):
+        return set()
+    try:
+        cutoff = (date.fromisoformat(str(on)) if on else date.today()) - timedelta(days=max(0, int(days)))
+    except ValueError:
+        cutoff = date.today() - timedelta(days=max(0, int(days)))
+    out = set()
+    for handle, row in accounts.items():
+        last = str((row or {}).get("last_seen") or "")
+        if last and last >= cutoff.isoformat():
+            out.add(str(handle).lstrip("@"))
+    return out
 
 
 def preselect_handles(rows: Sequence[Dict[str, Any]], profile: Dict[str, Any],
@@ -500,12 +548,33 @@ def enrich_account(handle: str, *, cdp_url: Optional[str] = None,
         raise FitError("handle 为空")
     browser, page = cdp.connect(cdp_url)
     try:
+        # 后台标签页会被渲染节流：不提到前台时粉丝数/简介读成空，KOC 判定
+        # 因此失效（2026-11-15 实测：7,541 粉的账号被读成 None）。
+        try:
+            page.bring_to_front()
+        except Exception:  # noqa: BLE001
+            pass
         ok = cdp.safe_goto(page, f"https://x.com/{handle}", log=log)
         if not ok:
             return {"handle": handle, "note": "主页打不开"}
-        page.wait_for_timeout(3500)
-        body = page.inner_text("body")
-        parsed = parse_account_text(body)
+        parsed: Dict[str, Any] = {}
+        for attempt in (1, 2):
+            if attempt > 1:
+                ok = cdp.safe_goto(page, f"https://x.com/{handle}", log=log)
+                if not ok:
+                    break
+            page.wait_for_timeout(4500 if attempt == 1 else 6000)
+            try:
+                body = page.inner_text("body")
+            except Exception:  # noqa: BLE001
+                body = ""
+            parsed = parse_account_text(body)
+            if parsed.get("followers") is not None:
+                break
+            log(f"[fit] @{handle} 粉丝数未读到，重试一次（{attempt}/2）")
+            time.sleep(1.5)
+        if parsed.get("followers") is None:
+            log(f"[fit] @{handle} 两次都没读到粉丝数，按未知处理，不冒充 KOC")
         try:
             parsed["bio"] = page.locator('[data-testid="UserDescription"]').first.inner_text(timeout=2000)
         except Exception:
