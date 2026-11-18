@@ -97,6 +97,24 @@ class Ledger:
     def __init__(self, path):
         self.path = Path(path)
         self.resolutions_path = self.path.parent / "ledger_resolutions.jsonl"
+        # 读侧 stat 键控缓存（G-6，review 2026-11-09）：键=(账本,裁决)两文件的
+        # (mtime_ns, size)。任何追加都会改变 mtime/size → 下次 all() 自动失效，
+        # 因此自己进程刚写入的 committed 行对下一条的防重检查仍然可见。
+        # 队列逐条发送时 already/no_retry 门禁不再每条 ×4 次全文件解析。
+        # 返回的行对象跨调用共享：调用方必须当作只读。
+        self._cache_key = None
+        self._cache_rows = None
+
+    def _stat_key(self):
+        parts = []
+        for p in (self.path, self.resolutions_path):
+            try:
+                st = p.stat()
+            except FileNotFoundError:
+                parts.append(None)
+            else:
+                parts.append((st.st_mtime_ns, st.st_size))
+        return tuple(parts)
 
     def append(self, *, channel, action, target, result, transport=None,
                campaign=None, evidence=None, ref=None, **extra):
@@ -127,7 +145,10 @@ class Ledger:
         return out
 
     def all(self):
-        """账本 + 人工裁决覆盖后的视图（原行不改）。"""
+        """账本 + 人工裁决覆盖后的视图（原行不改；stat 未变时复用上次解析）。"""
+        key = self._stat_key()
+        if self._cache_rows is not None and key == self._cache_key:
+            return self._cache_rows
         resolutions = self._resolutions()
         out = []
         for r in self._raw():
@@ -138,6 +159,7 @@ class Ledger:
                          resolved_at=hit.get("ts", ""),
                          resolution_note=hit.get("note", ""))
             out.append(r)
+        self._cache_key, self._cache_rows = key, out
         return out
 
     def resolve(self, ref, *, result, by, note):
