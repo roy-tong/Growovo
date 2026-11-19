@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased — 2026-11-18
+## 0.15.3 — 2026-11-19
 
 G-12 / G-13 / G-14 from the 2026-11-18 review.
 
