@@ -71,6 +71,12 @@ def classify(channel: str) -> Dict[str, object]:
     else:
         tier = MANUAL
         reason = "内核没有这个平台，按人工处理，不假装支持"
+    policy = _policy(key)
+    if tier == AUTO and not policy.get("autonomous_write", True):
+        # The technical path works, but the platform forbids autonomous use;
+        # saying "queue can execute" alone would be a false promise.
+        reason = (f"{status} 写通道技术可用，但平台许可禁止自主执行"
+                  f"（{policy.get('code')}）：只读/人工，或接官方 API 并授权")
     return {
         "channel": key,
         "platform": raw or key,
@@ -79,8 +85,16 @@ def classify(channel: str) -> Dict[str, object]:
         "tier": tier,
         "write": list(pair) if pair else None,
         "actions": sorted((spec or {}).get("actions") or []),
+        # 技术可执行 ≠ 平台允许自主执行：X 的写通道仍可用于人工/只读，
+        # 但自主写默认被平台规则拒绝（core/platform_compliance.py）。
+        "policy": policy,
         "reason": reason,
     }
+
+
+def _policy(channel: str) -> Dict[str, object]:
+    from .platform_compliance import policy_row
+    return policy_row(channel)
 
 
 def matrix() -> List[Dict[str, object]]:

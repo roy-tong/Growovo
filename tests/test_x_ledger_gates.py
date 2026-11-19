@@ -19,6 +19,11 @@ from unittest.mock import patch
 
 from channels.x import adapter
 from core.ledger import Ledger
+try:  # discover -s tests puts tests/ on sys.path
+    from support_compliance import bypass_x_compliance
+except ImportError:  # python -m unittest tests.<module>
+    from tests.support_compliance import bypass_x_compliance
+
 
 
 def _fake_vendor(dirpath: Path, script: str, *, rc: int = 0, touch: str = ""):
@@ -40,6 +45,7 @@ class XLedgerGates(unittest.TestCase):
         self.data = root / "data"
         (self.data / "plans").mkdir(parents=True)
         self.ledger = Ledger(self.data / "ledger.jsonl")
+        bypass_x_compliance(self)
         _fake_vendor(self.vendor, "follow_x.py")
 
     def _run(self, *args, **kw):

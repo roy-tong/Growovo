@@ -8,18 +8,21 @@
 2. 内核有可调用的写原语（`core/platforms.py` 的 `WRITE`）；
 3. 队列执行器支持该动作（`core/queue_runner.py` 的 `QUEUE_ACTIONS`）。
 
-三条都成立才是 **AUTO**，才进入「全自动」承诺。
+三条都成立才是 **AUTO**（技术可执行）；再叠加一条「平台许可」才是可承诺的自主执行。
 
 | 等级 | 含义 | 平台 |
 |---|---|---|
-| ✅ AUTO | 可以全自动执行并计入自动发布量 | **X**（PROVEN，reply）、**Email**（PORTED，message） |
+| ✅ AUTO | 写通道已验证、队列可执行，**且平台允许自主执行** | **Email**（PORTED，message） |
+| ⛔ 自主写 / 单次 CDP 分层 | 常驻非 API 自动写禁止；当次非 routine `--go` 的 publish/reply 可在账号观测与全部门禁通过后走 CDP | **X**（PROVEN；`policy.autonomous_write=false`，`user_visible_cdp_write=true`） |
 | ⚠️ GATED | 有写通道但未实测，首跑需人工盯 + 显式 `allow_unverified` | GitHub（reply）、Reddit（reply）、Hacker News（reply）、LinkedIn（message） |
 | ⬜ MANUAL | 没有自动写通道，只出人工作业单，**不计入自动发布量** | 小红书、知乎、公众号、B 站、抖音、Product Hunt、V2EX、即刻、微博、SEO、Newsletter 等其余平台 |
 
-## 为什么第一期只承诺 X + Email
+> 「技术可执行」不等于「平台允许自主执行」。X 不计入可承诺的无人值守自主执行；单次 CDP 只是操作者明确要求的执行路线，不代表 X 官方认可，仍须遵守本文的平台风险边界。
 
-- X：唯一 PROVEN 的写渠道，回读校验（写错绝不发送）、账本幂等、日预算、节奏表都有实测口径；也是「关注者增长」目标的默认主渠道。
-- Email：SMTP 是协议通道，`sendmail` 无异常即 committed，不产生 `indeterminate`；适合做结果单投递和一对一承接。
+## 为什么第一期自主执行只承诺 Email
+
+- X：常驻非 API 写仍拒绝。非 routine `--go` 的单条 publish/reply 可以使用操作者提供的已登录浏览器，但要求 `cdp_observed` 实际账号证据、既有审批／adhoc 留痕、配额、防重发和回读全部通过；message/engage 不在该路线内。
+- Email：SMTP 是协议通道，发送前异常记 failed，**提交后**异常（超时/断连/回执丢失）记 `indeterminate`——服务端可能已收下，按未知结果停机，不自动重发；适合做结果单投递和一对一承接。
 - 其他写渠道（GitHub / Reddit / HN / LinkedIn）选择器按公开 UI 编写、没有在真实账号跑过完整链路。把它们放进「全自动」承诺，等于把未验证的失败风险转嫁给用户。它们保留在系统里，但必须人工首跑、显式解锁，且结果单独标注。
 
 ## 边界纪律

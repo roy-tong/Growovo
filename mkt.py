@@ -29,9 +29,13 @@
   mkt optimize              优化建议（需人工决定，不自动改预算或重放）
   mkt schedule …            持久化排期：add/list/tick/status/resume
   mkt outcome …             效果归因：事件/计数台账 + 漏斗（口径非因果）
-  mkt grow events|layers|journey|qualify
+  mkt grow events|layers|journey|qualify|goal-exit
                             三层结果（G-03）：授权产品事件导入/三层汇总/个人进度/人工改资格
                             （导入与改资格默认只预演，--apply 才落盘；其余只读）
+  mkt grow goal-exit …      目标退出与个体旅程（G-NEXT-2）：契约/评估/停止记录
+                            （写入默认预演，--apply 才落盘；退出不提供解除）
+  mkt grow signal …         信号证据包（G-NEXT-3）：登记/撤销/视图（写入默认预演）
+  mkt grow preview …        变更预演（G-NEXT-3）：快照/检查/清单（只读，不批准不执行）
   mkt grow experiment …     受控实验（G-04）：设计/批准/启动/观察/分析（写入默认 dry-run）
   mkt grow change …         策略改动（G-04）：清单/人审批准/回滚（升权改动未批准不生效）
   mkt grow start …          九步启动向导（G-05）：体检→清单→身份→目标→3 条预览→风险→
@@ -718,6 +722,809 @@ def cmd_target(args):
 
 
 
+def cmd_grow_reply(args):
+    """回复导入、人工改判、DNC 登记与统一队列：只登记本地状态，不发送。"""
+    from core import reply_case
+    act = args.reply_action
+    boundary = "边界：只登记本地回复与抑制，不连接邮箱、不自动回复、不自动预约。"
+
+    if act == "import":
+        try:
+            result = reply_case.import_replies(
+                DATA, Path(args.file).expanduser(),
+                account_id=args.account,
+                channel=args.channel,
+                imported_by=args.by,
+                authorization_ref=args.authorization,
+                run_id=args.run or "",
+                ignore_unmapped=bool(args.ignore_unmapped),
+                auto_dnc_structured=bool(args.auto_dnc_structured),
+                dry_run=bool(args.dry_run),
+            )
+        except reply_case.ReplyError as exc:
+            print("导入失败：%s" % exc, file=sys.stderr)
+            return 2
+        except OSError as exc:
+            print("读不了导入文件：%s" % exc, file=sys.stderr)
+            return 2
+        if args.json:
+            print(json.dumps(result, ensure_ascii=False, indent=1,
+                             sort_keys=True))
+            print(boundary, file=sys.stderr)
+            return 0 if not result.get("errors") else 2
+        verb = "预演" if result.get("dry_run") else "导入"
+        print("%s完成：批次 %s" % (verb, result.get("batch")))
+        print("  新建 %s 条，重复 %s 条，冲突 %s 条"
+              % (result.get("would_create") if result.get("dry_run")
+                 else result.get("created"),
+                 result.get("skipped_duplicate"), result.get("conflicts")))
+        _relink_count = (result.get("would_relink")
+                         if result.get("dry_run") else result.get("relinked"))
+        if _relink_count:
+            print("  补关联 %s 条（未关联 → linked）" % _relink_count)
+        if result.get("auto_dnc") or result.get("auto_dnc_failed"):
+            print("  结构化退订登记 DNC：成功 %s 条，失败 %s 条"
+                  % (result.get("auto_dnc"), result.get("auto_dnc_failed")))
+        if result.get("unknown_columns"):
+            print("  ⚠ 未映射列已忽略：%s"
+                  % "、".join(result.get("unknown_columns") or []))
+        for warning in result.get("warnings") or []:
+            print("  ⚠ %s" % warning)
+        for err in result.get("errors") or []:
+            print("  ✗ %s" % err, file=sys.stderr)
+        print("  统一队列：%s" % result.get("queue_path"))
+        print(boundary)
+        return 0 if not result.get("errors") else 2
+
+    if act == "link":
+        try:
+            case = reply_case.link_reply(
+                DATA, args.reply_case_id, run_id=args.run,
+                action_ref=args.action_ref or "", operator=args.by,
+                authorization_ref=args.authorization)
+        except reply_case.ReplyError as exc:
+            print("补关联失败：%s" % exc, file=sys.stderr)
+            return 2
+        if args.json:
+            print(json.dumps(case, ensure_ascii=False, indent=1,
+                             sort_keys=True))
+            print(boundary, file=sys.stderr)
+            return 0
+        if case.get("already_linked"):
+            print("案例已关联 %s，无需重复补登。" % case.get("run_id"))
+        else:
+            print("已补关联：%s → run %s"
+                  % (case.get("reply_case_id"), case.get("run_id")))
+            print("  关联动作：%s" % (case.get("action_ref") or "—"))
+            print("  链接状态：%s" % case.get("link_state"))
+            print("  下一动作：%s（%s）"
+                  % (case.get("next_required_action"),
+                     case.get("next_actor")))
+        print(boundary)
+        return 0
+
+    if act == "review":
+        try:
+            case = reply_case.review_reply(
+                DATA, args.reply_case_id, reviewer=args.by,
+                label=args.label, note=args.note or "")
+        except reply_case.ReplyError as exc:
+            print("改判失败：%s" % exc, file=sys.stderr)
+            return 2
+        if args.json:
+            print(json.dumps(case, ensure_ascii=False, indent=1,
+                             sort_keys=True))
+            print(boundary, file=sys.stderr)
+            return 0
+        print("已记录人工改判：%s" % case.get("reply_case_id"))
+        print("  候选 %s → 人判 %s（%s）"
+              % (case.get("classification_candidate"),
+                 case.get("human_label"), case.get("review_state")))
+        print("  DNC：%s" % case.get("dnc_state"))
+        print("  下一动作：%s（%s）"
+              % (case.get("next_required_action"), case.get("next_actor")))
+        print(boundary)
+        return 0
+
+    if act == "dnc":
+        try:
+            result = reply_case.confirm_dnc(
+                DATA, args.reply_case_id, operator=args.by,
+                reason=args.reason or "")
+        except reply_case.ReplyError as exc:
+            print("DNC 登记失败：%s" % exc, file=sys.stderr)
+            return 2
+        if args.json:
+            print(json.dumps(result, ensure_ascii=False, indent=1,
+                             sort_keys=True))
+            if not result.get("ok") and result.get("paused_path"):
+                print("发送已暂停：%s" % result.get("paused_path"),
+                      file=sys.stderr)
+            print(boundary, file=sys.stderr)
+            return 0 if result.get("ok") else 1
+        if result.get("ok"):
+            print("已确认 DNC：%s" % result.get("target"))
+            print("  抑制引用：%s" % result.get("dnc_ref"))
+            print("  后续新队列会被发送门禁抑制；本命令不提供解除")
+        else:
+            print("DNC 未能写入：%s" % (result.get("error") or "未知原因"),
+                  file=sys.stderr)
+            if result.get("paused_path"):
+                print("  发送已暂停：%s" % result.get("paused_path"),
+                      file=sys.stderr)
+        for warning in result.get("warnings") or []:
+            print("  ⚠ %s" % warning)
+        print(boundary)
+        return 0 if result.get("ok") else 1
+
+    if act == "list":
+        try:
+            cases = reply_case.list_cases(
+                DATA, run_id=args.run or "", state=args.state or "",
+                limit=args.limit or 0)
+        except reply_case.ReplyError as exc:
+            print("读取回复队列失败：%s" % exc, file=sys.stderr)
+            return 2
+        if args.json:
+            print(json.dumps({"schema": reply_case.QUEUE_SCHEMA,
+                              "count": len(cases), "cases": cases},
+                             ensure_ascii=False, indent=1, sort_keys=True))
+            print(boundary, file=sys.stderr)
+            return 0
+        if not cases:
+            print("没有符合条件的回复案例。")
+            print(boundary)
+            return 0
+        print("%-21s %-19s %-7s %-24s %-14s %-14s %-10s %s" % (
+            "ID", "收到时间", "渠道", "目标", "候选", "审核", "DNC",
+            "下一动作"))
+        for c in cases:
+            target = c.get("target") or "—"
+            if len(target) > 24:
+                target = target[:23] + "…"
+            print("%-21s %-19s %-7s %-24s %-14s %-14s %-10s %s" % (
+                c.get("reply_case_id"), (c.get("received_at") or "")[:19],
+                c.get("channel"), target,
+                c.get("classification_candidate"),
+                c.get("review_state"), c.get("dnc_state"),
+                c.get("next_required_action") or "—"))
+        print("\n共 %d 条。" % len(cases))
+        print(boundary)
+        return 0
+
+    if act == "show":
+        try:
+            case = reply_case.get_case(DATA, args.reply_case_id)
+            history = reply_case.case_history(DATA, args.reply_case_id)
+        except reply_case.ReplyError as exc:
+            print("读取回复案例失败：%s" % exc, file=sys.stderr)
+            return 2
+        if args.json:
+            print(json.dumps({"case": case, "history": history},
+                             ensure_ascii=False, indent=1, sort_keys=True))
+            print(boundary, file=sys.stderr)
+            return 0
+        fields = [
+            ("案例", "reply_case_id"), ("来源", "source_ref"),
+            ("来源哈希", "source_hash"), ("账号", "account_id"),
+            ("渠道", "channel"), ("目标", "target"),
+            ("关联 run", "run_id"), ("关联动作", "action_ref"),
+            ("链接状态", "link_state"), ("收到时间", "received_at"),
+            ("导入时间", "imported_at"), ("候选", "classification_candidate"),
+            ("置信度", "confidence"), ("审核状态", "review_state"),
+            ("审核人", "reviewer"), ("人判", "human_label"),
+            ("DNC", "dnc_state"), ("DNC 引用", "dnc_ref"),
+            ("下一执行人", "next_actor"), ("下一动作", "next_required_action"),
+        ]
+        for label, key in fields:
+            value = case.get(key)
+            if value in (None, ""):
+                value = "—"
+            print("%s：%s" % (label, value))
+        print("原文哈希：%s" % (case.get("raw_text_hash") or "—"))
+        print("版本历史：%d 条" % len(history))
+        for row in history:
+            print("  v%s %s %s → %s / DNC %s"
+                  % (row.get("version"), row.get("imported_at") or "",
+                     row.get("review_state"), row.get("human_label") or "—",
+                     row.get("dnc_state")))
+        print(boundary)
+        return 0
+
+    print("未知的 reply 子命令：%s" % act, file=sys.stderr)
+    return 2
+
+
+def cmd_grow_goal_exit(args):
+    """目标退出与个体旅程（G-NEXT-2）：契约、评估、停止记录，全部本地。"""
+    from core import goal_exit
+    act = args.goal_exit_action
+    boundary = ("边界：只登记目标契约与本地判定；不发送、不解除 DNC、"
+                "不把先后发生写成因果，不自动回写 canonical。")
+
+    def _exit_events(raw_list):
+        """--exit kind=source_ref[::subject_ref] → 退出声明；无绑定不归到个人。"""
+        rows = []
+        for raw in raw_list or []:
+            text = str(raw or "").strip()
+            kind, sep, rest = text.partition("=")
+            if not sep or not kind.strip() or not rest.strip():
+                raise goal_exit.GoalExitError(
+                    "--exit 需要 kind=source_ref[::subject_ref]，得到 %r" % raw)
+            source_ref, _, subject = rest.partition("::")
+            rows.append({"kind": kind.strip(),
+                         "source_ref": source_ref.strip(),
+                         "subject_ref": subject.strip()})
+        return rows
+
+    if act == "contract":
+        try:
+            contract = goal_exit.build_contract(
+                run_id=args.run,
+                goal_event={"event_type": args.goal_type,
+                            "target": args.target,
+                            "metric": args.metric or "",
+                            "label": args.label or "",
+                            "qualifier": ({"verification_state":
+                                           args.verify_state}
+                                          if args.verify_state else {})},
+                observation_window={"start": args.window_start,
+                                    "end": args.window_end},
+                exit_events=_exit_events(args.exit),
+                attribution_window={"days": args.attr_days},
+                created_by=args.by or "",
+                note=args.note or "")
+            written = goal_exit.write_contract(
+                DATA, contract, dry_run=not args.apply)
+        except goal_exit.GoalExitError as exc:
+            print("目标契约未登记：%s" % exc, file=sys.stderr)
+            return 2
+        if args.json:
+            print(json.dumps({"contract": contract, "write": written},
+                             ensure_ascii=False, indent=1, sort_keys=True))
+            print(boundary, file=sys.stderr)
+            return 0
+        print("%s完成：%s（%s）"
+              % ("预演" if not args.apply else "登记",
+                 contract.get("contract_id"), written.get("status")))
+        goal = contract.get("goal") or {}
+        window = contract.get("observation_window") or {}
+        print("  目标：%s ≥ %s（%s）"
+              % (goal.get("event_type"), goal.get("target"),
+                 goal.get("metric")))
+        print("  观察窗口：%s → %s；归因窗口 %s 天"
+              % (window.get("start"), window.get("end"),
+                 (contract.get("attribution_window") or {}).get("days")))
+        if contract.get("exit_events"):
+            print("  运行级退出声明：%s 条（未绑定对象的只作声明，不归到个人）"
+                  % len(contract.get("exit_events") or []))
+        if written.get("status") == "would_write":
+            print("  加 --apply 才写入：%s" % written.get("path"))
+        print(boundary)
+        return 0
+
+    if act == "evaluate":
+        try:
+            contract = goal_exit.get_contract(DATA, args.contract)
+            projection = goal_exit.evaluate(
+                DATA, contract, subject_ref=args.subject,
+                now=args.now or None)
+            written = goal_exit.write_projection(
+                DATA, projection, dry_run=not args.apply)
+            stopped = goal_exit.write_stop(
+                DATA, projection, dry_run=not args.apply)
+        except goal_exit.GoalExitError as exc:
+            print("评估未执行：%s" % exc, file=sys.stderr)
+            return 2
+        if args.json:
+            print(json.dumps({"projection": projection, "write": written,
+                              "stop": stopped},
+                             ensure_ascii=False, indent=1, sort_keys=True))
+            print(boundary, file=sys.stderr)
+            return 0
+        print(goal_exit.render_text(projection))
+        print("")
+        print("投影：%s（%s，revision %s）"
+              % (projection.get("projection_id"), written.get("status"),
+                 written.get("revision")))
+        if stopped.get("status") != "skipped":
+            print("停止记录：%s（%s）"
+                  % (stopped.get("stop_id") or "—", stopped.get("status")))
+        if written.get("status") == "would_write":
+            print("加 --apply 才写入：%s" % written.get("path"))
+        print(boundary)
+        return 0
+
+    if act == "list":
+        try:
+            contracts = goal_exit.load_contracts(DATA)
+        except goal_exit.GoalExitError as exc:
+            print("读取目标契约失败：%s" % exc, file=sys.stderr)
+            return 2
+        rows = sorted(contracts.values(),
+                      key=lambda c: (str(c.get("created_at") or ""),
+                                     str(c.get("contract_id") or "")))
+        if args.run:
+            rows = [c for c in rows
+                    if str(c.get("run_id") or "") == args.run]
+        if args.json:
+            print(json.dumps({"count": len(rows), "contracts": rows},
+                             ensure_ascii=False, indent=1, sort_keys=True))
+            print(boundary, file=sys.stderr)
+            return 0
+        if not rows:
+            print("没有已登记的目标契约。")
+            print(boundary)
+            return 0
+        print("%-23s %-22s %-10s %-6s %-21s %-21s %s" % (
+            "契约", "run", "目标", "目标数", "观察开始", "观察结束",
+            "退出声明"))
+        for c in rows:
+            goal = c.get("goal") or {}
+            window = c.get("observation_window") or {}
+            print("%-23s %-22s %-10s %-6s %-21s %-21s %s" % (
+                c.get("contract_id"), c.get("run_id"),
+                goal.get("event_type"), goal.get("target"),
+                window.get("start"), window.get("end"),
+                len(c.get("exit_events") or [])))
+        print("\n共 %d 个契约。" % len(rows))
+        print(boundary)
+        return 0
+
+    if act == "show":
+        try:
+            contract = goal_exit.get_contract(DATA, args.contract)
+            block = goal_exit.run_projection(
+                DATA, str(contract.get("run_id") or ""))
+        except goal_exit.GoalExitError as exc:
+            print("读取目标契约失败：%s" % exc, file=sys.stderr)
+            return 2
+        rows = [p for p in block.get("projections") or []
+                if p.get("contract_id") == args.contract]
+        if args.json:
+            print(json.dumps({"contract": contract, "projections": rows},
+                             ensure_ascii=False, indent=1, sort_keys=True))
+            print(boundary, file=sys.stderr)
+            return 0
+        goal = contract.get("goal") or {}
+        window = contract.get("observation_window") or {}
+        print("契约：%s（run %s）"
+              % (contract.get("contract_id"), contract.get("run_id")))
+        print("  目标：%s ≥ %s（%s）"
+              % (goal.get("event_type"), goal.get("target"),
+                 goal.get("metric")))
+        print("  观察窗口：%s → %s"
+              % (window.get("start"), window.get("end")))
+        print("  指纹：%s" % contract.get("fingerprint"))
+        print("  登记人：%s" % (contract.get("created_by") or "—"))
+        for rec in contract.get("exit_events") or []:
+            print("  退出声明：%s 来源 %s 对象 %s"
+                  % (rec.get("kind"), rec.get("source_ref"),
+                     rec.get("subject_ref") or "—（运行级）"))
+        if not rows:
+            print("还没有对象投影：用 mkt grow goal-exit evaluate 评估")
+        for p in rows:
+            print("  %s %s：%s/%s（%s，revision %s）"
+                  % (p.get("projection_id"), p.get("subject"),
+                     p.get("observed"), p.get("target"), p.get("state"),
+                     p.get("revision")))
+        print(boundary)
+        return 0
+
+    if act == "view":
+        block = goal_exit.run_projection(
+            DATA, args.run, limit=args.limit or 20)
+        if args.json:
+            print(json.dumps(block, ensure_ascii=False, indent=1,
+                             sort_keys=True))
+            print(boundary, file=sys.stderr)
+            return 0 if block.get("state") != "unreadable" else 2
+        if block.get("state") == "unreadable":
+            print("旅程存储读不了：%s" % block.get("error"), file=sys.stderr)
+            return 2
+        print("旅程视图：run %s（%s）"
+              % (block.get("run_id"), block.get("state")))
+        print("  契约 %s 个，投影 %s 个，停止记录 %s 条，冲突 %s 条，孤立投影 %s 条"
+              % (len(block.get("contracts") or []),
+                 len(block.get("projections") or []),
+                 block.get("stop_count"), block.get("conflict_count"),
+                 block.get("orphan_projections")))
+        counts = block.get("counts") or {}
+        if counts:
+            print("  状态计数：%s"
+                  % "，".join("%s %s" % (k, counts[k]) for k in sorted(counts)))
+        for p in block.get("projections") or []:
+            print("  %s %s：%s/%s（%s，revision %s）"
+                  % (p.get("projection_id"), p.get("subject"),
+                     p.get("observed"), p.get("target"), p.get("state"),
+                     p.get("revision")))
+        for row in block.get("unresolved") or []:
+            print("  未决：%s %s — %s"
+                  % (row.get("contract_id"), row.get("subject"),
+                     row.get("reason")))
+        for row in block.get("stale") or []:
+            print("  过期未评估：%s（窗口止于 %s）"
+                  % (row.get("contract_id"), row.get("window_end")))
+        if block.get("note"):
+            print("  %s" % block.get("note"))
+        print(boundary)
+        return 0
+
+    print("未知的 goal-exit 子命令：%s" % act, file=sys.stderr)
+    return 2
+
+
+def cmd_grow_signal(args):
+    """信号证据包（G-NEXT-3）：登记、撤销与只读视图；写入默认预演。"""
+    from core import signal_envelope
+    act = args.signal_action
+    boundary = ("边界：信号只证明对应来源在对应时间出现过该内容，不证明身份、"
+                "意图或购买倾向；撤销不删除历史、不改账本；不发送、不自动回写 canonical。")
+
+    def _view():
+        return signal_envelope.signal_view(
+            DATA, run_id=getattr(args, "run", "") or "")
+
+    def _show_row(row, text):
+        if args.json:
+            print(json.dumps(row, ensure_ascii=False, indent=1, sort_keys=True))
+            print(boundary, file=sys.stderr)
+        else:
+            print(text)
+            print(boundary)
+        return 0
+
+    if act == "add":
+        raw_text = args.raw_text or ""
+        if args.raw_file:
+            try:
+                raw_text = Path(args.raw_file).read_text(encoding="utf-8")
+            except OSError as exc:
+                print("信号未登记：读取 --raw-file 失败：%s" % exc,
+                      file=sys.stderr)
+                return 2
+        try:
+            envelope = signal_envelope.build_signal(
+                source_family=args.source_family,
+                source_ref=args.source_ref,
+                observed_at=args.observed_at or "",
+                raw_text=raw_text,
+                raw_hash=args.raw_hash or "",
+                subject_ref=args.subject or "",
+                identity_basis=args.identity_basis or "",
+                allowed_use=args.use or None,
+                consent_ref=args.consent or "",
+                content_claim_refs=args.claim or [],
+                max_age_days=args.max_age_days,
+                run_id=args.run or "",
+                note=args.note or "")
+            written = signal_envelope.write_signal(
+                DATA, envelope, dry_run=not args.apply)
+        except signal_envelope.SignalError as exc:
+            print("信号未登记：%s" % exc, file=sys.stderr)
+            return 2
+        if args.json:
+            print(json.dumps({"signal": envelope, "write": written},
+                             ensure_ascii=False, indent=1, sort_keys=True))
+            print(boundary, file=sys.stderr)
+            return 0
+        print("%s完成：%s（%s）"
+              % ("预演" if not args.apply else "登记",
+                 envelope.get("signal_id"), written.get("status")))
+        print(signal_envelope.render_signal_text(envelope))
+        if written.get("status") == "would_write":
+            print("  加 --apply 才写入：%s" % written.get("path"))
+        print(boundary)
+        return 0
+
+    if act == "list":
+        try:
+            view = _view()
+        except signal_envelope.SignalError as exc:
+            print("信号读取失败：%s" % exc, file=sys.stderr)
+            return 2
+        if args.json:
+            print(json.dumps(view, ensure_ascii=False, indent=1,
+                             sort_keys=True))
+            print(boundary, file=sys.stderr)
+            return 0
+        if not view["signals"]:
+            print("还没有登记信号。")
+            print(boundary)
+            return 0
+        counts = view["counts"]
+        print("信号 %d 条（可用 %d / 过期 %d / 撤销 %d / 不完整 %d / 身份未决 %d）"
+              % (counts["total"], counts["usable"], counts["stale"],
+                 counts["revoked"], counts["incomplete"],
+                 counts["unresolved_identity"]))
+        for row in view["signals"]:
+            print("  %s  %s/%s  观察 %s  %s  个性化=%s"
+                  % (row.get("signal_id"), row.get("source_family"),
+                     row.get("source_ref"), row.get("observed_at") or "UNKNOWN",
+                     row.get("state"),
+                     "允许" if (row.get("permission") or {}).get(
+                         "personalization", {}).get("allowed") else "拒绝"))
+        if view.get("gaps"):
+            print("  证据缺口：%d 条（详见 --json）" % len(view["gaps"]))
+        print(boundary)
+        return 0
+
+    if act == "show":
+        try:
+            view = _view()
+        except signal_envelope.SignalError as exc:
+            print("信号读取失败：%s" % exc, file=sys.stderr)
+            return 2
+        target = next((row for row in view["signals"]
+                       if row.get("signal_id") == args.signal), None)
+        if target is None:
+            print("没有这个信号：%s" % args.signal, file=sys.stderr)
+            return 2
+        return _show_row(target, signal_envelope.render_signal_text(target))
+
+    if act == "revoke":
+        try:
+            result = signal_envelope.revoke_source(
+                DATA, source_family=args.source_family,
+                source_ref=args.source_ref, by=args.by or "",
+                reason=args.reason or "", dry_run=not args.apply)
+        except signal_envelope.SignalError as exc:
+            print("撤销未登记：%s" % exc, file=sys.stderr)
+            return 2
+        if args.json:
+            print(json.dumps(result, ensure_ascii=False, indent=1,
+                             sort_keys=True))
+            print(boundary, file=sys.stderr)
+            return 0
+        print("%s完成：%s/%s（%s）"
+              % ("预演" if not args.apply else "撤销",
+                 args.source_family, args.source_ref, result.get("status")))
+        if result.get("status") == "would_revoke":
+            print("  加 --apply 才写入：%s" % result.get("path"))
+        print(boundary)
+        return 0
+
+    print("未知的 signal 子命令：%s" % act, file=sys.stderr)
+    return 2
+
+
+def cmd_grow_preview(args):
+    """变更预演（G-NEXT-3）：只读快照与 stale 检查；不批准、不执行。"""
+    from core import signal_envelope
+    act = args.preview_action
+    boundary = ("边界：预演只读，不批准、不写队列、不执行、不产生外部效果；"
+                "stale/过期必须重新生成；外部效果未知先走 mkt ledger resolve。")
+
+    if act == "create":
+        try:
+            preview = signal_envelope.build_preview(
+                DATA, plan_id=args.plan, changes=args.change or [],
+                permission_required=args.permission or None,
+                approval_ref=args.approval_ref or "",
+                expires_at=args.expires_at or "",
+                run_id=args.run or "", created_by=args.by or "",
+                note=args.note or "")
+            written = signal_envelope.write_preview(
+                DATA, preview, dry_run=not args.apply)
+        except signal_envelope.SignalError as exc:
+            print("预演未登记：%s" % exc, file=sys.stderr)
+            return 2
+        if args.json:
+            print(json.dumps({"preview": preview, "write": written},
+                             ensure_ascii=False, indent=1, sort_keys=True))
+            print(boundary, file=sys.stderr)
+            return 0
+        print("%s完成：%s（%s）"
+              % ("预演" if not args.apply else "登记",
+                 preview.get("preview_id"), written.get("status")))
+        print(signal_envelope.render_preview_text(preview))
+        if written.get("status") == "would_write":
+            print("  加 --apply 才写入：%s" % written.get("path"))
+        print(boundary)
+        return 0
+
+    if act == "show":
+        try:
+            preview = signal_envelope.get_preview(DATA, args.preview)
+        except signal_envelope.SignalError as exc:
+            print("预演读取失败：%s" % exc, file=sys.stderr)
+            return 2
+        if preview is None:
+            print("没有这个预演：%s" % args.preview, file=sys.stderr)
+            return 2
+        check = signal_envelope.check_preview(
+            DATA, preview, account=args.account or None,
+            workspace=args.workspace or None)
+        if args.json:
+            print(json.dumps({"preview": preview, "check": check},
+                             ensure_ascii=False, indent=1, sort_keys=True))
+            print(boundary, file=sys.stderr)
+            return 0
+        print(signal_envelope.render_preview_text(preview, check))
+        print(boundary)
+        return 0
+
+    if act == "check":
+        try:
+            preview = signal_envelope.get_preview(DATA, args.preview)
+        except signal_envelope.SignalError as exc:
+            print("预演读取失败：%s" % exc, file=sys.stderr)
+            return 2
+        if preview is None:
+            print("没有这个预演：%s" % args.preview, file=sys.stderr)
+            return 2
+        check = signal_envelope.check_preview(
+            DATA, preview, account=args.account or None,
+            workspace=args.workspace or None)
+        if args.json:
+            print(json.dumps(check, ensure_ascii=False, indent=1,
+                             sort_keys=True))
+            print(boundary, file=sys.stderr)
+            return 0
+        print("预演 %s：%s" % (preview.get("preview_id"), check.get("state")))
+        for reason in check.get("reasons") or []:
+            print("  - %s" % reason)
+        print("  审批：%s（valid=%s）%s"
+              % (check.get("approval_state"), check.get("approval_valid"),
+                 check.get("approval_reason") or ""))
+        for incident in check.get("incidents") or []:
+            print("  事故：%s → %s"
+                  % (incident.get("ref"), incident.get("next_command")))
+        print(boundary)
+        return 0
+
+    if act == "list":
+        try:
+            view = signal_envelope.signal_view(DATA, run_id=args.run or "")
+        except signal_envelope.SignalError as exc:
+            print("预演读取失败：%s" % exc, file=sys.stderr)
+            return 2
+        block = {"schema": view["schema"], "run_id": view["run_id"],
+                 "previews": view["previews"],
+                 "preview_stale": view["preview_stale"],
+                 "delete_items": view["delete_items"],
+                 "incidents": view["incidents"],
+                 "injection_note": view["injection_note"]}
+        if args.json:
+            print(json.dumps(block, ensure_ascii=False, indent=1,
+                             sort_keys=True))
+            print(boundary, file=sys.stderr)
+            return 0
+        if not block["previews"]:
+            print("还没有变更预演。")
+            print(boundary)
+            return 0
+        print("变更预演 %d 条（删除项 %d）"
+              % (len(block["previews"]), len(block["delete_items"])))
+        for row in block["previews"]:
+            check = row.get("check") or {}
+            print("  %s  plan=%s  %s  dry_run=%s  external_effect=%s"
+                  % (row.get("preview_id"), row.get("plan_id"),
+                     check.get("state"), row.get("dry_run"),
+                     row.get("external_effect")))
+            for item in row.get("changes") or []:
+                if item.get("op") == "remove":
+                    print("    删除：%s / %s  %s"
+                          % (item.get("kind"), item.get("ref"),
+                             item.get("summary") or ""))
+        if block["preview_stale"]:
+            print("  需重新生成：%s"
+                  % "、".join(row.get("preview_id")
+                              for row in block["preview_stale"]))
+        print(boundary)
+        return 0
+
+    print("未知的 preview 子命令：%s" % act, file=sys.stderr)
+    return 2
+
+
+def cmd_grow_handoff(args):
+    """Agent 主入口的伴随 GUI 交接：只读摘要、handoff 生命周期与回链。"""
+    from core import agent_bridge
+    act = args.handoff_action
+    boundary = agent_bridge.BOUNDARY
+
+    def _emit(payload):
+        print(json.dumps(payload, ensure_ascii=False, indent=1, sort_keys=True))
+        print(boundary, file=sys.stderr)
+        return 0
+
+    try:
+        if act == "locate":
+            summary = agent_bridge.risk_summary(
+                DATA, run_id=args.run or "", limit=args.limit,
+                host=args.host or "", companion_url=args.companion_url or "")
+            if args.json:
+                return _emit(summary)
+            print(agent_bridge.render_summary(summary))
+            print(boundary)
+            return 0
+        if act == "create":
+            handoff = agent_bridge.create_handoff(
+                DATA, object_type=args.object_type, object_id=args.object_id,
+                entry_route=args.entry_route or "",
+                focus_ref=args.focus_ref or "",
+                requested_action=args.requested_action or "",
+                allowed_actions=args.allowed_action or None,
+                host=args.host or "", companion_url=args.companion_url or "",
+                ttl_seconds=args.ttl, by=args.by or "agent")
+            if args.json:
+                return _emit(handoff)
+            print(agent_bridge.render_handoff(handoff))
+            print(boundary)
+            return 0
+        if act == "show":
+            handoff = agent_bridge.get_handoff(DATA, args.handoff_ref)
+            if args.json:
+                return _emit(handoff)
+            print(agent_bridge.render_handoff(handoff))
+            print(boundary)
+            return 0
+        if act == "list":
+            rows = agent_bridge.list_handoffs(DATA)
+            if args.json:
+                return _emit(rows)
+            if not rows:
+                print("没有 handoff。")
+            for row in rows:
+                print(agent_bridge.render_handoff(row))
+                print("")
+            print(boundary)
+            return 0
+        if act == "revoke":
+            handoff = agent_bridge.revoke_handoff(
+                DATA, args.handoff_ref, by=args.by, reason=args.reason or "")
+            if args.json:
+                return _emit(handoff)
+            print(agent_bridge.render_handoff(handoff))
+            print(boundary)
+            return 0
+        if act == "resolve":
+            resolution = agent_bridge.resolve_handoff(DATA, args.handoff_ref)
+            if args.json:
+                return _emit(resolution)
+            print(agent_bridge.render_resolution(resolution))
+            print(boundary)
+            return 0
+    except agent_bridge.BridgeError as exc:
+        print("handoff 未完成（%s）：%s" % (exc.code, exc.message),
+              file=sys.stderr)
+        if args.json:
+            print(json.dumps({"ok": False,
+                              "error": {"code": exc.code,
+                                        "message": exc.message}},
+                             ensure_ascii=False))
+        return 2
+    print("未知的 handoff 子命令：%s" % act, file=sys.stderr)
+    return 2
+
+
+def cmd_grow_serve(args):
+    """启动本机伴随 GUI：只读投影＋受控写，只监听 127.0.0.1。"""
+    from core import gui_server
+    if args.dry_run:
+        if args.json:
+            print(json.dumps({"schema": "growovo.gui-routes/1",
+                              "routes": gui_server.routes_table(),
+                              "boundary": gui_server.BOUNDARY},
+                             ensure_ascii=False, indent=1, sort_keys=True))
+        else:
+            print(gui_server.render_routes_text())
+        return 0
+    if not DATA.exists():
+        print("数据目录不存在：%s" % DATA, file=sys.stderr)
+        return 2
+    try:
+        return gui_server.serve(DATA, port=args.port,
+                                open_browser=not args.no_open)
+    except gui_server.GuiError as exc:
+        print("GUI 未启动（%s）：%s" % (exc.code, exc.message), file=sys.stderr)
+        return 2
+    except OSError as exc:
+        print("GUI 未启动：%s" % exc, file=sys.stderr)
+        return 2
+
+
 def cmd_grow(args):
     from core.grow import GrowError as V1Error, GrowRun
     try:
@@ -726,6 +1533,18 @@ def cmd_grow(args):
         V2Error = V1Error
     GrowErrors = (V1Error, V2Error)
     act = args.action
+    if act == "reply":
+        return cmd_grow_reply(args)
+    if act == "goal-exit":
+        return cmd_grow_goal_exit(args)
+    if act == "signal":
+        return cmd_grow_signal(args)
+    if act == "preview":
+        return cmd_grow_preview(args)
+    if act == "handoff":
+        return cmd_grow_handoff(args)
+    if act == "serve":
+        return cmd_grow_serve(args)
     path = DATA / "grow" / f"{getattr(args, 'id', '')}.json" if getattr(args, "id", "") else None
 
     def _open():
@@ -738,15 +1557,44 @@ def cmd_grow(args):
             return GrowRunV2(path), raw
         return GrowRun(path), raw
 
+    if act == "detail":
+        from core import run_detail
+        detail = run_detail.build_run_detail(
+            DATA, args.id, on=args.on or None)
+        if args.json:
+            print(json.dumps(detail, ensure_ascii=False, indent=1,
+                             sort_keys=True))
+        if args.html:
+            out = Path(args.html).expanduser()
+            if out.exists():
+                print(f"拒绝覆盖已有文件：{out}", file=sys.stderr)
+                return 2
+            out.parent.mkdir(parents=True, exist_ok=True)
+            out.write_text(run_detail.render_html(detail), encoding="utf-8")
+            print(f"已写入 {out}")
+        if not args.json and not args.html:
+            print(run_detail.render_summary(detail))
+        if args.json:
+            print("边界：本页是只读投影，不审批、不裁决、不恢复、不发送、不重试。",
+                  file=sys.stderr)
+        else:
+            print("\n边界：本页是只读投影，不审批、不裁决、不恢复、不发送、不重试。")
+        return 0
+
     if act == "platforms":
         from core import platform_caps
-        print("第一期自动执行平台（只有这些能承诺全自动）：")
+        print("第一期自动执行平台（技术可执行 ≠ 平台许可）：")
         for row in platform_caps.matrix():
             if row["tier"] != platform_caps.AUTO:
                 continue
             write = row.get("write") or []
-            print(f"  ✅ {row['platform']:<12} {row['status']:<8} "
-                  f"动作 {'/'.join(write[1:]) or '—'}｜{row['reason']}")
+            policy = row.get("policy") or {}
+            allowed = policy.get("autonomous_write", True)
+            mark = "✅" if allowed else "⛔"
+            note = "" if allowed else (
+                "｜平台许可：禁止自主写（只读/人工；接官方 API 并授权后才放行）")
+            print(f"  {mark} {row['platform']:<12} {row['status']:<8} "
+                  f"动作 {'/'.join(write[1:]) or '—'}｜{row['reason']}{note}")
         print("\n需人工首跑解锁（不纳入第一期承诺）：")
         for row in platform_caps.matrix():
             if row["tier"] != platform_caps.GATED:
@@ -758,6 +1606,17 @@ def cmd_grow(args):
         stale = [r["platform"] for r in rows if r["stale"]]
         note = f"，{len(stale)} 个待刷新" if stale else "，全部在复核窗口内"
         print(f"\n平台策略卡：{len(rows)} 个平台（节奏/上限/门禁/证据{note}）；mkt strategy cards 查看。")
+        return 0
+
+    if act == "handoff-verovo":
+        from core.verovo_handoff import HandoffError, write_handoff
+        try:
+            result = write_handoff(DATA, args.id, args.out)
+        except (HandoffError, OSError, ValueError) as exc:
+            print(f"Verovo 交接失败：{exc}", file=sys.stderr)
+            return 2
+        print(json.dumps(result, ensure_ascii=False, indent=1))
+        print("边界：证据交接完成 ≠ 已入 Verovo canonical、已验收交付或已确认收入。")
         return 0
 
     if act == "experiment":
@@ -2220,6 +3079,16 @@ def cmd_voice(args):
     return 0
 
 
+def _content_facts(path):
+    """Load product facts for content positioning; None when not supplied."""
+    if not str(path or "").strip():
+        return None
+    data = json.loads(Path(path).read_text(encoding="utf-8"))
+    if not isinstance(data, dict):
+        raise SystemExit("--facts 需要 JSON 对象（product/icp/value_events）")
+    return data
+
+
 def cmd_content(args):
     from core import content_ops
     if args.action == "rules":
@@ -2229,7 +3098,8 @@ def cmd_content(args):
         b = content_ops.brief(
             args.channel, args.topic, audience=args.audience or "",
             product=args.product or "", evidence=args.evidence or "",
-            cta=args.cta, title=args.title or "")
+            cta=args.cta, title=args.title or "",
+            facts=_content_facts(getattr(args, "facts", "")))
         if args.json:
             print(json.dumps(b, ensure_ascii=False, indent=1))
         else:
@@ -2263,8 +3133,10 @@ def cmd_content(args):
         return 0 if res["ok"] else 2
     if args.action == "plan":
         channels = [x.strip() for x in (args.channels or "").split(",") if x.strip()]
-        p = content_ops.plan(start=args.start, days=args.days, channels=channels,
-                             cadence=getattr(args, "cadence", "evidence"))
+        p = content_ops.plan(start=args.start or None, days=args.days,
+                             channels=channels,
+                             cadence=getattr(args, "cadence", "evidence"),
+                             facts=_content_facts(getattr(args, "facts", "")))
         if args.json:
             text = json.dumps(p, ensure_ascii=False, indent=1)
         else:
@@ -3293,8 +4165,13 @@ def cmd_queue(args):
         tally = {}
         for r in results:
             tally[r.get("result", "?")] = tally.get(r.get("result", "?"), 0) + 1
+        audit_gaps = [r for r in results if r.get("audit_gap")]
         print(json.dumps({"queue": args.path, "go": args.go,
-                          "results": tally}, ensure_ascii=False, indent=1))
+                          "results": tally,
+                          "audit_gaps": len(audit_gaps)}, ensure_ascii=False, indent=1))
+        if tally.get("indeterminate") or audit_gaps:
+            # 未知回执/审计缺口都不是成功：给脚本一个可判别的非零状态。
+            return 3
         return 0 if not tally.get("failed") else 1
 
     if act == "build":
@@ -3588,7 +4465,7 @@ def cmd_x(args):
     recorder = operations_log.LedgerRecorder(_ledger())
     rc = x_run(args.action, extra, go=args.go, adhoc=args.adhoc,
                campaign=args.campaign, ledger=recorder, data_dir=DATA,
-               identity=identity_evidence)
+               identity=identity_evidence, execution_mode="user_visible_cdp")
     try:
         recorder.flush_operations(
             DATA, channel="x", action=args.action,
@@ -3614,8 +4491,23 @@ def cmd_email(args):
     from channels.email_smtp import send_queue
     res = send_queue(args.queue, go=args.go, adhoc=args.adhoc, only=args.only,
                      campaign=args.campaign, data_dir=DATA,
-                     ledger=_ledger(), throttle=_throttle())
-    failed = sum(1 for r in res if r["result"] in ("failed", "rejected"))
+                     ledger=_ledger(), throttle=_throttle(),
+                     operator="mkt:email",
+                     run_id=str(getattr(args, "run_id", "") or ""))
+    indeterminate = [r for r in res if r.get("result") == "indeterminate"]
+    failed = [r for r in res if r.get("result") in ("failed", "rejected")]
+    gaps = [r for r in res if r.get("audit_gap")]
+    if indeterminate:
+        print("发送结果未知（INDETERMINATE）：服务端可能已收下该邮件。本批已中止，"
+              "未发送的条目没有动作；先人工核实，再 mkt ledger resolve。",
+              file=sys.stderr)
+        return 3
+    if gaps:
+        print("发送已发生但操作日志写入失败（审计缺口）：%s。"
+              "不得视为完整核验通过；缺口见 %s。"
+              % (gaps[0].get("audit_gap_reason", ""),
+                 gaps[0].get("audit_gap", "")), file=sys.stderr)
+        return 3
     return 1 if failed else 0
 
 
@@ -4551,6 +5443,8 @@ def build_parser():
     a.add_argument("--evidence", default="")
     a.add_argument("--cta", default="B", choices=["A", "B", "C"])
     a.add_argument("--title", default="")
+    a.add_argument("--facts", default="",
+                   help="产品事实 JSON（product/icp/value_events），决定读者与选题")
     a.add_argument("--json", action="store_true")
     a = csub.add_parser("review", help="整篇审稿：生成版本绑定清单，或校验填写后的记录")
     a.add_argument("channel", choices=["xiaohongshu", "wechat", "zhihu", "douyin", "blog"])
@@ -4567,7 +5461,10 @@ def build_parser():
     a.add_argument("--strict", action="store_true", help="把提醒也提升为阻断项")
     a.add_argument("--json", action="store_true")
     a = csub.add_parser("plan", help="生成多渠道路排期骨架")
-    a.add_argument("--start", default="2026-11-07")
+    a.add_argument("--start", default="",
+                   help="起始日期；省略=本地今天。指定过去日期即历史回放（会标注）")
+    a.add_argument("--facts", default="",
+                   help="产品事实 JSON（product/icp/value_events），决定读者与选题")
     a.add_argument("--days", type=int, default=14)
     a.add_argument("--channels", default="xiaohongshu,wechat,blog")
     a.add_argument("--cadence", default="evidence", choices=["evidence", "daily-two"],
@@ -4980,7 +5877,65 @@ def build_parser():
     sp = sub.add_parser("grow", help="结果闭环：给事实和目标，自动执行、读数、交付日/周结果")
     gsub = sp.add_subparsers(dest="action", required=True)
 
+    a = gsub.add_parser("detail",
+                        help="单次运行详情页：只读投影 + 自包含 HTML（P0 页面）")
+    a.add_argument("id", help="run_id")
+    a.add_argument("--on", default="", help="按哪天判断新鲜度（默认今天）")
+    a.add_argument("--html", default="", help="导出完全自包含 HTML（拒绝覆盖）")
+    a.add_argument("--json", action="store_true", help="输出结构化投影 JSON")
+
+    a = gsub.add_parser("reply",
+                        help="回复统一入口：授权导入、人工改判、DNC、队列（只登记不发送）")
+    rsub = a.add_subparsers(dest="reply_action", required=True)
+    a = rsub.add_parser("import", help="导入授权回复文件（CSV/JSONL）；重复导入不新增")
+    a.add_argument("file", help="回复文件路径（CSV/JSONL/JSON）")
+    a.add_argument("--account", required=True, help="接收回复的账号 id")
+    a.add_argument("--channel", default="email",
+                   choices=["email", "x", "linkedin", "reddit", "github"])
+    a.add_argument("--by", required=True, help="导入人署名")
+    a.add_argument("--authorization", required=True,
+                   help="授权引用（工单/邮件/批次）")
+    a.add_argument("--run", default="", help="关联 run id（关联不上进未关联队列）")
+    a.add_argument("--ignore-unmapped", action="store_true",
+                   help="忽略未映射列（默认拒绝，避免静默丢字段）")
+    a.add_argument("--auto-dnc-structured", action="store_true",
+                   help="结构化退订（如 List-Unsubscribe）直接登记 DNC")
+    a.add_argument("--dry-run", action="store_true", help="只预演，不落盘")
+    a.add_argument("--json", action="store_true")
+    a = rsub.add_parser("link", help="给未关联回复补登 run/action_ref（追加版本，不改原文）")
+    a.add_argument("reply_case_id")
+    a.add_argument("--run", required=True, help="关联 run id")
+    a.add_argument("--action-ref", default="", help="关联动作引用")
+    a.add_argument("--by", required=True, help="补登人署名")
+    a.add_argument("--authorization", required=True,
+                   help="授权引用（工单/邮件/批次）")
+    a.add_argument("--json", action="store_true")
+    a = rsub.add_parser("review", help="人工改判分类候选（追加版本，保留原候选）")
+    a.add_argument("reply_case_id")
+    a.add_argument("--by", required=True)
+    a.add_argument("--label", required=True,
+                   choices=["interested", "not_interested", "unsubscribe",
+                            "OOO", "question", "unknown"])
+    a.add_argument("--note", default="")
+    a.add_argument("--json", action="store_true")
+    a = rsub.add_parser("dnc", help="确认退订并登记 DNC（写入抑制集；不提供解除）")
+    a.add_argument("reply_case_id")
+    a.add_argument("--by", required=True)
+    a.add_argument("--reason", default="")
+    a.add_argument("--json", action="store_true")
+    a = rsub.add_parser("list", help="只读：统一回复队列")
+    a.add_argument("--run", default="")
+    a.add_argument("--state", default="", help="unresolved/dnc_pending 或精确状态")
+    a.add_argument("--limit", type=int, default=0)
+    a.add_argument("--json", action="store_true")
+    a = rsub.add_parser("show", help="只读：单个回复案例与版本历史")
+    a.add_argument("reply_case_id")
+    a.add_argument("--json", action="store_true")
+
     a = gsub.add_parser("platforms", help="第一期能自动执行的平台白名单")
+    a = gsub.add_parser("handoff-verovo", help="导出操作/业务事件/Askovo 上下文为 Verovo 未入账证据包")
+    a.add_argument("id", help="run_id 或 campaign_id")
+    a.add_argument("--out", required=True, help="新文件路径；拒绝覆盖")
     a = gsub.add_parser("launch", help="一条命令：预检→编译策略→生成执行计划与内容需求单")
     a.add_argument("id"); a.add_argument("--facts", required=True, help="产品事实包 JSON")
     a.add_argument("--goal", required=True, help="目标 id，如 awareness.followers")
@@ -5173,6 +6128,124 @@ def build_parser():
     a.add_argument("--apply", action="store_true", help="真写入（默认只预演）")
     a.add_argument("--json", action="store_true")
 
+    a = gsub.add_parser(
+        "goal-exit",
+        help="目标退出与个体旅程（G-NEXT-2）：契约/评估/停止记录（写入默认预演）")
+    xsub = a.add_subparsers(dest="goal_exit_action", required=True)
+    x = xsub.add_parser("contract", help="登记目标契约：什么算达成、观察窗口（默认只预演）")
+    x.add_argument("--run", required=True, help="run id")
+    x.add_argument("--goal-type", required=True,
+                   choices=["signup", "activation", "paid"])
+    x.add_argument("--target", type=int, default=1, help="目标事件条数（默认 1）")
+    x.add_argument("--metric", default="", help="指标名（默认同事件类型）")
+    x.add_argument("--label", default="", help="人读目标名")
+    x.add_argument("--verify-state", default="",
+                   help="只认该核验状态的事件，如 verified")
+    x.add_argument("--window-start", required=True, help="观察窗口开始日 YYYY-MM-DD")
+    x.add_argument("--window-end", required=True, help="观察窗口结束日 YYYY-MM-DD")
+    x.add_argument("--attr-days", type=int, default=7, help="归因窗口天数（默认 7）")
+    x.add_argument("--exit", action="append", default=[],
+                   help="运行级退出声明 kind=source_ref[::subject_ref]，可重复")
+    x.add_argument("--by", default="", help="登记人署名")
+    x.add_argument("--note", default="")
+    x.add_argument("--apply", action="store_true", help="真写入（默认只预演）")
+    x.add_argument("--json", action="store_true")
+    x = xsub.add_parser("evaluate", help="按契约评估一个对象（默认只算不落盘）")
+    x.add_argument("--contract", required=True, help="契约 id（gec-…）")
+    x.add_argument("--subject", required=True, help="邮箱、平台 ID 或 contact id")
+    x.add_argument("--now", default="", help="按该时间判断（测试/复算）")
+    x.add_argument("--apply", action="store_true",
+                   help="真写入投影与停止记录（默认只预演）")
+    x.add_argument("--json", action="store_true")
+    x = xsub.add_parser("list", help="只读：目标契约清单")
+    x.add_argument("--run", default="")
+    x.add_argument("--json", action="store_true")
+    x = xsub.add_parser("show", help="只读：单个契约与最新对象投影")
+    x.add_argument("--contract", required=True)
+    x.add_argument("--json", action="store_true")
+    x = xsub.add_parser("view", help="只读：一个 run 的旅程视图（详情页同源）")
+    x.add_argument("--run", required=True)
+    x.add_argument("--limit", type=int, default=20)
+    x.add_argument("--json", action="store_true")
+
+    a = gsub.add_parser(
+        "signal",
+        help="信号证据包（G-NEXT-3）：登记/撤销/视图；写入默认预演")
+    ssub = a.add_subparsers(dest="signal_action", required=True)
+    sg = ssub.add_parser(
+        "add", help="登记一条信号：来源、观察时间、原始摘录（默认只预演）")
+    sg.add_argument("--source-family", required=True,
+                   help="来源类别，如 reply / event / form / support")
+    sg.add_argument("--source-ref", required=True, help="来源唯一引用（URL 或 ID）")
+    sg.add_argument("--observed-at", default="",
+                   help="来源观察时间（ISO8601）；缺失记 gap，不猜")
+    sg.add_argument("--subject", default="", help="信号指向的对象（邮箱/账号 ID）")
+    sg.add_argument("--identity-basis", default="",
+                   choices=["", "verified_email", "account_id", "explicit_map"],
+                   help="身份解析依据；不按相似名称或域名合并")
+    sg.add_argument("--use", action="append", default=[],
+                   choices=["personalization", "segmentation", "analysis"],
+                   help="允许用途，可重复；默认仅 analysis")
+    sg.add_argument("--consent", default="", help="同意记录引用（可空，空则记 gap）")
+    sg.add_argument("--raw-file", default="", help="原始文本文件路径")
+    sg.add_argument("--raw-text", default="", help="原始文本（与 --raw-file 二选一）")
+    sg.add_argument("--raw-hash", default="", help="原始内容指纹（可选，自算优先）")
+    sg.add_argument("--claim", action="append", default=[],
+                   help="内容主张引用，可重复")
+    sg.add_argument("--max-age-days", type=int, default=30,
+                   help="信号有效期天数（默认 30）")
+    sg.add_argument("--run", default="", help="关联 run id（可选）")
+    sg.add_argument("--by", default="", help="登记人署名")
+    sg.add_argument("--note", default="")
+    sg.add_argument("--apply", action="store_true", help="真写入（默认只预演）")
+    sg.add_argument("--json", action="store_true")
+    sg = ssub.add_parser("list", help="只读：信号与预演视图（详情页同源）")
+    sg.add_argument("--run", default="")
+    sg.add_argument("--json", action="store_true")
+    sg = ssub.add_parser("show", help="只读：单条信号及其权限")
+    sg.add_argument("--signal", required=True)
+    sg.add_argument("--json", action="store_true")
+    sg = ssub.add_parser("revoke", help="撤销一个来源：此后其信号不可用于个性化")
+    sg.add_argument("--source-family", required=True)
+    sg.add_argument("--source-ref", required=True)
+    sg.add_argument("--by", required=True, help="撤销人署名（必填）")
+    sg.add_argument("--reason", default="", help="撤销原因")
+    sg.add_argument("--apply", action="store_true", help="真写入（默认只预演）")
+    sg.add_argument("--json", action="store_true")
+
+    a = gsub.add_parser(
+        "preview",
+        help="变更预演（G-NEXT-3）：只读快照/stale 检查；不批准不执行")
+    psub = a.add_subparsers(dest="preview_action", required=True)
+    pv = psub.add_parser(
+        "create", help="为一个 plan 生成变更预演快照（默认只预演，不写文件）")
+    pv.add_argument("--plan", required=True, help="plan id")
+    pv.add_argument("--change", action="append", default=[],
+                   help="变更条目 op:kind:ref[:summary]，可重复")
+    pv.add_argument("--permission", action="append", default=[],
+                   help="执行所需权限，可重复（默认 plan.approve + plan.execute）")
+    pv.add_argument("--approval-ref", default="",
+                   help="已存在的审批引用（预演本身不产生审批）")
+    pv.add_argument("--expires-at", default="", help="预演有效期（默认 24 小时）")
+    pv.add_argument("--run", default="")
+    pv.add_argument("--by", default="", help="生成人署名")
+    pv.add_argument("--note", default="")
+    pv.add_argument("--apply", action="store_true", help="真写入（默认只预演）")
+    pv.add_argument("--json", action="store_true")
+    pv = psub.add_parser("show", help="只读：一个预演的内容")
+    pv.add_argument("--preview", required=True)
+    pv.add_argument("--account", default="", help="按该账号检查")
+    pv.add_argument("--workspace", default="", help="按该工作区检查")
+    pv.add_argument("--json", action="store_true")
+    pv = psub.add_parser("check", help="只读：预演是否仍 current/stale/过期")
+    pv.add_argument("--preview", required=True)
+    pv.add_argument("--account", default="")
+    pv.add_argument("--workspace", default="")
+    pv.add_argument("--json", action="store_true")
+    pv = psub.add_parser("list", help="只读：预演清单、删除项与异常")
+    pv.add_argument("--run", default="")
+    pv.add_argument("--json", action="store_true")
+
     a = gsub.add_parser("experiment",
                         help="受控实验（G-04）：设计/批准/启动/观察/分析/清单；写入默认 dry-run")
     esub = a.add_subparsers(dest="experiment_action", required=True)
@@ -5261,6 +6334,51 @@ def build_parser():
     a = gsub.add_parser("install", help="生成定时任务（launchd/cron），让 tick 自动跑")
     a.add_argument("id"); a.add_argument("--interval", type=int, default=30)
     a.add_argument("--load", action="store_true", help="同时装进 launchd（默认只生成文件）")
+
+    a = gsub.add_parser("handoff",
+                        help="Agent 主入口的伴随 GUI：只读风险摘要、handoff 生命周期与回链")
+    hsub = a.add_subparsers(dest="handoff_action", required=True)
+    c = hsub.add_parser("locate", help="只读：风险摘要、下一动作与 GUI 深链建议")
+    c.add_argument("--run", default="", help="只看一个 run")
+    c.add_argument("--limit", type=int, default=10)
+    c.add_argument("--host", default="agent",
+                   help="请求来源（agent/codex/claude-code/claude-desktop/remote）")
+    c.add_argument("--companion-url", default="",
+                   help="伴随 GUI 地址（如 http://127.0.0.1:8765）")
+    c.add_argument("--json", action="store_true")
+    c = hsub.add_parser("create",
+                        help="创建 handoff（Agent 唤起 GUI 的上下文；不授予写权限）")
+    c.add_argument("--object-type", required=True,
+                   choices=["run", "reply_case", "ledger_ref"])
+    c.add_argument("--object-id", required=True)
+    c.add_argument("--entry-route", default="", help="缺省按对象类型生成")
+    c.add_argument("--focus-ref", default="")
+    c.add_argument("--action", dest="requested_action", default="",
+                   choices=["reply.review", "reply.dnc", "run.pause",
+                            "ledger.resolve", "run.resume"])
+    c.add_argument("--allowed-action", action="append", default=[],
+                   help="允许 GUI 执行的动作，可重复；缺省为 requested action")
+    c.add_argument("--ttl", type=int, default=900, help="有效秒数")
+    c.add_argument("--host", default="agent", help="请求来源")
+    c.add_argument("--companion-url", default="")
+    c.add_argument("--by", default="agent")
+    c.add_argument("--json", action="store_true")
+    c = hsub.add_parser("show", help="只读：handoff 状态与回执")
+    c.add_argument("handoff_ref"); c.add_argument("--json", action="store_true")
+    c = hsub.add_parser("list", help="只读：本机 handoff 列表")
+    c.add_argument("--json", action="store_true")
+    c = hsub.add_parser("revoke", help="撤销 handoff（保留历史，不删回执）")
+    c.add_argument("handoff_ref"); c.add_argument("--by", required=True)
+    c.add_argument("--reason", default=""); c.add_argument("--json", action="store_true")
+    c = hsub.add_parser("resolve", help="回链：重新读取对象最新状态与处理回执")
+    c.add_argument("handoff_ref"); c.add_argument("--json", action="store_true")
+
+    a = gsub.add_parser("serve",
+                        help="启动本机伴随 GUI（只读投影＋受控写；Ctrl-C 停止）")
+    a.add_argument("--port", type=int, default=8765)
+    a.add_argument("--dry-run", action="store_true", help="只打印路由清单，不启动")
+    a.add_argument("--json", action="store_true", help="配合 --dry-run 输出路由 JSON")
+    a.add_argument("--no-open", action="store_true", help="不自动打开浏览器")
     sp.set_defaults(fn=cmd_grow)
 
     sp = sub.add_parser("account", help="授权账号资产：登记/养号/健康度/人工接管/审计")

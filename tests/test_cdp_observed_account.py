@@ -1,3 +1,7 @@
+try:  # discover -s tests puts tests/ on sys.path
+    from support_compliance import bypass_x_compliance
+except ImportError:  # python -m unittest tests.<module>
+    from tests.support_compliance import bypass_x_compliance
 #!/usr/bin/env python3
 """CDP-observed account mode: any logged-in browser account is allowed, but
 the observation is mandatory and recorded; no pre-bound identity required."""
@@ -105,6 +109,7 @@ class ObservedAccountVerticalChainTests(unittest.TestCase):
         self.addCleanup(self.tmp.cleanup)
         self.dir = Path(self.tmp.name)
         self.vendor = _install_fake_x_vendor(self.dir)
+        bypass_x_compliance(self)
         authorize(self.dir, by="owner", actions=["x:reply"], days=30,
                   observe_identity=True)
         account_identity.reset_reader()

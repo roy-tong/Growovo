@@ -299,6 +299,7 @@ def _dispatch_action_inner(*, channel, action, data_dir=None, campaign="", go=Fa
         publish_options = {"logical_target": target} if action == "publish" and target else {}
         code = xrun(action, args, go=go, campaign=campaign, ledger=ledger,
                     data_dir=data, log=log, identity=identity_evidence,
+                    execution_mode="autonomous" if routine else "user_visible_cdp",
                     **publish_options)
         fallback = {"channel": "x", "action": action, "campaign": campaign,
                     "target": target or "", "result":

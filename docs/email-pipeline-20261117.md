@@ -8,7 +8,7 @@
 | --- | --- |
 | 本机发 Email 的正解 | **SMTP（smtp.gmail.com:465）经系统代理（SOCKS5 127.0.0.1:7890）**，凭据 GMAIL_APP_PASSWORD（~/.am_env） |
 | Gmail 网页版自动化 | 能填能挂附件但**点发送不可靠**（DOM 多窗漂移），只作只读回读（sent 校验、回复扫描）用 |
-| 事务语义 | SMTP 无异常 = COMMITTED（沿用 newoutreach 口径）；无 INDETERMINATE |
+| 事务语义 | 发送前异常 = FAILED；提交后异常（超时/连接重置/回执丢失）= INDETERMINATE，整批中止、CLI 非零、账本禁自动重试，人工核实后 `mkt ledger resolve` |
 | 本次战绩 | canary 1 + 批量 9 = 10 封，全部 SMTP accepted；纪律：随机间隔 60-90s、连续 2 失败熔断、日志幂等 |
 
 ## 环境事实（这台机器）

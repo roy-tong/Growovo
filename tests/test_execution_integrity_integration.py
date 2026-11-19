@@ -1,3 +1,7 @@
+try:  # discover -s tests puts tests/ on sys.path
+    from support_compliance import bypass_x_compliance
+except ImportError:  # python -m unittest tests.<module>
+    from tests.support_compliance import bypass_x_compliance
 #!/usr/bin/env python3
 """P0 执行完整性集成验收：在同一分支上贯穿 G-1/G-2/G-3/G-4 四项修复。
 
@@ -52,6 +56,7 @@ class ExecutionIntegrityIntegration(unittest.TestCase):
         self.data = self.root / "data"
         (self.data / "plans").mkdir(parents=True)
         self.ledger = Ledger(self.data / "ledger.jsonl")
+        bypass_x_compliance(self)
         _fake_vendor(self.vendor, "follow_x.py")
         _fake_vendor(self.vendor, "reply_x.py")
 
@@ -102,8 +107,11 @@ class ExecutionIntegrityIntegration(unittest.TestCase):
             "from pathlib import Path\n"
             "from unittest.mock import patch\n"
             "from channels.x import adapter\n"
+            "from core import platform_compliance\n"
             "from core.ledger import Ledger\n"
-            "with patch.object(adapter, 'VENDOR', Path(%r)):\n"
+            "with patch.object(adapter, 'VENDOR', Path(%r)), \\\n"
+            "        patch.object(platform_compliance, 'require_autonomous_write',\n"
+            "                     return_value={'approved_by': 'test-fixture'}):\n"
             "    adapter.run('engage', ['follow', '@race'], go=True, adhoc=True,\n"
             "                campaign='integ', ledger=Ledger(Path(%r)),\n"
             "                log=lambda *a: None, data_dir=Path(%r))\n"

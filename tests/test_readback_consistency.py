@@ -1,3 +1,7 @@
+try:  # discover -s tests puts tests/ on sys.path
+    from support_compliance import bypass_x_compliance
+except ImportError:  # python -m unittest tests.<module>
+    from tests.support_compliance import bypass_x_compliance
 #!/usr/bin/env python3
 """回读一致性核验：动作后回读 ID/URL/内容哈希与预期比对（评审 §4.2/§7 P2）。
 
@@ -108,6 +112,7 @@ class AdapterReadbackTests(unittest.TestCase):
         self.data = self.root / "data"
         (self.data / "plans").mkdir(parents=True)
         self.ledger = Ledger(self.data / "ledger.jsonl")
+        bypass_x_compliance(self)
 
     def _run(self, text, readback):
         rec = {"url": "https://x.com/a/status/1", "posted": True,

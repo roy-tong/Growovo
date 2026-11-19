@@ -1,3 +1,48 @@
+# Changelog
+
+## Unreleased — 2026-11-18
+
+G-12 / G-13 / G-14 from the 2026-11-18 review.
+
+### Fixed
+
+- **G-13 SMTP unknown result stops the batch**: `send_queue` halts on the first
+  `indeterminate` (the server may have accepted the message), marks the record
+  `halted`, writes the batch summary with `not_attempted`, and the CLI exits 3
+  for `mkt email` and `mkt queue run`. The target stays on the ledger's
+  no-retry list until `mkt ledger resolve`; the fake-SMTP test injects a
+  post-DATA timeout and asserts one send, zero follow-ups and no auto-retry.
+- **Operations log lives in the unified email core**: `send_queue` records every
+  attempt (queue and direct CLI share one entry), and a failed write leaves
+  `audit-gaps.jsonl` plus `rec["audit_gap"]`, which also exits 3 — a sent action
+  with no operations row is never presented as fully verified.
+- **G-14 X autonomous and user-visible CDP writes are separated**: routine/non-API
+  autonomous writes still call `require_autonomous_write` and fail closed. A
+  non-routine `--go` publish/reply may instead use `user_visible_cdp` only after
+  `cdp_observed` captures the actual browser account and proof ref; existing
+  plan/adhoc approval, pause, DNC, quota, idempotency and receipt gates remain.
+  Message/engage and standing CDP automation are not included. The matrix exposes
+  `policy.autonomous_write=false` plus `policy.user_visible_cdp_write=true`.
+  This is an operator-requested route, not a claim of X approval; no live write
+  was performed by the tests.
+- **G-12 content positioning follows product facts**: the hardcoded
+  “硬件产品经理/电商运营” reader, “硬件主线/视频工具” themes and fixed
+  2026-11-07 start are gone. `mkt content brief/plan --facts` derives reader,
+  themes, metrics and CTA from `product`/`icp`/`value_events`; unknown products
+  get a neutral pool. `mkt content plan` defaults to the local today, and an
+  explicit past `--start` is labelled `replay`.
+
+- **Growovo → Verovo evidence handoff**: `mkt grow handoff-verovo RUN --out
+  NEW_FILE` exports matching operation/account/receipt rows, product events and
+  qualifications, Askovo context snapshots and the outcome projection with a
+  SHA-256 integrity fingerprint. Export executes no external action. The package
+  remains `evidence_only_not_canonical`: it neither accepts supplier delivery nor
+  recognizes revenue or authorizes payment.
+
+Tests: `tests/test_email_indeterminate.py` (9), `tests/test_platform_compliance.py`
+(12), `tests/test_content_positioning.py` (8), and
+`tests/test_verovo_handoff.py`.
+
 ## 0.15.2 — 2026-11-18
 
 Earlier review follow-ups now rebased onto 0.15.1.
@@ -25,7 +70,6 @@ Review follow-up from the 2026-11-17 audit (G-9): the benchmark holdout set
 splits into its own file (`tests/fixtures/github_benchmark/holdout.jsonl`)
 and is invisible to dev iteration, so the benchmark gate measures generalisation,
 not memorisation of the dev split.
-
 
 ## 0.15.0 — 2026-11-18
 
