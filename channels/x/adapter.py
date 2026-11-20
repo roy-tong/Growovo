@@ -273,7 +273,7 @@ def _acquire_claim(data_root, action, campaign, targets, op_ref):
 
 
 def run(action, extra_args, *, go=False, adhoc=False, campaign=None, ledger=None, log=print,
-        data_dir=None, logical_target=None, identity=None):
+        data_dir=None, logical_target=None, identity=None, execution_mode="autonomous"):
     """执行 vendor 脚本并把结果记账。go=False 时写操作自动降级为 dry-run。
 
     go=True 的人审门禁与其他渠道同规：必须绑定已人审 plan（data/plans/），
@@ -307,6 +307,26 @@ def run(action, extra_args, *, go=False, adhoc=False, campaign=None, ledger=None
         from core.safety import pause_file
         if pause_file(data_root).exists():
             raise SystemExit("全局暂停中（mkt pause --off 恢复）——X 写操作拒跑")
+        if go:
+            # 自主写与当次用户确认的浏览器写是两条不同授权路线；后者不是
+            # routine 白名单，也必须在触碰 vendor 前拿到真实账号观测。
+            from core.platform_compliance import (
+                ComplianceError, require_autonomous_write, require_user_visible_cdp,
+            )
+            try:
+                if execution_mode == "user_visible_cdp":
+                    require_user_visible_cdp(
+                        "x", action, data_root, go=go, actual_transport="cdp",
+                        identity=identity)
+                elif execution_mode == "autonomous":
+                    require_autonomous_write("x", action, data_root, go=go,
+                                             actual_transport="cdp")
+                else:
+                    raise ComplianceError(
+                        "execution_mode_invalid",
+                        "未知执行模式 %r；拒绝执行。" % execution_mode)
+            except ComplianceError as exc:
+                raise SystemExit(f"平台许可拒绝（{exc.code}）：{exc}")
         from core.gates import load_suppressions
         suppressed = load_suppressions(data_root)
         for raw in extra_args:

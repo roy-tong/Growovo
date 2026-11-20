@@ -45,6 +45,10 @@ import mkt  # noqa: E402
 import mcp_server  # noqa: E402
 from channels.x import adapter  # noqa: E402
 from core import account_identity, cdp_identity  # noqa: E402
+try:  # discover -s tests puts tests/ on sys.path
+    from support_compliance import bypass_x_compliance
+except ImportError:  # python -m unittest tests.<module>
+    from tests.support_compliance import bypass_x_compliance
 from core.account_identity import AccountIdentityProof  # noqa: E402
 from core.execution_policy import authorize, get_policy  # noqa: E402
 from core.queue_runner import QueueRunError, run_queue  # noqa: E402
@@ -244,6 +248,7 @@ class CdpIdentityReaderTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
+        bypass_x_compliance(self)
         self.dir = Path(self.tmp.name)
         account_identity.reset_reader()
         self.addCleanup(account_identity.reset_reader)
@@ -483,6 +488,7 @@ class _SendCase(unittest.TestCase):
         self.dir = Path(self.tmp.name) / "data"
         self.dir.mkdir()
         self.vendor = install_fake_vendor(Path(self.tmp.name))
+        bypass_x_compliance(self)
         account_identity.reset_reader()
         self.addCleanup(account_identity.reset_reader)
         login = mock.patch("core.session_gate.check_login",

@@ -25,9 +25,10 @@ from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 SCHEMA_VERSION = "1.0"
 
+#: 无产品事实时的中性定位：不绑定任何行业、读者或产品类型。
 POSITIONING: Dict[str, Any] = {
-    "reader": "硬件产品经理、电商运营、产品/内容从业者；不要求会写代码",
-    "statement": "AI 工具使用说明，不是 AI 新闻，也不是产品广告",
+    "reader": "正在解决这个问题的人（由产品事实决定，不预设行业）",
+    "statement": "真实使用说明：一个具体任务怎么开始、做到哪一步、哪里做不到",
     "questions": [
         "它替你做的是哪一步工作",
         "放进真实任务，怎样开始验证；首次自测安排不等于完成时长承诺",
@@ -39,11 +40,110 @@ POSITIONING: Dict[str, Any] = {
         "它改哪一步（专业词括号解释）",
         "按实际任务安排验证动作，不强凑三步",
         "边界",
-        "今天能做的一步",
+        "你今天就能做的一步",
         "关注/评论等渠道动作",
     ],
     "language": "能用大白话就不用术语；第一次出现的术语括号解释；不生造比喻词",
+    "themes": ["具体场景", "做法对比", "真实使用", "边界与反例"],
+    "metrics": [],
+    "call_to_action": "",
 }
+
+#: 产品类型 -> 内容主题/指标/CTA。只从产品事实上取键；缺省走中性池。
+TYPE_CONTENT = {
+    "devtool": {
+        "themes": ["第一次上手", "和现有工具对比", "接入与自动化", "踩坑与边界"],
+        "metrics": ["首个成功任务", "重复使用", "接入项目数"],
+        "call_to_action": "拿一个最小可复现任务跑一遍",
+    },
+    "open_source": {
+        "themes": ["第一次上手", "和现有工具对比", "接入与自动化", "踩坑与边界"],
+        "metrics": ["首个成功任务", "重复使用", "外部贡献/复用"],
+        "call_to_action": "用公开安装入口跑一个自己的任务",
+    },
+    "hardware": {
+        "themes": ["真实使用场景", "前后对比", "长期使用", "购买与售后"],
+        "metrics": ["真实下单", "到货后持续使用", "复购/推荐"],
+        "call_to_action": "先在真实场景用一次，再决定要不要留下",
+    },
+    "saas": {
+        "themes": ["团队流程改造", "成本与合规", "迁移与集成", "ROI 复盘"],
+        "metrics": ["团队激活", "周活跃席位", "续费/扩席"],
+        "call_to_action": "拿一个团队流程试跑一周",
+    },
+}
+
+_TYPE_ALIASES = {
+    "developer_tool": "devtool", "dev_tool": "devtool", "oss": "open_source",
+    "consumer_hardware": "hardware", "device": "hardware", "physical": "hardware",
+    "b2b_saas": "saas", "b2b": "saas", "enterprise": "saas",
+}
+
+
+def _fact_text(value: Any) -> str:
+    return str(value or "").strip()
+
+
+def positioning_for(*, audience: str = "", product: str = "",
+                    facts: Dict[str, Any] = None) -> Dict[str, Any]:
+    """Derive content positioning from product facts; never borrow another product's.
+
+    ``facts`` is the same shape as ``data/facts.json`` (product / icp /
+    value_events). Unknown products get the neutral pool rather than the
+    hardware/operating background this module used to hardcode.
+    """
+    facts = facts if isinstance(facts, dict) else {}
+    product_facts = facts.get("product") if isinstance(facts.get("product"), dict) else {}
+    content = facts.get("content") if isinstance(facts.get("content"), dict) else {}
+
+    name = _fact_text(content.get("product") or product_facts.get("name") or product)
+    what = _fact_text(product_facts.get("what"))
+    kind = _fact_text(product_facts.get("product_type")).lower()
+    kind = _TYPE_ALIASES.get(kind, kind)
+    profile = TYPE_CONTENT.get(kind) or {}
+
+    readers = []
+    icp = facts.get("icp") if isinstance(facts.get("icp"), list) else []
+    for item in icp:
+        if isinstance(item, dict):
+            readers.append(_fact_text(item.get("hypothesis") or item.get("who")))
+    reader = _fact_text(content.get("audience") or audience) \
+        or "；".join([item for item in readers if item][:2]) \
+        or POSITIONING["reader"]
+
+    statement = _fact_text(content.get("statement"))
+    if not statement:
+        if name and what:
+            statement = "%s 的真实使用说明：%s；不是新闻，也不是广告" % (name, what)
+        elif name:
+            statement = "%s 的真实使用说明；不是新闻，也不是广告" % name
+        else:
+            statement = POSITIONING["statement"]
+
+    value_events = facts.get("value_events") if isinstance(facts.get("value_events"), list) else []
+    event_metrics = [_fact_text(item.get("name")) for item in value_events
+                     if isinstance(item, dict) and _fact_text(item.get("name"))]
+    metrics = content.get("metrics") if isinstance(content.get("metrics"), list) else None
+    metrics = [str(item) for item in (metrics or []) if str(item).strip()] \
+        or event_metrics or list(profile.get("metrics") or [])
+
+    themes = content.get("themes") if isinstance(content.get("themes"), list) else None
+    themes = [str(item) for item in (themes or []) if str(item).strip()] \
+        or list(profile.get("themes") or POSITIONING["themes"])
+
+    return {
+        "reader": reader,
+        "statement": statement,
+        "questions": list(POSITIONING["questions"]),
+        "structure": list(POSITIONING["structure"]),
+        "language": POSITIONING["language"],
+        "themes": themes,
+        "metrics": metrics,
+        "call_to_action": _fact_text(content.get("call_to_action"))
+        or str(profile.get("call_to_action") or ""),
+        "product": name,
+        "product_type": kind,
+    }
 
 CHANNELS: Dict[str, Dict[str, Any]] = {
     "xiaohongshu": {
@@ -635,21 +735,27 @@ def audit_file(channel: str, text: str, *, strict: bool = False,
 
 
 def brief(channel: str, topic: str, *, audience: str = "", product: str = "",
-          evidence: str = "", cta: str = "B", title: str = "") -> Dict[str, Any]:
-    """Return a channel-specific content brief, not a generated article."""
+          evidence: str = "", cta: str = "B", title: str = "",
+          facts: Dict[str, Any] = None) -> Dict[str, Any]:
+    """Return a channel-specific content brief, not a generated article.
+
+    ``facts`` (product/icp/value_events) drives the reader, themes, metrics and
+    call to action; the brief never borrows another product's positioning.
+    """
     channel = (channel or "").strip().lower()
     if channel not in CHANNELS:
         raise ValueError(f"未知渠道：{channel}；可选 {', '.join(CHANNELS)}")
     rules = CHANNELS[channel]
     if cta not in rules["cta"]:
         raise ValueError(f"{channel} 不支持 CTA {cta}；可选 {', '.join(rules['cta'])}")
+    positioning = positioning_for(audience=audience, product=product, facts=facts)
     return {
         "schema_version": SCHEMA_VERSION,
         "channel": channel,
         "label": rules["label"],
         "topic": topic,
-        "audience": audience,
-        "product": product,
+        "audience": audience or positioning["reader"],
+        "product": product or positioning["product"],
         "evidence": evidence,
         "title": {"draft": title, "max": rules["title_max"], "note": rules["title_note"]},
         "length": rules["length"],
@@ -659,7 +765,7 @@ def brief(channel: str, topic: str, *, audience: str = "", product: str = "",
         "metrics": rules["metrics"],
         "images": rules["images"],
         "reuse": rules["reuse"],
-        "positioning": POSITIONING,
+        "positioning": positioning,
         "editorial_review": {"required": True, "command": "mkt content review", "criteria": CRITERIA},
         "checklist": [
             "开头点名读者的具体行为或场景，不先讲道理",
@@ -674,9 +780,10 @@ def brief(channel: str, topic: str, *, audience: str = "", product: str = "",
     }
 
 
-def plan(*, start: str = "2026-11-07", days: int = 14,
+def plan(*, start: str = None, days: int = 14,
          channels: Sequence[str] = ("xiaohongshu", "wechat", "blog"),
-         cadence: str = "evidence") -> Dict[str, Any]:
+         cadence: str = "evidence",
+         facts: Dict[str, Any] = None) -> Dict[str, Any]:
     """Build a multi-channel schedule skeleton from the platform strategy layer.
 
     ``cadence='evidence'`` 用平台策略层的证据档周节奏：小红书 3 篇/周、
@@ -697,12 +804,12 @@ def plan(*, start: str = "2026-11-07", days: int = 14,
         raise ValueError("至少选择一个渠道：" + "/".join(CHANNELS))
     if mode == "daily-two" and "xiaohongshu" not in picked:
         mode = "evidence"
-    start_date = date.fromisoformat(start)
-    xhs_themes = ["跨圈层项目", "自有研究", "产品场景", "比较/答疑"]
-    wechat_themes = ["硬件主线", "视频工具", "交付验收", "复盘"]
-    zhihu_themes = ["关键词选题", "实测复盘"]
-    douyin_themes = ["15 秒演示", "对比实验", "失败复盘"]
-    blog_themes = ["方法/复现", "流程"]
+    today = date.today()
+    explicit_start = bool(str(start or "").strip())
+    start_date = date.fromisoformat(str(start)) if explicit_start else today
+    positioning = positioning_for(facts=facts)
+    themes = list(positioning["themes"]) or list(POSITIONING["themes"])
+    xhs_themes = wechat_themes = zhihu_themes = douyin_themes = blog_themes = themes
     rows = []
 
     def _slot(channel: str, prefix: str) -> str:
@@ -718,7 +825,7 @@ def plan(*, start: str = "2026-11-07", days: int = 14,
                     rows.append({
                         "date": d.isoformat(), "time": hhmm, "channel": "xiaohongshu",
                         "slot": _slot("xiaohongshu", "XHS"),
-                        "theme": xhs_themes[k % 4],
+                        "theme": xhs_themes[k % len(xhs_themes)],
                         "length": f"{CHANNELS['xiaohongshu']['length']['min']}—"
                                   f"{CHANNELS['xiaohongshu']['length']['max']} 字",
                         "cta": ("B", "A", "B", "C", "B", "A", "B", "C",
@@ -728,7 +835,9 @@ def plan(*, start: str = "2026-11-07", days: int = 14,
             rows.append({
                 "date": d.isoformat(), "time": "20:00", "channel": "wechat",
                 "slot": _slot("wechat", "GZH"),
-                "theme": wechat_themes[(offset // 7 * 2 + (0 if offset % 7 == 1 else 1)) % 4],
+                "theme": wechat_themes[(offset // 7 * 2
+                                         + (0 if offset % 7 == 1 else 1))
+                                        % len(wechat_themes)],
                 "length": f"{CHANNELS['wechat']['length']['min']}—{CHANNELS['wechat']['length']['max']} 字",
                 "cta": "B", "status": "planned",
             })
@@ -736,7 +845,9 @@ def plan(*, start: str = "2026-11-07", days: int = 14,
             rows.append({
                 "date": d.isoformat(), "time": "21:00", "channel": "zhihu",
                 "slot": _slot("zhihu", "ZH"),
-                "theme": zhihu_themes[(offset // 7 * 2 + (0 if offset % 7 == 0 else 1)) % 2],
+                "theme": zhihu_themes[(offset // 7 * 2
+                                         + (0 if offset % 7 == 0 else 1))
+                                        % len(zhihu_themes)],
                 "length": f"{CHANNELS['zhihu']['length']['min']}—{CHANNELS['zhihu']['length']['max']} 字",
                 "cta": "B", "status": "planned",
             })
@@ -744,14 +855,16 @@ def plan(*, start: str = "2026-11-07", days: int = 14,
             rows.append({
                 "date": d.isoformat(), "time": "19:00", "channel": "douyin",
                 "slot": _slot("douyin", "DY"),
-                "theme": douyin_themes[len([r for r in rows if r['channel'] == 'douyin']) % 3],
+                "theme": douyin_themes[
+                    len([r for r in rows if r['channel'] == 'douyin'])
+                    % len(douyin_themes)],
                 "length": "15—30 秒", "cta": "A", "status": "planned",
             })
         if "blog" in picked and offset % 7 == 3:
             rows.append({
                 "date": d.isoformat(), "time": "09:00", "channel": "blog",
                 "slot": _slot("blog", "BLOG"),
-                "theme": blog_themes[(offset // 7) % 2],
+                "theme": blog_themes[(offset // 7) % len(blog_themes)],
                 "length": f"{CHANNELS['blog']['length']['min']}—{CHANNELS['blog']['length']['max']} 字",
                 "cta": "B", "status": "planned",
             })
@@ -762,6 +875,9 @@ def plan(*, start: str = "2026-11-07", days: int = 14,
             if mode == "evidence" else
             "编辑建议，小红书按「每天两篇」战术档排班（用户指定，非平台默认，效果未验证）；"
             "不是平台定时，未发布、未回执。")
+    replay = bool(explicit_start and start_date < today)
+    if replay:
+        note = "历史回放：" + note
     return {
         "schema_version": SCHEMA_VERSION,
         "start": start_date.isoformat(),
@@ -770,6 +886,15 @@ def plan(*, start: str = "2026-11-07", days: int = 14,
         "channels": picked,
         "counts": counts,
         "rows": rows,
+        "replay": replay,
+        "positioning": {
+            "reader": positioning["reader"],
+            "statement": positioning["statement"],
+            "themes": themes,
+            "metrics": positioning["metrics"],
+            "call_to_action": positioning["call_to_action"],
+            "product_type": positioning["product_type"],
+        },
         "note": note,
     }
 
@@ -883,6 +1008,11 @@ def render_plan(p: Dict[str, Any]) -> str:
     lines = [f"# {p['days']} 天多渠道排期", ""]
     lines.append(f"开始：{p['start']}；渠道：{', '.join(p['channels'])}")
     lines.append(f"数量：{p['counts']}")
+    positioning = p.get("positioning") or {}
+    if positioning.get("reader"):
+        lines.append(f"读者：{positioning['reader']}")
+    if positioning.get("call_to_action"):
+        lines.append(f"行动：{positioning['call_to_action']}")
     lines.append("")
     lines.append("| 日期 | 时间 | 渠道 | 槽位 | 主题 | 长度 | CTA |")
     lines.append("|---|---|---|---|---|---|---|")

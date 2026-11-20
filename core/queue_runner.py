@@ -94,32 +94,13 @@ def run_queue(queue_path, *, data_dir=None, go=False, allow_unverified=False,
     if channel == "email":
         from channels.email_smtp import send_queue
         kwargs = {"go": go, "only": only, "only_ids": only_ids,
-                  "campaign": campaign, "data_dir": data, "log": log}
+                  "campaign": campaign, "data_dir": data, "log": log,
+                  "operator": operator, "run_id": run_id}
         if routine is True:
             kwargs.update(routine=True, account=account)
-        records = send_queue(queue_path, **kwargs)
-        # email 整队执行不走逐条 run_action，这里补统一操作日志（§4.2）。
-        try:
-            from . import operations_log
-            for rec in (records or []):
-                if not isinstance(rec, dict):
-                    continue
-                item = next((i for i in items
-                             if str(i.get("target") or i.get("to") or "")
-                             == str(rec.get("target") or "")
-                             or str(i.get("id") or "") == str(rec.get("ref") or "")),
-                            {})
-                operations_log.record_action(
-                    data, rec, channel="email", action=action,
-                    target=rec.get("target") or item.get("target"),
-                    text=item.get("_body") or item.get("body") or item.get("text"),
-                    campaign=campaign, go=go, routine=(routine is True),
-                    operator=operator,
-                    queue_item_id=str(item.get("id") or rec.get("ref") or ""),
-                    run_id=run_id)
-        except Exception as exc:  # noqa: BLE001 日志失败不掩盖发送结果
-            log(f"[opslog] 操作日志写入失败：{exc}")
-        return records
+        # send_queue 自己写统一操作日志：同一次发送只有一个凭证入口，
+        # 这里不再补录（重复记录会让一次动作看起来像两次）。
+        return send_queue(queue_path, **kwargs)
 
     if channel == "x" and action not in ("reply", "publish"):
         raise QueueRunError("x 队列支持 reply / 单条 publish；"

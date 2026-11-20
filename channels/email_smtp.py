@@ -7,10 +7,12 @@
 据此补齐：MKT_EMAIL_SOCKS 代理、MKT_EMAIL_TIMEOUT、attachments 附件支持——见 docs/email-pipeline-20261117.md。
 
 凭据只走环境变量：MKT_EMAIL_USER / MKT_EMAIL_APP_PASSWORD（App Password）。
-事务语义（G-5 修正，review 2026-11-09）：
+事务语义：发送**开始前**异常 = FAILED；send_message/sendmail 提交后异常（超时、连接
+被 reset、回执丢失）= INDETERMINATE——服务端可能已收下这封邮件，重发就会重复。
+因此一条 INDETERMINATE 必须中止整批、CLI 非零退出、账本禁止自动重试，人工核实
+（mkt ledger resolve）后才允许继续。
   send 无异常 = SMTP 服务器已受理（DATA 后收到 2xx）→ COMMITTED，
   并落回执工件（message_id + accepted_at；投递不可回读验证，回执里明说）；
-  send 抛异常（含服务器已受理但连接在应答前中断）= INDETERMINATE，交人工裁决。
   回读为同构构造文本：VERIFIED 关只校验队列解析一致性，不校验协议层内容。
 """
 import json
@@ -163,11 +165,20 @@ class SMTPChannel:
 
 def send_queue(queue_file, *, go=False, only=None, only_ids=None, campaign=None, ledger=None,
                throttle=None, data_dir=None, adhoc=False, routine=False,
-               account="", log=log):
+               account="", log=log, operator="growovo:email_smtp", run_id=""):
     """跑一个邮件队列。go=False 全程 dry-run（不建 SMTP 连接、不碰网络）。
     campaign 缺省取队列文件的 campaign 字段（其次文件名）。
     go=True 必须绑定已人审 plan；无 plan 管辖需 adhoc=True（CLI --adhoc，账本记 adhoc=true）。
-    显式 routine=True 可改用命中 channel/action/account 的有效 routine-policy。"""
+    显式 routine=True 可改用命中 channel/action/account 的有效 routine-policy。
+
+    未知回执（INDETERMINATE）是整批的停机条件：服务端可能已经收下这封邮件，
+    继续发后面的队列项只会扩大不可撤回的未知面。此时本函数返回已尝试的记录，
+    由调用方按非零状态结束；该目标已被账本的不重试名单锁住，人工裁决后才恢复。
+
+    操作日志在本函数内统一落（queue / 直通 CLI 共用同一入口），不再由上层补录：
+    同一类邮件任务不因入口不同而得到不同层级的凭证。写入失败时落一条
+    audit-gaps.jsonl 缺口记录并标 rec["audit_gap"]，调用方不得把它当完整核验通过。
+    """
     data_dir = Path(data_dir or DATA)
     ledger = ledger or Ledger(data_dir / "ledger.jsonl")
     throttle = throttle or Throttle(data_dir / "state")
@@ -212,7 +223,42 @@ def send_queue(queue_file, *, go=False, only=None, only_ids=None, campaign=None,
     ev = Evidence(data_dir / "shots" / campaign)
 
     log(f"email 队列 {campaign}: {len(items)} 条（{'实跑' if go else 'dry-run'}）")
+
+    # Set only after _client() returns successfully (which includes SMTP login).
+    # This records the account that actually submitted each message without
+    # persisting the password or treating a configured env var as proof.
+    observed_account = {}
+
+    def _log_operation(rec, item):
+        """把本条回执写进统一操作日志；写不进就留一条明确的审计缺口。"""
+        from core import operations_log
+        operation_record = dict(rec)
+        if observed_account:
+            operation_record["identity"] = dict(observed_account)
+        try:
+            operations_log.record_action(
+                data_dir, operation_record, channel="email", action="message",
+                target=rec.get("target") or item.get("target"),
+                text=item.get("_body", ""), campaign=campaign, go=go,
+                routine=(routine is True), operator=operator,
+                queue_item_id=str(item.get("id") or ""), run_id=run_id)
+            return True
+        except Exception as exc:  # noqa: BLE001 发送已发生，缺口必须单独留痕
+            try:
+                gap = operations_log.record_audit_gap(
+                    data_dir, rec, error=exc, channel="email", action="message",
+                    target=rec.get("target") or item.get("target"),
+                    campaign=campaign, operator=operator,
+                    queue_item_id=str(item.get("id") or ""), run_id=run_id)
+                rec["audit_gap"] = str(gap.get("path") or "")
+            except Exception as gap_exc:  # noqa: BLE001 缺口也写不进时只留告警
+                rec["audit_gap"] = "unrecorded: %s" % gap_exc
+            rec["audit_gap_reason"] = "%s: %s" % (type(exc).__name__, exc)
+            log("[opslog] 操作日志写入失败（审计缺口，不得视为完整核验）：%s" % exc)
+            return False
+
     results = []
+    halted = None
     try:
         for idx, it in enumerate(items):
             target = it.get("target") or it.get("to", "")
@@ -223,6 +269,15 @@ def send_queue(queue_file, *, go=False, only=None, only_ids=None, campaign=None,
             def _fill(item, _ch=ch, _go=go):
                 if _go:
                     _ch._client()  # 惰性建连：首条时登录一次
+                    from datetime import datetime, timezone
+                    observed_account.update({
+                        "observed_platform_identity": _ch.user,
+                        "authorized_account": account,
+                        "handle": _ch.user,
+                        "observed_at": datetime.now(timezone.utc).isoformat(
+                            timespec="seconds"),
+                        "identity_proof_ref": "smtp:authenticated-login",
+                    })
 
             def _readback(item, _e=expect):
                 return _e  # 协议通道：读回=构造的全文本身
@@ -273,15 +328,32 @@ def send_queue(queue_file, *, go=False, only=None, only_ids=None, campaign=None,
             if receipt_path is not None:
                 rec["receipt"] = str(receipt_path)  # 结果工件携带回执位置；账本行不含（后续经管道 API 扩展）
             results.append(rec)
+            if rec.get("result") == "indeterminate":
+                # 服务端可能已经收下这封邮件：后面的条目一律不发。
+                rec["halted"] = True
+                halted = idx
+            _log_operation(rec, it)
             log(f"[{idx + 1}/{len(items)}] {target}: {rec['result']}"
                 + (f" ({rec.get('detail', '')})" if rec.get("detail") else ""))
-            if go and idx < len(items) - 1:  # 人类节奏只约束真实发送；干跑要快
+            if halted is not None:
+                log("批次中止：%s 的发送结果未知（INDETERMINATE）。服务端可能已收下；"
+                    "不要重发，先人工核实，再 mkt ledger resolve。"
+                    % (target or it.get("id") or "?"))
+                break
+            if go and rec.get("result") == "committed" and idx < len(items) - 1:
+                # 人类节奏只约束真实发送；被拒/失败没有占用平台，不需要等。
                 wait = throttle.interval("email", "message")
                 log(f"等待 {wait}s…")
                 time.sleep(wait)
     finally:
         if ch:
             ch.close()
-    out = ev.write_json("email-result", {"campaign": campaign, "records": results})
+    out = ev.write_json("email-result", {
+        "campaign": campaign,
+        "records": results,
+        "halted": halted is not None,
+        "halted_at": (results[halted].get("id") if halted is not None else None),
+        "not_attempted": (len(items) - halted - 1) if halted is not None else 0,
+    })
     log(f"结果已写入 {out}")
     return results

@@ -38,6 +38,7 @@ from .ledger import _append_line, _read_jsonl_fail_loud
 
 SCHEMA = "growovo.operations/2"
 OPERATIONS_LOG_NAME = "operations.jsonl"
+AUDIT_GAP_NAME = "audit-gaps.jsonl"
 
 #: §4.2 最低字段清单（docs/delivery-contract.json 的 operations_log_minimum_fields
 #: 必须与这份完全一致——合同与代码不允许各说各话）。
@@ -429,6 +430,43 @@ def record_action(data_dir, record: Dict[str, Any], *, channel=None, action=None
         "error": error,
     }
     return OperationsLog(data_dir).append(entry)
+
+
+def record_audit_gap(data_dir, record, *, error, channel=None, action=None,
+                     target=None, campaign=None, operator="",
+                     queue_item_id=None, run_id=None, reason="") -> Dict[str, Any]:
+    """Record that an external action happened but its audit row is missing.
+
+    A gap is not a retry instruction and not a pass: it is append-only evidence
+    that this action has no complete operations record, so no surface may show
+    it as fully verified. The caller keeps the action receipt; this file keeps
+    the hole.
+    """
+    data_dir = Path(data_dir)
+    record = record if isinstance(record, dict) else {}
+    entry = {
+        "schema": "growovo.audit-gap/1",
+        "kind": "audit_gap",
+        "recorded_at": _now_iso(),
+        "operation_id": (_optional_text(record.get("ref"))
+                         or _optional_text(record.get("id"))),
+        "run_id": _optional_text(run_id),
+        "campaign": _optional_text(
+            campaign if campaign is not None else record.get("campaign")),
+        "queue_item_id": _optional_text(queue_item_id),
+        "channel": str(channel or record.get("channel") or ""),
+        "action": str(action or record.get("action") or ""),
+        "target": _optional_text(target if target is not None else record.get("target")),
+        "result": str(record.get("result") or "unknown"),
+        "operator": str(operator or "growovo:unknown"),
+        "reason": (str(reason) or "%s: %s" % (type(error).__name__, error))[:500],
+        "retryable": False,
+        "complete_verification": False,
+    }
+    path = data_dir / AUDIT_GAP_NAME
+    data_dir.mkdir(parents=True, exist_ok=True)
+    _append_line(path, json.dumps(entry, ensure_ascii=False) + "\n")
+    return {"path": str(path), "entry": entry, "complete_verification": False}
 
 
 class LedgerRecorder:  # 兼容 Ledger 接口的记账+捕获包装（mkt x 直通用）

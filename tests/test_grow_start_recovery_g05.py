@@ -1,3 +1,7 @@
+try:  # discover -s tests puts tests/ on sys.path
+    from support_compliance import bypass_x_compliance
+except ImportError:  # python -m unittest tests.<module>
+    from tests.support_compliance import bypass_x_compliance
 """G-05 验收冻结：统一启动、监控与安全恢复（P1，新手第一次跑）。
 
 先于实现编写。冻结四组语义：
@@ -427,6 +431,10 @@ class IncidentTests(Workspace):
         self.assertIn("pause", incident["next_command"])
 
 class ReconciliationTests(Workspace):
+    def setUp(self):
+        super().setUp()
+        bypass_x_compliance(self)
+
     def _needs_attention(self):
         run, path = self.launched()
         self.seed(result="indeterminate", ref="ref-ind",

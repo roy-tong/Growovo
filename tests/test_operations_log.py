@@ -221,7 +221,8 @@ class RunActionIntegrationTests(unittest.TestCase):
         self.assertEqual(operations_log.content_sha256("队列验收内容"),
                          ops_rows[0]["content_sha256"])
 
-    def test_email_queue_records_captured_results(self):
+    def test_email_queue_delegates_operations_log_to_send_queue(self):
+        """email 的操作日志由 send_queue 统一写，队列入口不得再补一条。"""
         qdir = self.dir / "queues"
         qdir.mkdir(parents=True)
         (qdir / "acce.json").write_text(json.dumps({
@@ -231,13 +232,14 @@ class RunActionIntegrationTests(unittest.TestCase):
         }, ensure_ascii=False), encoding="utf-8")
         fake = [{"channel": "email", "action": "message", "result": "dry-run",
                  "target": "a@example.com", "ref": "e1", "detail": ""}]
-        with patch("channels.email_smtp.send_queue", return_value=fake):
+        with patch("channels.email_smtp.send_queue", return_value=fake) as sender:
             run_queue(qdir / "acce.json", data_dir=self.dir, go=False,
-                      log=lambda *_: None)
-        ops_rows = operations_log.OperationsLog(self.dir).all()
-        self.assertEqual(1, len(ops_rows), "email 队列也要落操作日志")
-        self.assertEqual("e1", ops_rows[0]["queue_item_id"])
-        self.assertEqual("email", ops_rows[0]["channel"])
+                      log=lambda *_: None, operator="queue:acce", run_id="run-e")
+        kwargs = sender.call_args.kwargs
+        self.assertEqual("queue:acce", kwargs["operator"])
+        self.assertEqual("run-e", kwargs["run_id"])
+        self.assertEqual([], operations_log.OperationsLog(self.dir).all(),
+                         "send_queue 已负责落日志；队列入口重复写会让一次动作像两次")
 
     def test_cli_x_adhoc_path_records_operations(self):
         """mkt x 直通路径（不经过 run_action 的队列形态）同样落操作日志。"""

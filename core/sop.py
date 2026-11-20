@@ -75,6 +75,24 @@ class SOPRegistry:
             raise SOPError(f"找不到 SOP: {sop_id}@{version or 'latest'}")
         return rows[-1]
 
+    def coverage(self) -> Dict[str, Any]:
+        """18 个能力域各自的 SOP 覆盖。模板存在不等于有可执行链。"""
+        from .capabilities import list_capabilities
+        by_cap: Dict[str, List[str]] = {}
+        for row in self.list():
+            by_cap.setdefault(str(row.get("capability_id") or ""), []).append(row["sop_id"])
+        rows: List[Dict[str, Any]] = []
+        for capability in list_capabilities():
+            cid = capability["capability_id"]
+            sops = sorted(by_cap.get(cid, []))
+            rows.append({"capability_id": cid, "name": capability["name"],
+                         "sops": sops, "executable": bool(sops)})
+        uncovered = [row["capability_id"] for row in rows if not row["executable"]]
+        return {"total_capabilities": len(rows),
+                "covered": len(rows) - len(uncovered),
+                "uncovered": uncovered,
+                "capabilities": rows}
+
     def register(self, sop: Dict[str, Any], *, by: str) -> Dict[str, Any]:
         errors = lint_sop(sop)
         if errors:

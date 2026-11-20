@@ -41,7 +41,7 @@
 
 ## 四、对 Growovo 产品路线的直接推论
 
-1. **X 渠道战略修正项（重要）**：现 vendor（CDP 方案）按 X 官方口径属违禁类。**建议：X 写路径迁移到官方 API（付费档）**，CDP 保留只读（搜索/收件箱监听）过渡。此项须 Roy 决策（涉及付费与 vendor 处置）。
+1. **X 渠道执行路线分层**：无人值守的非 API 写仍由 `core/platform_compliance.require_autonomous_write` 拒绝；这不等于官方许可了 CDP。针对操作者当次明确要求的低频 publish/reply，非 routine `--go` 可走 `user_visible_cdp`，但必须先通过 `cdp_observed` 读取并记录当前实际账号，再依次经过既有人审／adhoc 留痕、暂停、DNC、日预算、幂等、防重发、回读和未知结果门禁。该路线不继承为常驻权限，也不覆盖 message/engage；平台条款风险必须由操作者确认，产品不得把它宣传为 X 官方认可或零封号风险。
 2. **自动化优先级**：新渠道接入一律 T1 优先（Reddit API、YouTube Data API、Graph API）；T3 只在"无 API 且低频自有操作"时用；T4 永久不做。
 3. **给用户的产品形态**：Growovo 卖的不是"自动发帖机器人"，是**"授权边界内的执行纪律"**——审批/预算/回读/账本这套 T3 风控包本身就是产品差异化（详见 README 合规节）。
 4. **工具侧补充**：排期/发布类需求推荐用户接 T2 官方合作工具（如开源的 Postiz 走各平台官方 API [**未核其认证状态**]），Growovo 做上层的 plan/账本/复盘。
