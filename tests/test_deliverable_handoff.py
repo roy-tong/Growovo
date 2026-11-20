@@ -19,12 +19,17 @@ from core.work_actions import WorkActionError, materialize
 ROOT = Path(__file__).resolve().parents[1]
 
 
+SLOT_TEXT = "{slot}：fixture 写入可核对的业务内容，覆盖对象、动作与验收方式"
+
+
 def fields_for(template_id, deliverable_id="del-1", work_order_id="wo-devrel-tutorial-001"):
     template = get_template(template_id)
-    fields = {slot: f"fixture:{slot}" for slot in template["required_slots"]}
+    fields = {slot: SLOT_TEXT.format(slot=slot) for slot in template["required_slots"]}
     fields["deliverable_id"] = deliverable_id
     fields["work_order_id"] = work_order_id
     fields["objective_id"] = "obj-first-success-001"
+    fields["business_context_ref"] = "ctx-example-product v2026-11-04.1（fixture 产品事实包）"
+    fields["receiver"] = "person-product-growth-owner（24，fixture 接收人）"
     fields["evidence_refs"] = [{"source_id": "fixture-source", "locator": "fixture://evidence/1"}]
     return fields
 

@@ -187,6 +187,9 @@ def cmd_contacts(args):
             rec = c.add(**json.loads(args.json))
         except (TypeError, ValueError, json.JSONDecodeError) as exc:
             print(f"不能加入线索库：{exc}")
+            if "unexpected keyword" in str(exc):
+                print("platform 不是顶层字段：平台账号要放进 platforms 映射，"
+                      "例如 {\"platforms\":{\"x\":\"alice\",\"email\":\"alice@example.com\"}}")
             print("字段示例：--json '{\"name\":\"Alice\",\"platforms\":{\"x\":\"alice\"}}'")
             return 2
         print(json.dumps(rec, ensure_ascii=False, indent=1))
@@ -3280,7 +3283,11 @@ def _business_command(fn):
         try:
             return fn(args) or 0
         except (ValueError, KeyError, OSError, json.JSONDecodeError) as exc:
-            print(f"业务操作被拒绝：{exc}", file=sys.stderr)
+            payload = getattr(exc, "payload", None)
+            if isinstance(payload, dict):
+                print(json.dumps(payload, ensure_ascii=False, indent=1))
+            else:
+                print(f"业务操作被拒绝：{exc}", file=sys.stderr)
             return 2
     return wrapped
 
@@ -3470,7 +3477,7 @@ def cmd_sop(args):
     registry = sop.SOPRegistry(DATA)
     runs = sop.SOPRunStore(DATA)
     if args.action == "list":
-        return _emit({"sops": registry.list()})
+        return _emit({"sops": registry.list(), "coverage": registry.coverage()})
     if args.action == "show":
         return _emit(registry.get(args.sop_id, args.version or None))
     if args.action == "lint":
@@ -3484,6 +3491,9 @@ def cmd_sop(args):
     if args.action == "run":
         return _emit(runs.get(args.run_id))
     if args.action == "complete":
+        if not str(args.dod or "").strip():
+            raise sop.SOPError("完成步骤必须提供 DoD 判定文件 --dod；"
+                               "缺少时无法判定该步是否达标")
         approval = {"by": args.approval_by, "scope": args.approval_scope} if args.approval_by else None
         return _emit(runs.complete_step(args.run_id, args.step_id,
                                         outputs=_load_structured(args.outputs),
@@ -4028,6 +4038,13 @@ def cmd_plan(args):
 
     if act == "new":
         from datetime import date
+        if not DATA.is_dir():
+            print(json.dumps({"status": "error", "reason_code": "WORKSPACE_NOT_INITIALIZED",
+                              "message": f"工作台未初始化：{DATA} 不存在",
+                              "hint": f"先运行 `mkt init`（即 {Path(sys.argv[0]).name} "
+                                      f"--workspace {DATA} init）初始化工作台，再建计划"},
+                             ensure_ascii=False, indent=1))
+            return 2
         if not (args.id and args.goal and args.hypothesis and args.beachhead):
             raise SystemExit("plan new 需要 --id --goal --hypothesis --beachhead")
         pid = args.id
@@ -4172,6 +4189,12 @@ def cmd_queue(args):
         if tally.get("indeterminate") or audit_gaps:
             # 未知回执/审计缺口都不是成功：给脚本一个可判别的非零状态。
             return 3
+        if tally.get("rejected") and not (tally.get("committed") or tally.get("dry-run")):
+            # 整队都被闸门拒绝（全局暂停/抑制/配额）：没有发送任何消息，
+            # 不能按"跑完了"退出 0。
+            print(f"全部 {tally['rejected']} 条被闸门拒绝（全局暂停/抑制/配额），"
+                  f"未发送任何消息；检查拒绝原因后再重跑。", file=sys.stderr)
+            return 3
         return 0 if not tally.get("failed") else 1
 
     if act == "build":
@@ -4179,6 +4202,10 @@ def cmd_queue(args):
         if missing:
             raise SystemExit(f"queue build 需要 --campaign --template --targets（缺 {', '.join(missing)}）")
         out = args.out or str(DATA / "queues" / f"{args.campaign}.json")
+        if args.out and not Path(args.out).is_absolute():
+            # 相对 --out 按工作台根解析：review/campaign 只从 data/queues 读队列，
+            # 写到 cwd 会让"队列已生成"和"review 找不到"同时成立。
+            out = str(DATA / args.out)
         q, errs = queue_mod.build_queue(
             template_path=args.template, targets_csv=args.targets,
             campaign=args.campaign, channel=args.channel or "email",
@@ -5594,7 +5621,7 @@ def build_parser():
     a = ssub.add_parser("run"); a.add_argument("--run-id", required=True)
     a = ssub.add_parser("complete"); a.add_argument("--run-id", required=True); a.add_argument("--step-id", required=True)
     a.add_argument("--outputs", required=True, help="步骤产物 JSON 数组文件")
-    a.add_argument("--dod", required=True, help="DoD 结果 JSON 数组文件")
+    a.add_argument("--dod", default="", help="DoD 结果 JSON 数组文件（完成步骤必填）")
     a.add_argument("--by", default="operator"); a.add_argument("--approval-by", default=""); a.add_argument("--approval-scope", default="")
     a = ssub.add_parser("block"); a.add_argument("--run-id", required=True); a.add_argument("--step-id", required=True)
     a.add_argument("--reason", required=True); a.add_argument("--by", default="operator")
@@ -6809,7 +6836,13 @@ def main(argv=None):
     if getattr(args, "action", None) == "reply" and args.cmd == "hn" \
             and not (args.item and (args.text or args.text_file)):
         raise SystemExit("hn reply 需要 --item <url|item:N> --text '…'（或 --text-file）")
-    return args.fn(args) or 0
+    try:
+        return args.fn(args) or 0
+    except ValueError as exc:
+        # 业务输入错误给结构化输出，不让用户面对 Python traceback。
+        print(json.dumps({"status": "error", "reason_code": "INPUT_INVALID",
+                          "message": str(exc)}, ensure_ascii=False, indent=1))
+        return 2
 
 
 if __name__ == "__main__":

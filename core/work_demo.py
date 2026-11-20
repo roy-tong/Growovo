@@ -21,12 +21,19 @@ from .work import ContextStore, ObjectiveStore, WorkStore
 from .work_actions import materialize
 
 
-def _fields(template_id: str, deliverable_id: str, work_order_id: str) -> Dict:
+_SLOT_TEXT = "{slot}：demo 沙盒示例，说明该槽位在真实交付中承载的业务信息与核对方式"
+
+
+def _fields(template_id: str, deliverable_id: str, order: Dict) -> Dict:
     template = get_template(template_id)
-    fields = {slot: f"demo:{slot}" for slot in template["required_slots"]}
+    fields = {slot: _SLOT_TEXT.format(slot=slot) for slot in template["required_slots"]}
     fields["deliverable_id"] = deliverable_id
-    fields["work_order_id"] = work_order_id
-    fields["objective_id"] = "obj-first-success-001"
+    fields["work_order_id"] = order["work_order_id"]
+    fields["objective_id"] = order["objective_ref"]["objective_id"]
+    fields["business_context_ref"] = (
+        f"{order['context_ref']['context_id']} v{order['context_ref']['version']}（demo 产品事实包）")
+    fields["receiver"] = (
+        f"{order['receiver']['actor_id']}（{order['receiver']['role_family']}，demo 接收人）")
     fields["evidence_refs"] = [{"source_id": "demo-source", "locator": "demo://evidence/1"}]
     return fields
 
@@ -77,7 +84,7 @@ def run_work_demo(base: Path | str) -> int:
     deliverables.create({
         "deliverable_id": "demo-tutorial", "version": "1",
         "work_order_id": order["work_order_id"], "template_id": "T30", "template_version": "1.0.0",
-        "deliverable_type": "developer_tutorial", "fields": _fields("T30", "demo-tutorial", order["work_order_id"]),
+        "deliverable_type": "developer_tutorial", "fields": _fields("T30", "demo-tutorial", order),
         "risk_class": "R3"}, by="demo-author")
     deliverables.submit("demo-tutorial", by="demo-author")
     deliverables.review("demo-tutorial", results=_review("T30"), by="demo-technical-reviewer")
@@ -104,7 +111,7 @@ def run_work_demo(base: Path | str) -> int:
 
     demo_strategy = {"primary": {"id": "github", "name": "GitHub"}}
     demo_targets = [{"target": "issue:demo/repo#1", "body": "demo：已验收教程评论，不会发送"}]
-    distribution_fields = _fields("T07", "demo-distribution", order["work_order_id"])
+    distribution_fields = _fields("T07", "demo-distribution", order)
     distribution_fields["execution_payload"] = {
         "strategy": demo_strategy, "targets": demo_targets}
     deliverables.create({
