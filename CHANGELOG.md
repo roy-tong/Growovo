@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.16.3 — 2026-11-20
+
+Stable task identifiers in the Verovo handoff, so the ledger can name what it
+received instead of inventing ids.
+
+### Added
+
+- **the Verovo handoff names every task it carries**: an operation becomes
+  `growovo:<run>/op/<id>` and a business event `growovo:<run>/ev/<id>`, listed
+  in a `task_bindings` array that sits inside the handoff integrity hash.
+  `write_handoff` returns the binding count so the caller can print what it
+  produced, and the package's assumptions state that a task id is stable only
+  inside the package — it is not the buyer's business task number. The
+  downstream ledger stores bindings as given: a binding names evidence, it
+  never upgrades it to a booking. `tests/test_verovo_handoff.py` covers the
+  shape and both prefixes (5 cases).
+
 ## 0.16.2 — 2026-11-20
 
 Round 3 usability close-out: the CLI contract, shared error semantics, handoff
