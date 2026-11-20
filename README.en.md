@@ -2,12 +2,12 @@
   <img src="docs/assets/logo.png" width="400" alt="Growovo">
 </p>
 
-<p align="center"><strong>Give it product facts and a growth goal. It plans, runs, and delivers daily results — automatically.</strong><br>
-<em>给产品事实和增长目标，自动定策略、自动执行，每天交付结果。</em></p>
+<p align="center"><strong>Run a supervised X or email campaign on your own account</strong><br>
+<em>在自己的 X 和邮件账号上运行一次受控推广</em></p>
 
 <p align="center"><a href="README.md">简体中文</a> · <strong>English</strong></p>
 
-Growovo is for **indie developers and one-person companies — and for engineers who went full-stack and got handed GTM and user growth along with the codebase**. Give it product facts and one growth goal; it sets the strategy, runs it, and delivers a daily business result — how many pieces went out, daily impressions, new followers. Strategy, plans, and weekly reports are internal artifacts, not the deliverable. New to growth as an engineer? Start with [Growth is now your job](docs/growth-for-engineers.en.md).
+Give Growovo the product facts, audience and actions you authorize. It checks drafts, queues approved work and records receipts. An uncertain email send stops the batch for review. Track replies, activation and sales from their own records.
 
 It commits to exactly three verifiable things: **execution volume** (every committed action is in the ledger), **honest readings** (daily follower and impression snapshots, screenshot-backed and labelled by evidence grade), and **closed-loop responsibility** (completion drives volume changes, supply gaps alert three days early, failures stop the loop for human adjudication). It does not promise platform reach, and it does not dress unverified channels up as full automation.
 
