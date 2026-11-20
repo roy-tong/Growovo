@@ -1,6 +1,31 @@
 # Changelog
 
-## 0.15.3 — 2026-11-19
+## 0.16.0 — 2026-11-20
+
+G-18 from the 2026-11-19/20 full-scenario end-to-end test.
+
+### Fixed
+
+- **G-18 the acceptance gate now judges content usability, not field presence**:
+  35 records carrying `raft:` placeholders had passed acceptance because every
+  required field was non-empty. Acceptance now rejects placeholder markers
+  (`raft:`, `TODO`, `TBD`, `{{...}}`, `lorem ipsum`), template residue,
+  copy below the minimum semantic paragraph count, and copy whose goal,
+  audience or product facts do not match the queue record. Each refusal names
+  the missing or offending item and the fix. `tests/test_content_trust_gate.py`
+  holds the counter-example fixtures (placeholder, generic, wrong audience,
+  wrong product fact) and asserts each is refused.
+- **SOP coverage is printed as N/18**: `mkt sop` and the queue summary show the
+  actual covered domain count, so "ran" is not read as "all capabilities
+  covered".
+- **Deliverable handoff carries the same trust verdict**: `core/deliverables.py`
+  refuses to export a deliverable whose copy failed the trust gate.
+
+### Note
+
+The regex + minimum-length + required-section check is the first gate only.
+It does not by itself prove the copy is valuable; human usability review stays
+required before a real campaign.
 
 G-12 / G-13 / G-14 from the 2026-11-18 review.
 
