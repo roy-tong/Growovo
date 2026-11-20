@@ -76,8 +76,8 @@ class Workspace(unittest.TestCase):
 
     def plan(self, **override):
         kwargs = dict(
-            facts_path=str(self.facts), goal_id="awareness.followers",
-            run_id=RUN, channels=("x",), actions=("reply",),
+            facts_path=str(self.facts), goal_id="commercial.conversations",
+            run_id=RUN, channels=("email",), actions=("message",),
             actions_per_week=7, handle="verovo", audience="us-west",
             login_probe=probe())
         kwargs.update(override)
@@ -119,16 +119,16 @@ class ApplyPlanTests(Workspace):
         self.authorize()
         plan = rb.build_start_plan(
             self.dir, facts_path=str(self.facts),
-            goal_id="awareness.followers", channels=("x",), actions=("reply",),
-            handle="verovo", login_probe=probe())
+            goal_id="commercial.conversations", channels=("email",),
+            actions=("message",), handle="verovo", login_probe=probe())
         self.assertTrue(plan["run_id"].startswith("verovo-"))
         result = rb.apply_start_plan(plan, self.dir)
         self.assertTrue(Path(result["run_path"]).is_file())
         self.assertIn(plan["run_id"], result["run_path"])
 
     def test_arm_refuses_draft_via_cli(self):
-        self.authorize()
-        plan = self.plan(login_probe=probe(session_gate.LOGGED_OUT))
+        self.authorize(accounts=["acct-a"], require_identity=True)
+        plan = self.plan(account="acct-a")
         result = rb.apply_start_plan(plan, self.dir)
         self.assertEqual("draft", result["status"])
         proc = self._mkt("grow", "arm", RUN, "--by", "roy", check=False)
@@ -164,9 +164,8 @@ class WizardGuardTests(Workspace):
         self.assertIn("channels", plan["next_command"])
 
     def test_pause_draft_is_refused(self):
-        self.authorize()
-        result = rb.apply_start_plan(
-            self.plan(login_probe=probe(session_gate.LOGGED_OUT)), self.dir)
+        self.authorize(accounts=["acct-a"], require_identity=True)
+        result = rb.apply_start_plan(self.plan(account="acct-a"), self.dir)
         run = GrowRunV2(Path(result["run_path"]))
         with self.assertRaises(GrowError):
             run.pause(reason="想停一下", by="roy")
@@ -183,9 +182,8 @@ class WizardGuardTests(Workspace):
 
 class StatusProjectionTests(Workspace):
     def test_draft_next_is_doctor(self):
-        self.authorize()
-        result = rb.apply_start_plan(
-            self.plan(login_probe=probe(session_gate.LOGGED_OUT)), self.dir)
+        self.authorize(accounts=["acct-a"], require_identity=True)
+        result = rb.apply_start_plan(self.plan(account="acct-a"), self.dir)
         explain = rb.explain_status(self.dir, Path(result["run_path"]))
         self.assertEqual("NEEDS_INPUT", explain["ux_state"])
         self.assertEqual("INPUT_REQUIRED", explain["blocked_reason_code"])
@@ -313,7 +311,7 @@ class CliJsonTests(Workspace):
         self.authorize()
         proc = self._mkt("grow", "start", "--run-id", RUN,
                          "--facts", str(self.facts), "--goal",
-                         "awareness.followers", "--handle", "verovo",
+                         "commercial.conversations", "--handle", "verovo",
                          "--dry-run", "--json")
         plan = json.loads(proc.stdout)
         self.assertEqual(9, len(plan["steps"]))
@@ -321,7 +319,7 @@ class CliJsonTests(Workspace):
         self.assertFalse(self.run_path.exists())
 
     def test_identity_bound_wizard_drafts_and_arm_fails(self):
-        self.authorize(actions=["x:reply"], accounts=["acct-a"],
+        self.authorize(actions=["email:message"], accounts=["acct-a"],
                        require_identity=True)
         plan = self.plan(account="acct-a")
         self.assertEqual("NEEDS_REVIEW", plan["ux_state"])

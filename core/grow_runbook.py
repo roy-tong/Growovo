@@ -275,8 +275,9 @@ def _login_state(channel: str,
                  login_probe: Optional[Callable[[str], Dict[str, Any]]]):
     from . import session_gate
     if not channel or channel not in session_gate.PROBES:
-        return {"channel": channel, "status": "unknown",
-                "error": "该渠道没有登录态探测：真实写前请人工确认"}
+        return {"channel": channel, "status": "not_applicable", "error": "",
+                "detail": "该渠道不用浏览器登录态（如 Email SMTP 凭据），"
+                          "真实发送前按渠道自己的凭据检查"}
     probe = login_probe or session_gate.check_login
     try:
         state = probe(channel) or {}
@@ -315,7 +316,17 @@ def _auto_channels() -> Dict[str, str]:
         return {str(row["platform"]): str(row["tier"])
                 for row in platform_caps.matrix()}
     except Exception:  # noqa: BLE001
-        return {"x": "auto", "email": "auto"}
+        return {"email": "auto"}
+
+
+def _auto_hint() -> str:
+    """可自主执行渠道的人话提示；取不到能力矩阵时按 Email 兜底。"""
+    try:
+        from . import platform_caps
+        names = platform_caps.auto_channels()
+    except Exception:  # noqa: BLE001
+        names = []
+    return "、".join(names) or "email"
 
 
 def _channel_actions(channel: str) -> set:
@@ -459,8 +470,8 @@ def _slug(value: str) -> str:
 
 def build_start_plan(data_dir, *, facts_path, goal_id: str,
                      run_id: str = "", target: Optional[float] = None,
-                     channels: Sequence[str] = ("x",),
-                     actions: Sequence[str] = ("reply",),
+                     channels: Sequence[str] = ("email",),
+                     actions: Sequence[str] = ("message",),
                      actions_per_week: int = DEFAULT_ACTIONS_PER_WEEK,
                      account: str = "", handle: str = "",
                      audience: str = "us-west", owner: str = "",
@@ -552,8 +563,10 @@ def build_start_plan(data_dir, *, facts_path, goal_id: str,
                            code=identity_state.get("code")))
         record("identity", identity_state.get("code"))
     else:
+        login_note = ("；该渠道不需要浏览器登录态"
+                      if login_state.get("status") == "not_applicable" else "")
         steps.append(_step("doctor", "ok",
-                           "工作区、事实包、授权与登录态体检通过",
+                           "工作区、事实包、授权与登录态体检通过" + login_note,
                            "确认凭据与权限清单"))
 
     # 2 credentials
@@ -639,7 +652,7 @@ def build_start_plan(data_dir, *, facts_path, goal_id: str,
     # 6 risk
     if not channels:
         steps.append(_step("risk", "needs_input", "还没有选择渠道",
-                           "加 --channels x（首次 live 只用一个 AUTO 渠道）",
+                           f"加 --channels {_auto_hint()}（首次 live 只用可自主执行的渠道）",
                            blocking=True, code="INPUT_REQUIRED"))
     elif bad_actions:
         steps.append(_step(
@@ -650,7 +663,8 @@ def build_start_plan(data_dir, *, facts_path, goal_id: str,
     elif risk["gated_channels"]:
         steps.append(_step("risk", "needs_review",
                            "渠道未解锁自动执行：" + "、".join(risk["gated_channels"]),
-                           "首次 live 只用 AUTO 渠道（x/email）；其余出人工作业单",
+                           f"首次 live 只用可自主执行的渠道（{_auto_hint()}）；"
+                           "其余出人工辅助单，或接官方 API 并授权",
                            blocking=True, code="UNSUPPORTED_SCOPE"))
         record("scope", "UNSUPPORTED_SCOPE")
     elif int(actions_per_week) < 1:
@@ -780,8 +794,8 @@ def _next_for_plan(*, ux_state: str, run_id: str, facts_state: Dict[str, Any],
         return (facts_state.get("fix", ""),
                 facts_state.get("detail", "缺产品事实包"))
     if not channels:
-        return ("mkt grow start --channels x ...",
-                "先选一个 AUTO 渠道（首次 live 只用一个）")
+        return (f"mkt grow start --channels {_auto_hint()} ...",
+                "先选一个可自主执行的渠道（首次 live 只用一个）")
     if bad_actions:
         return ("mkt grow platforms",
                 "渠道不支持这些动作：" + "、".join(bad_actions))
@@ -803,7 +817,8 @@ def _next_for_plan(*, ux_state: str, run_id: str, facts_state: Dict[str, Any],
                 "确认主目标")
     if risk.get("gated_channels"):
         return ("mkt grow platforms",
-                "首次 live 只用 AUTO 渠道：" + "、".join(risk["gated_channels"]))
+                "这些渠道不能自主执行：" + "、".join(risk["gated_channels"])
+                + f"；首次 live 换成 {_auto_hint()}，或把它们编成人工辅助任务")
     if not can_apply:
         return ("mkt grow start --dry-run", "先补齐启动输入")
     if ux_state == "READY":

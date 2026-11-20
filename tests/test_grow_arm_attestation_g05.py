@@ -63,11 +63,12 @@ class Base(unittest.TestCase):
 
     def ready(self):
         """用 G-05 向导建一个 ready_to_arm 的 run（不 arm）。"""
-        authorize(self.dir, by="tester", actions=["x:reply"], days=90)
+        authorize(self.dir, by="tester", actions=["email:message"], days=90)
         plan = rb.build_start_plan(
             self.dir, facts_path=str(self.facts),
-            goal_id="awareness.followers", run_id=RUN, channels=("x",),
-            actions=("reply",), handle="verovo", login_probe=logged_in)
+            goal_id="commercial.conversations", run_id=RUN,
+            channels=("email",), actions=("message",), handle="verovo",
+            login_probe=logged_in)
         result = rb.apply_start_plan(plan, self.dir)
         self.assertEqual("ready_to_arm", result["status"])
         return GrowRunV2(Path(result["run_path"]))

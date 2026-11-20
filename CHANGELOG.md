@@ -1,5 +1,49 @@
 # Changelog
 
+## 0.16.1 — 2026-11-20
+
+G-AUTO-01, G-GUI-01 and G-13b from the 2026-11-20 main review.
+
+### Fixed
+
+- **P0 G-AUTO-01 platform capability and platform permission are now the same
+  question**: `platform_caps.classify()` reports both the technical tier and
+  whether autonomous execution is allowed, and a channel that is technically
+  AUTO but has no autonomous permission is downgraded to `GATED`.
+  `is_auto()`/`auto_channels()` now require both, so the compiler,
+  `grow runbook`, `mkt grow platforms` and the wizard only treat Email as an
+  autonomous channel. A plan that asks for autonomous X execution is refused
+  at compile time (`UNSUPPORTED_SCOPE`) instead of passing setup and being
+  rejected at run time; X remains available as an assisted, single-shot
+  action. README (EN/CN), the growth-for-engineers guide, the feature status
+  and the platform automation matrix now say the same thing: only Email is
+  promised unattended autonomous execution.
+- **P1 G-GUI-01 the local control panel checks who is asking**: requests are
+  rejected unless `Host` is one of the loopback authorities the server is
+  bound to, and write requests must carry an allowed `Origin` (non-browser
+  agents without an Origin header still work). A blank or whitespace-only
+  token now refuses to start with `TOKEN_REQUIRED`.
+  `tests/test_gui_security.py` freezes the boundary with 12 adversarial cases:
+  three loopback hosts, malicious Host, DNS-rebinding Host, wrong port, empty
+  Host, cross-site Origin, `Origin: null`, same-origin write, agent write
+  without Origin, wrong token, empty token.
+- **P1 G-13b an unknown send result or a broken audit log halts the batch, not
+  just the call**: an `indeterminate` SMTP result now writes a persistent
+  batch block (`data/state/email-batch-block-<campaign>.json`) and stops the
+  queue; a failed operation-log write does the same, because the audit chain
+  is no longer continuous. Re-running the queue refuses with `BatchBlocked`
+  until an operator inspects the situation and passes `--resume-batch`; the
+  MCP `run_queue` path does not expose that flag, so an agent cannot clear a
+  block by itself. The block reason, target and next action are written to
+  the email result JSON and to stderr.
+
+### Tests
+
+- `tests/test_gui_security.py` + `tests/test_gui_server.py`: 28 tests OK.
+- `tests/test_email_indeterminate.py`: 13 tests OK, including cross-process
+  block persistence, resume clearing, and audit-gap halting.
+- Full suite: `Ran 1799 tests in 45.192s — OK`; `python3 mkt.py demo` PASS.
+
 ## 0.16.0 — 2026-11-20
 
 G-18 from the 2026-11-19/20 full-scenario end-to-end test.

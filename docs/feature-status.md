@@ -46,7 +46,7 @@ See [requirements, implemented fixes and remaining gaps](grow-feedback-improveme
 
 | Area | Local implementation | Verification and remaining boundary |
 |---|---|---|
-| Strategy compilation | `core/grow_compile.py` turns facts + goal into RunSpec v2 (channel roles, quota, windows, supply briefs, readers, guards, fingerprint). Only AUTO channels (x/email) can be compiled; others are rejected with the platform matrix. | Deterministic and unit-tested; strategy choice reuses existing goals/strategy modules. |
+| Strategy compilation | `core/grow_compile.py` turns facts + goal into RunSpec v2 (channel roles, quota, windows, supply briefs, readers, guards, fingerprint). Only channels with a supported write path can be compiled; of those, email compiles as autonomous and x compiles as human-assisted (platform rules forbid non-API autonomous writes), with warnings and `automation.execution.mode`. Unsupported channels get a `CompileError` pointing at the platform matrix. | Deterministic and unit-tested; strategy choice reuses existing goals/strategy modules. |
 | Quota-driven execution | `core/grow_schedule.py` splits the weekly plan into 7 days; `grow_v2.tick` sends at most the daily quota, defers out-of-window and over-quota items, enforces dead-zone ban. | Unit + virtual-clock 7-day simulation; no production week yet. |
 | Supply pipeline | `mkt grow briefs` / `stage`; queue lint at stage time; supply coverage/gap in telemetry and daily status. | Agent still writes the copy; quality is agent-owned, not machine-guaranteed. |
 | Readings | tick runs a read primitive daily, records outcome counts, degrades on sensor failure instead of stopping the loop; 3-day silence surfaces in doctor. | X reader is UNVERIFIED until 7 human calibrations on consecutive calendar days (one valid auto/human pair per day); email has no open tracking. |
@@ -71,7 +71,7 @@ See [requirements, implemented fixes and remaining gaps](grow-feedback-improveme
 | Auto supply (optional) | `core/grow_agent.py`: local Codex CLI writes body text only; target/formula/schedule/send stay in Growovo; structural gate + independent review; daily attempt budget, backoff, process lock, KOC-only early phase, one touch per author. | Requires a local authenticated Codex CLI; model output is untrusted text and never selects destinations. |
 | Send pacing & stale | `queue_runner` waits 60–120s between real sends; stale items (>2 days) are counted in tick/review, not silently resent. | Timing is a human-rhythm guard, not a platform guarantee. |
 | Operations | `core/grow_ops.py`: heartbeat, doctor, launchd/crontab generation (no auto-load), scheduler check; `mkt grow daemon` + `run-loop.command` fallback. | Installer writes files only; loading launchd is a human step; macOS Documents protection is detected, not bypassed. |
-| Platform boundary | `core/platform_caps.py`: AUTO = x/email only; gated = github/reddit/hn/linkedin; manual = everything else. | `mkt grow platforms` is the single source of truth for "full automation" claims. |
+| Platform boundary | `core/platform_caps.py`: AUTO (autonomous) = email only; x has a proven write path but is policy-GATED (`non_api_write_forbidden`), so `auto_channels()` = [email]; gated also covers github/reddit/hn/linkedin; manual = everything else. | `mkt grow platforms` is the single source of truth for "autonomous execution" claims; the compiler and runbook block gated channels at plan time rather than at runtime. |
 
 ## Baseline capabilities (through v0.13.0)
 

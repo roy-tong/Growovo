@@ -11,22 +11,24 @@ Give Growovo the product facts, audience and actions you authorize. It checks dr
 
 It commits to exactly three verifiable things: **execution volume** (every committed action is in the ledger), **honest readings** (daily follower and impression snapshots, screenshot-backed and labelled by evidence grade), and **closed-loop responsibility** (completion drives volume changes, supply gaps alert three days early, failures stop the loop for human adjudication). It does not promise platform reach, and it does not dress unverified channels up as full automation.
 
-**Full automation starts with platforms that can actually be automated.** Phase one commits to **X + Email** (verified write paths). GitHub, Reddit, Hacker News and LinkedIn are gated behind a supervised first run. Manual channels such as Xiaohongshu and Zhihu get work orders only and are excluded from automated volume. See the [platform automation matrix](docs/platform-automation-matrix.md).
+**Full automation starts with platforms that may actually be automated.** Phase one commits to unattended execution on **Email** only. The **X** write path is technically proven (PROVEN), but X's rules forbid non-API autonomous writes, so X plans compile as human-assisted tasks, or you connect the official API with authorization. GitHub, Reddit, Hacker News and LinkedIn are gated behind a supervised first run. Manual channels such as Xiaohongshu and Zhihu get work orders only and are excluded from automated volume. See the [platform automation matrix](docs/platform-automation-matrix.md).
 
-**Start here.** Prepare product facts, standing action authorization, an authenticated local Codex CLI and a browser CDP session. Read results daily and decide whether to continue or optimize. See [autonomous operations](docs/grow-autonomous-operations.md).
+**Start here.** Prepare product facts, standing action authorization and SMTP credentials for email; for human-assisted X, also prepare an authenticated local Codex CLI and a browser CDP session. Read results daily and decide whether to continue or optimize. See [autonomous operations](docs/grow-autonomous-operations.md).
 
 ```bash
 git clone https://github.com/roy-tong/Growovo.git && cd Growovo
 python3 mkt.py demo                    # zero network, zero accounts
-python3 mkt.py grow platforms          # what phase one can fully automate
-python3 mkt.py policy enable --actions x:reply --by "$USER"
+python3 mkt.py grow platforms          # what phase one can run autonomously
+python3 mkt.py policy enable --actions email:message --by "$USER"
 python3 mkt.py grow launch g1 --facts facts.json \
-  --goal awareness.followers --channels x --target 200 --handle your_handle
+  --goal commercial.conversations --channels email
 python3 mkt.py grow arm g1             # enable live execution after checking strategy and authorization
 python3 mkt.py grow daemon g1          # foreground service; Ctrl-C stops it
 # macOS background: grow install g1 --load; verify fresh heartbeat with grow doctor g1
 python3 mkt.py grow daily g1           # one screen a day: volume/readings/supply/guardrails
 ```
+
+> Want X? `--channels x` compiles a human-assisted plan: content, schedule and ledger keep working; you confirm each send. Autonomous X writes are not permitted, so Growovo will not post unattended.
 
 **See the receipts first:** [Launch autopsy: 73 tweets in 11 hours, 0 new stars](docs/launch-autopsy-20261105.md) — a real launch experiment we ran without the ledger (throwaway scripts instead), the numbers it produced, and the ledger gap it exposed in our own process.
 

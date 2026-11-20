@@ -5,8 +5,9 @@
 不写盘、不发送）：调 goals 生成目标契约，调 strategy 选主渠道与理由，再折成
 配额、时间窗、供给需求单、读数计划与护栏。真正落盘由 grow_v2.launch 负责。
 
-第一期只允许自动执行渠道（x / email）；非自动渠道在这里直接拒绝，避免出现
-「编译出来却发不出去」的假计划。
+自动执行只走 platform_caps.auto_channels()；技术可用但平台许可禁止自主写
+的渠道（如 X 的非 API 自动化）编为人工辅助计划，并在编译结果里明确告警，
+避免出现「编译时当作自动、运行时才被合规门拒绝」的假计划。
 """
 from __future__ import annotations
 
@@ -109,10 +110,12 @@ def compile_run(*, run_id: str, facts: Dict[str, Any], goal_id: str,
             user_action="由用户自行开通/采购并承担费用后，把数据或授权交给 "
                         "Growovo；或改用免费替代（organic 渠道/CDP 可见页）")
         raise CompileError(procurement.message(payload), payload=payload)
-    try:
-        platform_caps.assert_auto(requested)
-    except platform_caps.PlatformError as exc:
-        raise CompileError(str(exc)) from exc
+    supported = {pair[0] for pair in PLATFORM_WRITE.values()}
+    unsupported = [c for c in requested if c not in supported]
+    if unsupported:
+        raise CompileError(
+            f"第一期只支持自动执行或人工辅助渠道 {sorted(supported)}；"
+            f"这些渠道不能进入计划：{unsupported}")
     if audience not in tw.AUDIENCES:
         raise CompileError(f"未知受众 {audience}；可选：{sorted(tw.AUDIENCES)}")
 
@@ -144,12 +147,8 @@ def compile_run(*, run_id: str, facts: Dict[str, Any], goal_id: str,
     primary_channel = _platform_channel(primary_platform)
     if not primary_channel:
         raise CompileError(
-            f"主渠道 {primary_platform or '未知'} 没有自动写通道；第一期只支持 "
-            f"{platform_caps.auto_channels()}。换个目标或显式指定 --channels x")
-    if not platform_caps.is_auto(primary_channel):
-        raise CompileError(
-            f"主渠道 {primary_channel} 不在第一期自动执行白名单"
-            f"（{platform_caps.auto_channels()}）；该渠道只能出人工单")
+            f"主渠道 {primary_platform or '未知'} 没有可写入通道；第一期支持 "
+            f"自动执行或人工辅助渠道 {sorted(supported)}")
 
     # 主渠道 + 用户点名的承接渠道（email 常作为承接层，不参与目标口径）
     channel_list = [primary_channel] + [c for c in requested if c != primary_channel]
@@ -164,6 +163,18 @@ def compile_run(*, run_id: str, facts: Dict[str, Any], goal_id: str,
             raise CompileError(f"渠道 {ch} 暂无自动动作定义")
 
     policy_actions = sorted({f"{ch}:{a}" for ch, acts in actions_map.items() for a in acts})
+
+    autonomous_channels = [c for c in channel_list if platform_caps.is_auto(c)]
+    assisted_channels = [c for c in channel_list if not platform_caps.is_auto(c)]
+    warnings: List[str] = []
+    for ch in assisted_channels:
+        row = platform_caps.classify(ch)
+        code = str((row.get("policy") or {}).get("code") or "")
+        warnings.append(
+            f"渠道 {ch} 只能人工辅助：{row.get('reason') or '平台许可不允许自主执行'}"
+            f"{f'（{code}）' if code else ''}。自主执行的渠道是 "
+            f"{platform_caps.auto_channels()}；{ch} 的内容只出人工发送单，"
+            "不计入自动发布量。")
 
     primary_actions = actions_map[primary_channel]
     secondary_channels = [c for c in channel_list if c != primary_channel]
@@ -234,6 +245,8 @@ def compile_run(*, run_id: str, facts: Dict[str, Any], goal_id: str,
                     "actions": actions_map[primary_channel],
                     "why": primary_row.get("why", ""),
                     "tier": primary_row.get("tier", ""),
+                    "execution": ("autonomous" if platform_caps.is_auto(primary_channel)
+                                  else "human_assisted"),
                     "residency_days": int(primary_row.get("residency") or 0)},
         "support": [{"channel": ch, "actions": actions_map[ch],
                      "why": "承接主渠道来的人，不背目标指标"}
@@ -242,6 +255,9 @@ def compile_run(*, run_id: str, facts: Dict[str, Any], goal_id: str,
                        "why": r.get("why", "")}
                       for r in (roles.get("not_now") or [])],
         "tactics": [tactic] if tactic else [],
+        "autonomous_channels": autonomous_channels,
+        "assisted_channels": assisted_channels,
+        "warnings": warnings,
         "compiled_at": date.today().isoformat(),
     }
 
@@ -276,6 +292,7 @@ def compile_run(*, run_id: str, facts: Dict[str, Any], goal_id: str,
         "strategy": strategy_block,
         "channels": channel_list,
         "actions": policy_actions,
+        "warnings": warnings,
         "quota": quota_block,
         "windows": windows,
         "supply": {"briefs": briefs, "min_cover_days": 3,
@@ -303,7 +320,13 @@ def compile_run(*, run_id: str, facts: Dict[str, Any], goal_id: str,
                 "头部大号只读不追，把产能留给 KOC",
             ],
         },
-        "automation": {"enabled": True, "provider": "codex", "daily_budget": 12},
+        "automation": {"enabled": True, "provider": "codex", "daily_budget": 12,
+                        "execution": {
+                            "mode": ("autonomous" if not assisted_channels else
+                                     ("human_assisted" if not autonomous_channels else "mixed")),
+                            "autonomous_channels": autonomous_channels,
+                            "assisted_channels": assisted_channels,
+                        }},
         "content_index": {},
         "post_urls": {},
         "measurement": {"readers": readers,

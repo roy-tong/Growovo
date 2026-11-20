@@ -81,10 +81,10 @@ def probe(status: str = session_gate.LOGGED_IN):
 def plan_kwargs(facts_path, **override):
     kwargs = {
         "facts_path": str(facts_path),
-        "goal_id": "awareness.followers",
+        "goal_id": "commercial.conversations",
         "run_id": RUN,
-        "channels": ("x",),
-        "actions": ("reply",),
+        "channels": ("email",),
+        "actions": ("message",),
         "actions_per_week": 7,
         "handle": "verovo",
         "audience": "us-west",
@@ -177,24 +177,23 @@ class StartPlanTests(Workspace):
 
     def test_not_logged_in_stops_before_ready_to_arm(self):
         self.authorize()
-        plan = self.plan(login_probe=probe(session_gate.LOGGED_OUT))
+        plan = self.plan(channels=("x",), actions=("reply",),
+                         login_probe=probe(session_gate.LOGGED_OUT))
         self.assertEqual("NEEDS_INPUT", plan["ux_state"])
         self.assertEqual("AUTH_REQUIRED", plan["blocked_reason_code"])
         self.assertIn("登录", plan["next_required_action"])
-        result = rb.apply_start_plan(plan, self.dir)
-        data = GrowRunV2(Path(result["run_path"])).load()
-        self.assertEqual("draft", data["status"])
-        self.assertFalse(data["go"])
-        with self.assertRaises(GrowError):
-            GrowRunV2(Path(result["run_path"])).arm(by="roy")
+        with self.assertRaises(rb.RunbookError):
+            rb.apply_start_plan(plan, self.dir)
+        self.assertFalse(self.run_path.exists())
 
-    def test_cdp_unavailable_also_stays_draft(self):
+    def test_cdp_unavailable_also_blocks_plan(self):
         self.authorize()
-        plan = self.plan(login_probe=probe(session_gate.CDP_UNAVAILABLE))
+        plan = self.plan(channels=("x",), actions=("reply",),
+                         login_probe=probe(session_gate.CDP_UNAVAILABLE))
         self.assertEqual("NEEDS_INPUT", plan["ux_state"])
-        result = rb.apply_start_plan(plan, self.dir)
-        data = GrowRunV2(Path(result["run_path"])).load()
-        self.assertEqual("draft", data["status"])
+        with self.assertRaises(rb.RunbookError):
+            rb.apply_start_plan(plan, self.dir)
+        self.assertFalse(self.run_path.exists())
 
     def test_ready_to_arm_never_arms_itself(self):
         self.authorize()
@@ -226,7 +225,7 @@ class StartPlanTests(Workspace):
             self.assertTrue(row["expected_action"])
             self.assertTrue(row["needs_review"])
             self.assertFalse(row.get("is_sendable", False))
-        self.assertEqual(["x"], calls.calls)  # 只探测声明渠道，不搜网
+        self.assertEqual([], calls.calls)  # email 没有浏览器登录态探测，不搜网
 
     def test_delivery_defaults_local_and_email_needs_separate_authorization(self):
         self.authorize()
@@ -253,7 +252,7 @@ class StartPlanTests(Workspace):
         self.assertEqual("needs_review", goal_step["state"])
 
     def test_identity_bound_without_records_stops_at_review(self):
-        self.authorize(actions=["x:reply"], accounts=["acct-a"],
+        self.authorize(actions=["email:message"], accounts=["acct-a"],
                        require_identity=True)
         plan = self.plan(account="acct-a")
         identity = next(s for s in plan["steps"] if s["name"] == "identity")
@@ -680,7 +679,7 @@ class CleanMachineTests(Workspace):
         calls = probe()
         plan = rb.build_start_plan(self.dir, **plan_kwargs(self.facts,
                                                           login_probe=calls))
-        self.assertEqual(["x"], calls.calls)
+        self.assertEqual([], calls.calls)
         self.assertEqual("READY", plan["ux_state"])
         self.assertFalse((self.dir / "ledger.jsonl").exists())
         self.assertFalse((self.dir / "queues").exists())
@@ -714,7 +713,7 @@ class CliTests(Workspace):
         self.authorize()
         proc = self.run_mkt(
             "grow", "start", "--run-id", RUN, "--facts", str(self.facts),
-            "--goal", "awareness.followers", "--handle", "verovo",
+            "--goal", "commercial.conversations", "--handle", "verovo",
             "--dry-run")
         for title in ("环境与凭据体检", "首批 3 条候选预览", "显式开闸"):
             self.assertIn(title, proc.stdout)
@@ -725,7 +724,7 @@ class CliTests(Workspace):
         self.authorize()
         proc = self.run_mkt(
             "grow", "start", "--run-id", RUN, "--facts", str(self.facts),
-            "--goal", "awareness.followers", "--handle", "verovo",
+            "--goal", "commercial.conversations", "--handle", "verovo",
             "--apply")
         self.assertIn(f"mkt grow arm {RUN}", proc.stdout)
         self.assertTrue(self.run_path.is_file())

@@ -3,7 +3,7 @@
 本文件是并行开发的唯一契约。所有模块按此实现；签名/字段不得自行改名。
 总目标：用户给 facts + 增长目标，`mkt grow launch` 自动编译策略与执行参数，
 每日自动执行/读数/出日结果，每周出结果单并投递；用户每天可据业务结果决定
-「继续」或「优化策略」。第一期只允许自动执行平台：**x、email**。
+「继续」或「优化策略」。第一期可承诺无人值守自主执行的平台只有 **email**；**x** 的写通道虽然技术可用（PROVEN），但平台许可禁止非 API 自主写入，编译器只出人工辅助计划。
 
 ## 0. 全局约定
 
@@ -20,36 +20,40 @@
 ## 1. `core/platform_caps.py`（新建）——平台自动执行白名单
 
 ```python
-AUTO = "auto"      # 第一期可自动执行
-GATED = "gated"    # 有写通道但 UNVERIFIED，需 allow_unverified + 显式 opt-in
+AUTO = "auto"      # 第一期可自主执行（技术可执行 且 平台许可允许自主）
+GATED = "gated"    # 技术可执行但平台许可禁止自主，或写通道 UNVERIFIED 需显式 opt-in
 MANUAL = "manual"  # 无写通道，只能出人工作业单
 
 def classify(channel: str) -> dict
-# {"channel","platform","status","tier","write": (channel, action) | None,
+# {"channel","platform","status","technical_tier","tier","autonomous","policy",
+#  "write": (channel, action) | None,
 #  "actions": ["reply"], "reason": str, "queue_action": "reply"|None}
 
 def matrix() -> list[dict]      # 按 tier 排序：auto → gated → manual
-def auto_channels() -> list[str]   # ["x", "email"]
+def auto_channels() -> list[str]   # ["email"]
 def gated_channels() -> list[str]
-def is_auto(channel: str) -> bool
-def assert_auto(channels: list[str]) -> None  # 非 auto 抛 PlatformError
+def is_auto(channel: str) -> bool  # tier == AUTO 且 autonomous 为真
 ```
 
 判定规则（不得放宽）：
 
 - `AUTO`：`channels.REGISTRY[ch].status in {"PROVEN","PORTED"}` 且存在写通道
-  （`core/platforms.WRITE`）且 `queue_runner.QUEUE_ACTIONS` 支持该动作。
-  当前结果必须恰为 `x`、`email`。
-- `GATED`：注册表有该渠道且存在写通道，但 status == "UNVERIFIED"。
-  当前：github、reddit、hn（hackernews）、linkedin。
+  （`core/platforms.WRITE`）且 `queue_runner.QUEUE_ACTIONS` 支持该动作，
+  **且 `platform_compliance.policy_row(ch)` 允许自主写入**。
+  当前结果必须恰为 `email`。
+- `x`：写通道 PROVEN，`technical_tier` 仍为 AUTO，但平台许可
+  （`non_api_write_forbidden`）禁止非 API 自主写入，因此 `autonomous=False`，
+  `tier` 降为 GATED。计划编译为人工辅助（human_assisted），不抛错。
+- `GATED`：注册表有该渠道且存在写通道，但 status == "UNVERIFIED"，或技术 AUTO
+  但平台许可禁止自主。当前：x、github、reddit、hn（hackernews）、linkedin。
 - `MANUAL`：其余全部平台。
 - `email` 动作是 `message`，`x` 默认动作 `reply`（publish/message 在 actions 里列出但
   primary action 用 reply）。
-- reason 用中文一句话说明证据级别。`matrix()` 覆盖 platforms.BY_ID 的全部平台，
-  未知渠道落 MANUAL。
+- reason 用中文一句话说明证据级别与许可边界。`matrix()` 覆盖 platforms.BY_ID 的
+  全部平台，未知渠道落 MANUAL。
 
-测试：`tests/test_platform_caps.py`（auto 集合恰为 {x,email}、gated 集合、
-未知渠道 MANUAL、assert_auto 抛错、matrix 排序稳定）。
+测试：`tests/test_platform_caps.py`（auto 集合恰为 {email}、x 技术 AUTO 但许可
+GATED、gated 集合、未知渠道 MANUAL、matrix 排序稳定）。
 
 文档：`docs/platform-automation-matrix.md`（一张表：平台/状态/能否自动/动作/第一期是否启用/原因）。
 
@@ -201,7 +205,10 @@ def fingerprint(spec: dict) -> str
 
 - 调 `core.goals.select(facts, goal_id, platforms=..., target=..., window_days=...)`
   拿目标契约；调 `core.strategy.build(product, goal_plan=selection)` 拿主/辅渠道 why。
-- 渠道过滤：只用 `platform_caps.auto_channels()`；非 auto 抛 `CompileError`。
+- 渠道过滤：自动执行只用 `platform_caps.auto_channels()`；技术可用但平台许可禁止
+  自主的渠道（当前为 x）编为人工辅助计划（`strategy.execution` 分组、
+  `automation.execution.mode = human_assisted|mixed`），不抛错；既无写通道也不支持的
+  渠道抛 `CompileError`。
 - actions：x → `["reply"]`（若用户指定 publish 则并入）；email → `["message"]`。
 - quota：周计划 = actions_per_week；`split_week` 生成 `quota.daily`（按 started 锚定）。
 - supply.briefs：每个 (channel, action) 一条 brief，`count_per_week` 为该动作周量。
@@ -219,8 +226,9 @@ def fingerprint(spec: dict) -> str
 def launch(cls, path, *, run_id, facts_path, goal_id, channels, target=None,
            window_days=None, actions_per_week=20, started=None, owner="",
            account="", handle="", data_dir, probe=None, skip_probe=False) -> dict
-# 预检：facts 存在/必填字段、platform_caps 全 auto、minimal 授权（只查计划动作）、
-# 账号健康（可读时）、环境探针（probe 可注入；skip_probe 跳过）。
+# 预检：facts 存在/必填字段、channels 均在支持写通道集合（技术可用）、
+# minimal 授权（只查计划动作）、账号健康（可读时）、环境探针（probe 可注入；
+# skip_probe 跳过）。计划中若含非自主渠道（如 x），标为人工辅助并在 warnings 提示。
 # 编译 RunSpec → 落盘 → 返回 {"run":..., "summary":[...5 行...], "missing_policy":...}
 
 def daily(self, data_dir, *, on=None, reader=None) -> dict      # 日结果卡（不投递）
