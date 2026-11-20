@@ -1,6 +1,8 @@
 # Growovo: implementation status
 
-Reviewed 2026-11-18. **Working baseline: v0.15.0 (delivery golden chain, platform strategy layer and grow v2).** Available means local implementation and local tests, not production validation on every platform or proof of business outcomes.
+**Release update, 2026-11-20 · [v0.16.0](../CHANGELOG.md).** The content check rejects placeholders and drafts that miss required audience or product facts before handoff. Human review still decides whether a draft is fit to send. An uncertain SMTP receipt halts the batch for reconciliation.
+
+Earlier baseline reviewed 2026-11-18. **Baseline on that date: v0.15.0 (delivery golden chain, platform strategy layer and grow v2).** Available means local implementation and local tests, not production validation on every platform or proof of business outcomes.
 
 > Business architecture: [GTM 业务操作系统 v5](gtm-os/README.md) covers role families 07–46, work-order/SOP/deliverable/handoff contracts, KPI definitions and templates. R0/R1 are now locally implemented; see [implementation and remaining boundaries](gtm-os/05-implementation.md). Registry coverage is not equivalent to all 40 professional SOPs being executable or externally effective.
 

@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "growovo"
 version = "0.16.0"
-description = "Agent-native GTM operator kernel: reviewed playbooks, authorized accounts, quotas and verifiable operation records."
+description = "Run authorized X and email campaigns with draft checks, execution receipts and human review of uncertain sends."
 readme = "README.md"
 requires-python = ">=3.9"
 license = "MIT"
@@ -30,7 +30,7 @@ mkt = "mkt:main"
 growovo-mcp = "mcp_server:main"
 
 [project.urls]
-Homepage = "https://github.com/roy-tong/Growovo"
+Homepage = "https://roy-tong.github.io/Growovo/"
 Changelog = "https://github.com/roy-tong/Growovo/blob/main/CHANGELOG.md"
 
 [tool.setuptools]

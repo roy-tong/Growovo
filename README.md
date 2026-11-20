@@ -2,12 +2,12 @@
   <img src="docs/assets/logo.png" width="400" alt="Growovo">
 </p>
 
-<p align="center"><strong>给产品事实和增长目标，自动定策略、自动执行，每天交付结果。</strong><br>
-<em>Give it product facts and a growth goal. It plans, runs, and delivers daily results — automatically.</em></p>
+<p align="center"><strong>在自己的 X 和邮件账号上运行一次受控推广</strong><br>
+<em>Run a supervised X or email campaign on your own account</em></p>
 
 <p align="center"><strong>简体中文</strong> · <a href="README.en.md">English</a></p>
 
-Growovo 面向**独立开发者与一人公司，以及转型全栈、被要求扛起 GTM 和用户增长的研发**：你把产品事实和一个增长目标交给它，它自己定策略、自己执行，每天交付业务结果——发布多少条、日均曝光多少、新增多少关注者。策略、计划、周报都是中间产物，不是交付物。刚接手增长职责的研发，先看[《增长成了研发的新活》](docs/growth-for-engineers.md)。
+给 Growovo 产品事实、目标受众和允许执行的动作。它检查待发内容，把已授权的动作排入队列，并记录执行回执。邮件发送结果不明时会停下等人核对。回复、激活和成交分别看实际记录。
 
 它只承诺三件可核验的事：**执行量**（账本 committed 逐条可查）、**真实读数**（每天落粉丝与曝光，截图留证、带证据级别）、**闭环责任**（完成率驱动调量建议、供给缺口提前报警、异常停车待人工裁决）。不承诺平台算法给多少曝光，也不把未验证渠道包装成全自动。
 

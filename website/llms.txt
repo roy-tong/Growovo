@@ -1,6 +1,6 @@
 # Growovo site
 
-> Agent-native GTM operator for one-person companies: give it product facts and a growth goal; it plans, runs, and delivers daily results (execution counts, real reads, loop accountability). Phase one automates X (Twitter) + Email; other channels are gated or manual. The Chinese landing is the main page; /en.html is its English mirror. The repository is the canonical source.
+> Give Growovo the product facts, audience and actions you authorize. It checks drafts, queues approved work and records receipts. An uncertain email send stops the batch for review. Track replies, activation and sales from their own records.
 
 Pages: / (Chinese landing: three verifiable promises, a worked demo of one successful delivery plus three gate-stopped runs, FAQ, 30-second zero-network verification, agent interfaces) · /en.html (English mirror of the same page, FAQ included) · /guides/launch-autopsy.html (Chinese guide: the launch autopsy as a layered-results lesson — 73 posts, 0 new stars, followers and conversion never measured; publication ≠ reach ≠ followers ≠ business outcome; the night bypassed Growovo's own ledger) · /guides/launch-autopsy.en.html (English translation of the same guide, same numbers and limits).
 

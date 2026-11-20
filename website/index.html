@@ -3,15 +3,15 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Growovo — 给增长目标的自动 GTM 操作员</title>
-<meta name="description" content="Growovo 面向独立开发者与一人公司：给产品事实和一个增长目标，它自己定策略、自己执行，每天交付业务结果。第一期 X + Email 可全自动执行。开源（MIT），CLI / MCP / Agent Skill 三入口。">
+<title>Growovo | 在自己的 X 和邮件账号上运行一次受控推广</title>
+<meta name="description" content="给 Growovo 产品事实、目标受众和允许执行的动作。它检查待发内容，把已授权的动作排入队列，并记录执行回执。邮件发送结果不明时会停下等人核对。回复、激活和成交分别看实际记录。">
 <link rel="canonical" href="https://roy-tong.github.io/Growovo/">
 <meta name="theme-color" content="#fafbfc">
 <!-- GSC/Bing 验证码插在这行下面：Search Console 与 Bing WMT 给的 <meta name=...> 标签原样粘贴即可 -->
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="Growovo">
-<meta property="og:title" content="Growovo — 给增长目标的自动 GTM 操作员">
-<meta property="og:description" content="面向独立开发者与一人公司：给产品事实和一个增长目标，它自己定策略、自己执行，每天交付业务结果。第一期 X + Email。开源（MIT）。">
+<meta property="og:title" content="Growovo | 在自己的 X 和邮件账号上运行一次受控推广">
+<meta property="og:description" content="给 Growovo 产品事实、目标受众和允许执行的动作。它检查待发内容，把已授权的动作排入队列，并记录执行回执。邮件发送结果不明时会停下等人核对。回复、激活和成交分别看实际记录。">
 <meta property="og:url" content="https://roy-tong.github.io/Growovo/">
 <meta property="og:image" content="https://roy-tong.github.io/Growovo/assets/social-preview.png">
 <meta property="og:image:width" content="1200">
@@ -20,8 +20,8 @@
 <meta property="og:locale" content="zh_CN">
 <meta property="og:locale:alternate" content="en_US">
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="Growovo — 给增长目标的自动 GTM 操作员">
-<meta name="twitter:description" content="给产品事实和一个增长目标，它自己定策略、自己执行，每天交付业务结果。第一期 X + Email。开源（MIT）。">
+<meta name="twitter:title" content="Growovo | 在自己的 X 和邮件账号上运行一次受控推广">
+<meta name="twitter:description" content="给 Growovo 产品事实、目标受众和允许执行的动作。它检查待发内容，把已授权的动作排入队列，并记录执行回执。邮件发送结果不明时会停下等人核对。回复、激活和成交分别看实际记录。">
 <meta name="twitter:image" content="https://roy-tong.github.io/Growovo/assets/social-preview.png">
 <link rel="alternate" hreflang="zh-CN" href="https://roy-tong.github.io/Growovo/">
 <link rel="alternate" hreflang="en" href="https://roy-tong.github.io/Growovo/en.html">
@@ -33,7 +33,7 @@
   "name": "Growovo",
   "applicationCategory": "BusinessApplication",
   "operatingSystem": "macOS, Linux, Windows",
-  "description": "Agent-native GTM 操作员：给产品事实和一个增长目标，自己定策略、自己执行，每天交付业务结果。第一期 X + Email。CLI / MCP / Agent Skill，MIT 开源。",
+  "description": "给 Growovo 产品事实、目标受众和允许执行的动作。它检查待发内容，把已授权的动作排入队列，并记录执行回执。邮件发送结果不明时会停下等人核对。回复、激活和成交分别看实际记录。",
   "url": "https://roy-tong.github.io/Growovo/",
   "codeRepository": "https://github.com/roy-tong/Growovo",
   "license": "https://opensource.org/license/mit",
@@ -80,12 +80,12 @@ footer{border-top:1px solid var(--line);margin-top:56px;padding-top:18px;color:v
 <body>
 <main>
 <h1>Growovo</h1>
-<p class="tagline">给产品事实和一个增长目标，它自己定策略、自己执行，每天交付业务结果。</p>
-<span class="badge">开源 MIT</span><span class="badge">CLI / MCP / Agent Skill</span><span class="badge">v0.15.0</span>
+<p class="tagline">在自己的 X 和邮件账号上运行一次受控推广</p>
+<span class="badge">开源 MIT</span><span class="badge">CLI / MCP / Agent Skill</span><span class="badge">v0.16.0</span>
 <p><a href="#demo">看一个具体任务：一次成功交付，和三次被闸门拦下的执行 →</a></p>
 
 <h2>这是什么</h2>
-<p>Growovo 面向<strong>独立开发者与一人公司</strong>：你把产品事实和一个增长目标交给它，它自己定策略、自己执行，每天交付业务结果——发布多少条、日均曝光多少、新增多少关注者。策略、计划、周报都是中间产物，不是交付物。</p>
+<p>给 Growovo 产品事实、目标受众和允许执行的动作。它检查待发内容，把已授权的动作排入队列，并记录执行回执。邮件发送结果不明时会停下等人核对。回复、激活和成交分别看实际记录。</p>
 <p><strong>全自动的前提是平台可自动执行。</strong>第一期只承诺 X + Email（X 为 PROVEN，Email 为 PORTED）；GitHub、Reddit、Hacker News、LinkedIn 需人工首跑解锁；小红书、知乎等人工渠道只出作业单，不计入自动发布量。</p>
 
 <h2>只承诺三件可核验的事</h2>
@@ -113,8 +113,8 @@ footer{border-top:1px solid var(--line);margin-top:56px;padding-top:18px;color:v
 <h2>安装与验证</h2>
 <pre><code>pipx install growovo
 mkt demo</code></pre>
-<p>v0.15.0 让 demo 先演示一次完整成功交付（门禁 → 回读 → 离线发送 → 账本 committed → 日结果卡），再演示三道拦截；增长运行的委托状态可按 C-01-Lite 八字段读出；G-10/G-11 收紧账号身份与业务资格读取。真实执行仍需要已授权的动作、登录态与设备在线。</p>
-<p><a href="https://github.com/roy-tong/Growovo/releases/tag/v0.15.0">版本说明</a> · <a href="https://pypi.org/project/growovo/">PyPI</a> · <a href="https://github.com/roy-tong/Growovo/blob/main/docs/grow-autonomous-operations.md">自动运营配置</a></p>
+<p>待交接的文案如果还留着占位词，或缺少要求的受众与产品事实，会退回修改。实际发送前由负责人判断内容是否适合这批收件人。</p>
+<p><a href="https://github.com/roy-tong/Growovo/releases/latest">版本说明</a> · <a href="https://pypi.org/project/growovo/">PyPI</a> · <a href="https://github.com/roy-tong/Growovo/blob/main/docs/grow-autonomous-operations.md">自动运营配置</a></p>
 <h2>源码验证（demo 零网络零账号）</h2>
 <pre><code>git clone https://github.com/roy-tong/Growovo.git &amp;&amp; cd Growovo
 python3 mkt.py demo                 # 一秒内返回，不需要任何账号

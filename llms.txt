@@ -1,6 +1,6 @@
 # Growovo
 
-> Agent-native GTM operator for one-person companies and indie developers. Give it product facts and a growth goal: it plans, runs, and delivers daily results — execution counts from a committed ledger, real follower/impression reads with evidence levels, and loop accountability. Phase one automates X (Twitter) + Email; GitHub / Reddit / Hacker News / LinkedIn need a supervised first run; manual channels get work orders, never dressed-up automation numbers. Python standard library only.
+> Give Growovo the product facts, audience and actions you authorize. It checks drafts, queues approved work and records receipts. An uncertain email send stops the batch for review. Track replies, activation and sales from their own records.
 
 ## Start here
 
