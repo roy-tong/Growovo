@@ -3601,7 +3601,17 @@ def cmd_metric(args):
     if args.action == "show":
         return _emit(registry.get(args.metric_id, args.version or None))
     if args.action == "register":
-        return _emit(registry.register(_load_structured(args.file), by=args.by))
+        metric = _load_structured(args.file)
+        if getattr(args, "count", False):
+            if metric.get("denominator") is not None:
+                raise metrics.MetricError(
+                    "计数型指标不能声明 denominator：删除分母，或去掉 --count")
+            metric["formula"] = "numerator_count"
+            metric.pop("denominator", None)
+        elif metric.get("denominator") is None:
+            raise metrics.MetricError(
+                "缺少 denominator：计数型指标需要显式加 --count")
+        return _emit(registry.register(metric, by=args.by))
     metric = registry.get(args.metric_id, args.version or None)
     events = _load_structured(args.events)
     scope = {k: v for k, v in {"campaign": args.campaign, "subject": args.subject,
@@ -5758,6 +5768,8 @@ def build_parser():
     a = msub.add_parser("list")
     a = msub.add_parser("show"); a.add_argument("metric_id"); a.add_argument("--version", default="")
     a = msub.add_parser("register"); a.add_argument("--file", required=True); a.add_argument("--by", default="operator")
+    a.add_argument("--count", action="store_true",
+                   help="计数型指标：显式声明无分母，formula=numerator_count")
     a = msub.add_parser("measure"); a.add_argument("--metric-id", required=True); a.add_argument("--version", default="")
     a.add_argument("--events", required=True, help="事件 JSON 数组或 JSONL")
     a.add_argument("--campaign", default=""); a.add_argument("--subject", default="")

@@ -44,6 +44,42 @@ class ContentOpsTests(unittest.TestCase):
         self.assertEqual(len(p["rows"]), 34)
         self.assertIn("用户指定", p["note"])
 
+    def test_plan_weekdays_follow_real_weekday(self):
+        p = content_ops.plan(start="2026-11-07", days=14,
+                             channels=["xiaohongshu", "wechat", "blog"],
+                             weekdays={"xiaohongshu": ["mon", "wed"], "wechat": [6]})
+        self.assertEqual(p["weekdays"], {"xiaohongshu": [0, 2], "wechat": [6]})
+        self.assertIn("指定星期", p["note"])
+        expected = {"xiaohongshu": {0, 2}, "wechat": {6}, "blog": {3}}
+        for row in p["rows"]:
+            self.assertIn(date.fromisoformat(row["date"]).weekday(),
+                          expected[row["channel"]], row)
+
+    def test_plan_rejects_bad_weekdays(self):
+        with self.assertRaises(ValueError):
+            content_ops.plan(days=7, weekdays={"zhihu": [7]})
+        with self.assertRaises(ValueError):
+            content_ops.plan(days=7, weekdays={"zhihu": []})
+        with self.assertRaises(ValueError):
+            content_ops.plan(days=7, weekdays={"weibo": [0]})
+        p = content_ops.plan(start="2026-11-07", days=7, weekdays={"wechat": "mon"})
+        self.assertEqual(p["weekdays"], {"wechat": [0]})
+
+    def test_plan_weekdays_cli(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            result = subprocess.run(
+                [sys.executable, str(ROOT / "mkt.py"), "--workspace", tmp,
+                 "content", "plan", "--start", "2026-11-07", "--days", "7",
+                 "--channels", "xiaohongshu", "--weekdays", "mon,wed", "--json"],
+                cwd=ROOT, text=True, capture_output=True)
+            self.assertEqual(0, result.returncode, msg=f"{result.stdout}\n{result.stderr}")
+            payload = json.loads(result.stdout)
+        self.assertEqual(payload["weekdays"]["xiaohongshu"], [0, 2])
+        self.assertTrue(payload["rows"])
+        for row in payload["rows"]:
+            self.assertEqual("xiaohongshu", row["channel"])
+            self.assertIn(date.fromisoformat(row["date"]).weekday(), {0, 2})
+
     def test_audit_rejects_meta_narration(self):
         text = "很多团队做AI硬件。\n\n这篇只回答一件事：第一步做什么。\n\n先列10条指令。"
         res = content_ops.audit_text("xiaohongshu", text, title="先列10条指令")
