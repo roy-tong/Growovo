@@ -7,7 +7,7 @@ covers the whole article, cites actual passages, and doesn't reuse stale work.
 from __future__ import annotations
 import hashlib
 import re
-from typing import Any, Dict
+from typing import Any, Dict, List, Tuple
 
 VERSION = '1.0'
 CRITERIA = {
@@ -56,6 +56,32 @@ def packet(channel: str, text: str, title: str = '') -> Dict[str, Any]:
     }
 
 
+def _norm(text: Any) -> str:
+    return re.sub(r'[\s#＃]+', ' ', str(text or '')).strip().casefold()
+
+
+def _sections(text: str) -> List[Tuple[List[str], str]]:
+    """每节的可匹配键：标题、首行、首段；附一个人读的标签。"""
+    out: List[Tuple[List[str], str]] = []
+    for block in re.split(r'(?m)(?=^#{1,3} )', text):
+        lines = [line.strip() for line in block.strip().split('\n') if line.strip()]
+        if not lines:
+            continue
+        heading = re.sub(r'^#+\s*', '', lines[0]) if lines[0].startswith('#') else ''
+        body = next((line for line in lines if not line.startswith('#')), '')
+        keys = [key for key in (_norm(value) for value in (heading, lines[0] if not heading else '', body)) if key]
+        out.append((keys, heading or body or lines[0]))
+    return out
+
+
+def _match_section(key: str, sections: List[Tuple[List[str], str]], start: int):
+    for index in range(start, len(sections)):
+        for candidate in sections[index][0]:
+            if key == candidate or key in candidate or (len(candidate) >= 4 and candidate in key):
+                return index
+    return None
+
+
 def validate(channel: str, text: str, record: Dict[str, Any]) -> Dict[str, Any]:
     expected = packet(channel, text)
     errors = []
@@ -82,12 +108,39 @@ def validate(channel: str, text: str, record: Dict[str, Any]) -> Dict[str, Any]:
         if verdict == 'revise':
             fail('revision_open', cid + ': ' + str(c.get('revision') or '尚无修改方案'))
     outline = record.get('outline', [])
-    if not isinstance(outline, list) or len(outline) != len(expected['outline']):
-        fail('outline_coverage', '须逐节解释整篇的推进作用。')
-    else:
-        for actual, target in zip(outline, expected['outline']):
-            if not isinstance(actual, dict) or actual.get('opening') != target['opening'] or not actual.get('role', '').strip():
-                fail('outline_coverage', '段落顺序或作用记录不完整。'); break
+    if not isinstance(outline, list):
+        fail('outline_coverage', 'outline 必须为列表，逐节写推进作用。')
+        outline = []
+    sections = _sections(text)
+    matched = []
+    cursor = -1
+    for number, entry in enumerate(outline, 1):
+        if not isinstance(entry, dict):
+            fail('outline_coverage', f'第 {number} 节记录必须是对象。')
+            break
+        if not str(entry.get('role', '')).strip():
+            fail('outline_coverage', f'第 {number} 节没有写推进作用。')
+            break
+        raw = entry.get('opening') or entry.get('section') or entry.get('heading') or ''
+        key = _norm(str(raw).strip().split('\n')[0])
+        if not key:
+            fail('outline_coverage', f'第 {number} 节要写标题或首句，便于对照正文。')
+            break
+        index = _match_section(key, sections, cursor + 1)
+        if index is None:
+            if _match_section(key, sections, 0) is not None:
+                fail('outline_order', f'第 {number} 节「{str(raw)[:40]}」出现在正文更早的位置：按正文顺序重排。')
+            elif key in _norm(text):
+                continue
+            else:
+                fail('outline_off_topic', f'第 {number} 节「{str(raw)[:40]}」在正文里找不到对应小节：按标题或首句重写。')
+            continue
+        matched.append(index)
+        cursor = index
+    missing = [i for i in range(len(sections)) if i not in matched]
+    if missing:
+        names = '、'.join(sections[i][1][:30] for i in missing)
+        fail('outline_coverage', '漏掉正文小节：' + names + '；每节都要写推进作用。')
     if not str(record.get('claim_coverage_note', '')).strip():
         fail('claims_unreviewed', '需说明检查了哪些关键断言；无定量/事实断言也要说明原因。')
     claims = record.get('claims', [])

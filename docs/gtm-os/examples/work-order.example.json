@@ -50,6 +50,7 @@
     "version": "1.0.0"
   },
   "dependencies": [],
+  "depends_on": "not_applicable",
   "deliverable_specs": [
     {
       "deliverable_type": "developer_tutorial",

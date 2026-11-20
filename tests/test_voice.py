@@ -1,7 +1,13 @@
 """语气引擎：每个平台都要有画像，广告腔必须能被拦。"""
+import subprocess
+import sys
+import tempfile
 import unittest
+from pathlib import Path
 
 from core import platforms, voice
+
+ROOT = Path(__file__).resolve().parents[1]
 
 
 class VoiceTests(unittest.TestCase):
@@ -45,6 +51,19 @@ class VoiceTests(unittest.TestCase):
         d = voice.draft("github", hook="v2.4.1 上 token 计数翻倍")
         self.assertEqual(len(d["drafts"]), 3)
         self.assertTrue(any("v2.4.1" in x["opener"] for x in d["drafts"]))
+
+    def test_draft_cli_prints_platform_length(self):
+        d = voice.draft("github")
+        self.assertTrue(d["length"])
+        self.assertEqual(d["length"], d["drafts"][0]["length"])
+        with tempfile.TemporaryDirectory() as tmp:
+            result = subprocess.run(
+                [sys.executable, str(ROOT / "mkt.py"), "--workspace", tmp, "voice", "draft", "github"],
+                cwd=ROOT, text=True, capture_output=True)
+        self.assertEqual(0, result.returncode,
+                         msg=f"stdout={result.stdout}\nstderr={result.stderr}")
+        self.assertIn("长度：", result.stdout)
+        self.assertIn(d["length"], result.stdout)
 
     def test_render_contains_tone_and_taboos(self):
         md = voice.render("xiaohongshu")

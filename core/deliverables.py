@@ -58,6 +58,11 @@ VAGUE_PHRASES = ("最佳实践", "按计划", "持续优化", "提升效果", "�
 _VAGUE_IDENTIFIER_RE = re.compile(r"[a-z]{2,}")
 _DIGIT_RE = re.compile(r"[0-9]")
 
+# 模板套句：同一段文字被复制到多个槽位，字段非空但每个槽位没有独立信息。
+TEMPLATE_REPEAT_MIN = 3
+# 版本 token：用于核对 business_context_ref 是否固定到工单绑定的版本。
+_VERSION_TOKEN_RE = re.compile(r"\d(?:[\d.\-]*\d)?")
+
 
 class DeliverableError(ValueError):
     pass
@@ -149,6 +154,17 @@ def _mentions(value: Any, needle: str) -> bool:
     return False
 
 
+def _iter_strings(value: Any):
+    if isinstance(value, str):
+        yield value
+    elif isinstance(value, dict):
+        for nested in value.values():
+            yield from _iter_strings(nested)
+    elif isinstance(value, (list, tuple)):
+        for nested in value:
+            yield from _iter_strings(nested)
+
+
 def content_problems(item: Dict[str, Any]) -> Tuple[List[Dict[str, Any]], bool]:
     """内容可用性检查：残留、最小语义段、空泛建议、与工单一致性。
 
@@ -200,6 +216,23 @@ def content_problems(item: Dict[str, Any]) -> Tuple[List[Dict[str, Any]], bool]:
     for slot in required:
         scan(slot, fields.get(slot), prose=slot not in IDENTIFIER_SLOTS)
 
+    # 模板套句：同一段文字复制到多个槽位，逐槽位看都"非空"，但没有独立信息。
+    seen_texts: Dict[str, List[str]] = {}
+    for slot in required:
+        if slot in IDENTIFIER_SLOTS:
+            continue
+        value = fields.get(slot)
+        if not isinstance(value, str) or _visible_len(value) < MIN_SLOT_VISIBLE:
+            continue
+        seen_texts.setdefault(re.sub(r"\s+", "", value), []).append(slot)
+    for slots in seen_texts.values():
+        if len(slots) >= TEMPLATE_REPEAT_MIN:
+            problems.append({
+                "field": "，".join(slots),
+                "code": "TEMPLATE_REPEAT",
+                "detail": f"同一段文字被复制到 {len(slots)} 个槽位，属于模板套句：{'、'.join(slots[:6])}",
+            })
+
     order = None
     try:
         from .work import WorkStore
@@ -218,6 +251,15 @@ def content_problems(item: Dict[str, Any]) -> Tuple[List[Dict[str, Any]], bool]:
     if context_id and not _mentions(fields.get("business_context_ref"), context_id):
         problems.append({"field": "business_context_ref", "code": "WRONG_FACTS",
                          "detail": f"未引用工单绑定的产品事实包 {context_id}"})
+    context_version = str((order.get("context_ref") or {}).get("version") or "").strip()
+    if (context_id and context_version
+            and _mentions(fields.get("business_context_ref"), context_id)):
+        tokens = {match.group(0)
+                  for text in _iter_strings(fields.get("business_context_ref"))
+                  for match in _VERSION_TOKEN_RE.finditer(text)}
+        if context_version not in tokens:
+            problems.append({"field": "business_context_ref", "code": "STALE_REF",
+                             "detail": f"未标注或标错产品事实包版本，应为 v{context_version}"})
     receiver_id = (order.get("receiver") or {}).get("actor_id")
     if receiver_id and not _mentions(fields.get("receiver"), receiver_id):
         problems.append({"field": "receiver", "code": "WRONG_AUDIENCE",

@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from .event_store import EventStore
-from .work import WorkStore
+from .work import WorkStore, sop_capability_errors
 
 
 class SOPError(ValueError):
@@ -158,6 +158,9 @@ class SOPRunStore:
             raise SOPError(f"WorkOrder 已有未结束 SOP run: {work_order_id}")
         ref = order["sop_version_ref"]
         sop = SOPRegistry(self.data_dir).get(ref["sop_id"], ref["version"])
+        binding_errors = sop_capability_errors(order, sop)
+        if binding_errors:
+            raise SOPError("；".join(binding_errors))
         run_id = f"run-{work_order_id}-{len(self.list()) + 1:04d}"
         steps = {}
         for index, step in enumerate(sop["steps"]):

@@ -27,6 +27,21 @@ def _ref_ok(ref: Any, *keys: str) -> bool:
     return isinstance(ref, dict) and all(_text(ref.get(key)) for key in keys)
 
 
+WORK_ORDER_FIELDS = {
+    "schema_version", "kind", "work_order_id", "workstream_id", "objective_ref",
+    "title", "trigger", "business_purpose", "context_ref", "subject_refs", "scope",
+    "capability_id", "role_family", "collaborating_role_families", "input_bindings",
+    "sop_version_ref", "dependencies", "depends_on", "deliverable_specs", "owner",
+    "receiver", "schedule", "budget", "risk_class", "permission_ref",
+    "result_metric_refs", "process_metric_refs", "guardrail_metric_refs",
+    "stop_rollback", "observation_plan", "due",
+}
+
+
+def _due_value(order: Dict[str, Any]) -> str:
+    return _text(order.get("due") or (order.get("schedule") or {}).get("due"))
+
+
 def lint_context(snapshot: Dict[str, Any]) -> List[str]:
     errors: List[str] = []
     for key in ("context_id", "version", "source", "approved_by", "content_sha256"):
@@ -54,6 +69,42 @@ def lint_context(snapshot: Dict[str, Any]) -> List[str]:
     for key in ("value_event_definitions", "non_goals"):
         if not isinstance(snapshot.get(key), list) or not snapshot.get(key):
             errors.append(f"context.{key} 必须是非空数组")
+    claims = snapshot.get("claims")
+    if not isinstance(claims, list) or not claims:
+        errors.append("context.claims 必须是非空数组：每条结论写 claim_id、statement、status、evidence_refs")
+        claims = []
+    statuses = ("evidence_supported", "hypothesis", "insufficient_evidence")
+    seen_claims = set()
+    for index, claim in enumerate(claims):
+        if not isinstance(claim, dict):
+            errors.append(f"context.claims[{index}] 必须是对象")
+            continue
+        claim_id = _text(claim.get("claim_id"))
+        label = claim_id or f"claims[{index}]"
+        if not claim_id:
+            errors.append(f"context.claims[{index}] 缺 claim_id")
+        elif claim_id in seen_claims:
+            errors.append(f"context.claims claim_id 重复: {claim_id}")
+        else:
+            seen_claims.add(claim_id)
+        if len(_text(claim.get("statement"))) < 8:
+            errors.append(f"context.{label}.statement 至少 8 个字，写清结论本身")
+        status = claim.get("status")
+        if status not in statuses:
+            errors.append(f"context.{label}.status 必须是 " + "/".join(statuses))
+        refs = claim.get("evidence_refs")
+        if not isinstance(refs, list):
+            errors.append(f"context.{label}.evidence_refs 必须是数组")
+            refs = []
+        if status == "hypothesis":
+            if claim.get("assumption") is not True:
+                errors.append(f"context.{label} 是 hypothesis，必须显式写 assumption: true")
+        elif status in ("evidence_supported", "insufficient_evidence") and not refs:
+            errors.append(f"context.{label} 状态 {status} 至少要一条 evidence_refs")
+        for ref_index, ref in enumerate(refs):
+            if (not isinstance(ref, dict) or not _text(ref.get("evidence_id"))
+                    or not _text(ref.get("source"))):
+                errors.append(f"context.{label}.evidence_refs[{ref_index}] 需要 evidence_id 和 source")
     return errors
 
 
@@ -132,7 +183,31 @@ class ObjectiveStore:
         return rows[-1]
 
 
-def lint_work_order(order: Dict[str, Any]) -> List[str]:
+def sop_capability_errors(order: Dict[str, Any], sop: Dict[str, Any]) -> List[str]:
+    """工单的 SOP 必须属于同一能力域，否则步骤产物与审阅岗位对不上。"""
+    capability_id = _text(order.get("capability_id"))
+    sop_capability = _text(sop.get("capability_id"))
+    if capability_id == sop_capability:
+        return []
+    return [f"capability_id 是 {capability_id or '空'}，SOP {sop.get('sop_id')} 属于 "
+            f"{sop_capability or '未知'}：换成 {capability_id or '该能力域'} 的 SOP，"
+            f"或把 capability_id 改成 {sop_capability or 'SOP 对应能力域'}"]
+
+
+def lint_sop_binding(order: Dict[str, Any], sop_registry: Any) -> List[str]:
+    """在已加载的 SOP 注册表里核对工单绑定的 SOP 版本与能力域。"""
+    ref = order.get("sop_version_ref") or {}
+    if not _ref_ok(ref, "sop_id", "version"):
+        return []
+    sop_id, version = _text(ref["sop_id"]), _text(ref["version"])
+    matches = [s for s in sop_registry.list()
+               if s.get("sop_id") == sop_id and s.get("version") == version]
+    if not matches:
+        return [f"找不到 SOP {sop_id}@{version}：先 mkt sop list 确认可用版本"]
+    return sop_capability_errors(order, matches[-1])
+
+
+def lint_work_order(order: Dict[str, Any], *, sop_registry: Any = None) -> List[str]:
     errors: List[str] = []
     for key in ("work_order_id", "title", "business_purpose", "capability_id", "role_family"):
         if not _text(order.get(key)):
@@ -143,6 +218,17 @@ def lint_work_order(order: Dict[str, Any]) -> List[str]:
         errors.append("context_ref 必须固定 context_id/version")
     if not _ref_ok(order.get("sop_version_ref"), "sop_id", "version"):
         errors.append("sop_version_ref 必须固定 sop_id/version")
+    if not _due_value(order):
+        errors.append("缺 due：在 schedule.due 写截止时间，或显式写 not_applicable")
+    depends_on = order.get("depends_on")
+    if depends_on != "not_applicable":
+        if not isinstance(depends_on, list) or not depends_on:
+            errors.append("depends_on 必须是 work_order_id 数组，或显式写 not_applicable")
+        else:
+            for index, dep in enumerate(depends_on):
+                dep_id = dep if isinstance(dep, str) else (dep.get("work_order_id") if isinstance(dep, dict) else "")
+                if not _text(dep_id):
+                    errors.append(f"depends_on[{index}] 必须是 work_order_id 字符串或带 work_order_id 的对象")
     owner = order.get("owner") or {}
     receiver = order.get("receiver") or {}
     if not _text(owner.get("actor_id")):
@@ -186,6 +272,8 @@ def lint_work_order(order: Dict[str, Any]) -> List[str]:
             errors.append("role_family 不属于指定 capability_id")
     except (ImportError, KeyError, ValueError) as exc:
         errors.append(f"能力 / 岗位引用无效: {exc}")
+    if sop_registry is not None:
+        errors.extend(lint_sop_binding(order, sop_registry))
     return errors
 
 
@@ -234,6 +322,32 @@ class WorkStore:
         self.events.append("updated", work_order_id, {"work_order": snapshot}, by=by)
         return self.get(work_order_id)
 
+    def update(self, work_order_id: str, patch: Dict[str, Any], *, by: str) -> Dict[str, Any]:
+        current = self.get(work_order_id)
+        if current["state"] not in ("draft", "blocked"):
+            raise WorkError("只有 draft/blocked WorkOrder 可局部更新；运行中应创建新修订流程")
+        if not isinstance(patch, dict) or not patch:
+            raise WorkError("update 需要非空对象：只写要改的字段")
+        reserved = sorted({"state", "revision"} & set(patch))
+        if reserved:
+            raise WorkError("以下字段由状态迁移维护，不能在 update 里改: " + "、".join(reserved))
+        allowed = set(current) | WORK_ORDER_FIELDS
+        unknown = sorted(set(patch) - allowed)
+        if unknown:
+            raise WorkError("未知字段: " + "、".join(unknown)
+                            + "；允许字段: " + "、".join(sorted(allowed)))
+        snapshot = copy.deepcopy(current)
+        merged = copy.deepcopy(patch)
+        for key, value in merged.items():
+            if isinstance(value, dict) and isinstance(snapshot.get(key), dict):
+                snapshot[key] = {**snapshot[key], **value}
+            else:
+                snapshot[key] = value
+        snapshot["work_order_id"] = work_order_id
+        snapshot["revision"] = int(current.get("revision", 1)) + 1
+        self.events.append("updated", work_order_id, {"work_order": snapshot}, by=by)
+        return self.get(work_order_id)
+
     def list(self) -> List[Dict[str, Any]]:
         ids: List[str] = []
         for event in self.events.all():
@@ -252,7 +366,8 @@ class WorkStore:
         return self._project(work_order_id)
 
     def lint(self, work_order_id: str) -> List[str]:
-        return lint_work_order(self.get(work_order_id))
+        from .sop import SOPRegistry
+        return lint_work_order(self.get(work_order_id), sop_registry=SOPRegistry(self.data_dir))
 
     def _set_state(self, work_order_id: str, state: str, *, by: str, reason: str = "") -> Dict[str, Any]:
         self.events.append("state_changed", work_order_id,
@@ -276,10 +391,12 @@ class WorkStore:
             ObjectiveStore(self.data_dir).get(oref.get("objective_id", ""), oref.get("version"))
             sref = order.get("sop_version_ref", {})
             from .sop import SOPRegistry
-            SOPRegistry(self.data_dir).get(sref.get("sop_id", ""), sref.get("version"))
+            sop = SOPRegistry(self.data_dir).get(sref.get("sop_id", ""), sref.get("version"))
+            errors.extend(sop_capability_errors(order, sop))
         except (WorkError, KeyError, ValueError) as exc:
             errors.append(str(exc))
-        for dependency in order.get("dependencies") or []:
+        for dependency in list(order.get("dependencies") or []) + (
+                order.get("depends_on") if isinstance(order.get("depends_on"), list) else []):
             dep_id = dependency if isinstance(dependency, str) else dependency.get("work_order_id", "")
             try:
                 dep = self.get(dep_id)
@@ -320,5 +437,7 @@ class WorkStore:
     def next_actions(self) -> List[Dict[str, Any]]:
         attention = {"blocked": 0, "review": 1, "ready": 2, "running": 3}
         rows = [r for r in self.list() if r["state"] in attention]
-        rows.sort(key=lambda r: (attention[r["state"]], (r.get("schedule") or {}).get("due", "9999"), r["work_order_id"]))
+        rows.sort(key=lambda r: (attention[r["state"]],
+                                 "9999" if _due_value(r) in ("", "not_applicable") else _due_value(r),
+                                 r["work_order_id"]))
         return rows

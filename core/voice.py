@@ -553,7 +553,7 @@ def draft(pid: str, *, hook: str = "", what: str = "", ask: str = "") -> Dict[st
             text = text.replace("<判断>", ask)
         out.append({"opener": text, "tone": v["tone"], "length": v["length"]})
     return {"platform": pid, "tone": v["tone"], "sentences": v["sentences"],
-            "drafts": out, "taboos": v["taboos"], "memes": v["memes"]}
+            "length": v["length"], "drafts": out, "taboos": v["taboos"], "memes": v["memes"]}
 
 
 # 全局营销腔：任何平台出现这些词都判失败

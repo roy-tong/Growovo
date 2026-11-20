@@ -35,7 +35,13 @@ class GTMOSCLICase(unittest.TestCase):
         return {"context_id": "ctx-example-product", "version": "2026-11-04.1",
                 "source": {"kind": "user_declared", "ref": "fixture"},
                 "value_event_definitions": [{"event": "first_successful_api_call"}],
-                "non_goals": ["no sends"], "approved_by": "human", "content_sha256": "fixture"}
+                "non_goals": ["no sends"],
+                "claims": [{"claim_id": "claim-example-api",
+                            "statement": "示例 API 可被开发者直接调用",
+                            "status": "evidence_supported",
+                            "evidence_refs": [{"evidence_id": "fixture:user-input",
+                                               "source": "fixture:user-input"}]}],
+                "approved_by": "human", "content_sha256": "fixture"}
 
     def objective(self):
         return {"objective_id": "obj-first-success-001", "version": "1",
@@ -53,6 +59,57 @@ class GTMOSCLICase(unittest.TestCase):
         ])
         result = self.cli("metric", "measure", "--metric-id", "developer_activation_rate", "--events", events)
         self.assertEqual(1.0, result["value"])
+
+    def count_metric(self, **overrides):
+        metric = {
+            "metric_id": "published_post_count", "version": "1.0.0",
+            "name": "已发布条数", "layer": "process", "subject_type": "post",
+            "numerator": {"event": "post_published", "dedupe_key": "post_id"},
+            "denominator": None, "formula": "numerator_count", "unit": "count",
+            "observation_window": {"value": 7, "unit": "day"},
+            "timezone": "Asia/Shanghai", "source_refs": ["fixture:user-input"],
+            "verification_policy": "receipt_required", "owner_id": "human",
+        }
+        metric.update(overrides)
+        return metric
+
+    def test_metric_register_count_needs_explicit_flag(self):
+        path = self.write("metric.json", self.count_metric())
+        result = subprocess.run(
+            [sys.executable, str(ROOT / "mkt.py"), "--workspace", str(self.data),
+             "metric", "register", "--file", path],
+            cwd=ROOT, text=True, capture_output=True)
+        self.assertEqual(2, result.returncode)
+        self.assertIn("--count", result.stderr)
+
+    def test_metric_register_count_measures_numerator(self):
+        registered = self.cli("metric", "register", "--by", "human", "--count",
+                              "--file", self.write("metric.json", self.count_metric()))
+        self.assertEqual("numerator_count", registered["formula"])
+        self.assertNotIn("denominator", registered)
+        events = self.write("events.json", [
+            {"event_type": "post_published", "post_id": "p1"},
+            {"event_type": "post_published", "post_id": "p2"},
+            {"event_type": "post_published", "post_id": "p2"},
+        ])
+        result = self.cli("metric", "measure", "--metric-id", "published_post_count",
+                          "--version", "1.0.0", "--events", events)
+        self.assertEqual(2, result["numerator"])
+        self.assertIsNone(result["denominator"])
+        self.assertEqual(2, result["value"])
+        self.assertEqual("numerator_count", result["formula"])
+
+    def test_metric_register_count_rejects_denominator(self):
+        metric = self.count_metric(
+            formula="numerator_count / denominator_count",
+            denominator={"event": "post_eligible", "dedupe_key": "post_id"})
+        result = subprocess.run(
+            [sys.executable, str(ROOT / "mkt.py"), "--workspace", str(self.data),
+             "metric", "register", "--count",
+             "--file", self.write("metric.json", metric)],
+            cwd=ROOT, text=True, capture_output=True)
+        self.assertEqual(2, result.returncode)
+        self.assertIn("denominator", result.stderr)
 
     def test_orchestrate_cli_selects_minimum_team_and_expression(self):
         product = self.write("product.json", {"product_type": "devtool", "name": "API X"})

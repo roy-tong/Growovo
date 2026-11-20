@@ -1,6 +1,6 @@
 # Growovo: implementation status
 
-**Release update, 2026-11-20 · [v0.16.0](../CHANGELOG.md).** The content check rejects placeholders and drafts that miss required audience or product facts before handoff. Human review still decides whether a draft is fit to send. An uncertain SMTP receipt halts the batch for reconciliation.
+**Release update, 2026-11-20 · [v0.16.2](../CHANGELOG.md).** The content check rejects placeholders and drafts that miss required audience or product facts before handoff. Human review still decides whether a draft is fit to send. An uncertain SMTP receipt halts the batch for reconciliation. Refusals now carry one of seven shared error families with what is missing, the impact, the legal next action and an example; `queue run` exits 2 on a business refusal (3 still means an unknown external submission).
 
 Earlier baseline reviewed 2026-11-18. **Baseline on that date: v0.15.0 (delivery golden chain, platform strategy layer and grow v2).** Available means local implementation and local tests, not production validation on every platform or proof of business outcomes.
 
@@ -8,12 +8,20 @@ Earlier baseline reviewed 2026-11-18. **Baseline on that date: v0.15.0 (delivery
 
 ## Verification snapshot
 
-- `python3 -m pytest tests/`: **1590 tests pass** (`unittest discover` covers the same set).
+- `python3 -m pytest tests/`: **1828 tests pass** (`unittest discover` covers the same set).
 - `python3 mkt.py demo`: plan validation, human approval, one successful offline delivery, three blocked samples and the daily result card pass.
 - `python3 mkt.py work-demo`: context → objective → WorkOrder → SOP → accepted deliverables → receiver handoff → approved plan/queue → independent KPI observation passes; no queue execution or send ledger.
 - v0.15.0 wheel acceptance runs outside the source checkout, covering packaged experience records, target management, goal compilation and scheduler workspace binding.
 - Grow v2: launch → stage → tick (virtual clock, 7/14-day simulations) → daily → decide → weekly report → install; zero real sends.
 - Real CLI checks also cover email queue approval and dry-run, X reply queue contract, manual work sheets, campaign isolation, opportunity discovery, value artifacts, journeys, account lifecycle and pricing experiments. No real account sends in tests.
+
+## Operation contract (2026-11-20)
+
+| Area | Local implementation | Verification and remaining boundary |
+|---|---|---|
+| Error semantics | `core/error_semantics.py` maps internal exceptions to seven user-facing families (NEEDS_USER_INPUT, UNSUPPORTED_CAPABILITY, INVALID_INPUT, PERMISSION_DENIED, SAFETY_BLOCKED, STALE_OR_CONFLICT, CONTRACT_ERROR). A `SemanticError` carries what is missing, its impact, the legal next action and a copyable example; `GROWOVO_ERROR_JSON=1` prints the same payload as JSON. Business refusals exit 2; a truly indeterminate external submission still exits 3. See [error-semantics.md](error-semantics.md). | The families are shared vocabulary with Verovo, not a shared database or verdict. `tests/test_cli_contract.py` freezes the seven families, the missing-argument payload and the exit-code split; Askovo does not import this module this round. |
+| `--out` and queue contract | `queue build/run/lint`, `campaign` and `review` resolve `--out` and print the rule ("relative paths resolve under the workspace `data/`"), return absolute paths, and refuse missing arguments with the structured error instead of a traceback. `queue run` now exits 2 on a business refusal (previously 1); exit 3 remains reserved for unknown external submission. | Path rule and exit-code change are covered by `tests/test_cli_contract.py`; existing queue tests assert the same codes. Logs and receipts are untouched. |
+| SOP coverage visibility | `mkt sop coverage`, `mkt sop list` and `mkt capability lint` print `SOP 覆盖 N/18 个能力域有可执行 SOP (未覆盖 …)`. | Coverage is a count of executable SOPs, not proof that each capability works in a real account. `mkt sop coverage` currently reports 1/18; the remaining 17 are named in the output. |
 
 ## Platform strategy layer (2026-11-17 harvest)
 
@@ -26,7 +34,7 @@ Earlier baseline reviewed 2026-11-18. **Baseline on that date: v0.15.0 (delivery
 | Email channel | `attachments` (pre-flight existence/empty check, MIME by extension, queue-relative paths), `MKT_EMAIL_SOCKS` (validated `host:port`, clear PySocks error) and `MKT_EMAIL_TIMEOUT`; `build_message` uses `EmailMessage` because `MIMEText.add_attachment` does not exist. A post-submit exception is `indeterminate`: the batch halts, `mkt email`/`mkt queue run` exit 3, the target enters the no-retry list and only `mkt ledger resolve` re-enables it. Operation logging lives in `send_queue` (one row per attempt); a failed write leaves `audit-gaps.jsonl` and also exits 3. | Fake-SMTP post-DATA timeout test asserts one send, zero follow-ups and no auto-retry; no live SMTP send in tests. Live credentials and proxy remain environment facts, not product guarantees. |
 | CLI/MCP | `mkt strategy card|cards|validate`, `mkt content plan --cadence`, read-only `mkt_platform_strategy`. | Read-only surfaces; no new write path, approval or policy scope. |
 | Platform permission | `core/platform_compliance.py` separates autonomous X writes from one user-visible CDP action. Routine/non-API autonomous writes remain refused. A non-routine `--go` publish/reply may use `user_visible_cdp` only with a fresh `cdp_observed` identity (any currently logged-in account, never caller-declared), followed by the existing plan/adhoc approval, pause, suppression, quota, idempotency and receipt gates. `platform_caps.classify` exposes both `policy.autonomous_write=false` and `policy.user_visible_cdp_write=true`. | Offline tests cover complete/missing identity, action scope and vendor reachability. This route does not claim X approval or freedom from account enforcement; message/engage and standing CDP automation stay outside it. No live external write was performed in this test round. |
-| Verovo evidence handoff | `mkt grow handoff-verovo RUN --out NEW_FILE` exports matching operations, product events/qualifications, Askovo context snapshots and the outcome projection with a SHA-256 body fingerprint. It refuses an empty run and never overwrites an existing file. | Synthetic cross-product import and tamper-refusal tests pass. The handoff is evidence-only, not canonical finance, supplier acceptance, observed revenue or payment authorization. |
+| Verovo evidence handoff | `mkt grow handoff-verovo RUN --out NEW_FILE` exports matching operations, product events/qualifications, Askovo context snapshots and the outcome projection with a SHA-256 body fingerprint. The body now also carries a `premises` block (source objects and versions, scope, does-not-cover, assumptions, limits, manual review state, evidence refs) inside the same fingerprint. It refuses an empty run and never overwrites an existing file. | Synthetic cross-product import and tamper-refusal tests pass, including premises tampering and old handoffs without premises. The handoff is evidence-only, not canonical finance, supplier acceptance, observed revenue or payment authorization; premises do not upgrade an evidence grade. |
 
 ## Golden chain preparation (2026-11-17, review 后续优化评审 P0/P2)
 

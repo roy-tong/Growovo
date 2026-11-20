@@ -34,6 +34,19 @@ class EditorialReviewTests(unittest.TestCase):
         r=completed();r['checks'][0]['quote']='不在正文';r['outline'].pop()
         codes={e['code'] for e in er.validate('blog',TEXT,r)['errors']}
         self.assertTrue({'untraceable_quote','outline_coverage'} <= codes)
+    def test_outline_accepts_heading_without_markers_and_first_sentence(self):
+        r=completed()
+        r['outline']=[{'opening':'标题','role':'先立题。'},
+                      {'opening':'去看同一用户的后续记录','role':'提出验证动作。'}]
+        res=er.validate('blog',TEXT,r)
+        self.assertTrue(res['ok'],res)
+    def test_outline_reports_off_topic_and_out_of_order_sections(self):
+        r=completed()
+        r['outline']=[{'opening':'不存在的第三节','role':'跑题。'},
+                      {'opening':'## 判断','role':'判断。'},
+                      {'opening':'标题','role':'倒序。'}]
+        codes={e['code'] for e in er.validate('blog',TEXT,r)['errors']}
+        self.assertTrue({'outline_off_topic','outline_order','outline_coverage'} <= codes,codes)
     def test_cross_population_ratio_rejected(self):
         r=completed();r['claims']=[{'quote':'买过不等于持续使用。','kind':'conversion',
             'source':'研究表','inference':'不同评论相除','linked_cohort':False,

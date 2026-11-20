@@ -19,6 +19,12 @@ from . import operations_log, outcome_layers
 from .work import ContextStore
 
 SCHEMA = "growovo.verovo-handoff/1"
+PREMISES_SCHEMA = "growovo.handoff-premises/1"
+PREMISES_BOUNDARY = (
+    "Premises travel with the package so the receiver can see the source "
+    "objects, version, scope, assumptions and limits. They do not upgrade "
+    "evidence grade: the receiver must re-check them against its own "
+    "canonical sources before any booking or acceptance.")
 
 
 class HandoffError(ValueError):
@@ -33,6 +39,67 @@ def _fingerprint(payload: Dict[str, Any]) -> str:
     raw = json.dumps(payload, ensure_ascii=False, sort_keys=True,
                      separators=(",", ":")).encode("utf-8")
     return hashlib.sha256(raw).hexdigest()
+
+
+def _premises(run_id: str, operations, events, contexts) -> Dict[str, Any]:
+    channels = sorted({_text(row.get("channel")) for row in operations
+                       if _text(row.get("channel"))})
+    evidence_refs = []
+    for row in operations:
+        ref = _text(row.get("operation_id"))
+        if ref:
+            evidence_refs.append({"kind": "operation", "id": ref,
+                                  "content_sha256": _text(row.get("content_sha256")) or None})
+    for row in events:
+        ref = _text(row.get("event_id"))
+        if ref:
+            evidence_refs.append({"kind": "product_event", "id": ref,
+                                  "content_sha256": _text(row.get("content_sha256")) or None})
+    for row in contexts:
+        ref = _text(row.get("context_id"))
+        if ref:
+            evidence_refs.append({"kind": "askovo_context", "id": ref,
+                                  "version": row.get("version"),
+                                  "content_sha256": row.get("content_sha256")})
+    assumptions = [
+        "product events are source-declared by the product owner; Growovo does not verify them independently",
+        "a committed operation records what the channel returned, not delivery acceptance or conversion",
+    ]
+    if contexts:
+        assumptions.append(
+            "askovo context binding is a workspace snapshot, not proof that this run used that version")
+    return {
+        "schema": PREMISES_SCHEMA,
+        "source_objects": {
+            "run_id": run_id,
+            "campaign": run_id,
+            "operations": len(operations),
+            "business_events": len(events),
+            "contexts": [{"context_id": row.get("context_id"),
+                          "version": row.get("version"),
+                          "content_sha256": row.get("content_sha256")}
+                         for row in contexts],
+        },
+        "version": {"handoff_schema": SCHEMA, "premises_schema": PREMISES_SCHEMA},
+        "scope": {
+            "run_or_campaign": run_id,
+            "channels": channels,
+            "covers": ("action and receipt facts recorded in this workspace for "
+                       "the run, plus source-declared product events"),
+            "does_not_cover": ("delivery acceptance, booked revenue, payment "
+                               "authorization, supplier performance, externally "
+                               "observed growth"),
+        },
+        "assumptions": assumptions,
+        "limits": [
+            "evidence grade is preserved from the source and not re-derived here",
+            "no charge, booking or revenue fact is implied by this package",
+        ],
+        "manual_status": {"state": "not_reviewed",
+                          "note": "no human review is recorded in this export"},
+        "evidence_refs": evidence_refs,
+        "boundary": PREMISES_BOUNDARY,
+    }
 
 
 def build_handoff(data_dir, run_id: str) -> Dict[str, Any]:
@@ -65,6 +132,7 @@ def build_handoff(data_dir, run_id: str) -> Dict[str, Any]:
                                         for event in events)],
         "outcome_projection": outcome_layers.layer_summary(data_dir, run_id=run_id),
         "askovo_contexts": contexts,
+        "premises": _premises(run_id, operations, events, contexts),
         "evidence_grade": "preserves_source_grades_not_live_proof",
         "external_action_executed_by_export": False,
         "booking_status": "evidence_only_not_canonical",

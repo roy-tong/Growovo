@@ -45,7 +45,13 @@ class ContentTrustGateCase(unittest.TestCase):
             "context_id": "ctx-example-product", "version": "2026-11-04.1",
             "source": {"kind": "user_declared", "ref": "gate:user-input"},
             "value_event_definitions": [{"event": "first_successful_api_call"}],
-            "non_goals": ["不自动发布"], "approved_by": "gate-human",
+            "non_goals": ["不自动发布"],
+            "claims": [{"claim_id": "claim-example-api",
+                        "statement": "示例 API 可被开发者直接调用",
+                        "status": "evidence_supported",
+                        "evidence_refs": [{"evidence_id": "fixture:user-input",
+                                           "source": "fixture:user-input"}]}],
+            "approved_by": "gate-human",
             "content_sha256": "gate-context-sha",
         }
         ContextStore(self.data).import_snapshot(context, by="gate-human")
