@@ -1586,19 +1586,16 @@ def cmd_grow(args):
 
     if act == "platforms":
         from core import platform_caps
-        print("第一期自动执行平台（技术可执行 ≠ 平台许可）：")
+        print("第一期可自主执行的平台（技术可执行，且平台许可允许自主）：")
         for row in platform_caps.matrix():
             if row["tier"] != platform_caps.AUTO:
                 continue
             write = row.get("write") or []
-            policy = row.get("policy") or {}
-            allowed = policy.get("autonomous_write", True)
-            mark = "✅" if allowed else "⛔"
-            note = "" if allowed else (
-                "｜平台许可：禁止自主写（只读/人工；接官方 API 并授权后才放行）")
-            print(f"  {mark} {row['platform']:<12} {row['status']:<8} "
-                  f"动作 {'/'.join(write[1:]) or '—'}｜{row['reason']}{note}")
-        print("\n需人工首跑解锁（不纳入第一期承诺）：")
+            if not row.get("autonomous", True):
+                continue
+            print(f"  ✅ {row['platform']:<12} {row['status']:<8} "
+                  f"动作 {'/'.join(write[1:]) or '—'}｜{row['reason']}")
+        print("\n需人工执行 / 首跑解锁（不纳入第一期自主承诺）：")
         for row in platform_caps.matrix():
             if row["tier"] != platform_caps.GATED:
                 continue
@@ -2010,10 +2007,10 @@ def cmd_grow(args):
     if act == "start" and not getattr(args, "id", ""):
         # G-05 九步向导：不带 run id 的 mkt grow start；只建计划，不 Arming。
         from core import grow_runbook as rb
-        channels = [c.strip() for c in (args.channels or "x").split(",")
+        channels = [c.strip() for c in (args.channels or "email").split(",")
                     if c.strip()]
         actions = [a.strip() for a in
-                   (getattr(args, "wizard_action", "") or "reply").split(",")
+                   (getattr(args, "wizard_action", "") or "message").split(",")
                    if a.strip()]
         plan = rb.build_start_plan(
             DATA, facts_path=args.facts, goal_id=args.goal,
@@ -2080,7 +2077,7 @@ def cmd_grow(args):
         channels = [c.strip() for c in (args.channels or "x,email").split(",") if c.strip()]
         actions = [a.strip() for a in (getattr(args, "actions", "") or "").split(",") if a.strip()]
         probe = None
-        if not getattr(args, "skip_probe", False):
+        if "x" in channels and not getattr(args, "skip_probe", False):
             def probe(spec):
                 from core.session_gate import CDP_UNAVAILABLE, LOGGED_OUT, check_login
                 login = check_login("x")
@@ -2115,8 +2112,12 @@ def cmd_grow(args):
                 print(procurement.render(payload))
             return 2
         run = result["run"]
-        print(f"闭环已启动：{run['id']}（{run['started']} 起，自动执行渠道 "
-              f"{'、'.join(run['channels'])}）")
+        strategy = run.get("strategy") or {}
+        auto = strategy.get("autonomous_channels") or []
+        assisted = strategy.get("assisted_channels") or []
+        print(f"闭环已启动：{run['id']}（{run['started']} 起，计划渠道 "
+              f"{'、'.join(run['channels'])}；自主执行 {'、'.join(auto) or '无'}；"
+              f"人工辅助 {'、'.join(assisted) or '无'}）")
         for line in result["summary"]:
             print(f"  {line}")
         for warn in result.get("warnings") or []:
@@ -4176,7 +4177,8 @@ def cmd_queue(args):
         try:
             results = run_queue(args.path, data_dir=DATA, go=args.go,
                                 allow_unverified=args.allow_unverified,
-                                only=args.only, routine=args.routine)
+                                only=args.only, routine=args.routine,
+                                resume_batch=getattr(args, "resume_batch", False))
         except QueueRunError as exc:
             raise SystemExit(f"队列拒跑：{exc}")
         tally = {}
@@ -4515,12 +4517,17 @@ def cmd_email(args):
         email_cdp.bounces()
         return 0
     # 写动作统一走 SMTP 队列（publish/reply/message 同一管道，campaign 区分）
-    from channels.email_smtp import send_queue
-    res = send_queue(args.queue, go=args.go, adhoc=args.adhoc, only=args.only,
-                     campaign=args.campaign, data_dir=DATA,
-                     ledger=_ledger(), throttle=_throttle(),
-                     operator="mkt:email",
-                     run_id=str(getattr(args, "run_id", "") or ""))
+    from channels.email_smtp import BatchBlocked, send_queue
+    try:
+        res = send_queue(args.queue, go=args.go, adhoc=args.adhoc, only=args.only,
+                         campaign=args.campaign, data_dir=DATA,
+                         ledger=_ledger(), throttle=_throttle(),
+                         operator="mkt:email",
+                         resume_batch=bool(getattr(args, "resume_batch", False)),
+                         run_id=str(getattr(args, "run_id", "") or ""))
+    except BatchBlocked as exc:
+        print(str(exc), file=sys.stderr)
+        return 3
     indeterminate = [r for r in res if r.get("result") == "indeterminate"]
     failed = [r for r in res if r.get("result") in ("failed", "rejected")]
     gaps = [r for r in res if r.get("audit_gap")]
@@ -5309,6 +5316,8 @@ def build_parser():
     sp.add_argument("--only", help="run：只跑指定 id/target")
     sp.add_argument("--allow-unverified", dest="allow_unverified", action="store_true",
                     help="run：UNVERIFIED 渠道实跑（首跑人工在场）")
+    sp.add_argument("--resume-batch", dest="resume_batch", action="store_true",
+                    help="run：人工核实上一批的未知回执/审计缺口后，清除批次阻塞标记继续")
     sp.set_defaults(fn=cmd_queue)
 
     sp = sub.add_parser("action", help="单条写动作（与队列同一套门禁/审批/账本）")
@@ -5998,8 +6007,8 @@ def build_parser():
     a.add_argument("--owner", default=""); a.add_argument("--on", default="")
     a.add_argument("--go", action="store_true", help="建完直接开实跑（默认 dry-run）")
     a.add_argument("--run-id", default="", help="向导建的 run id（默认按产品名+日期）")
-    a.add_argument("--action", dest="wizard_action", default="reply",
-                   help="向导的主渠道动作（默认 reply）")
+    a.add_argument("--action", dest="wizard_action", default="message",
+                   help="向导的主渠道动作（默认 message）")
     a.add_argument("--account", default="", help="授权账号 id（账号健康/身份检查）")
     a.add_argument("--handle", default="", help="X handle（读数）")
     a.add_argument("--audience", default="us-west")
@@ -6485,6 +6494,8 @@ def build_parser():
     sp.add_argument("--campaign")
     sp.add_argument("--adhoc", action="store_true",
                        help="实跑无 plan 管辖时的显式放行（账本记 adhoc=true）")
+    sp.add_argument("--resume-batch", dest="resume_batch", action="store_true",
+                    help="人工核实上一批的未知回执/审计缺口后，清除批次阻塞标记继续")
     sp.set_defaults(fn=cmd_email)
 
     sp = sub.add_parser("reddit", help="Reddit 渠道（UNVERIFIED）")

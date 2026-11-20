@@ -155,7 +155,7 @@ class GrowRunV2:
         spec["facts_ref"] = str(facts_file)
 
         missing = cls._missing_policy(data_dir, spec["actions"])
-        warnings: List[str] = []
+        warnings: List[str] = list(spec.get("warnings") or [])
         if missing:
             raise GrowError(
                 "常驻授权未覆盖本 run 的动作：" + "、".join(missing)
@@ -187,9 +187,16 @@ class GrowRunV2:
                     f"{health.get('score')}）：只能 dry-run，先把账号修到 eligible")
             spec["guards"]["account_health"] = health
 
-        # 环境探针：默认要做；失败直接拒绝启动，避免「第一次 tick 才发现通道不可用」
+        # 环境探针：有 X 渠道时默认要做；失败直接拒绝启动，避免「第一次 tick
+        # 才发现通道不可用」。纯邮件计划不做 X 探针（SMTP 由 doctor 检查）。
         probe_result: Dict[str, Any] = {}
-        if not skip_probe:
+        wants_x = "x" in (spec.get("channels") or [])
+        if skip_probe:
+            warnings.append("已跳过环境探针：第一次实跑前请先 `mkt grow doctor`")
+        elif not wants_x:
+            warnings.append("本 run 没有 X 渠道：跳过 X 环境探针；"
+                            "邮件通道请先 `mkt grow doctor` 确认 SMTP 配置")
+        else:
             if probe is None:
                 raise GrowError(
                     "启动预检需要环境探针（CDP 可达并能读到粉丝数）。"
@@ -201,8 +208,6 @@ class GrowRunV2:
                     f"环境探针失败：{exc}\n修好通道后重试，或加 --skip-probe 只建计划") from exc
             if not isinstance(probe_result, dict):
                 probe_result = {}
-        else:
-            warnings.append("已跳过环境探针：第一次实跑前请先 `mkt grow doctor`")
 
         followers = probe_result.get("followers")
         if isinstance(followers, int):

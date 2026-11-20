@@ -59,12 +59,14 @@ def rejection_kind(rec) -> str:
 def run_queue(queue_path, *, data_dir=None, go=False, allow_unverified=False,
               only=None, only_ids=None, log=print, routine=False, account=None,
               continue_on_duplicate=False, interval_seconds=None, sleeper=None,
-              operator="", run_id=""):
+              operator="", run_id="", resume_batch=False):
     """执行队列，返回逐条记录列表。
 
     account=None 继承队列顶层 account；显式字符串覆盖它。账号范围始终按
     routine policy 精确校验，routine=False 时这些新参数不参与旧审批逻辑。
     operator/run_id 只进操作日志（§4.2），不影响任何门禁。
+    resume_batch 只转给 email 通道：人工裁决上一批未知回执后清除批次阻塞标记；
+    MCP 不暴露它，Agent 不能自行解除人工裁决。
     """
     data = Path(data_dir or resolve())
     queue_path = Path(queue_path)
@@ -92,15 +94,19 @@ def run_queue(queue_path, *, data_dir=None, go=False, allow_unverified=False,
             raise QueueRunError("配额切片为空：选中的条目不在队列里（可能已被账本跳过）")
 
     if channel == "email":
-        from channels.email_smtp import send_queue
+        from channels.email_smtp import BatchBlocked, send_queue
         kwargs = {"go": go, "only": only, "only_ids": only_ids,
                   "campaign": campaign, "data_dir": data, "log": log,
-                  "operator": operator, "run_id": run_id}
+                  "operator": operator, "run_id": run_id,
+                  "resume_batch": resume_batch}
         if routine is True:
             kwargs.update(routine=True, account=account)
         # send_queue 自己写统一操作日志：同一次发送只有一个凭证入口，
         # 这里不再补录（重复记录会让一次动作看起来像两次）。
-        return send_queue(queue_path, **kwargs)
+        try:
+            return send_queue(queue_path, **kwargs)
+        except BatchBlocked as exc:
+            raise QueueRunError("批次拒跑：%s" % exc) from exc
 
     if channel == "x" and action not in ("reply", "publish"):
         raise QueueRunError("x 队列支持 reply / 单条 publish；"

@@ -1,9 +1,11 @@
 """平台自动执行白名单的单元测试。
 
 判定口径以 docs/grow-v2-实现契约.md 第 1 节为准：
-AUTO 必须三件事同时成立（注册表已验证 + 有写原语 + 队列支持该动作），
-第一期 AUTO 集合恰为 {x, email}；GATED 是有写通道但未实测的渠道；
-其余平台一律 MANUAL，未知渠道也不假装支持。
+AUTO 必须四件事同时成立（注册表已验证 + 有写原语 + 队列支持该动作
++ 平台许可允许自主写），第一期 AUTO 集合恰为 {email}；
+技术可用但平台许可禁止自主写的渠道（X）降为 GATED，只出人工辅助；
+GATED 还包括有写通道但未实测的渠道；其余平台一律 MANUAL，
+未知渠道也不假装支持。
 """
 import unittest
 
@@ -12,27 +14,36 @@ from core import platform_caps as caps
 from core.platforms import BY_ID, WRITE
 from core.queue_runner import QUEUE_ACTIONS
 
-REQUIRED_KEYS = {"channel", "status", "tier", "write", "actions", "reason"}
+REQUIRED_KEYS = {"channel", "status", "tier", "technical_tier", "autonomous",
+                 "policy", "write", "actions", "reason"}
 
 
 class AutoChannelTests(unittest.TestCase):
     """第一期能全自动执行的渠道。"""
 
-    def test_auto_channels_exactly_x_and_email(self):
-        # 顺序也要固定：x 在前、email 在后（注册表顺序）
-        self.assertEqual(caps.auto_channels(), ["x", "email"])
+    def test_auto_channels_exactly_email(self):
+        # X 技术可用但平台许可禁止自主写，不在自主白名单里
+        self.assertEqual(caps.auto_channels(), ["email"])
 
-    def test_auto_set_is_exactly_x_email(self):
-        self.assertEqual(set(caps.auto_channels()), {"x", "email"})
+    def test_auto_set_is_exactly_email(self):
+        self.assertEqual(set(caps.auto_channels()), {"email"})
 
     def test_is_auto(self):
-        self.assertTrue(caps.is_auto("x"))
+        self.assertFalse(caps.is_auto("x"))
         self.assertTrue(caps.is_auto("email"))
+
+    def test_x_is_technically_auto_but_license_gated(self):
+        row = caps.classify("x")
+        self.assertEqual(row["technical_tier"], caps.AUTO)
+        self.assertEqual(row["tier"], caps.GATED)
+        self.assertFalse(row["autonomous"])
+        self.assertFalse((row.get("policy") or {}).get("autonomous_write", True))
 
     def test_auto_requires_supported_write_action(self):
         for channel in caps.auto_channels():
             row = caps.classify(channel)
             self.assertEqual(row["tier"], caps.AUTO)
+            self.assertTrue(row["autonomous"])
             self.assertIn(row["status"], {"PROVEN", "PORTED"})
             self.assertIsNotNone(row["write"])
             self.assertIn(row["write"][1], QUEUE_ACTIONS)
@@ -42,14 +53,14 @@ class AutoChannelTests(unittest.TestCase):
 
 
 class GatedChannelTests(unittest.TestCase):
-    """有写通道、但选择器/流程未实测的渠道，必须人工放行。"""
+    """有写通道、但未实测或平台许可禁止自主写的渠道，必须人工放行。"""
 
     def test_gated_contains_expected_channels(self):
         gated = set(caps.gated_channels())
-        self.assertTrue({"github", "reddit", "hn", "linkedin"} <= gated,
+        self.assertTrue({"x", "github", "reddit", "hn", "linkedin"} <= gated,
                         f"gated 集合缺少渠道: {gated}")
 
-    def test_gated_channels_have_write_but_unverified(self):
+    def test_gated_channels_have_write_but_unverified_or_license_gated(self):
         for channel in caps.gated_channels():
             self.assertFalse(caps.is_auto(channel))
         # 判定以平台行为准（hn 的平台 id 是 hackernews）
@@ -57,10 +68,13 @@ class GatedChannelTests(unittest.TestCase):
             if row["tier"] != caps.GATED:
                 continue
             with self.subTest(platform=row["platform"]):
-                self.assertEqual(row["status"], "UNVERIFIED")
                 self.assertIsNotNone(row["write"])
                 self.assertIn(row["write"][1], QUEUE_ACTIONS)
                 self.assertIn(row["platform"], WRITE)
+                license_gated = (row.get("policy") or {}).get("autonomous_write") is False
+                self.assertTrue(
+                    row["status"] == "UNVERIFIED" or license_gated,
+                    f"{row['platform']} 既未实测也未拿到平台许可，不能只标 GATED")
 
     def test_hackernews_platform_is_gated(self):
         # 平台 id 是 hackernews，内核渠道名是 hn
@@ -128,8 +142,12 @@ class AssertAutoTests(unittest.TestCase):
     """assert_auto 是自动执行入口的准入检查。"""
 
     def test_accepts_auto_channels(self):
-        caps.assert_auto(["x", "email"])  # 不抛错即通过
+        caps.assert_auto(["email"])  # 不抛错即通过
         caps.assert_auto([])
+
+    def test_rejects_x_without_license(self):
+        with self.assertRaises(caps.PlatformError):
+            caps.assert_auto(["x"])
 
     def test_rejects_zhihu(self):
         with self.assertRaises(caps.PlatformError):
@@ -137,7 +155,7 @@ class AssertAutoTests(unittest.TestCase):
 
     def test_rejects_mixed_list(self):
         with self.assertRaises(caps.PlatformError):
-            caps.assert_auto(["x", "github", "email"])
+            caps.assert_auto(["email", "github"])
 
     def test_error_is_module_error(self):
         self.assertTrue(issubclass(caps.PlatformError, Exception))

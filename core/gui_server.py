@@ -10,7 +10,9 @@
 - 每次写前校验 object_version（可选 input_fingerprint），写后重新读取核验；
   核验通过才登记回执。版本冲突一律 409，不覆盖别人的修改。
 - 不发送内容、不审批计划、不解除 DNC、不自动重试外部动作。
-- 只绑定 127.0.0.1；POST 需要启动时生成的随机 token。
+- 只绑定 127.0.0.1；POST 需要启动时生成的随机 token（空 token 拒绝启动）。
+- Host/Origin 只接受 127.0.0.1 / localhost / [::1] 与当前端口：监听回环地址
+  不代表请求来自本机页面，DNS rebinding 与跨站写请求一律 403。
 """
 from __future__ import annotations
 
@@ -53,6 +55,10 @@ _POST_ROUTES = {
 }
 _HTTP = {"ok": 200, "conflict": 409, "failed": 422, "invalid": 400,
          "denied": 403, "not_found": 404, "unavailable": 503}
+# G-GUI-01: a loopback bind alone does not prove the request came from a local
+# page. Only these authorities are accepted in Host/Origin; anything else
+# (a DNS-rebinding domain, a LAN address, a cross-site page) is refused.
+_LOCAL_HOSTNAMES = ("127.0.0.1", "localhost", "[::1]")
 
 
 class GuiError(Exception):
@@ -1459,6 +1465,35 @@ class _GuiHandler(BaseHTTPRequestHandler):
 
     # ----- 分发 -----
 
+    def _allowed_authorities(self) -> Tuple[str, ...]:
+        port = self.server.server_address[1]
+        return tuple("%s:%d" % (name, port) for name in _LOCAL_HOSTNAMES)
+
+    def _allowed_origins(self) -> Tuple[str, ...]:
+        return tuple("http://%s" % item for item in self._allowed_authorities())
+
+    def _host_allowed(self) -> bool:
+        host = _text(self.headers.get("Host")).lower()
+        return host in self._allowed_authorities()
+
+    def _origin_allowed(self) -> bool:
+        origin = _text(self.headers.get("Origin")).lower()
+        return not origin or origin in self._allowed_origins()
+
+    def _reject_host(self, path: str):
+        detail = ("Host 不在本机白名单（只接受 %s）：监听回环地址不代表请求来自"
+                  "本机页面。已拒绝，防止 DNS rebinding 与跨站访问。"
+                  % "、".join(self._allowed_authorities()))
+        if path.startswith("/api/") or path == "/api":
+            self._send_json(403, {
+                "schema": SCHEMA, "status": "denied",
+                "code": "HOST_FORBIDDEN", "detail": detail,
+                "boundary": BOUNDARY})
+        else:
+            self._send_html(403, _error_page(
+                "请求被拒绝：HOST_FORBIDDEN", detail,
+                getattr(self.server, "token", "")))
+
     def _dispatch(self, method: str):
         parsed = urlparse(self.path)
         path = unquote(parsed.path or "/")
@@ -1466,6 +1501,9 @@ class _GuiHandler(BaseHTTPRequestHandler):
         if path != "/" and path.endswith("/"):
             path = path.rstrip("/") or "/"
         segments = [s for s in path.split("/") if s]
+        if not self._host_allowed():
+            self._reject_host(path)
+            return
         try:
             if any(s in (".", "..") or "\\" in s or "\x00" in s
                    for s in segments):
@@ -1611,9 +1649,17 @@ class _GuiHandler(BaseHTTPRequestHandler):
         if action is None:
             raise GuiError("not_found", "NOT_FOUND",
                            "没有这个写接口：%s" % path)
+        if not self._origin_allowed():
+            self._send_json(403, {
+                "schema": SCHEMA, "status": "denied",
+                "code": "ORIGIN_FORBIDDEN",
+                "detail": ("Origin 不是本机页面（只接受 %s）：跨站页面不能调用写接口。"
+                           % "、".join(self._allowed_origins())),
+                "boundary": BOUNDARY})
+            return
         expected = _text(getattr(self.server, "token", ""))
         supplied = _text(self.headers.get("X-Growovo-Gui-Token"))
-        if expected and not secrets.compare_digest(expected, supplied):
+        if not expected or not secrets.compare_digest(expected, supplied):
             self._send_json(403, {
                 "schema": SCHEMA, "status": "denied",
                 "code": "TOKEN_REQUIRED",
@@ -1654,6 +1700,9 @@ class GuiServer(ThreadingHTTPServer):
     allow_reuse_address = True
 
     def __init__(self, data_dir, address, token: str):
+        if not _text(token):
+            raise GuiError("invalid", "TOKEN_REQUIRED",
+                           "GUI token 不能为空：写接口必须带启动时生成或显式提供的 token")
         self.data_dir = Path(data_dir).expanduser().resolve()
         self.token = token
         ThreadingHTTPServer.__init__(self, address, _GuiHandler)
@@ -1672,6 +1721,9 @@ def make_server(data_dir, port: int = 0, host: str = HOST,
         raise GuiError("invalid", "DATA_DIR_MISSING",
                        "数据目录不存在：%s" % path)
     assigned = token if token is not None else secrets.token_urlsafe(24)
+    if not _text(assigned):
+        raise GuiError("invalid", "TOKEN_REQUIRED",
+                       "GUI token 不能为空：写接口必须带启动时生成或显式提供的 token")
     return GuiServer(path, (host, int(port)), assigned)
 
 

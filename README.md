@@ -11,17 +11,17 @@
 
 它只承诺三件可核验的事：**执行量**（账本 committed 逐条可查）、**真实读数**（每天落粉丝与曝光，截图留证、带证据级别）、**闭环责任**（完成率驱动调量建议、供给缺口提前报警、异常停车待人工裁决）。不承诺平台算法给多少曝光，也不把未验证渠道包装成全自动。
 
-**全自动的前提是平台可自动执行。** 第一期只承诺 **X + Email**（写通道已实现；X 为 PROVEN，Email 为 PORTED）；GitHub、Reddit、Hacker News、LinkedIn 需人工首跑解锁；小红书、知乎等人工渠道只出作业单，不计入自动发布量。见[平台自动执行矩阵](docs/platform-automation-matrix.md)。
+**全自动的前提是平台可自主执行。** 第一期只有 **Email** 可承诺无人值守自主执行（写通道已实现）；**X** 写通道技术已跑通（PROVEN），但平台许可禁止非 API 自主写入，只编成人工辅助任务，或接官方 API 并授权；GitHub、Reddit、Hacker News、LinkedIn 需人工首跑解锁；小红书、知乎等人工渠道只出作业单，不计入自动发布量。见[平台自动执行矩阵](docs/platform-automation-matrix.md)。
 
-**从这里开始。** 准备产品事实包、常驻动作授权、已登录的本机 Codex CLI 和浏览器 CDP 会话；之后每天看结果、决定继续还是优化。配置步骤见[自动运营说明](docs/grow-autonomous-operations.md)。
+**从这里开始。** 准备产品事实包、常驻动作授权和邮件 SMTP 凭据；选 X 人工辅助时再准备已登录的本机 Codex CLI 和浏览器 CDP 会话。之后每天看结果、决定继续还是优化。配置步骤见[自动运营说明](docs/grow-autonomous-operations.md)。
 
 ```bash
 git clone https://github.com/roy-tong/Growovo.git && cd Growovo
 python3 mkt.py demo                    # 零网络零账号，一秒内返回
-python3 mkt.py grow platforms          # 看第一期哪些平台能全自动
-python3 mkt.py policy enable --actions x:reply --by "$USER"
+python3 mkt.py grow platforms          # 看第一期哪些平台能自主执行
+python3 mkt.py policy enable --actions email:message --by "$USER"
 python3 mkt.py grow launch g1 --facts facts.json \
-  --goal awareness.followers --channels x --target 200 --handle your_handle
+  --goal commercial.conversations --channels email
 python3 mkt.py grow arm g1             # 确认策略和授权后开启真实执行
 python3 mkt.py grow daemon g1          # 当前终端常驻运行；Ctrl-C 停止
 # macOS 后台：grow install g1 --load，再用 grow doctor g1 核对新心跳
@@ -32,6 +32,8 @@ python3 mkt.py grow learn g1          # 按公式/人群归因，给次日调参
 python3 mkt.py grow agent g1          # 已有任务可用此命令启用 Codex 写作
 python3 mkt.py grow produce g1 --max-items 3
 ```
+
+> 想用 X？`--channels x` 会编译成人工辅助计划：内容、排期和账本照常，发送由你确认执行。X 自主写入不合规，Growovo 不会在无人看管时替你发。
 
 **CDP 账号观测（v0.14+ 新增）：** 用户提供已登录的调试浏览器，Growovo 不预绑定账号；`mkt policy enable --observe-account` 后，每次动作读取当前浏览器实际账号并写入账本。`mkt account observe` 只读探测，`mkt account log` 查看操作日志。详见 [CDP 账号观测](docs/cdp-observed-account.md)。
 

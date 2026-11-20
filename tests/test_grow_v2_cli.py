@@ -66,7 +66,7 @@ class GrowCliV2Tests(unittest.TestCase):
 
     def test_platforms_lists_auto_and_gated(self):
         proc = self.run_mkt("grow", "platforms")
-        self.assertIn("自动执行", proc.stdout)
+        self.assertIn("自主执行", proc.stdout)
         self.assertIn("x", proc.stdout)
         self.assertIn("email", proc.stdout)
         self.assertIn("github", proc.stdout)   # gated 也列出来，但标注需解锁

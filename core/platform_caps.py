@@ -1,13 +1,16 @@
 #!/usr/bin/env python3
 """平台自动执行白名单 —— 第一期只承诺能真正发出去的渠道。
 
-判定不看平台名气，只看三件事同时成立：
+判定不看平台名气，只看四件事同时成立：
   1. 注册表里这个渠道有已验证的写通道（PROVEN / PORTED）；
   2. 内核存在可调用的写原语（core.platforms.WRITE）；
-  3. 队列执行器支持该动作（core.queue_runner.QUEUE_ACTIONS）。
+  3. 队列执行器支持该动作（core.queue_runner.QUEUE_ACTIONS）；
+  4. 平台许可允许自主写入（core.platform_compliance.policy_row）。
 
-三条都成立才是 AUTO：可以进「全自动」承诺。缺少任何一条就只能 GATED
-（人工解锁首跑）或 MANUAL（只出人工作业单，不假装能自动）。
+四条都成立才是 AUTO：可以进「全自动」承诺。技术可执行但平台许可禁止
+自主写入的渠道（如 X 的非 API 自动化）降为 GATED：只出人工辅助任务，
+不得在编译阶段被当成可自动执行。缺少技术条件的同样只能 GATED 或
+MANUAL（只出人工作业单，不假装能自动）。
 """
 from __future__ import annotations
 
@@ -71,18 +74,23 @@ def classify(channel: str) -> Dict[str, object]:
     else:
         tier = MANUAL
         reason = "内核没有这个平台，按人工处理，不假装支持"
+    technical_tier = tier
     policy = _policy(key)
-    if tier == AUTO and not policy.get("autonomous_write", True):
+    autonomous = bool(policy.get("autonomous_write", True))
+    if tier == AUTO and not autonomous:
         # The technical path works, but the platform forbids autonomous use;
-        # saying "queue can execute" alone would be a false promise.
+        # keeping tier=AUTO would promise automation the runtime must refuse.
+        tier = GATED
         reason = (f"{status} 写通道技术可用，但平台许可禁止自主执行"
-                  f"（{policy.get('code')}）：只读/人工，或接官方 API 并授权")
+                  f"（{policy.get('code')}）：只出人工辅助任务，或接官方 API 并授权")
     return {
         "channel": key,
         "platform": raw or key,
         "name": name,
         "status": status,
         "tier": tier,
+        "technical_tier": technical_tier,
+        "autonomous": autonomous,
         "write": list(pair) if pair else None,
         "actions": sorted((spec or {}).get("actions") or []),
         # 技术可执行 ≠ 平台允许自主执行：X 的写通道仍可用于人工/只读，
@@ -106,10 +114,10 @@ def matrix() -> List[Dict[str, object]]:
 
 
 def auto_channels() -> List[str]:
-    """第一期白名单，按注册表顺序返回（x 在前，email 在后）。"""
+    """第一期自主执行白名单，按注册表顺序返回（平台许可禁止自主的渠道不在内）。"""
     ordered = [ch for ch in _REGISTRY
-               if classify(ch)["tier"] == AUTO]
-    return ordered or sorted({str(r["channel"]) for r in matrix() if r["tier"] == AUTO})
+               if is_auto(ch)]
+    return ordered or sorted({str(r["channel"]) for r in matrix() if is_auto(str(r["channel"]))})
 
 
 def gated_channels() -> List[str]:
@@ -117,12 +125,18 @@ def gated_channels() -> List[str]:
 
 
 def is_auto(channel: str) -> bool:
-    return classify(channel)["tier"] == AUTO
+    """只有「技术上可执行」且「平台许可允许自主写」同时成立才算 AUTO。
+
+    只看 tier 会把 X 这类技术可用但平台禁止自主写的渠道误判为可自动执行；
+    编译器和调度器都必须走这个函数，而不是直接读 tier。
+    """
+    row = classify(channel)
+    return row["tier"] == AUTO and bool(row["autonomous"])
 
 
 def assert_auto(channels: List[str]) -> None:
     bad = [str(c) for c in channels if not is_auto(str(c))]
     if bad:
         raise PlatformError(
-            f"第一期只能自动执行 {auto_channels()}；这些渠道不支持：{bad}。"
-            "它们可以走人工单，但不计入自动发布量")
+            f"第一期只能自主执行 {auto_channels()}；这些渠道不能自主执行：{bad}。"
+            "它们可以走人工辅助任务，但不计入自动发布量")

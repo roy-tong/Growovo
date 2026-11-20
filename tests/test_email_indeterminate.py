@@ -84,12 +84,66 @@ class SendQueueIndeterminateTests(unittest.TestCase):
         self.assertIn("user1@example.com",
                       Ledger(self.data / "ledger.jsonl").no_retry("email"))
 
-        # 第二次跑：第一封被账本不重试名单拒绝（不会重发），第二封才被尝试。
+        # G-13b：第二次跑整批拒绝。未知回执未裁决前，后面的条目也不得继续——
+        # 只靠「第一封在不重试名单」会放过第二封。
         self.fake.sent.clear()
-        again = self.run_queue()
-        self.assertEqual("rejected", again[0]["result"])
-        self.assertIn("不重试名单", again[0]["detail"])
+        with self.assertRaises(email_smtp.BatchBlocked) as caught:
+            self.run_queue()
+        self.assertIn("未裁决", str(caught.exception))
+        self.assertEqual([], self.fake.sent, "批次阻塞期间不得发出任何邮件")
+
+    def test_batch_block_is_persisted_for_the_next_process(self):
+        self.run_queue()
+        marker = email_smtp.batch_block_path(self.data, "g13")
+        self.assertTrue(marker.exists(), "停机状态必须落盘，不能只活在本次进程里")
+        block = json.loads(marker.read_text(encoding="utf-8"))
+        self.assertEqual("indeterminate", block["reason"])
+        self.assertEqual("e1", block["halted_at"])
+        self.assertEqual("user1@example.com", block["target"])
+
+        # 新进程 = 重新构造 ledger/throttle/Evidence，只共享 data 目录。
+        from core.throttle import Throttle
+        self.fake.sent.clear()
+        with self.assertRaises(email_smtp.BatchBlocked):
+            email_smtp.send_queue(self.queue, go=True, adhoc=True, data_dir=self.data,
+                                  ledger=Ledger(self.data / "ledger.jsonl"),
+                                  throttle=Throttle(self.data / "state"),
+                                  log=lambda *_a, **_k: None)
+        self.assertEqual([], self.fake.sent)
+
+    def test_resume_batch_lets_the_unresolved_batch_continue(self):
+        self.run_queue()
+        self.fake.sent.clear()
+        records = self.run_queue(resume_batch=True)
+        # 第一封在不重试名单 → 拒绝（不重发）；第二封才被尝试。
+        self.assertEqual("rejected", records[0]["result"])
+        self.assertIn("不重试名单", records[0]["detail"])
         self.assertEqual(["user2@example.com"], self.fake.sent)
+        # 第二封同样未知 → 批次重新进入阻塞，不会漏掉。
+        self.assertEqual("indeterminate", records[1]["result"])
+        self.assertTrue(email_smtp.batch_block_path(self.data, "g13").exists())
+
+    def test_audit_gap_halts_the_batch_and_requires_resume(self):
+        # 这一封真的发出去了（不抛未知回执），但操作日志写不进：审计链断了。
+        sent = self.fake.sent
+        with mock.patch.object(self.fake, "send_message",
+                               side_effect=lambda message: sent.append(message["To"])), \
+                mock.patch.object(operations_log, "record_action",
+                                  side_effect=operations_log.OperationsLogError("disk full")):
+            records = self.run_queue()
+        self.assertEqual(1, len(records), "审计链断了，后续条目不得继续发送")
+        self.assertEqual("committed", records[0]["result"])
+        self.assertEqual(["user1@example.com"], self.fake.sent)
+        self.assertTrue(records[0].get("halted"))
+        marker = email_smtp.batch_block_path(self.data, "g13")
+        block = json.loads(marker.read_text(encoding="utf-8"))
+        self.assertEqual("audit_gap", block["reason"])
+        self.assertIn("disk full", block["detail"])
+
+        self.fake.sent.clear()
+        with self.assertRaises(email_smtp.BatchBlocked):
+            self.run_queue()
+        self.assertEqual([], self.fake.sent)
 
     def test_operations_log_gets_one_complete_entry_per_attempt(self):
         self.run_queue()
@@ -120,12 +174,21 @@ class SendQueueIndeterminateTests(unittest.TestCase):
 class EmailCliExitCodeTests(unittest.TestCase):
     def call(self, records):
         args = SimpleNamespace(action="message", queue="/tmp/g13.json", go=True,
-                               adhoc=True, only=None, campaign=None)
+                               adhoc=True, only=None, campaign=None,
+                               resume_batch=False)
         with mock.patch("channels.email_smtp.send_queue", return_value=records):
             return mkt.cmd_email(args)
 
     def test_indeterminate_is_non_zero(self):
         self.assertEqual(3, self.call([{"result": "indeterminate"}]))
+
+    def test_batch_blocked_is_non_zero(self):
+        args = SimpleNamespace(action="message", queue="/tmp/g13.json", go=True,
+                               adhoc=True, only=None, campaign=None,
+                               resume_batch=False)
+        with mock.patch("channels.email_smtp.send_queue",
+                        side_effect=email_smtp.BatchBlocked("上一批未裁决，整批拒绝执行")):
+            self.assertEqual(3, mkt.cmd_email(args))
 
     def test_audit_gap_is_non_zero(self):
         self.assertEqual(3, self.call([{

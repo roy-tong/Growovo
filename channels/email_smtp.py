@@ -17,6 +17,7 @@
 """
 import json
 import os
+import re
 import smtplib
 import ssl
 import time
@@ -50,6 +51,28 @@ def guess_attachment_type(path):
     """按扩展名推断 MIME；未知类型退回 octet-stream，不让发送因为没有映射而失败。"""
     ext = Path(path).suffix.lstrip(".").lower()
     return ATTACHMENT_TYPES.get(ext, ("application", "octet-stream"))
+
+
+class BatchBlocked(RuntimeError):
+    """上一批留下未裁决的未知回执或审计缺口：整批拒绝执行，等人工处置。"""
+
+
+def batch_block_path(data_dir, campaign):
+    """批次阻塞标记的位置。按 campaign 命名：同一批次换队列文件也拦得住。"""
+    safe = re.sub(r"[^A-Za-z0-9_.-]", "_", str(campaign or "")).strip("._") or "default"
+    return Path(data_dir) / "state" / ("email-batch-block-%s.json" % safe)
+
+
+def read_batch_block(path):
+    """读批次阻塞标记；文件读不出来也按阻塞处理——宁可不发，也不越过未知回执。"""
+    path = Path(path)
+    if not path.exists():
+        return None
+    try:
+        block = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        return {"reason": "unreadable", "detail": "%s: %s" % (type(exc).__name__, exc)}
+    return block if isinstance(block, dict) else {"reason": "unreadable", "detail": "标记不是对象"}
 
 
 def parse_socks_proxy(value):
@@ -165,15 +188,18 @@ class SMTPChannel:
 
 def send_queue(queue_file, *, go=False, only=None, only_ids=None, campaign=None, ledger=None,
                throttle=None, data_dir=None, adhoc=False, routine=False,
-               account="", log=log, operator="growovo:email_smtp", run_id=""):
+               account="", log=log, operator="growovo:email_smtp", run_id="",
+               resume_batch=False):
     """跑一个邮件队列。go=False 全程 dry-run（不建 SMTP 连接、不碰网络）。
     campaign 缺省取队列文件的 campaign 字段（其次文件名）。
     go=True 必须绑定已人审 plan；无 plan 管辖需 adhoc=True（CLI --adhoc，账本记 adhoc=true）。
     显式 routine=True 可改用命中 channel/action/account 的有效 routine-policy。
 
     未知回执（INDETERMINATE）是整批的停机条件：服务端可能已经收下这封邮件，
-    继续发后面的队列项只会扩大不可撤回的未知面。此时本函数返回已尝试的记录，
-    由调用方按非零状态结束；该目标已被账本的不重试名单锁住，人工裁决后才恢复。
+    继续发后面的队列项只会扩大不可撤回的未知面。停机不随本次进程结束而失效：
+    标记落到 data/state/email-batch-block-<campaign>.json，同一 campaign 再次实跑
+    一律拒绝，直到操作员核实后显式 resume_batch=True（CLI --resume-batch）。
+    审计缺口（已发出但操作日志写不进）按同一纪律处理：先停批，再核查。
 
     操作日志在本函数内统一落（queue / 直通 CLI 共用同一入口），不再由上层补录：
     同一类邮件任务不因入口不同而得到不同层级的凭证。写入失败时落一条
@@ -184,6 +210,23 @@ def send_queue(queue_file, *, go=False, only=None, only_ids=None, campaign=None,
     throttle = throttle or Throttle(data_dir / "state")
     qcampaign, items = load_queue(queue_file)
     campaign = campaign or qcampaign
+    block_path = batch_block_path(data_dir, campaign)
+    block = read_batch_block(block_path)
+    if block is not None:
+        detail = ("campaign=%s，原因=%s，中断于=%s，标记=%s"
+                  % (campaign, block.get("reason", "?"),
+                     block.get("halted_at") or block.get("target") or "?",
+                     block_path))
+        if go and not resume_batch:
+            raise BatchBlocked(
+                "上一批邮件还有未裁决的结果，整批拒绝执行（%s）。"
+                "先人工核实：已发出的那封是否送达、审计缺口是否补录；"
+                "确认后加 --resume-batch 再跑，已发出并进账本的条目不会被重发。" % detail)
+        if go and resume_batch:
+            block_path.unlink()
+            log("[batch] 已按 --resume-batch 清除批次阻塞标记（%s）" % detail)
+        elif not go:
+            log("[batch] 存在未裁决的批次阻塞标记（%s）；dry-run 不发送也不清除" % detail)
     from core.planlint import enforce_approval
 
     def _approval(c, **kwargs):
@@ -259,6 +302,31 @@ def send_queue(queue_file, *, go=False, only=None, only_ids=None, campaign=None,
 
     results = []
     halted = None
+    halt_reason = None
+
+    def _block_batch(reason, record):
+        """把「整批不得继续」落成持久标记；写不进去也要在日志里说清楚。"""
+        payload = {
+            "campaign": campaign,
+            "queue_file": str(queue_file),
+            "reason": reason,
+            "halted_at": str(record.get("id") or record.get("target") or ""),
+            "target": str(record.get("target") or ""),
+            "detail": record.get("audit_gap_reason") or record.get("detail") or "",
+            "created_at": datetime.now().isoformat(timespec="seconds"),
+            "operator": operator,
+            "next": "人工核实后：mkt email <action> --queue %s --go --resume-batch" % queue_file,
+        }
+        try:
+            block_path.parent.mkdir(parents=True, exist_ok=True)
+            block_path.write_text(json.dumps(payload, ensure_ascii=False, indent=1) + "\n",
+                                  encoding="utf-8")
+            return str(block_path)
+        except OSError as exc:
+            log("[batch] 批次阻塞标记写不进去（%s: %s）；日志已记录，需人工建标记后才能续跑"
+                % (type(exc).__name__, exc))
+            return ""
+
     try:
         for idx, it in enumerate(items):
             target = it.get("target") or it.get("to", "")
@@ -328,17 +396,28 @@ def send_queue(queue_file, *, go=False, only=None, only_ids=None, campaign=None,
             if receipt_path is not None:
                 rec["receipt"] = str(receipt_path)  # 结果工件携带回执位置；账本行不含（后续经管道 API 扩展）
             results.append(rec)
-            if rec.get("result") == "indeterminate":
-                # 服务端可能已经收下这封邮件：后面的条目一律不发。
-                rec["halted"] = True
-                halted = idx
-            _log_operation(rec, it)
+            logged = _log_operation(rec, it)
             log(f"[{idx + 1}/{len(items)}] {target}: {rec['result']}"
                 + (f" ({rec.get('detail', '')})" if rec.get("detail") else ""))
-            if halted is not None:
+            if rec.get("result") == "indeterminate":
+                # 服务端可能已经收下这封邮件：后面的条目一律不发，且整批进阻塞状态。
+                rec["halted"] = True
+                halted = idx
+                halt_reason = "indeterminate"
+                rec["batch_block"] = _block_batch("indeterminate", rec)
                 log("批次中止：%s 的发送结果未知（INDETERMINATE）。服务端可能已收下；"
                     "不要重发，先人工核实，再 mkt ledger resolve。"
                     % (target or it.get("id") or "?"))
+            elif go and not logged:
+                # 这封已经发出去了，但回执没进操作日志：审计链断了，后面的条目不再发。
+                rec["halted"] = True
+                halted = idx
+                halt_reason = "audit_gap"
+                rec["batch_block"] = _block_batch("audit_gap", rec)
+                log("批次中止：%s 已发出，但操作日志写不进去（审计缺口）。"
+                    "后续条目未发送；先核查缺口，再 --resume-batch。"
+                    % (target or it.get("id") or "?"))
+            if halted is not None:
                 break
             if go and rec.get("result") == "committed" and idx < len(items) - 1:
                 # 人类节奏只约束真实发送；被拒/失败没有占用平台，不需要等。
@@ -353,6 +432,8 @@ def send_queue(queue_file, *, go=False, only=None, only_ids=None, campaign=None,
         "records": results,
         "halted": halted is not None,
         "halted_at": (results[halted].get("id") if halted is not None else None),
+        "halt_reason": halt_reason,
+        "batch_block": str(block_path) if halt_reason else "",
         "not_attempted": (len(items) - halted - 1) if halted is not None else 0,
     })
     log(f"结果已写入 {out}")
