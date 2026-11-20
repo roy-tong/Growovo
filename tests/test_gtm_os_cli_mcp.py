@@ -35,7 +35,13 @@ class GTMOSCLICase(unittest.TestCase):
         return {"context_id": "ctx-example-product", "version": "2026-11-04.1",
                 "source": {"kind": "user_declared", "ref": "fixture"},
                 "value_event_definitions": [{"event": "first_successful_api_call"}],
-                "non_goals": ["no sends"], "approved_by": "human", "content_sha256": "fixture"}
+                "non_goals": ["no sends"],
+                "claims": [{"claim_id": "claim-example-api",
+                            "statement": "示例 API 可被开发者直接调用",
+                            "status": "evidence_supported",
+                            "evidence_refs": [{"evidence_id": "fixture:user-input",
+                                               "source": "fixture:user-input"}]}],
+                "approved_by": "human", "content_sha256": "fixture"}
 
     def objective(self):
         return {"objective_id": "obj-first-success-001", "version": "1",

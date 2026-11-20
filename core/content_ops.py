@@ -21,9 +21,21 @@ from datetime import date, timedelta
 from difflib import SequenceMatcher
 from core.editorial_review import CRITERIA
 from . import platform_strategy
-from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
 SCHEMA_VERSION = "1.0"
+
+#: 星期的英文短名，0=周一；排班用它把「哪几天发」与人能读的名字对上。
+WEEKDAYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
+
+#: 证据档默认周节奏（0=周一）。未指定 weekdays 时按起始日的第几天排，保持原输出。
+DEFAULT_WEEKDAYS: Dict[str, Tuple[int, ...]] = {
+    "xiaohongshu": (0, 2, 4),
+    "wechat": (1, 5),
+    "zhihu": (0, 3),
+    "douyin": (1, 4, 6),
+    "blog": (3,),
+}
 
 #: 无产品事实时的中性定位：不绑定任何行业、读者或产品类型。
 POSITIONING: Dict[str, Any] = {
@@ -780,16 +792,43 @@ def brief(channel: str, topic: str, *, audience: str = "", product: str = "",
     }
 
 
+def _weekday_set(value: Any, channel: str) -> set:
+    items = value if isinstance(value, (list, tuple, set)) else [value]
+    days = set()
+    for item in items:
+        if isinstance(item, str):
+            name = item.strip().lower()[:3]
+            if name not in WEEKDAYS:
+                raise ValueError(f"weekdays.{channel} 只认 mon..sun：收到 {item}")
+            days.add(WEEKDAYS.index(name))
+        else:
+            try:
+                number = int(item)
+            except (TypeError, ValueError):
+                raise ValueError(f"weekdays.{channel} 只认 0—6 或 mon..sun：收到 {item}")
+            if not 0 <= number <= 6:
+                raise ValueError(f"weekdays.{channel} 的 0=周一、6=周日：收到 {item}")
+            days.add(number)
+    if not days:
+        raise ValueError(f"weekdays.{channel} 不能为空：不排班就删掉该渠道")
+    return days
+
+
 def plan(*, start: str = None, days: int = 14,
          channels: Sequence[str] = ("xiaohongshu", "wechat", "blog"),
          cadence: str = "evidence",
-         facts: Dict[str, Any] = None) -> Dict[str, Any]:
+         facts: Dict[str, Any] = None,
+         weekdays: Mapping[str, Sequence[Any]] = None) -> Dict[str, Any]:
     """Build a multi-channel schedule skeleton from the platform strategy layer.
 
     ``cadence='evidence'`` 用平台策略层的证据档周节奏：小红书 3 篇/周、
     公众号 2 篇/周、知乎 2 篇/周、抖音 3 条/周、博客 1 篇/周。
     ``cadence='daily-two'`` 复现用户指定的小红书每天两篇战术；它不是平台
     默认节奏，执行条件与效果都未验证。
+
+    ``weekdays`` 按真实星期排班（0=周一），键是渠道，值是该渠道要发的星期；
+    没点名的渠道走 ``DEFAULT_WEEKDAYS``，daily-two 的小红书仍是每天两篇。
+    不传时完全按起始日的第几天排，保持旧输出不变。
 
     这是编辑排班，不是平台定时；所有行都是 planned，未发布、未回执。
     """
@@ -804,6 +843,14 @@ def plan(*, start: str = None, days: int = 14,
         raise ValueError("至少选择一个渠道：" + "/".join(CHANNELS))
     if mode == "daily-two" and "xiaohongshu" not in picked:
         mode = "evidence"
+    weekday_sets = None
+    if weekdays:
+        if not isinstance(weekdays, Mapping):
+            raise ValueError("weekdays 必须是 {渠道: [0—6 或 mon..sun]}")
+        unknown = sorted(set(weekdays) - allowed)
+        if unknown:
+            raise ValueError("weekdays 里有未知渠道：" + "、".join(unknown))
+        weekday_sets = {c: _weekday_set(v, c) for c, v in weekdays.items()}
     today = date.today()
     explicit_start = bool(str(start or "").strip())
     start_date = date.fromisoformat(str(start)) if explicit_start else today
@@ -815,11 +862,18 @@ def plan(*, start: str = None, days: int = 14,
     def _slot(channel: str, prefix: str) -> str:
         return f"{prefix}-{len([r for r in rows if r['channel'] == channel]) + 1:02d}"
 
+    def _scheduled(channel: str, offset: int, weekday: int) -> bool:
+        if mode == "daily-two" and channel == "xiaohongshu":
+            return True
+        if weekday_sets is not None:
+            return weekday in weekday_sets.get(channel, DEFAULT_WEEKDAYS[channel])
+        return offset % 7 in DEFAULT_WEEKDAYS[channel]
+
     for offset in range(days):
         d = start_date + timedelta(days=offset)
         if "xiaohongshu" in picked:
             times = ("12:15", "20:30") if mode == "daily-two" else ("12:15",)
-            if mode == "daily-two" or offset % 7 in (0, 2, 4):
+            if _scheduled("xiaohongshu", offset, d.weekday()):
                 for i, hhmm in enumerate(times):
                     k = offset * len(times) + i
                     rows.append({
@@ -831,7 +885,7 @@ def plan(*, start: str = None, days: int = 14,
                         "cta": ("B", "A", "B", "C", "B", "A", "B", "C",
                                 "B", "A", "B", "C", "A", "C")[k % 14], "status": "planned",
                     })
-        if "wechat" in picked and offset % 7 in (1, 5):
+        if "wechat" in picked and _scheduled("wechat", offset, d.weekday()):
             rows.append({
                 "date": d.isoformat(), "time": "20:00", "channel": "wechat",
                 "slot": _slot("wechat", "GZH"),
@@ -841,7 +895,7 @@ def plan(*, start: str = None, days: int = 14,
                 "length": f"{CHANNELS['wechat']['length']['min']}—{CHANNELS['wechat']['length']['max']} 字",
                 "cta": "B", "status": "planned",
             })
-        if "zhihu" in picked and offset % 7 in (0, 3):
+        if "zhihu" in picked and _scheduled("zhihu", offset, d.weekday()):
             rows.append({
                 "date": d.isoformat(), "time": "21:00", "channel": "zhihu",
                 "slot": _slot("zhihu", "ZH"),
@@ -851,7 +905,7 @@ def plan(*, start: str = None, days: int = 14,
                 "length": f"{CHANNELS['zhihu']['length']['min']}—{CHANNELS['zhihu']['length']['max']} 字",
                 "cta": "B", "status": "planned",
             })
-        if "douyin" in picked and offset % 7 in (1, 4, 6):
+        if "douyin" in picked and _scheduled("douyin", offset, d.weekday()):
             rows.append({
                 "date": d.isoformat(), "time": "19:00", "channel": "douyin",
                 "slot": _slot("douyin", "DY"),
@@ -860,7 +914,7 @@ def plan(*, start: str = None, days: int = 14,
                     % len(douyin_themes)],
                 "length": "15—30 秒", "cta": "A", "status": "planned",
             })
-        if "blog" in picked and offset % 7 == 3:
+        if "blog" in picked and _scheduled("blog", offset, d.weekday()):
             rows.append({
                 "date": d.isoformat(), "time": "09:00", "channel": "blog",
                 "slot": _slot("blog", "BLOG"),
@@ -878,12 +932,16 @@ def plan(*, start: str = None, days: int = 14,
     replay = bool(explicit_start and start_date < today)
     if replay:
         note = "历史回放：" + note
+    if weekday_sets is not None:
+        note += "按指定星期排班，未点名的渠道用默认星期。"
     return {
         "schema_version": SCHEMA_VERSION,
         "start": start_date.isoformat(),
         "days": days,
         "cadence": mode,
         "channels": picked,
+        "weekdays": ({c: sorted(v) for c, v in weekday_sets.items()}
+                     if weekday_sets is not None else None),
         "counts": counts,
         "rows": rows,
         "replay": replay,
@@ -1007,6 +1065,10 @@ def render_brief(b: Dict[str, Any]) -> str:
 def render_plan(p: Dict[str, Any]) -> str:
     lines = [f"# {p['days']} 天多渠道排期", ""]
     lines.append(f"开始：{p['start']}；渠道：{', '.join(p['channels'])}")
+    if p.get("weekdays"):
+        lines.append("星期：" + "；".join(
+            f"{c}=" + "、".join(WEEKDAYS[i] for i in days)
+            for c, days in p["weekdays"].items()))
     lines.append(f"数量：{p['counts']}")
     positioning = p.get("positioning") or {}
     if positioning.get("reader"):

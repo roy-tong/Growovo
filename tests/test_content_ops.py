@@ -1,7 +1,16 @@
 """内容运营能力：渠道规则、brief、审稿与多渠道路排期。"""
+import json
+import subprocess
+import sys
+import tempfile
 import unittest
+from datetime import date
+from pathlib import Path
 
 from core import content_ops
+
+
+ROOT = Path(__file__).resolve().parents[1]
 
 
 GOOD_XHS = """很多团队做AI硬件，第一反应是接一个大模型让设备聊天。用户说“把灯调暗”，设备回了一段很礼貌的话，灯却没动。

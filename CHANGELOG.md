@@ -1,5 +1,61 @@
 # Changelog
 
+## 0.16.2 — 2026-11-20
+
+Round 3 usability close-out: the CLI contract, shared error semantics, handoff
+premises and content counter-examples. No new platform or channel capability.
+
+### Changed
+
+- **CLI operation contract is one rule instead of four habits**: `queue
+  build/run/lint`, `campaign` and `review` resolve `--out`, print the resolution
+  rule ("relative paths resolve under the workspace `data/`") and report the
+  absolute path they actually used. Missing arguments and business refusals now
+  raise the structured error below instead of a traceback. **`queue run` exits 2
+  on a business refusal; it used to exit 1.** Exit 3 still means an unknown
+  external submission. Scripts that treated every non-zero exit as "unknown
+  send" must check 3 explicitly.
+- **SOP coverage is visible where the user reads it**: `mkt sop coverage`,
+  `mkt sop list` and `mkt capability lint` print `SOP 覆盖 N/18 个能力域有可执行
+  SOP（未覆盖 …）` so "已运行" is not read as "全部能力域已覆盖". On this build
+  the honest number is 1/18.
+
+### Added
+
+- **Seven shared error families, one vocabulary, no shared database**
+  (`core/error_semantics.py`, [docs/error-semantics.md](docs/error-semantics.md)):
+  NEEDS_USER_INPUT, UNSUPPORTED_CAPABILITY, INVALID_INPUT, PERMISSION_DENIED,
+  SAFETY_BLOCKED, STALE_OR_CONFLICT, CONTRACT_ERROR. Every user-facing refusal
+  names what is missing, its impact, the legal next action and a copyable
+  example. `GROWOVO_ERROR_JSON=1` prints the same payload as JSON
+  (`growovo.error/1`). Verovo maps its frozen C-01 codes to the same families in
+  `buyer_ledger/error_semantics.py`; Askovo is unchanged this round.
+- **`grow handoff-verovo` carries premises, not just evidence**: the handoff now
+  includes a `premises` block (source objects and versions, scope, does-not-cover,
+  assumptions, limits, manual review state, evidence refs) inside the
+  integrity hash. Verovo preserves it verbatim, records
+  `premises_do_not_upgrade_grade: true`, and adds one open item to re-check the
+  premises against buyer-controlled sources. Old handoffs without premises still
+  import.
+- **G-18 counter-example fixtures and a human usability checklist**:
+  `content_problems()` now also rejects one sentence pasted into three or more
+  non-identifier fields (`TEMPLATE_REPEAT`) and copy whose `context_ref.version`
+  is missing from, or older than, the referenced context (`STALE_REF`).
+  `tests/test_content_trust_fixtures.py` holds ten counter-examples (placeholder,
+  repeated template, generic advice, wrong audience, wrong product fact, wrong
+  objective, too short, stale version, missing version) that must be rejected at
+  both submit time and review time; two repetitions still pass, freezing the
+  threshold. The file documents the six-item human usability checklist. Passing
+  the gate still does not prove the copy is worth sending.
+
+### Tests
+
+- Full suite: `Ran 1828 tests in 45.729s — OK`; `python3 mkt.py demo` PASS;
+  `python3 mkt.py voice plain` PASS.
+- New: `tests/test_cli_contract.py` (6), `tests/test_content_trust_fixtures.py`
+  (10), two premises cases added to `tests/test_verovo_handoff.py` (now 4).
+  Content gate plus fixtures: 30 tests OK.
+
 ## 0.16.1 — 2026-11-20
 
 G-AUTO-01, G-GUI-01 and G-13b from the 2026-11-20 main review.

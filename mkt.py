@@ -3137,10 +3137,16 @@ def cmd_content(args):
         return 0 if res["ok"] else 2
     if args.action == "plan":
         channels = [x.strip() for x in (args.channels or "").split(",") if x.strip()]
+        raw_weekdays = (getattr(args, "weekdays", "") or "").strip()
+        weekdays = None
+        if raw_weekdays:
+            names = [x.strip() for x in raw_weekdays.split(",") if x.strip()]
+            weekdays = {c: names for c in content_ops.CHANNELS}
         p = content_ops.plan(start=args.start or None, days=args.days,
                              channels=channels,
                              cadence=getattr(args, "cadence", "evidence"),
-                             facts=_content_facts(getattr(args, "facts", "")))
+                             facts=_content_facts(getattr(args, "facts", "")),
+                             weekdays=weekdays)
         if args.json:
             text = json.dumps(p, ensure_ascii=False, indent=1)
         else:
@@ -3284,11 +3290,15 @@ def _business_command(fn):
         try:
             return fn(args) or 0
         except (ValueError, KeyError, OSError, json.JSONDecodeError) as exc:
+            from core import error_semantics
             payload = getattr(exc, "payload", None)
             if isinstance(payload, dict):
                 print(json.dumps(payload, ensure_ascii=False, indent=1))
+            elif os.environ.get("GROWOVO_ERROR_JSON") == "1":
+                print(json.dumps(error_semantics.describe(exc), ensure_ascii=False, indent=1))
             else:
-                print(f"业务操作被拒绝：{exc}", file=sys.stderr)
+                print("业务操作被拒绝：" + "\n".join(
+                    error_semantics.human_lines(error_semantics.describe(exc))), file=sys.stderr)
             return 2
     return wrapped
 
@@ -3395,7 +3405,10 @@ def cmd_capability(args):
     from core import capabilities
     if args.action == "lint":
         errors = capabilities.lint_registry()
-        _emit({"ok": not errors, "errors": errors})
+        from core import sop
+        coverage = sop.SOPRegistry(DATA).coverage()
+        _emit({"ok": not errors, "errors": errors, "coverage": coverage,
+               "coverage_summary": _coverage_summary(coverage)})
         return 0 if not errors else 2
     if args.action == "show":
         if bool(args.role_family) == bool(args.capability):
@@ -3452,24 +3465,46 @@ def cmd_objective(args):
 @_business_command
 def cmd_work(args):
     from core import work
+    from core.sop import SOPRegistry
     store = work.WorkStore(DATA)
     if args.action == "create":
         order = store.create(_load_structured(args.file), by=args.by)
-        return _emit({"work_order": order, "lint_errors": work.lint_work_order(order),
+        return _emit({"work_order": order,
+                      "lint_errors": work.lint_work_order(order, sop_registry=SOPRegistry(DATA)),
                       "next": f"mkt work ready --id {order['work_order_id']} --by <human>"})
     if args.action == "show":
         return _emit(store.get(args.id))
     if args.action == "lint":
-        errors = work.lint_work_order(_load_structured(args.file)) if args.file else store.lint(args.id)
+        errors = (work.lint_work_order(_load_structured(args.file), sop_registry=SOPRegistry(DATA))
+                  if args.file else store.lint(args.id))
         _emit({"ok": not errors, "errors": errors})
         return 0 if not errors else 2
     if args.action == "ready":
         return _emit(store.ready(args.id, by=args.by))
     if args.action == "transition":
         return _emit(store.transition(args.id, args.to, by=args.by, reason=args.reason))
+    if args.action == "update":
+        order = store.update(args.id, _load_structured(args.file), by=args.by)
+        return _emit({"work_order": order,
+                      "lint_errors": work.lint_work_order(order, sop_registry=SOPRegistry(DATA))})
+    if args.action == "replace":
+        order = store.replace(args.id, _load_structured(args.file), by=args.by)
+        return _emit({"work_order": order,
+                      "lint_errors": work.lint_work_order(order, sop_registry=SOPRegistry(DATA))})
     if args.action == "next":
         return _emit({"next": store.next_actions()})
     return _emit({"work_orders": store.list()})
+
+
+def _coverage_summary(coverage):
+    """SOP 覆盖率的人读一行：避免把「已运行」误读成「18 域全覆盖」。"""
+    total = int(coverage.get("total_capabilities") or 0)
+    covered = int(coverage.get("covered") or 0)
+    uncovered = coverage.get("uncovered") or []
+    line = f"SOP 覆盖：{covered}/{total} 个能力域有可执行 SOP"
+    if uncovered:
+        line += f"（未覆盖 {len(uncovered)} 个：{('、'.join(uncovered))}）"
+    return line
 
 
 @_business_command
@@ -3478,7 +3513,19 @@ def cmd_sop(args):
     registry = sop.SOPRegistry(DATA)
     runs = sop.SOPRunStore(DATA)
     if args.action == "list":
-        return _emit({"sops": registry.list(), "coverage": registry.coverage()})
+        coverage = registry.coverage()
+        return _emit({"sops": registry.list(), "coverage": coverage,
+                      "coverage_summary": _coverage_summary(coverage)})
+    if args.action == "coverage":
+        coverage = registry.coverage()
+        print(_coverage_summary(coverage))
+        print("说明：SOP 覆盖只表示该能力域有可执行 Step Contract，"
+              "不表示已在真实业务中运行过。")
+        for row in coverage.get("capabilities") or []:
+            mark = "有" if row.get("executable") else "无"
+            sops = "、".join(row.get("sops") or []) or "-"
+            print(f"  {row.get('capability_id')} {row.get('name')}：{mark}（{sops}）")
+        return 0
     if args.action == "show":
         return _emit(registry.get(args.sop_id, args.version or None))
     if args.action == "lint":
@@ -4155,11 +4202,16 @@ def cmd_plan(args):
 
 
 def cmd_queue(args):
-    from core import queue as queue_mod
+    from core import error_semantics, queue as queue_mod
     act = args.action
     if act == "lint":
         if not args.path:
-            raise SystemExit("queue lint 需要队列文件路径")
+            raise error_semantics.SemanticError(
+                "NEEDS_USER_INPUT", "queue lint 需要队列文件路径。",
+                missing=["队列文件路径（位置参数 path）"],
+                impact="没有读取或校验任何队列，未产生外部动作。",
+                next_action="传一个队列 JSON 路径后重试；路径不存在时先运行 mkt queue build。",
+                example="mkt queue lint data/queues/demo-w1.json")
         q = queue_mod.load_queue(args.path)
         errs = queue_mod.lint_queue(q, path=args.path, max_len=args.max_len)
         if errs:
@@ -4172,7 +4224,12 @@ def cmd_queue(args):
 
     if act == "run":
         if not args.path:
-            raise SystemExit("queue run 需要队列文件路径")
+            raise error_semantics.SemanticError(
+                "NEEDS_USER_INPUT", "queue run 需要队列文件路径。",
+                missing=["队列文件路径（位置参数 path）"],
+                impact="没有读取或执行任何队列，未发送任何消息。",
+                next_action="传一个已通过 lint 的队列路径；先加 --go 才是实跑，默认 dry-run。",
+                example="mkt queue run data/queues/demo-w1.json --go")
         from core.queue_runner import QueueRunError, run_queue
         try:
             results = run_queue(args.path, data_dir=DATA, go=args.go,
@@ -4180,16 +4237,24 @@ def cmd_queue(args):
                                 only=args.only, routine=args.routine,
                                 resume_batch=getattr(args, "resume_batch", False))
         except QueueRunError as exc:
-            raise SystemExit(f"队列拒跑：{exc}")
+            raise error_semantics.SemanticError(
+                "SAFETY_BLOCKED", f"队列拒跑：{exc}",
+                missing=[],
+                impact="本批没有继续执行；已发送的记录保持不变，未执行项不会补发。",
+                next_action="先按拒绝原因人工核实（未知回执/审计缺口/批次阻塞），"
+                            "确认后再用 --resume-batch 重跑同一队列。",
+                example=f"mkt queue run {args.path} --go --resume-batch")
         tally = {}
         for r in results:
             tally[r.get("result", "?")] = tally.get(r.get("result", "?"), 0) + 1
         audit_gaps = [r for r in results if r.get("audit_gap")]
-        print(json.dumps({"queue": args.path, "go": args.go,
+        print(json.dumps({"queue": str(Path(args.path).resolve()), "go": args.go,
                           "results": tally,
                           "audit_gaps": len(audit_gaps)}, ensure_ascii=False, indent=1))
         if tally.get("indeterminate") or audit_gaps:
             # 未知回执/审计缺口都不是成功：给脚本一个可判别的非零状态。
+            print("本批存在未知回执或审计缺口：先人工核实，再决定是否 --resume-batch。",
+                  file=sys.stderr)
             return 3
         if tally.get("rejected") and not (tally.get("committed") or tally.get("dry-run")):
             # 整队都被闸门拒绝（全局暂停/抑制/配额）：没有发送任何消息，
@@ -4202,7 +4267,14 @@ def cmd_queue(args):
     if act == "build":
         missing = [k for k in ("campaign", "template", "targets") if not getattr(args, k)]
         if missing:
-            raise SystemExit(f"queue build 需要 --campaign --template --targets（缺 {', '.join(missing)}）")
+            raise error_semantics.SemanticError(
+                "NEEDS_USER_INPUT",
+                f"queue build 需要 --campaign --template --targets（缺 {', '.join('--' + m for m in missing)}）。",
+                missing=["--" + name for name in missing],
+                impact="没有生成任何队列文件，也没有写入 data/queues。",
+                next_action="补齐缺失参数后重试；模板与目标 CSV 都要存在。",
+                example="mkt queue build --campaign demo-w1 --template templates/outreach.md "
+                        "--targets targets.csv")
         out = args.out or str(DATA / "queues" / f"{args.campaign}.json")
         if args.out and not Path(args.out).is_absolute():
             # 相对 --out 按工作台根解析：review/campaign 只从 data/queues 读队列，
@@ -4219,18 +4291,25 @@ def cmd_queue(args):
             for e in errs:
                 print(f"  [ERR] {e}")
             return 1
-        print(f"已生成 {out}（{len(q['items'])} 条，已过门禁）")
-        print(f"下一步：mkt queue lint {out}")
+        resolved = Path(out).resolve()
+        print(f"已生成 {resolved}（{len(q['items'])} 条，已过门禁）")
+        print(f"路径规则：--out 的相对路径按工作台 data/ 解析，绝对路径原样使用。")
+        print(f"下一步：mkt queue lint {resolved}")
         return 0
 
     return 1
 
 
 def cmd_campaign(args):
-    from core import campaign as camp
+    from core import campaign as camp, error_semantics
     cid = args.campaign
     if not cid:
-        raise SystemExit("campaign 需要 campaign id（如 askovo-p0-w1）")
+        raise error_semantics.SemanticError(
+            "NEEDS_USER_INPUT", "campaign 需要 campaign id。",
+            missing=["campaign id"],
+            impact="没有读取或写入任何 campaign 数据。",
+            next_action="传一个已存在的 campaign id 后重试；不确定时先运行 mkt campaigns。",
+            example="mkt campaign show askovo-p0-w1")
     if args.action == "next":
         n = camp.next_step(DATA, _ledger(), cid)
         if args.json:
@@ -4249,25 +4328,32 @@ def cmd_campaign(args):
         return 0
     md = camp.render_markdown(report)
     if args.out:
-        out = Path(args.out)
+        out = Path(args.out).resolve()
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_text(md + "\n", encoding="utf-8")
         print(f"已写入 {out}")
+        print("路径规则：campaign --out 的相对路径按当前目录解析。")
     else:
         print(md)
     return 0
 
 
 def cmd_review(args):
-    from core import campaign as camp
+    from core import campaign as camp, error_semantics
     if not args.campaign:
-        raise SystemExit("review 需要 campaign id")
+        raise error_semantics.SemanticError(
+            "NEEDS_USER_INPUT", "review 需要 campaign id。",
+            missing=["campaign id"],
+            impact="没有生成任何审核预览，也没有写文件。",
+            next_action="传一个已存在的 campaign id 后重试；先运行 mkt campaigns 查看可用 id。",
+            example="mkt review askovo-p0-w1 --out reports/review.md")
     md = camp.review_markdown(DATA, _ledger(), args.campaign)
     if args.out:
-        out = Path(args.out)
+        out = Path(args.out).resolve()
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_text(md + "\n", encoding="utf-8")
         print(f"已写入 {out}")
+        print("路径规则：review --out 的相对路径按当前目录解析。")
     else:
         print(md)
     return 0
@@ -5307,7 +5393,8 @@ def build_parser():
     sp.add_argument("--subject-template", dest="subject_template",
                     help="build：邮件主题模板（可选，同样支持 {列名}）")
     sp.add_argument("--targets", help="build：目标 CSV（target/email + 变量列）")
-    sp.add_argument("--out", help="build：输出路径（默认 data/queues/<campaign>.json）")
+    sp.add_argument("--out", help="build：输出路径（相对路径按工作台 data/ 解析；"
+                                  "默认 data/queues/<campaign>.json）")
     sp.add_argument("--id-prefix", dest="id_prefix")
     sp.add_argument("--max-len", dest="max_len", type=int)
     sp.add_argument("--force", action="store_true")
@@ -5354,14 +5441,15 @@ def build_parser():
     sp = sub.add_parser("campaign", help="Campaign 视图：计划/队列/账本/结果合一")
     sp.add_argument("action", choices=["show", "report", "next"])
     sp.add_argument("campaign")
-    sp.add_argument("--out", help="report：写入文件（如 reports/<campaign>.md）")
+    sp.add_argument("--out", help="report：写入文件（相对路径按当前目录解析，"
+                                  "如 reports/<campaign>.md）")
     sp.add_argument("--format", choices=["json", "md"], default=None)
     sp.add_argument("--json", action="store_true", help="next：输出 JSON")
     sp.set_defaults(fn=cmd_campaign)
 
     sp = sub.add_parser("review", help="人审预览：队列逐条过门禁 + 已有留证")
     sp.add_argument("campaign")
-    sp.add_argument("--out")
+    sp.add_argument("--out", help="写入文件（相对路径按当前目录解析；缺省打印到 stdout）")
     sp.set_defaults(fn=cmd_review)
 
     sp = sub.add_parser("ledger", help="账本：indeterminate 人工裁决")
@@ -5505,6 +5593,8 @@ def build_parser():
     a.add_argument("--channels", default="xiaohongshu,wechat,blog")
     a.add_argument("--cadence", default="evidence", choices=["evidence", "daily-two"],
                    help="evidence=平台策略层的证据档周节奏；daily-two=用户指定的小红书每天两篇战术")
+    a.add_argument("--weekdays", default="",
+                   help="按真实星期排班，如 mon,wed,sun（0=周一）；省略=按起始日第几天排")
     a.add_argument("--out", default="")
     a.add_argument("--json", action="store_true")
     sp.set_defaults(fn=cmd_content)
@@ -5617,12 +5707,15 @@ def build_parser():
     a = wsub.add_parser("ready"); a.add_argument("--id", required=True); a.add_argument("--by", default="operator")
     a = wsub.add_parser("transition"); a.add_argument("--id", required=True); a.add_argument("--to", required=True)
     a.add_argument("--by", default="operator"); a.add_argument("--reason", default="")
+    a = wsub.add_parser("update"); a.add_argument("--id", required=True); a.add_argument("--file", required=True); a.add_argument("--by", default="operator")
+    a = wsub.add_parser("replace"); a.add_argument("--id", required=True); a.add_argument("--file", required=True); a.add_argument("--by", default="operator")
     a = wsub.add_parser("next")
     sp.set_defaults(fn=cmd_work)
 
     sp = sub.add_parser("sop", help="GTM OS：版本化专业 SOP 与证据门运行器")
     ssub = sp.add_subparsers(dest="action", required=True)
     a = ssub.add_parser("list")
+    a = ssub.add_parser("coverage", help="人读：18 个能力域的 SOP 覆盖率与未覆盖项")
     a = ssub.add_parser("show"); a.add_argument("sop_id"); a.add_argument("--version", default="")
     a = ssub.add_parser("lint"); a.add_argument("--file", required=True)
     a = ssub.add_parser("register"); a.add_argument("--file", required=True); a.add_argument("--by", default="operator")
@@ -6851,8 +6944,12 @@ def main(argv=None):
         return args.fn(args) or 0
     except ValueError as exc:
         # 业务输入错误给结构化输出，不让用户面对 Python traceback。
-        print(json.dumps({"status": "error", "reason_code": "INPUT_INVALID",
-                          "message": str(exc)}, ensure_ascii=False, indent=1))
+        # 已带语义载荷的异常保留自己的 reason_code，不被通用兜底覆盖。
+        payload = getattr(exc, "payload", None)
+        if not isinstance(payload, dict):
+            payload = {"status": "error", "reason_code": "INPUT_INVALID",
+                       "message": str(exc)}
+        print(json.dumps(payload, ensure_ascii=False, indent=1))
         return 2
 
 

@@ -57,6 +57,11 @@ def run_work_demo(base: Path | str) -> int:
         "product_facts": [{"fact": "demo API"}],
         "value_event_definitions": [{"event": "first_successful_api_call"}],
         "non_goals": ["不自动发布", "不伪造业务结果"],
+        "claims": [{"claim_id": "claim-demo-api-callable",
+                    "statement": "demo API 可被开发者直接调用",
+                    "status": "evidence_supported",
+                    "evidence_refs": [{"evidence_id": "fixture:user-input",
+                                       "source": "fixture:user-input"}]}],
         "approved_by": "demo-human", "content_sha256": "demo-context-sha",
     }
     ContextStore(data).import_snapshot(context, by="demo-human")

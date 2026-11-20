@@ -2,6 +2,7 @@
 import copy
 import hashlib
 import json
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -10,7 +11,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from core import metrics
-from core.sop import SOPRegistry, SOPRunStore, lint_sop
+from core.sop import SOPError, SOPRegistry, SOPRunStore, lint_sop
 from core.work import ContextStore, ObjectiveStore, WorkError, WorkStore, lint_work_order
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -28,6 +29,11 @@ class WorkOSCase(unittest.TestCase):
             "product_facts": [{"fact": "example API"}],
             "value_event_definitions": [{"event": "first_successful_api_call"}],
             "non_goals": ["no autonomous publishing"],
+            "claims": [{"claim_id": "claim-example-api",
+                        "statement": "示例 API 可被开发者直接调用",
+                        "status": "evidence_supported",
+                        "evidence_refs": [{"evidence_id": "fixture:user-input",
+                                           "source": "fixture:user-input"}]}],
             "approved_by": "human-owner",
             "content_sha256": "fixture-sha",
         }
@@ -142,6 +148,155 @@ class WorkOSCase(unittest.TestCase):
         store.create(second, by="owner")
         with self.assertRaisesRegex(WorkError, "依赖"):
             store.ready(second["work_order_id"], by="owner")
+
+    def test_sop_capability_mismatch_blocks_lint_and_ready(self):
+        store = WorkStore(self.data)
+        order = copy.deepcopy(self.order)
+        order["work_order_id"] = "wo-capability-mismatch"
+        order["capability_id"] = "C01"
+        order["role_family"] = "07"
+        store.create(order, by="owner")
+        errors = lint_work_order(order, sop_registry=SOPRegistry(self.data))
+        self.assertTrue(any("属于 C18" in e for e in errors), errors)
+        self.assertTrue(any("属于" in e for e in store.lint(order["work_order_id"])))
+        with self.assertRaisesRegex(WorkError, "capability_id"):
+            store.ready(order["work_order_id"], by="owner")
+        self.assertEqual("blocked", store.get(order["work_order_id"])["state"])
+
+    def test_sop_start_refuses_capability_mismatch_without_writing_run(self):
+        store = WorkStore(self.data)
+        order = copy.deepcopy(self.order)
+        order["work_order_id"] = "wo-capability-mismatch-start"
+        order["capability_id"] = "C01"
+        order["role_family"] = "07"
+        store.create(order, by="owner")
+        store._set_state(order["work_order_id"], "ready", by="owner")
+        runs = SOPRunStore(self.data)
+        with self.assertRaisesRegex(SOPError, "属于"):
+            runs.start(order["work_order_id"], by="owner")
+        self.assertEqual([], runs.list())
+
+    def _claims_context(self, claims, context_id):
+        snapshot = copy.deepcopy(self.context)
+        snapshot["context_id"] = context_id
+        snapshot["claims"] = claims
+        return snapshot
+
+    def test_context_requires_claims_with_evidence_or_assumption(self):
+        store = ContextStore(self.data)
+        missing = copy.deepcopy(self.context)
+        missing["context_id"] = "ctx-no-claims"
+        missing.pop("claims")
+        with self.assertRaisesRegex(WorkError, "claims"):
+            store.import_snapshot(missing, by="human-owner")
+
+        short = [{"claim_id": "c1", "statement": "太短", "status": "evidence_supported",
+                  "evidence_refs": [{"evidence_id": "e1", "source": "fixture"}]}]
+        with self.assertRaisesRegex(WorkError, "8"):
+            store.import_snapshot(self._claims_context(short, "ctx-short"), by="human-owner")
+
+        bad_status = [{"claim_id": "c1", "statement": "示例 API 可被直接调用",
+                       "status": "true", "evidence_refs": [{"evidence_id": "e1", "source": "fixture"}]}]
+        with self.assertRaisesRegex(WorkError, "status"):
+            store.import_snapshot(self._claims_context(bad_status, "ctx-bad-status"), by="human-owner")
+
+        no_ref = [{"claim_id": "c1", "statement": "示例 API 可被直接调用",
+                   "status": "evidence_supported", "evidence_refs": []}]
+        with self.assertRaisesRegex(WorkError, "evidence_refs"):
+            store.import_snapshot(self._claims_context(no_ref, "ctx-no-ref"), by="human-owner")
+
+        hypothesis = [{"claim_id": "c1", "statement": "开发者会持续调用示例 API",
+                       "status": "hypothesis", "evidence_refs": []}]
+        with self.assertRaisesRegex(WorkError, "assumption"):
+            store.import_snapshot(self._claims_context(hypothesis, "ctx-hypothesis"), by="human-owner")
+
+        duplicate = [{"claim_id": "c1", "statement": "示例 API 可被直接调用",
+                      "status": "insufficient_evidence",
+                      "evidence_refs": [{"evidence_id": "e1", "source": "fixture"}]},
+                     {"claim_id": "c1", "statement": "示例 API 有公开文档",
+                      "status": "insufficient_evidence",
+                      "evidence_refs": [{"evidence_id": "e2", "source": "fixture"}]}]
+        with self.assertRaisesRegex(WorkError, "重复"):
+            store.import_snapshot(self._claims_context(duplicate, "ctx-duplicate"), by="human-owner")
+
+        accepted = store.import_snapshot(self._claims_context(
+            [{"claim_id": "c1", "statement": "开发者会持续调用示例 API",
+              "status": "hypothesis", "assumption": True, "evidence_refs": []}],
+            "ctx-hypothesis-ok"), by="human-owner")
+        self.assertEqual("c1", accepted["claims"][0]["claim_id"])
+
+    def test_work_order_due_must_be_declared_or_not_applicable(self):
+        order = copy.deepcopy(self.order)
+        order["schedule"].pop("due")
+        order.pop("due", None)
+        self.assertTrue(any("not_applicable" in e for e in lint_work_order(order)))
+        order["due"] = "not_applicable"
+        self.assertEqual([], lint_work_order(order))
+
+    def test_depends_on_requires_ids_or_not_applicable(self):
+        empty = copy.deepcopy(self.order)
+        empty["depends_on"] = []
+        self.assertTrue(any("depends_on" in e for e in lint_work_order(empty)))
+        self.assertEqual([], lint_work_order(self.order))
+
+        store = WorkStore(self.data)
+        store.create(copy.deepcopy(self.order), by="owner")
+        dependent = copy.deepcopy(self.order)
+        dependent["work_order_id"] = "wo-depends-on"
+        dependent["depends_on"] = [{"work_order_id": self.order["work_order_id"]}]
+        store.create(dependent, by="owner")
+        with self.assertRaisesRegex(WorkError, "依赖"):
+            store.ready(dependent["work_order_id"], by="owner")
+
+    def test_update_merges_patch_and_bumps_revision(self):
+        store = WorkStore(self.data)
+        store.create(self.order, by="owner")
+        before = store.get(self.order["work_order_id"])
+        updated = store.update(self.order["work_order_id"], {"title": "改过的标题"}, by="owner")
+        self.assertEqual("改过的标题", updated["title"])
+        self.assertEqual(2, updated["revision"])
+        self.assertEqual(before["business_purpose"], updated["business_purpose"])
+
+        merged = store.update(self.order["work_order_id"],
+                              {"schedule": {"due": "2026-12-01T18:00:00+08:00"}}, by="owner")
+        self.assertEqual(3, merged["revision"])
+        for key, value in before["schedule"].items():
+            if key != "due":
+                self.assertEqual(value, merged["schedule"][key])
+        self.assertEqual("2026-12-01T18:00:00+08:00", merged["schedule"]["due"])
+
+        with self.assertRaisesRegex(WorkError, "未知字段"):
+            store.update(self.order["work_order_id"], {"not_a_field": 1}, by="owner")
+        with self.assertRaisesRegex(WorkError, "state"):
+            store.update(self.order["work_order_id"], {"state": "ready"}, by="owner")
+
+    def test_update_and_replace_refuse_non_draft_order(self):
+        store = WorkStore(self.data)
+        store.create(self.order, by="owner")
+        store.ready(self.order["work_order_id"], by="owner")
+        with self.assertRaisesRegex(WorkError, "draft/blocked"):
+            store.update(self.order["work_order_id"], {"title": "x"}, by="owner")
+        with self.assertRaisesRegex(WorkError, "draft/blocked"):
+            store.replace(self.order["work_order_id"], self.order, by="owner")
+
+    def _mkt(self, *args):
+        result = subprocess.run(
+            [sys.executable, str(ROOT / "mkt.py"), "--workspace", str(self.data), *args],
+            cwd=ROOT, text=True, capture_output=True)
+        self.assertEqual(0, result.returncode, msg=f"{result.stdout}\n{result.stderr}")
+        return json.loads(result.stdout)
+
+    def test_cli_work_update_bumps_revision(self):
+        order_path = self.data / "order.json"
+        order_path.write_text(json.dumps(self.order, ensure_ascii=False), encoding="utf-8")
+        self._mkt("work", "create", "--file", str(order_path), "--by", "owner")
+        patch_path = self.data / "patch.json"
+        patch_path.write_text(json.dumps({"title": "CLI 改标题"}, ensure_ascii=False), encoding="utf-8")
+        payload = self._mkt("work", "update", "--id", self.order["work_order_id"],
+                            "--file", str(patch_path), "--by", "owner")
+        self.assertEqual(2, payload["work_order"]["revision"])
+        self.assertEqual("CLI 改标题", payload["work_order"]["title"])
+        self.assertEqual([], payload["lint_errors"])
 
 
 class TestMetrics(unittest.TestCase):
