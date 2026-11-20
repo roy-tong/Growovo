@@ -74,6 +74,53 @@ class VerovoHandoffTests(unittest.TestCase):
         body.pop("generated_at")
         self.assertEqual(payload["integrity_sha256"], _fingerprint(body))
 
+    def test_task_bindings_expose_stable_ids_for_operations_and_events(self):
+        log = operations_log.OperationsLog(self.data)
+        log.append({
+            "operation_id": "op-bind-1", "run_id": "bind-run",
+            "campaign": "bind-run", "queue_item_id": "item-1",
+            "channel": "email", "action": "message", "target": "user@example.com",
+            "content_sha256": "1" * 64, "browser_context_ref": None,
+            "account": {"platform_user_id": "synthetic", "handle": "sender",
+                        "observed_at": "2026-11-18T10:00:00+00:00",
+                        "proof_ref": "synthetic:identity"},
+            "operator": "test-role", "approval_ref": "synthetic-approval",
+            "policy_sha256": "2" * 64,
+            "started_at": "2026-11-18T10:00:00+00:00",
+            "finished_at": "2026-11-18T10:00:01+00:00", "result": "committed",
+            "receipt": {"id": "synthetic-message-9"}, "artifacts": [], "error": None,
+        })
+        events = self.data / "outcomes" / "product_events.jsonl"
+        events.parent.mkdir(parents=True, exist_ok=True)
+        events.write_text(json.dumps({
+            "event_id": "ev-bind-1", "event_type": "signup",
+            "subject_id": "subject-1", "campaign_id": "bind-run",
+            "occurred_at": "2026-11-18T11:00:00+00:00",
+            "source_system": "product-owner", "source_ref": "synthetic:event-1",
+        }, ensure_ascii=False) + "\n", encoding="utf-8")
+
+        payload = build_handoff(self.data, "bind-run")
+        bindings = {row["task_id"]: row for row in payload["task_bindings"]}
+        self.assertEqual(2, len(bindings))
+        operation = bindings["growovo:bind-run/op/op-bind-1"]
+        self.assertEqual("operation", operation["kind"])
+        self.assertEqual("op-bind-1", operation["operation_id"])
+        self.assertEqual("committed", operation["result"])
+        self.assertEqual("bind-run", operation["run_id"])
+        event = bindings["growovo:bind-run/ev/ev-bind-1"]
+        self.assertEqual("product_event", event["kind"])
+        self.assertEqual("ev-bind-1", event["event_id"])
+        self.assertTrue(any("task_id is a stable identifier" in line
+                            for line in payload["premises"]["assumptions"]))
+
+        # task_bindings travel inside the fingerprint: rewriting one breaks it.
+        stored = payload["integrity_sha256"]
+        payload["task_bindings"][0]["task_id"] = "growovo:bind-run/op/other"
+        body = dict(payload)
+        body.pop("integrity_sha256")
+        body.pop("generated_at")
+        self.assertNotEqual(stored, _fingerprint(body))
+
     def test_tampering_with_premises_breaks_integrity(self):
         log = operations_log.OperationsLog(self.data)
         log.append({

@@ -41,6 +41,40 @@ def _fingerprint(payload: Dict[str, Any]) -> str:
     return hashlib.sha256(raw).hexdigest()
 
 
+def operation_task_id(run_id: str, operation_id: str) -> str:
+    return "growovo:%s/op/%s" % (_text(run_id), _text(operation_id))
+
+
+def event_task_id(run_id: str, event_id: str) -> str:
+    return "growovo:%s/ev/%s" % (_text(run_id), _text(event_id))
+
+
+def _task_bindings(run_id: str, operations, events) -> list:
+    bindings = []
+    for row in operations:
+        operation_id = _text(row.get("operation_id"))
+        if not operation_id:
+            continue
+        bindings.append({
+            "task_id": operation_task_id(run_id, operation_id),
+            "kind": "operation",
+            "operation_id": operation_id,
+            "run_id": run_id,
+            "result": _text(row.get("result")) or None,
+        })
+    for row in events:
+        event_id = _text(row.get("event_id"))
+        if not event_id:
+            continue
+        bindings.append({
+            "task_id": event_task_id(run_id, event_id),
+            "kind": "product_event",
+            "event_id": event_id,
+            "run_id": run_id,
+        })
+    return bindings
+
+
 def _premises(run_id: str, operations, events, contexts) -> Dict[str, Any]:
     channels = sorted({_text(row.get("channel")) for row in operations
                        if _text(row.get("channel"))})
@@ -64,6 +98,7 @@ def _premises(run_id: str, operations, events, contexts) -> Dict[str, Any]:
     assumptions = [
         "product events are source-declared by the product owner; Growovo does not verify them independently",
         "a committed operation records what the channel returned, not delivery acceptance or conversion",
+        "task_id is a stable identifier inside this handoff package, not a buyer business task number",
     ]
     if contexts:
         assumptions.append(
@@ -126,6 +161,7 @@ def build_handoff(data_dir, run_id: str) -> Dict[str, Any]:
         "run_id": run_id,
         "operations": operations,
         "business_events": events,
+        "task_bindings": _task_bindings(run_id, operations, events),
         "event_qualifications": [copy.deepcopy(row) for row in
                                  outcome_layers.read_qualifications(data_dir)
                                  if any(row.get("event_id") == event.get("event_id")
@@ -159,5 +195,6 @@ def write_handoff(data_dir, run_id: str, output) -> Dict[str, Any]:
     return {"path": str(path), "run_id": payload["run_id"],
             "operations": len(payload["operations"]),
             "business_events": len(payload["business_events"]),
+            "task_bindings": len(payload.get("task_bindings") or []),
             "integrity_sha256": payload["integrity_sha256"],
             "booking_status": payload["booking_status"]}

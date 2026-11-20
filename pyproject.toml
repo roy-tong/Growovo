@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "growovo"
-version = "0.16.2"
+version = "0.16.3"
 description = "Run authorized X and email campaigns with draft checks, execution receipts and human review of uncertain sends."
 readme = "README.md"
 requires-python = ">=3.9"
