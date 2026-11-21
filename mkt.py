@@ -3481,6 +3481,107 @@ def cmd_cycle(args):
 
 
 @_business_command
+def cmd_supply(args):
+    """候选储备：挖掘候选目标与写作角度、看储备深度、挑候选、标状态、登记 KOC。
+
+    只读写本地储备文件，不写队列、不发送。正文仍由每波前的准备任务写；
+    储备里只放目标、证据和分数，避免 12 小时过期把成稿浪费掉。
+    """
+    from core import supply_mine, supply_pool
+    from core.ledger import Ledger
+
+    def _profile():
+        from core import grow_fit
+        path = DATA / "family-facts.json"
+        if not path.is_file():
+            return None
+        return grow_fit.product_profile(json.loads(path.read_text(encoding="utf-8")))
+
+    def _policy():
+        path = DATA / "policies" / "engagement-cycle.json"
+        if not path.is_file():
+            return {}
+        return json.loads(path.read_text(encoding="utf-8"))
+
+    def _ledger():
+        path = Path(str(getattr(args, "ledger", "") or "") or (DATA / "ledger.jsonl"))
+        return Ledger(path)
+
+    def _session(policy):
+        from core import engagement_cycle as cycle
+        return (str(getattr(args, "session", "") or "")
+                or cycle.bridge_session(policy) or "")
+
+    def _queries(defaults):
+        got = [q for q in (getattr(args, "query", None) or []) if str(q).strip()]
+        return got or None
+
+    if args.action == "stats":
+        got = supply_pool.stats(DATA, _policy(), nights=int(args.nights or 3))
+        _emit(got)
+        return 0
+
+    if args.action == "pick":
+        rows = supply_pool.pick(
+            DATA, args.channel, args.action_name, int(args.n or 5),
+            min_score=int(args.min_score or 0),
+            exclude=[x for x in str(args.exclude or "").split(",") if x.strip()])
+        _emit({"ok": True, "count": len(rows), "items": rows})
+        return 0
+
+    if args.action == "mark":
+        _emit(supply_pool.mark(DATA, args.key, args.status, why=str(args.why or "")))
+        return 0
+
+    if args.action == "wave":
+        got = supply_pool.wave_plan(
+            DATA, _policy(), wave=int(getattr(args, "wave_no", 1) or 1),
+            out_path=Path(args.out) if getattr(args, "out", "") else None)
+        _emit(got)
+        return 0
+
+    if args.action == "koc":
+        registry = supply_pool.koc_load(DATA)
+        accounts = registry.get("accounts") or {}
+        rows = sorted(accounts.values(),
+                      key=lambda row: (-int(row.get("score") or 0),
+                                       -int(row.get("hits") or 0)))
+        limit = int(getattr(args, "limit", 0) or 0)
+        _emit({"ok": True, "accounts": len(accounts),
+               "koc": supply_pool.koc_stats(DATA),
+               "top": rows[:limit] if limit else rows})
+        return 0
+
+    if args.action == "import-watchlist":
+        got = supply_pool.import_watchlist(DATA, args.path)
+        _emit(got)
+        return 0 if got.get("ok") else 2
+
+    if args.action == "mine":
+        profile, ledger = _profile(), _ledger()
+        if args.channel == "content":
+            got = supply_mine.mine_content(DATA, policy=_policy(),
+                                           profile=profile, ledger=ledger)
+        elif args.channel == "github":
+            got = supply_mine.mine_github(
+                DATA, queries=_queries(supply_mine.gh_queries(int(args.days or 14))),
+                per_query=int(args.per_query or 20), gap=float(args.gap or 3.0),
+                days=int(args.days or 14), profile=profile, ledger=ledger)
+        elif args.channel == "x":
+            policy = _policy()
+            got = supply_mine.mine_x(
+                DATA, queries=_queries(supply_mine.X_QUERIES),
+                limit=int(args.limit or 12), session=_session(policy),
+                gap=float(args.gap or 2.0), profile=profile, ledger=ledger)
+        else:
+            raise ValueError("未知挖掘渠道：%s（可选 github/x/content）" % args.channel)
+        _emit(got)
+        return 0 if got.get("ok") else 2
+
+    raise ValueError("未知 supply 动作：%s" % args.action)
+
+
+@_business_command
 def cmd_orchestrate(args):
     from core import orchestration
     product = _load_structured(args.product)
@@ -5820,6 +5921,40 @@ def build_parser():
     for _sub in cysub.choices.values():
         _sub.add_argument("--json", action="store_true", help="兼容参数：输出本就是 JSON")
     sp.set_defaults(fn=cmd_cycle)
+
+    sp = sub.add_parser("supply", help="候选储备：挖掘目标与写作角度、看深度、挑候选、登记 KOC")
+    susub = sp.add_subparsers(dest="action", required=True)
+    a = susub.add_parser("stats", help="按渠道看可用候选、每夜需求与缺口")
+    a.add_argument("--nights", type=int, default=3, help="按几晚容量计算；默认 3")
+    a = susub.add_parser("mine", help="挖掘候选并入储备（不写队列、不发送）")
+    a.add_argument("--channel", required=True, choices=["github", "x", "content"])
+    a.add_argument("--query", action="append", default=[], help="覆盖默认查询，可重复")
+    a.add_argument("--per-query", type=int, default=20, help="GitHub 每条查询取回条数")
+    a.add_argument("--limit", type=int, default=12, help="X 每条查询最多保留条数")
+    a.add_argument("--days", type=int, default=14, help="GitHub 只看最近几天创建的 issue")
+    a.add_argument("--gap", type=float, default=0, help="查询间隔秒数；0 用各自默认值")
+    a.add_argument("--session", default="", help="WebBridge 会话名；不填用策略值")
+    a.add_argument("--ledger", default="", help="账本路径；默认 data/ledger.jsonl")
+    a = susub.add_parser("pick", help="按分数取 N 条未用候选（只读）")
+    a.add_argument("--channel", required=True)
+    a.add_argument("--action-name", required=True)
+    a.add_argument("--n", type=int, default=5)
+    a.add_argument("--min-score", type=int, default=0)
+    a.add_argument("--exclude", default="", help="逗号分隔的 key，跳过")
+    a = susub.add_parser("mark", help="标记候选状态：new/used/rejected/expired")
+    a.add_argument("--key", required=True)
+    a.add_argument("--status", required=True, choices=["new", "used", "rejected", "expired"])
+    a.add_argument("--why", default="")
+    a = susub.add_parser("koc", help="查看 KOC 账号登记")
+    a.add_argument("--limit", type=int, default=0, help="只列前 N 个；0 列全部")
+    a = susub.add_parser("wave", help="按每波额度生成某一波的工作清单（不写正文、不改状态）")
+    a.add_argument("--wave", dest="wave_no", type=int, default=1, help="波次序号，仅作标记")
+    a.add_argument("--out", default="", help="清单路径；默认 data/state/wave-supply.json")
+    a = susub.add_parser("import-watchlist", help="导入旧 run 的 koc_watchlist.json")
+    a.add_argument("--path", required=True)
+    for _sub in susub.choices.values():
+        _sub.add_argument("--json", action="store_true", help="兼容参数：输出本就是 JSON")
+    sp.set_defaults(fn=cmd_supply)
 
     sp = sub.add_parser("orchestrate", help="按产品/目标/任务选择最小岗位组合、交付物与表达方式")
     sp.add_argument("--product", required=True, help="产品事实 JSON；也接受含 product 的事实包")

@@ -79,6 +79,7 @@ def search(q, limit):
             "comments": it.get("comments"),
             "created_at": it.get("created_at"),
             "author": (it.get("user") or {}).get("login"),
+            "is_pr": bool(it.get("pull_request")),
             "body_len": len(it.get("body") or ""),
             "body": (it.get("body") or "")[:700],
         })
