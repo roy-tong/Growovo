@@ -42,7 +42,8 @@ DEFAULT_POLICY = {
     },
     "interleave": {"priority": ["x", "github", "discord"], "min_gap_sec": 15,
                    "max_actions_per_wave": 51},
-    "inbox": {"per_actor_cap": 2, "lookback_hours": 36, "order": ["x", "github", "discord"]},
+    "inbox": {"per_actor_cap": 2, "lookback_hours": 36, "auto_collect": False,
+              "order": ["x", "github", "discord"]},
     "queue": {"max_age_hours": 12},
     "quota": {"hour_mode": "rolling"},
     "supply": {
@@ -554,6 +555,60 @@ def _lock_path(data_dir) -> Path:
     return Path(data_dir) / "state" / "engagement-cycle.lock"
 
 
+def _merge_inbox_rows(queue_path, fresh) -> Dict[str, Any]:
+    path = Path(queue_path)
+    existing = load_queue(path)
+    merged = [dict(row) for row in existing]
+    known = {_candidate_key(row) for row in merged}
+    for raw in fresh:
+        row = _normalize(raw)
+        key = _candidate_key(row)
+        if key in known:
+            for old in merged:
+                if _candidate_key(old) == key and not old.get("text"):
+                    old.setdefault("their_text", row.get("their_text") or "")
+                    old.setdefault("actor", row.get("actor") or "")
+            continue
+        known.add(key)
+        merged.append(row)
+    save_queue(path, merged)
+    return {"ok": True, "count": len(fresh), "items": fresh,
+            "queue_path": str(path), "queue_size": len(merged),
+            "next": "为每条补 text（没有真实依据就留空丢弃），再跑 cycle plan"}
+
+
+def _inbox_identity(row: Dict[str, Any]) -> Tuple[Any, ...]:
+    normalized = _normalize(row)
+    if normalized["source"] == "inbox" and normalized.get("thread_ref"):
+        return (normalized["channel"], normalized["action"],
+                str(normalized.get("thread_ref") or ""))
+    return _candidate_key(normalized)
+
+
+def _fill_inbox_rows(queue_path, drafts) -> Dict[str, Any]:
+    if isinstance(drafts, dict):
+        drafts = drafts.get("items") or []
+    if not isinstance(drafts, list):
+        raise ValueError("inbox_writer 必须返回草稿数组或 items 数组")
+    path = Path(queue_path)
+    existing = load_queue(path)
+    written = 0
+    for raw in drafts:
+        if not isinstance(raw, dict) or not str(raw.get("text") or "").strip():
+            continue
+        identity = _inbox_identity(raw)
+        for old in existing:
+            if (str(old.get("source") or "") == "inbox"
+                    and not str(old.get("text") or "").strip()
+                    and _inbox_identity(old) == identity):
+                old["text"] = str(raw.get("text") or "").strip()
+                written += 1
+                break
+    if written:
+        save_queue(path, existing)
+    return {"written": written, "queue_size": len(existing)}
+
+
 def merge_inbox(data_dir, fresh, *, queue_path=None) -> Dict[str, Any]:
     """在同一执行锁内合并通知草稿；已有正文不覆盖，同一线程不重复。"""
     data_dir = Path(data_dir)
@@ -570,24 +625,7 @@ def merge_inbox(data_dir, fresh, *, queue_path=None) -> Dict[str, Any]:
         return {"ok": False, "reason": "wave_lock_unavailable", "error": str(exc)}
     try:
         path = Path(queue_path) if queue_path else data_dir / "state" / "engagement-queue.json"
-        existing = load_queue(path)
-        merged = [dict(row) for row in existing]
-        known = {_candidate_key(row) for row in merged}
-        for raw in fresh:
-            row = _normalize(raw)
-            key = _candidate_key(row)
-            if key in known:
-                for old in merged:
-                    if _candidate_key(old) == key and not old.get("text"):
-                        old.setdefault("their_text", row.get("their_text") or "")
-                        old.setdefault("actor", row.get("actor") or "")
-                continue
-            known.add(key)
-            merged.append(row)
-        save_queue(path, merged)
-        return {"ok": True, "count": len(fresh), "items": fresh,
-                "queue_path": str(path), "queue_size": len(merged),
-                "next": "为每条补 text（没有真实依据就留空丢弃），再跑 cycle plan"}
+        return _merge_inbox_rows(path, fresh)
     finally:
         fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
         handle.close()
@@ -692,12 +730,14 @@ def mark_stopped(data_dir, night: str, channel: str, reason: str) -> Path:
 
 def run(data_dir, *, go: bool = False, queue_path=None, max_actions: int = 0,
         wave_id: str = "", budget_sec: int = 3000, session: str = "",
-        prefetch: Optional[bool] = None, log=print) -> Dict[str, Any]:
+        prefetch: Optional[bool] = None, auto_inbox: Optional[bool] = None,
+        inbox_writer=None, log=print) -> Dict[str, Any]:
     """串行执行真实波次；dry-run 保持只读且不占用执行锁。"""
     if not go:
         return _run(data_dir, go=False, queue_path=queue_path, max_actions=max_actions,
                     wave_id=wave_id, budget_sec=budget_sec, session=session,
-                    prefetch=prefetch, log=log)
+                    prefetch=prefetch, auto_inbox=auto_inbox,
+                    inbox_writer=inbox_writer, log=log)
     lock_file = _lock_path(data_dir)
     try:
         lock_file.parent.mkdir(parents=True, exist_ok=True)
@@ -713,7 +753,8 @@ def run(data_dir, *, go: bool = False, queue_path=None, max_actions: int = 0,
     try:
         return _run(data_dir, go=True, queue_path=queue_path, max_actions=max_actions,
                     wave_id=wave_id, budget_sec=budget_sec, session=session,
-                    prefetch=prefetch, log=log)
+                    prefetch=prefetch, auto_inbox=auto_inbox,
+                    inbox_writer=inbox_writer, log=log)
     finally:
         fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
         handle.close()
@@ -721,7 +762,8 @@ def run(data_dir, *, go: bool = False, queue_path=None, max_actions: int = 0,
 
 def _run(data_dir, *, go: bool = False, queue_path=None, max_actions: int = 0,
          wave_id: str = "", budget_sec: int = 3000, session: str = "",
-         prefetch: Optional[bool] = None, log=print) -> Dict[str, Any]:
+         prefetch: Optional[bool] = None, auto_inbox: Optional[bool] = None,
+         inbox_writer=None, log=print) -> Dict[str, Any]:
     """执行一波：窗口 → 停手 → 计划 → 逐条 sleep 后发送 → 记波次摘要。"""
     from .action_runner import run_action
     from .browser_attach import BridgeError
@@ -738,7 +780,30 @@ def _run(data_dir, *, go: bool = False, queue_path=None, max_actions: int = 0,
     wave = wave_id or now.strftime("%H%M")
     campaign = "night-%s-w%s" % (night, wave)
     queue_file = queue_path or (data_dir / "state" / "engagement-queue.json")
+    inbox_config = policy.get("inbox") or {}
+    inbox_enabled = (bool(inbox_config.get("auto_collect", False))
+                     if auto_inbox is None else bool(auto_inbox)) and go
+    inbox_summary: Dict[str, Any] = {"auto_collect": inbox_enabled, "collected": 0,
+                                     "written": 0, "pending_text": 0,
+                                     "errors": {}, "coverage": {}}
+    if inbox_enabled:
+        report = collect_inbox_report(data_dir, session=used_session, log=log)
+        merged = _merge_inbox_rows(queue_file, report["items"])
+        inbox_summary.update({"collected": len(report["items"]),
+                              "errors": report.get("errors") or {},
+                              "coverage": report.get("coverage") or {},
+                              "queue_size": merged["queue_size"]})
+    if go and inbox_writer is not None:
+        pending_inbox = [raw for raw in load_queue(queue_file)
+                         if str(raw.get("source") or "") == "inbox"
+                         and not str(raw.get("text") or "").strip()]
+        filled = _fill_inbox_rows(queue_file, inbox_writer(pending_inbox))
+        inbox_summary["written"] = filled["written"]
+        inbox_summary["queue_size"] = filled["queue_size"]
     queue = load_queue(queue_file)
+    inbox_summary["pending_text"] = sum(
+        1 for raw in queue
+        if str(raw.get("source") or "") == "inbox" and not str(raw.get("text") or "").strip())
     stale = stale_rows(queue, policy, now=now)
     stale_keys = {_queue_key(row) for row in stale}
 
@@ -764,7 +829,7 @@ def _run(data_dir, *, go: bool = False, queue_path=None, max_actions: int = 0,
                    "target": row["target"],
                    "age_hours": _age_hours(row, now=now)} for row in stale],
         "usage": prepared["usage"], "supply": prepared["supply"],
-        "started_at": now.isoformat(timespec="seconds"),
+        "inbox": inbox_summary, "started_at": now.isoformat(timespec="seconds"),
     }
     if not go:
         summary["scheduled"] = [{"channel": row["channel"], "action": row["action"],
@@ -962,10 +1027,10 @@ def quota_snapshot(data_dir, *, now: Optional[_dt.datetime] = None) -> Dict[str,
             "night_start": used["night_start"], "quotas": rows}
 
 
-def collect_inbox(data_dir, *, lookback_hours: Optional[int] = None,
-                  channel_ids: Optional[List[str]] = None, session: str = "",
-                  log=print) -> List[Dict[str, Any]]:
-    """只读收集通知回复，并按每对象上限排好（写正文由调用方/Agent 完成）。"""
+def collect_inbox_report(data_dir, *, lookback_hours: Optional[int] = None,
+                         channel_ids: Optional[List[str]] = None, session: str = "",
+                         log=print) -> Dict[str, Any]:
+    """收集并规划入站回复，同时保留每平台错误与真实能力覆盖。"""
     from . import inbox_replies
 
     policy = load_policy(data_dir)
@@ -973,13 +1038,23 @@ def collect_inbox(data_dir, *, lookback_hours: Optional[int] = None,
     hours = int(lookback_hours or (policy.get("inbox") or {}).get("lookback_hours", 36))
     ids = channel_ids if channel_ids is not None else [
         str(x) for x in ((policy.get("channels") or {}).get("discord_allowed_ids") or [])]
-    raw = inbox_replies.collect(data_dir, lookback_hours=hours, channel_ids=ids, log=log)
+    report = inbox_replies.collect_detailed(
+        data_dir, lookback_hours=hours, channel_ids=ids, log=log)
     ledger = Ledger(Path(data_dir) / "ledger.jsonl")
     start = night_start(_now(), policy)
-    return inbox_replies.plan_replies(
-        raw, ledger,
+    report["items"] = inbox_replies.plan_replies(
+        report["items"], ledger,
         per_actor_cap=int((policy.get("inbox") or {}).get("per_actor_cap", 2)),
         night_start=start)
+    return report
+
+
+def collect_inbox(data_dir, *, lookback_hours: Optional[int] = None,
+                  channel_ids: Optional[List[str]] = None, session: str = "",
+                  log=print) -> List[Dict[str, Any]]:
+    """只读收集通知回复，并按每对象上限排好（写正文由调用方/Agent 完成）。"""
+    return collect_inbox_report(data_dir, lookback_hours=lookback_hours,
+                                channel_ids=channel_ids, session=session, log=log)["items"]
 
 
 def smoke() -> Dict[str, Any]:

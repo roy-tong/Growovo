@@ -15,6 +15,18 @@ from .bridge import discord_engine, gh_post, wb
 
 PLATFORM_ORDER = ("x", "github", "discord")
 
+
+def capabilities() -> Dict[str, Dict[str, Any]]:
+    """实际入站覆盖；不支持的类型必须显式出现，不能用空数组冒充没有消息。"""
+    return {
+        "x": {"native_reply": True, "direct_message": False,
+              "source": "notifications/mentions"},
+        "github": {"issue_comment": True, "direct_message": "not_applicable",
+                   "source": "unread notifications + latest comment"},
+        "discord": {"channel_post_mention": True, "native_reply": False,
+                    "direct_message": False, "source": "allowed channels"},
+    }
+
 # X 通知页：一条 article 就是一个提及/回复。只取正文、作者、时间和永久链接。
 _JS_X_MENTIONS = r"""
 (() => {
@@ -133,6 +145,21 @@ def collect_x(attach: BrowserAttach, handle: str, *, lookback_hours: int = 36) -
     return out
 
 
+def _github_latest_comment(subject: Dict[str, Any]) -> Dict[str, Any]:
+    url = str(subject.get("latest_comment_url") or "").strip()
+    if not url:
+        return {}
+    path = url.replace("https://api.github.com/", "", 1)
+    res = gh_post.run(["api", "--method", "GET", path])
+    if not res.get("ok"):
+        return {}
+    try:
+        got = json.loads(res.get("out") or "{}")
+    except ValueError:
+        return {}
+    return got if isinstance(got, dict) else {}
+
+
 def collect_github(handle: str, *, lookback_hours: int = 36) -> List[Dict[str, Any]]:
     res = gh_post.run(["api", "--method", "GET", "notifications?all=false&per_page=50"])
     if not res.get("ok"):
@@ -157,16 +184,24 @@ def collect_github(handle: str, *, lookback_hours: int = 36) -> List[Dict[str, A
             continue
         repo, num = m.group(1), m.group(2)
         target = "%s#%s" % (repo, num)
+        comment = _github_latest_comment(subject)
+        author = str((comment.get("user") or {}).get("login") or "")
+        if not author:
+            author = str((row.get("repository") or {}).get("owner") or {}).get("login") or ""
+        context = str(comment.get("body") or "").strip()
+        if not context:
+            context = "%s（%s；评论正文未取到）" % (subject.get("title") or "", reason)
         out.append({
             "platform": "github",
             "action": "reply",
-            "thread_ref": target,
+            "thread_ref": str(comment.get("html_url") or target),
             "target": target,
-            "author": ((row.get("repository") or {}).get("owner") or {}).get("login") or "",
-            "handle": "",
-            "their_text": "%s（%s）" % (subject.get("title") or "", reason),
-            "received_at": row.get("updated_at") or "",
+            "author": author,
+            "handle": author,
+            "their_text": context,
+            "received_at": str(comment.get("updated_at") or row.get("updated_at") or ""),
             "capability": "issue_comment",
+            "context_incomplete": not bool(comment.get("body")),
             "unread": bool(row.get("unread")),
         })
     return out
@@ -211,11 +246,13 @@ def collect_discord(attach: BrowserAttach, username: str, channel_ids: List[str]
     return out
 
 
-def collect(data_dir, *, attach: Optional[BrowserAttach] = None, lookback_hours: int = 36,
-            channel_ids: Optional[List[str]] = None, log=print) -> Dict[str, List[Dict[str, Any]]]:
-    """只读收集三平台的通知回复；任一平台失败记空并继续。"""
+def collect_detailed(data_dir, *, attach: Optional[BrowserAttach] = None,
+                     lookback_hours: int = 36, channel_ids: Optional[List[str]] = None,
+                     log=print) -> Dict[str, Any]:
+    """只读收集三平台回复；空结果与读取失败分开报告。"""
     attach = attach or BrowserAttach()
     out: Dict[str, List[Dict[str, Any]]] = {"x": [], "github": [], "discord": []}
+    errors: Dict[str, str] = {}
     handles: Dict[str, str] = {}
     try:
         handle = attach.observe_identity("x", attach.ensure_tab(
@@ -223,10 +260,12 @@ def collect(data_dir, *, attach: Optional[BrowserAttach] = None, lookback_hours:
         handles["x"] = handle
         out["x"] = collect_x(attach, handle, lookback_hours=lookback_hours)
     except Exception as exc:  # noqa: BLE001 - 回读失败不阻断其他平台
+        errors["x"] = str(exc)[:300]
         log("inbox/x 失败：%s" % exc)
     try:
         out["github"] = collect_github(handles.get("github", ""), lookback_hours=lookback_hours)
     except Exception as exc:  # noqa: BLE001
+        errors["github"] = str(exc)[:300]
         log("inbox/github 失败：%s" % exc)
     try:
         dc_handle = attach.observe_identity("discord", attach.ensure_tab(
@@ -235,10 +274,17 @@ def collect(data_dir, *, attach: Optional[BrowserAttach] = None, lookback_hours:
         handles["discord"] = dc_handle
         out["discord"] = collect_discord(attach, dc_handle, channel_ids or [])
     except Exception as exc:  # noqa: BLE001
+        errors["discord"] = str(exc)[:300]
         log("inbox/discord 失败：%s" % exc)
     for platform in PLATFORM_ORDER:
         log("inbox/%s: %d 条待看" % (platform, len(out[platform])))
-    return out
+    return {"items": out, "errors": errors, "coverage": capabilities()}
+
+
+def collect(data_dir, *, attach: Optional[BrowserAttach] = None, lookback_hours: int = 36,
+            channel_ids: Optional[List[str]] = None, log=print) -> Dict[str, List[Dict[str, Any]]]:
+    return collect_detailed(data_dir, attach=attach, lookback_hours=lookback_hours,
+                            channel_ids=channel_ids, log=log)["items"]
 
 
 def plan_replies(items: Dict[str, List[Dict[str, Any]]], ledger, *,

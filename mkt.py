@@ -3474,7 +3474,8 @@ def cmd_cycle(args):
                         wave_id=str(getattr(args, "wave", "") or ""),
                         budget_sec=int(getattr(args, "budget_sec", 3000) or 3000),
                         session=getattr(args, "session", "") or "",
-                        prefetch=getattr(args, "prefetch", None), log=_log)
+                        prefetch=getattr(args, "prefetch", None),
+                        auto_inbox=getattr(args, "auto_inbox", None), log=_log)
         _emit(got)
         return 0 if got.get("ok") else 2
 
@@ -5923,6 +5924,10 @@ def build_parser():
                    help="执行期间按缺口后台预取 GitHub/内容候选")
     a.add_argument("--no-prefetch", dest="prefetch", action="store_false",
                    help="关闭本波后台预取")
+    a.add_argument("--inbox", dest="auto_inbox", action="store_true", default=None,
+                   help="本波排程前重新收集入站回复")
+    a.add_argument("--no-inbox", dest="auto_inbox", action="store_false",
+                   help="本波不重新收集；已准备的 inbox 行仍优先")
     for _sub in cysub.choices.values():
         _sub.add_argument("--json", action="store_true", help="兼容参数：输出本就是 JSON")
     sp.set_defaults(fn=cmd_cycle)
