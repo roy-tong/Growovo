@@ -171,6 +171,90 @@ class GithubContextTest(unittest.TestCase):
                          "https://github.com/a/b/issues/7#issuecomment-99")
         self.assertEqual(got[0]["target"], "a/b#7")
 
+    def test_notification_without_comment_author_falls_back_to_repo_owner(self):
+        notification = {
+            "reason": "mention", "updated_at": "2026-11-21T13:00:00Z",
+            "repository": {"owner": {"login": "repo-owner"}},
+            "subject": {"title": "Ping", "url": "https://api.github.com/repos/a/b/issues/7"},
+        }
+
+        def api(args, stdin=None):
+            return {"ok": True, "out": json.dumps([notification])}
+
+        with mock.patch.object(inbox_replies.gh_post, "run", side_effect=api), \
+                mock.patch.object(inbox_replies, "_now", return_value=NOW):
+            got = inbox_replies.collect_github("")
+        self.assertEqual(got[0]["author"], "repo-owner")
+        self.assertTrue(got[0]["context_incomplete"])
+
+    def test_notification_payload_that_is_not_a_list_returns_empty(self):
+        with mock.patch.object(inbox_replies.gh_post, "run",
+                               return_value={"ok": True,
+                                             "out": json.dumps({"message": "Bad credentials"})}), \
+                mock.patch.object(inbox_replies, "_now", return_value=NOW):
+            self.assertEqual(inbox_replies.collect_github(""), [])
+
+    def test_non_dict_notification_rows_are_skipped(self):
+        with mock.patch.object(inbox_replies.gh_post, "run",
+                               return_value={"ok": True,
+                                             "out": json.dumps(["junk", None, 7])}), \
+                mock.patch.object(inbox_replies, "_now", return_value=NOW):
+            self.assertEqual(inbox_replies.collect_github(""), [])
+
+
+class XScrollCollectTest(unittest.TestCase):
+    def test_collect_x_scrolls_and_merges_unique_statuses(self):
+        one = {"url": "https://x.com/a/status/1", "handle": "a", "text": "one",
+               "received_at": "2026-11-21T13:00:00Z"}
+        two = {"url": "https://x.com/b/status/2", "handle": "b", "text": "two",
+               "received_at": "2026-11-21T12:00:00Z"}
+        screens = [{"items": [one]}, {"items": [one, two]}, {}, {}, {}]
+        state = {"i": 0, "scrolls": 0}
+
+        def evaluate(tab, code):
+            if code == inbox_replies._JS_X_SCROLL:
+                state["scrolls"] += 1
+                return {}
+            item = screens[min(state["i"], len(screens) - 1)]
+            state["i"] += 1
+            return item
+
+        attach = mock.Mock()
+        attach.ensure_tab.return_value = 7
+        attach.eval.side_effect = evaluate
+        with mock.patch.object(inbox_replies.wb, "nav"), \
+                mock.patch.object(inbox_replies.wb.time, "sleep"), \
+                mock.patch.object(inbox_replies, "_now", return_value=NOW):
+            got = inbox_replies.collect_x(attach, "roy")
+        self.assertEqual([r["target"] for r in got],
+                         ["https://x.com/a/status/1", "https://x.com/b/status/2"])
+        self.assertEqual(state["scrolls"], 3)
+        self.assertEqual(len(got), len({r["target"] for r in got}))
+
+
+class GonePostTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.data = Path(self.tmp.name)
+        (self.data / "policies").mkdir()
+        (self.data / "policies" / "engagement-cycle.json").write_text(json.dumps({
+            "inbox": {"auto_collect": False}}), encoding="utf-8")
+        self.queue = self.data / "queue.json"
+
+    def test_gone_post_leaves_queue_instead_of_retrying_every_wave(self):
+        self.queue.write_text(json.dumps([
+            row("x", "reply", "https://x.com/a/status/1", text="answer", actor="a")]),
+            encoding="utf-8")
+        fake = {"ok": False, "result": "failed", "ledger_result": "failed",
+                "engine": {"err": "post gone"}}
+        with mock.patch.object(cycle, "_now", return_value=NOW), \
+                mock.patch("core.action_runner.run_action", return_value=fake):
+            got = cycle.run(self.data, go=True, queue_path=self.queue,
+                            auto_inbox=False, wave_id="2205", log=lambda *_: None)
+        self.assertEqual(got["gone"], 1)
+        self.assertEqual(json.loads(self.queue.read_text(encoding="utf-8")), [])
+
 
 if __name__ == "__main__":
     unittest.main()

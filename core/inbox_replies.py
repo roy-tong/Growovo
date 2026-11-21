@@ -117,15 +117,48 @@ def _poll_value(attach: BrowserAttach, tab: int, js: str, *, timeout: float = 12
     return last
 
 
+_JS_X_SCROLL = "(() => { window.scrollBy(0, 1200); return {y: window.scrollY}; })()"
+
+
+def _collect_mentions_scrolled(attach: BrowserAttach, tab: int, *, rounds: int = 8,
+                               pause: float = 0.9) -> List[Dict[str, Any]]:
+    """边读边滚，按 status 链接去重合并。
+
+    X 的通知列表是虚拟列表：滚动后顶部的 article 会卸载，所以每轮先把当前屏
+    并进 seen 再往下滚。连续 3 轮没有新条目就停，避免滚到很早的历史通知。
+    """
+    seen: Dict[str, Dict[str, Any]] = {}
+    stalled = 0
+    for _ in range(max(1, rounds)):
+        got = attach.eval(tab, _JS_X_MENTIONS) or {}
+        added = 0
+        for item in got.get("items") or []:
+            url = str((item or {}).get("url") or "")
+            if not url:
+                continue
+            if url not in seen:
+                added += 1
+            seen[url] = item
+        stalled = 0 if added else stalled + 1
+        if stalled >= 3:
+            break
+        try:
+            attach.eval(tab, _JS_X_SCROLL)
+        except Exception:  # noqa: BLE001 - 滚不动就用手上已有的
+            break
+        wb.time.sleep(pause)
+    return list(seen.values())
+
+
 def collect_x(attach: BrowserAttach, handle: str, *, lookback_hours: int = 36) -> List[Dict[str, Any]]:
     tab = attach.ensure_tab("x", "https://x.com/notifications/mentions",
                             group_title="OVO engagement cycle")
     wb.nav(tab, "https://x.com/notifications/mentions")
     wb.time.sleep(1.2)
-    got = _poll_value(attach, tab, _JS_X_MENTIONS)
+    _poll_value(attach, tab, _JS_X_MENTIONS)
     cutoff = _now() - _dt.timedelta(hours=lookback_hours)
     out = []
-    for item in got.get("items") or []:
+    for item in _collect_mentions_scrolled(attach, tab):
         if str(item.get("handle") or "").lower() == handle.lower():
             continue
         when = _parse_time(item.get("received_at"))
@@ -171,10 +204,14 @@ def collect_github(handle: str, *, lookback_hours: int = 36) -> List[Dict[str, A
     cutoff = _now() - _dt.timedelta(hours=lookback_hours)
     out = []
     for row in rows if isinstance(rows, list) else []:
+        if not isinstance(row, dict):
+            continue
         reason = str(row.get("reason") or "")
         if reason not in ("mention", "comment", "team_mention"):
             continue
         subject = row.get("subject") or {}
+        if not isinstance(subject, dict):
+            continue
         url = str(subject.get("url") or "")
         m = re.search(r"/repos/([^/]+/[^/]+)/(?:issues|pulls)/(\d+)$", url)
         if not m:
@@ -187,7 +224,8 @@ def collect_github(handle: str, *, lookback_hours: int = 36) -> List[Dict[str, A
         comment = _github_latest_comment(subject)
         author = str((comment.get("user") or {}).get("login") or "")
         if not author:
-            author = str((row.get("repository") or {}).get("owner") or {}).get("login") or ""
+            owner = (row.get("repository") or {}).get("owner") or {}
+            author = str(owner.get("login") or "") if isinstance(owner, dict) else ""
         context = str(comment.get("body") or "").strip()
         if not context:
             context = "%s（%s；评论正文未取到）" % (subject.get("title") or "", reason)

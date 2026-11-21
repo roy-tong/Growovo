@@ -824,7 +824,7 @@ def _run(data_dir, *, go: bool = False, queue_path=None, max_actions: int = 0,
         "planned": len(prepared["scheduled"]),
         "skipped": prepared["skipped"], "results": [], "stopped": {},
         "deferred": [], "deferred_channels": [],
-        "pruned_stale": 0,
+        "pruned_stale": 0, "gone": 0,
         "stale": [{"channel": row["channel"], "action": row["action"],
                    "target": row["target"],
                    "age_hours": _age_hours(row, now=now)} for row in stale],
@@ -944,14 +944,21 @@ def _run(data_dir, *, go: bool = False, queue_path=None, max_actions: int = 0,
                 ledger_state = got.get("ledger_result") or (
                     "committed" if state == "success" else state)
                 engine = got.get("engine") or {}
+                error_text = str(got.get("error") or engine.get("err") or "")[:300]
+                gone = error_text == "post gone"
                 summary["results"].append({"channel": row["channel"], "action": row["action"],
                                            "target": row["target"], "actor": row["actor"],
                                            "result": state,
                                            "ledger_result": got.get("ledger_result") or "",
-                                           "error": str(got.get("error") or engine.get("err") or "")[:300],
+                                           "error": error_text,
+                                           "gone": gone,
                                            "ok": bool(got.get("ok")),
                                            "ref": got.get("ref") or ""})
-                if ledger_state in ("committed", "indeterminate", "skipped"):
+                if gone:
+                    # 帖子已删/不可用：再重试也不会成功，出队并单独计数。
+                    summary["gone"] += 1
+                    _consume(row)
+                elif ledger_state in ("committed", "indeterminate", "skipped"):
                     _consume(row)
             except StopChannel as exc:
                 mark_stopped(data_dir, night, row["channel"], exc.reason)
