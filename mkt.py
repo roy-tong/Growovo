@@ -3378,6 +3378,109 @@ def cmd_policy(args):
 
 
 @_business_command
+def cmd_cycle(args):
+    """夜间互动循环：通知优先 → 平台轮转 → 额度/间隔 → 逐条写。
+
+    本命令逐条经过 action_runner，并显式选择 browser-attach 传输；不走通用
+    CDP 身份或 plan/routine 预检，授权由 data/policies/owner-attested-*.json
+    的 owner_attested_session 独立承担。run 默认 dry-run，--go 才执行；暂停、
+    DNC、页面身份、日预算、回读、账本、任务结果和统一操作日志全部保留。
+    """
+    import datetime as _dt
+    from core import engagement_cycle as cycle
+
+    def _when():
+        text = str(getattr(args, "now", "") or "").strip()
+        if not text:
+            return cycle._now()
+        got = _dt.datetime.fromisoformat(text.replace("Z", "+00:00"))
+        if got.tzinfo is None:
+            got = got.replace(tzinfo=_dt.datetime.now().astimezone().tzinfo)
+        return got
+
+    def _queue_path():
+        return Path(str(getattr(args, "queue", "") or "")
+                    or (DATA / "state" / "engagement-queue.json"))
+
+    def _log(message):
+        print(message, file=sys.stderr)
+
+    if args.action == "smoke":
+        got = cycle.smoke()
+        _emit(got)
+        return 0 if got.get("ok") else 2
+
+    if args.action == "quota":
+        return _emit(cycle.quota_snapshot(DATA, now=_when()))
+
+    if args.action == "pending-auth":
+        from core import browser_write
+        return _emit(browser_write.pending_authorization(DATA))
+
+    if args.action == "attach":
+        from core.browser_attach import BridgeError, BrowserAttach
+        attach = BrowserAttach(getattr(args, "session", "") or cycle.bridge_session(
+            cycle.load_policy(DATA)) or "ovo-night-run")
+        out = {"ok": False, "session": attach.session, "tabs": [], "identities": {}}
+        try:
+            out["tabs"] = [{"tabId": t.get("tabId"), "site": t.get("site"),
+                            "url": str(t.get("url") or "")[:160],
+                            "title": str(t.get("title") or "")[:80]}
+                           for t in attach.list_tabs()]
+        except BridgeError as exc:
+            out.update(error=exc.code, message=str(exc))
+            _emit(out)
+            return 2
+        for site in ("x", "github", "discord"):
+            try:
+                tab = attach.attach_site(site)
+                out["identities"][site] = attach.observe_identity(site, tab)
+            except BridgeError as exc:
+                out["identities"][site] = {"enforced": False, "error": exc.code,
+                                           "message": str(exc)}
+        out["ok"] = all(row.get("handle") for row in out["identities"].values())
+        _emit(out)
+        return 0 if out["ok"] else 2
+
+    if args.action == "inbox":
+        rows = cycle.collect_inbox(DATA, lookback_hours=getattr(args, "lookback_hours", 0) or None,
+                                   session=getattr(args, "session", "") or "", log=_log)
+        got = cycle.merge_inbox(DATA, rows, queue_path=_queue_path())
+        _emit(got)
+        return 0 if got.get("ok") else 2
+
+    if args.action == "enqueue":
+        got = cycle.enqueue(DATA, _load_structured(args.file), queue_path=_queue_path(),
+                            now=_when())
+        _emit(got)
+        return 0 if got.get("ok") else 2
+
+    if args.action == "plan":
+        from core.ledger import Ledger
+        policy = cycle.load_policy(DATA)
+        path = _queue_path()
+        got = cycle.plan(cycle.load_queue(path), policy,
+                         ledger=Ledger(DATA / "ledger.jsonl"), now=_when(),
+                         budget_sec=int(getattr(args, "budget_sec", 3000) or 3000),
+                         max_actions=int(getattr(args, "max_actions", 0) or 0),
+                         campaign=str(getattr(args, "campaign", "") or ""))
+        got["queue_path"] = str(path)
+        _emit(got)
+        return 0
+
+    if args.action == "run":
+        got = cycle.run(DATA, go=bool(args.go), queue_path=_queue_path(),
+                        max_actions=int(getattr(args, "max_actions", 0) or 0),
+                        wave_id=str(getattr(args, "wave", "") or ""),
+                        budget_sec=int(getattr(args, "budget_sec", 3000) or 3000),
+                        session=getattr(args, "session", "") or "", log=_log)
+        _emit(got)
+        return 0 if got.get("ok") else 2
+
+    raise ValueError("未知 cycle 动作：%s" % args.action)
+
+
+@_business_command
 def cmd_orchestrate(args):
     from core import orchestration
     product = _load_structured(args.product)
@@ -4245,7 +4348,8 @@ def cmd_queue(args):
             results = run_queue(args.path, data_dir=DATA, go=args.go,
                                 allow_unverified=args.allow_unverified,
                                 only=args.only, routine=args.routine,
-                                resume_batch=getattr(args, "resume_batch", False))
+                                resume_batch=getattr(args, "resume_batch", False),
+                                transport=getattr(args, "transport", None))
         except QueueRunError as exc:
             raise error_semantics.SemanticError(
                 "SAFETY_BLOCKED", f"队列拒跑：{exc}",
@@ -5289,6 +5393,13 @@ def cmd_playbook(args):
 
 def cmd_action(args):
     from core.action_runner import ActionError, run_action
+    from core.browser_attach import BridgeError
+    from core.browser_write import ActionBlocked, StopChannel
+    transport = getattr(args, "transport", "") or ""
+    if transport == "browser-attach":
+        from core import engagement_cycle as cycle
+        cycle._use_session(getattr(args, "session", "") or cycle.bridge_session(
+            cycle.load_policy(DATA)))
     text = Path(args.text_file).read_text(encoding="utf-8").strip() \
         if args.text_file else args.text
     try:
@@ -5299,11 +5410,14 @@ def cmd_action(args):
             text=text, title=args.title, url=args.url,
             subreddit=args.subreddit, number=args.number,
             extra=args.extra, routine=args.routine, account=args.account,
-            platform_user_id=args.platform_user_id or None)
-    except ActionError as exc:
+            platform_user_id=args.platform_user_id or None,
+            transport=transport, actor=getattr(args, "actor", "") or "")
+    except (ActionError, ActionBlocked, StopChannel, BridgeError) as exc:
         raise SystemExit(f"动作拒跑：{exc}")
     print(json.dumps(rec, ensure_ascii=False, indent=1))
-    return 0 if rec.get("result") in ("committed", "dry-run") else 1
+    if rec.get("result") in ("committed", "dry-run", "skipped"):
+        return 0
+    return 3 if rec.get("result") == "indeterminate" else 1
 
 
 def cmd_collect(args):
@@ -5415,10 +5529,12 @@ def build_parser():
                     help="run：UNVERIFIED 渠道实跑（首跑人工在场）")
     sp.add_argument("--resume-batch", dest="resume_batch", action="store_true",
                     help="run：人工核实上一批的未知回执/审计缺口后，清除批次阻塞标记继续")
+    sp.add_argument("--transport", choices=["browser-attach"],
+                    help="run：显式使用当前浏览器现有标签页；授权走 owner-attested")
     sp.set_defaults(fn=cmd_queue)
 
     sp = sub.add_parser("action", help="单条写动作（与队列同一套门禁/审批/账本）")
-    sp.add_argument("channel", choices=["x", "reddit", "linkedin", "github", "hn"])
+    sp.add_argument("channel", choices=["x", "reddit", "linkedin", "github", "hn", "discord"])
     sp.add_argument("action", choices=["publish", "reply", "message", "engage"])
     sp.add_argument("--target", help="reply/message 的目标（URL / issue:o/r#N）")
     sp.add_argument("--text"); sp.add_argument("--text-file")
@@ -5432,6 +5548,10 @@ def build_parser():
                     help="平台用户 ID；策略声明 identity 时用于核对账号身份")
     sp.add_argument("--allow-unverified", dest="allow_unverified", action="store_true")
     sp.add_argument("--extra", nargs="*", help="透传 vendor（x message/engage）")
+    sp.add_argument("--transport", choices=["browser-attach"],
+                    help="显式复用当前浏览器现有标签页；授权走 owner-attested")
+    sp.add_argument("--session", default="", help="browser-attach：WebBridge 会话名；默认读 cycle 策略")
+    sp.add_argument("--actor", default="", help="browser-attach：外部对象标识，用于每对象额度")
     sp.set_defaults(fn=cmd_action)
 
     sp = sub.add_parser("collect", help="本地 collector：链接跳转/事件 webhook/CSV 导入")
@@ -5667,6 +5787,39 @@ def build_parser():
     a.add_argument("--account", default="")
     a.add_argument("--platform-user-id", default="", help="用于核对策略声明的账号身份")
     sp.set_defaults(fn=cmd_policy)
+
+    sp = sub.add_parser("cycle", help="夜间互动循环：通知优先 → 平台轮转 → 额度/间隔 → 回读记账")
+    cysub = sp.add_subparsers(dest="action", required=True)
+    cysub.add_parser("smoke", help="离线自检窗口、间隔与空队列计划")
+    a = cysub.add_parser("quota", help="今夜与近一小时已用额度")
+    a.add_argument("--now", default="", help="模拟当前时间，ISO 格式")
+    cysub.add_parser("pending-auth", help="三平台 owner-attested 授权窗口（只读）")
+    a = cysub.add_parser("attach", help="列出现有标签页并读三平台身份（只读，不新建标签页）")
+    a.add_argument("--session", default="", help="WebBridge 会话名；默认 ovo-night-run")
+    a = cysub.add_parser("inbox", help="只读收集通知回复并合并进队列（不发送）")
+    a.add_argument("--lookback-hours", type=int, default=0, help="回看小时数；不填用策略值")
+    a.add_argument("--queue", default="", help="队列文件；默认 data/state/engagement-queue.json")
+    a.add_argument("--session", default="", help="WebBridge 会话名；不填用策略值")
+    a = cysub.add_parser("enqueue", help="校验、去重并合并已准备草稿（只写本地队列）")
+    a.add_argument("--file", required=True, help="JSON 数组、JSONL 或含 items 数组的 JSON")
+    a.add_argument("--queue", default="")
+    a.add_argument("--now", default="", help="入队时间，ISO 格式；不填用当前时间")
+    a = cysub.add_parser("plan", help="把队列排成带间隔的执行计划（不发送）")
+    a.add_argument("--queue", default="")
+    a.add_argument("--now", default="", help="模拟当前时间，ISO 格式")
+    a.add_argument("--budget-sec", type=int, default=3000, help="单波最长秒数")
+    a.add_argument("--max-actions", type=int, default=0, help="本波最多动作数；0 用策略上限")
+    a.add_argument("--campaign", default="")
+    a = cysub.add_parser("run", help="执行一波；默认 dry-run，--go 才写")
+    a.add_argument("--queue", default="")
+    a.add_argument("--wave", default="", help="波次标签，默认当前 HHMM")
+    a.add_argument("--budget-sec", type=int, default=3000)
+    a.add_argument("--max-actions", type=int, default=0)
+    a.add_argument("--go", action="store_true", help="真正执行；不加只列计划")
+    a.add_argument("--session", default="", help="WebBridge 会话名；不填用策略值")
+    for _sub in cysub.choices.values():
+        _sub.add_argument("--json", action="store_true", help="兼容参数：输出本就是 JSON")
+    sp.set_defaults(fn=cmd_cycle)
 
     sp = sub.add_parser("orchestrate", help="按产品/目标/任务选择最小岗位组合、交付物与表达方式")
     sp.add_argument("--product", required=True, help="产品事实 JSON；也接受含 product 的事实包")

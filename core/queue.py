@@ -77,6 +77,9 @@ def lint_queue(queue, *, path=None, max_len=None, registry=None):
         errs.append(f"未知渠道 {channel}")
     elif action not in registry[channel].get("actions", set()):
         errs.append(f"{channel} 不支持动作 {action}（能力: {sorted(registry[channel]['actions'])}）")
+    transport = str(queue.get("transport") or "").strip().lower()
+    if transport not in {"", "browser-attach"}:
+        errs.append(f"未知队列传输 {transport!r}（可选: browser-attach）")
 
     rows = queue.get("items")
     if not isinstance(rows, list) or not rows:

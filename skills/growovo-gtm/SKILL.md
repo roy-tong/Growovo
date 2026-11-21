@@ -83,7 +83,7 @@ python3 mkt.py work-action materialize --work-order-id <id> --step-id <step> \
 
 日常发帖、私信回复和邮件可以在工作区已有有效 `routine-policy` 时直接执行，不必逐次 plan 人审。
 
-账号可以用用户自己已登录的浏览器：`mkt policy enable --observe-account` 进入 `cdp_observed` 模式，不预绑定账号；执行前读取当前浏览器实际账号，写入账本 `identity`/`account`，`mkt account log` 可查。当前该身份观测只覆盖 X。
+账号可以用用户自己已登录的浏览器：`mkt policy enable --observe-account` 进入 `cdp_observed` 模式，不预绑定账号；执行前读取当前浏览器实际账号，写入账本 `identity`/`account`，`mkt account log` 可查。夜间循环用 `mkt cycle`，它复用用户已打开的标签页（`browser-attach`），读写找不到目标站点标签页都报 `tab_not_found`，默认绝不新开；身份按页面可见账号读取，目前已覆盖 X、Discord 和 GitHub。单动作与队列也可显式选择 `--transport browser-attach`，这条路线使用 owner-attested 独立授权，不与 routine 混用。
 
 ```bash
 # 授权管理只能由人通过 CLI 完成；agent 不自我创建/扩大授权
@@ -98,6 +98,32 @@ python3 mkt.py queue run data/queues/<campaign>.json --go --routine
 - 付款、合同、折扣、危机响应及未知动作必须交由有权人员，不能用 routine。
 - `routine` 只替代逐次 plan 审批；pause、DNC、quota、readback、UNVERIFIED、indeterminate 人工裁决全部保留。
 - 不传 `--routine` 或策略不匹配时，仍执行原 plan 人审；MCP 不开放授权创建、扩大或撤销。
+
+### 定时互动波次：准备与执行分开
+
+夜间 `mkt cycle` 任务必须先加载本协议，使用既有 `cycle / action_runner / browser_write / browser_attach` 与门禁；`cycle` 必须经 `action_runner(transport="browser-attach")` 进入传输适配器，不得直接调用 `browser_write` 绕过统一回执与操作日志。不得在执行波次里临时另写浏览器管线、修改内核代码或直接用 Python 改队列 JSON。若能力缺失，记录 `blocked` 并停止该步，不把研发工作塞进 cron。
+
+**准备阶段**（白天或波次前独立完成）：
+
+1. 从真实事实、目标与受众证据准备草稿；`cycle inbox` 只提供通知回复对象，不提供 X 原创或 GitHub 新回复对象。没有合格对象就记录供给缺口，不编造对象、上下文或正文。
+2. 通知空白行由准备阶段补写正文，再用同一命令合并；同一回复目标即使正文变化也只保留一条：
+   ```bash
+   python3 mkt.py cycle enqueue --file drafts.json
+   python3 mkt.py cycle plan --budget-sec 600
+   ```
+3. `enqueue` 负责 schema、时间戳、去重、原子写与执行锁；`inbox` 合并也使用同一把锁，冲突时不得重试或手工改队列。准备阶段不得触碰授权文件，不得执行真实发送。
+
+**执行阶段**（整点只做确定性步骤）：
+
+```text
+quota / pending-auth → 已授权的 attach 与 inbox → enqueue 已准备草稿
+→ plan → run（默认 dry-run；只有有效 owner-attested 授权才允许 --go）→ 读取波次摘要
+```
+
+- `budget-sec` 必须小于调度间隔；当前默认 3000 秒，给下一小时波次留 10 分钟。锁冲突返回 `wave_already_running` 时直接记“跳过，不重试”，不得再开一波。预算耗尽记 `wave_budget`，未执行行保留队列。
+- 在 `data/policies/engagement-cycle.json` 的 `supply.wave_targets` 配置每波供给目标；当前按用户基线跟踪 X 原创 10、X 回复 20、GitHub 评论 15、Discord 6。`supply` 分别报告 `target / queued / scheduled / rejected / gap / unscheduled / reasons`。当前工作区 `quota.hour_mode=calendar`，按整点小时对齐波次；未配置时默认 `rolling`。`per_hour / per_night` 是平台与动作上限，不是必须填满的发帖目标；Discord 上限按 `discord/publish` 全平台合计，不是每个频道各一份。
+- 摘要以 `ledger_result` 为准，分别报告 `committed / failed / indeterminate / blocked / deferred / budget_exhausted`。已触发发送但回读未命中是 `indeterminate`，消费队列并等待人工核查，绝不自动重试。
+- cron 中禁止代码修改、临时研发、无依据写稿和手工改执行结果；committed 只表示平台动作回读命中，不表示看到、回复、激活或转化。
 
 ## 入口是一个 GTM 目标，不是单个渠道动作
 

@@ -1,0 +1,179 @@
+#!/usr/bin/env python3
+"""browser-attach 单条写：X 可见性门禁在任何身份与授权检查之前生效。
+
+后台标签页先尝试 CDP 焦点模拟（不激活标签页）；模拟不开才拒绝。
+X 发送成功时优先用页面回报的 status id 绑定回执，不依赖 profile 时间线。
+全部用例替换浏览器与授权调用，不连接浏览器、不发帖、不读登录态。
+"""
+import tempfile
+import unittest
+from pathlib import Path
+import sys
+from unittest import mock
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from core import browser_write
+
+
+class HiddenXTabTest(unittest.TestCase):
+    def test_hidden_x_tab_blocks_when_focus_emulation_unavailable(self):
+        fake = mock.Mock()
+        fake.ensure_tab.return_value = 11
+        fake.probe_visibility.return_value = "hidden"
+        fake.focus_emulation.return_value = {"ok": False, "error": "cdp refused"}
+        with tempfile.TemporaryDirectory() as tmp, \
+                mock.patch.object(browser_write, "BrowserAttach", return_value=fake), \
+                mock.patch.object(browser_write,
+                                  "require_owner_attested_browser_write") as auth:
+            with self.assertRaises(browser_write.ActionBlocked) as ctx:
+                browser_write.execute("x", "publish", Path(tmp), text="hello", go=True)
+
+        self.assertEqual(ctx.exception.code, "tab_hidden")
+        self.assertTrue(fake.ensure_tab.call_args.kwargs.get("prefer_visible"))
+        fake.observe_identity.assert_not_called()
+        auth.assert_not_called()
+
+    def test_hidden_tab_recovered_by_focus_emulation(self):
+        fake = mock.Mock()
+        fake.ensure_tab.return_value = 11
+        fake.probe_visibility.side_effect = ["hidden", "visible"]
+        fake.focus_emulation.return_value = {"ok": True}
+        fake.observe_identity.return_value = {"handle": "owner"}
+        engine = {"ok": True, "status": {"id": "123", "source": "toast"}}
+        with tempfile.TemporaryDirectory() as tmp, \
+                mock.patch.object(browser_write, "BrowserAttach", return_value=fake), \
+                mock.patch.object(browser_write, "require_owner_attested_browser_write",
+                                  return_value={"route": "test"}), \
+                mock.patch("core.throttle.Throttle.reserve", return_value=None), \
+                mock.patch.object(browser_write.x_engine, "reply_native",
+                                  return_value=engine):
+            got = browser_write.execute("x", "reply", Path(tmp), text="hello",
+                                        target="https://x.com/a/status/1", go=True,
+                                        log=lambda *_: None)
+            rows = browser_write._ledger(tmp).all()
+
+        self.assertEqual(got["ledger_result"], "committed")
+        self.assertEqual(rows[-1]["evidence"], "123")
+        self.assertEqual(got["receipt"],
+                         {"id": "123", "url": "https://x.com/owner/status/123"})
+        self.assertEqual([c.args for c in fake.focus_emulation.call_args_list],
+                         [(11, True), (11, False)])
+        self.assertTrue(got["focus_emulation"]["used"])
+        self.assertEqual(got["focus_emulation"]["before"], "hidden")
+
+    def test_non_x_channels_do_not_probe_visibility(self):
+        fake = mock.Mock()
+        fake.ensure_tab.return_value = 14
+        fake.observe_identity.side_effect = RuntimeError("stop after gate order")
+        with tempfile.TemporaryDirectory() as tmp, \
+                mock.patch.object(browser_write, "BrowserAttach", return_value=fake):
+            with self.assertRaises(RuntimeError):
+                browser_write.execute("discord", "publish", Path(tmp),
+                                      text="hello", target="1573250833871536161", go=True)
+
+        fake.probe_visibility.assert_not_called()
+        fake.focus_emulation.assert_not_called()
+
+
+class AttemptedSendReadbackTest(unittest.TestCase):
+    """发送控件已触发而回读失败时，必须进入未知结果而非可重试失败。"""
+
+    def _execute(self, channel, engine):
+        fake = mock.Mock()
+        fake.ensure_tab.return_value = 11
+        fake.probe_visibility.return_value = "visible"
+        fake.observe_identity.return_value = {"handle": "owner"}
+        with tempfile.TemporaryDirectory() as tmp, \
+                mock.patch.object(browser_write, "BrowserAttach", return_value=fake), \
+                mock.patch.object(browser_write, "require_owner_attested_browser_write",
+                                  return_value={"route": "test"}), \
+                mock.patch("core.throttle.Throttle.reserve", return_value=None):
+            if channel == "x":
+                with mock.patch.object(browser_write.x_engine, "reply_native",
+                                       return_value=engine):
+                    got = browser_write.execute(
+                        "x", "reply", Path(tmp), text="hello",
+                        target="https://x.com/a/status/1", go=True, log=lambda *_: None)
+            else:
+                with mock.patch.object(browser_write.discord_engine, "post",
+                                       return_value=engine):
+                    got = browser_write.execute(
+                        "discord", "publish", Path(tmp), text="hello",
+                        target="1573250833871536161", go=True, log=lambda *_: None)
+            rows = browser_write._ledger(tmp).all()
+        return got, rows
+
+    def test_x_clicked_send_then_confirmation_failed_is_indeterminate(self):
+        engine = {"ok": False, "err": "composer still holds text",
+                  "send": {"ok": True, "clickedAt": 123}}
+        got, rows = self._execute("x", engine)
+        self.assertEqual(got["ledger_result"], "indeterminate")
+        self.assertEqual(rows[-1]["result"], "indeterminate")
+
+    def test_discord_entered_then_readback_failed_is_indeterminate(self):
+        engine = {"ok": False, "err": "no new message row after Enter",
+                  "enter": {"ok": True}}
+        got, rows = self._execute("discord", engine)
+        self.assertEqual(got["ledger_result"], "indeterminate")
+        self.assertEqual(rows[-1]["result"], "indeterminate")
+
+    def test_x_send_control_rejection_remains_failed(self):
+        engine = {"ok": False, "err": "send button disabled",
+                  "send": {"ok": False, "err": "send button disabled"}}
+        got, rows = self._execute("x", engine)
+        self.assertEqual(got["ledger_result"], "failed")
+        self.assertEqual(rows[-1]["result"], "failed")
+
+
+class StatusBindingTest(unittest.TestCase):
+    """X 发送成功即绑定 status id；只有页面给不出来时才扫 profile。"""
+
+    def _run_publish(self, tmp, engine, readback=None):
+        fake = mock.Mock()
+        fake.ensure_tab.return_value = 11
+        fake.probe_visibility.return_value = "visible"
+        fake.observe_identity.return_value = {"handle": "owner"}
+        with mock.patch.object(browser_write, "BrowserAttach", return_value=fake), \
+                mock.patch.object(browser_write, "require_owner_attested_browser_write",
+                                  return_value={"route": "test"}), \
+                mock.patch("core.throttle.Throttle.reserve", return_value=None), \
+                mock.patch.object(browser_write.x_engine, "original",
+                                  return_value=engine), \
+                mock.patch.object(browser_write.x_engine, "readback",
+                                  side_effect=readback) as rb:
+            got = browser_write.execute("x", "publish", Path(tmp), text="hello world",
+                                        go=True, log=lambda *_: None)
+            rows = browser_write._ledger(tmp).all()
+        return got, rows, rb
+
+    def test_publish_binds_status_id_without_profile_readback(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            got, rows, rb = self._run_publish(
+                tmp, {"ok": True, "status": {"id": "456", "source": "location"}})
+
+        rb.assert_not_called()
+        self.assertEqual(got["ledger_result"], "committed")
+        self.assertEqual(got["receipt"],
+                         {"id": "456", "url": "https://x.com/owner/status/456"})
+        self.assertEqual(rows[-1]["evidence"], "456")
+        self.assertTrue(rows[-1]["content_key"])
+        self.assertEqual(got["status_binding"], "location")
+
+    def test_publish_falls_back_to_readback_when_engine_has_no_status(self):
+        def readback(_tab, _handle, manifest, **_kw):
+            return {item["key"]: "789" for item in manifest}
+
+        with tempfile.TemporaryDirectory() as tmp:
+            got, rows, rb = self._run_publish(tmp, {"ok": True}, readback=readback)
+
+        rb.assert_called_once()
+        self.assertEqual(got["ledger_result"], "committed")
+        self.assertEqual(got["receipt"],
+                         {"id": "789", "url": "https://x.com/owner/status/789"})
+        self.assertEqual(rows[-1]["evidence"], "789")
+        self.assertEqual(got["status_binding"], "readback")
+
+
+if __name__ == "__main__":
+    unittest.main()

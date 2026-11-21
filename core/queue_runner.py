@@ -59,11 +59,13 @@ def rejection_kind(rec) -> str:
 def run_queue(queue_path, *, data_dir=None, go=False, allow_unverified=False,
               only=None, only_ids=None, log=print, routine=False, account=None,
               continue_on_duplicate=False, interval_seconds=None, sleeper=None,
-              operator="", run_id="", resume_batch=False):
+              operator="", run_id="", resume_batch=False, transport=None):
     """执行队列，返回逐条记录列表。
 
     account=None 继承队列顶层 account；显式字符串覆盖它。账号范围始终按
     routine policy 精确校验，routine=False 时这些新参数不参与旧审批逻辑。
+    transport=None 继承队列顶层 transport；browser-attach 走 owner-attested
+    独立授权，跳过通用 CDP 身份和 plan/routine 预检，其余写门禁保留。
     operator/run_id 只进操作日志（§4.2），不影响任何门禁。
     resume_batch 只转给 email 通道：人工裁决上一批未知回执后清除批次阻塞标记；
     MCP 不暴露它，Agent 不能自行解除人工裁决。
@@ -75,6 +77,14 @@ def run_queue(queue_path, *, data_dir=None, go=False, allow_unverified=False,
     campaign = q.get("campaign") or queue_path.stem
     channel, action = q.get("channel"), q.get("action")
     account = q.get("account", "") if account is None else account
+    queue_transport = str(q.get("transport") or "").strip().lower()
+    transport = queue_transport if transport is None else str(transport or "").strip().lower()
+    if transport not in {"", "browser-attach"}:
+        raise QueueRunError("未知队列传输 %r" % transport)
+    if queue_transport and transport != queue_transport:
+        raise QueueRunError("命令行 transport 与队列顶层 transport 不一致")
+    if transport == "browser-attach" and routine:
+        raise QueueRunError("browser-attach 使用 owner-attested 独立授权，不与 routine policy 混用")
 
     errs = lint_queue(q, path=queue_path)
     if errs:
@@ -93,7 +103,10 @@ def run_queue(queue_path, *, data_dir=None, go=False, allow_unverified=False,
         if not items:
             raise QueueRunError("配额切片为空：选中的条目不在队列里（可能已被账本跳过）")
 
+    browser_errors = ()
     if channel == "email":
+        if transport:
+            raise QueueRunError("email 不支持 browser-attach；请使用既有 SMTP 队列")
         from channels.email_smtp import BatchBlocked, send_queue
         kwargs = {"go": go, "only": only, "only_ids": only_ids,
                   "campaign": campaign, "data_dir": data, "log": log,
@@ -113,20 +126,24 @@ def run_queue(queue_path, *, data_dir=None, go=False, allow_unverified=False,
                             "message/engage 用 mkt x 或 mkt action 透传 vendor 参数")
     if action not in QUEUE_ACTIONS:
         raise QueueRunError(f"{channel}/{action} 不是队列可执行动作（{sorted(QUEUE_ACTIONS)}）")
+    if transport == "browser-attach":
+        from .browser_attach import BridgeError
+        from .browser_write import ActionBlocked, StopChannel
+        from .platform_compliance import OWNER_ATTESTED_ACTIONS
+        browser_errors = (ActionBlocked, StopChannel, BridgeError)
+        if action not in OWNER_ATTESTED_ACTIONS.get(channel, set()):
+            raise QueueRunError("%s/%s 不在 browser-attach 能力白名单内" % (channel, action))
 
     # G-01 账号身份门禁：绑定身份的授权在真实发送前必须观测到与授权一致
     # 的实际平台账号（登录界面标记不算）；未绑定授权不介入。dry-run 只提示。
-    # 观测到的实际 user_id 随后作为 platform_user_id 传给审批校验——
-    # 传的是观测值，不是调用方自报值。
+    # browser-attach 在逐条传输适配器内观测当前页面身份，不走这套 CDP 预检。
     identity_evidence = None
-    if channel in account_identity.IDENTITY_CHANNELS:
+    if transport != "browser-attach" and channel in account_identity.IDENTITY_CHANNELS:
         policy = account_identity.load_policy(data)
         blockers = account_identity.identity_blockers(
             data, account, policy=policy, policy_loaded=True)
         if blockers:
             blocker = blockers[0]
-            text = ("[identity] dry-run 阻塞项：%s %s；下一步：%s"
-                    % (blocker["code"], blocker["detail"], blocker["next"]))
             if not go:
                 for item in blockers:
                     log("[identity] dry-run 阻塞项：%s %s；下一步：%s"
@@ -144,19 +161,20 @@ def run_queue(queue_path, *, data_dir=None, go=False, allow_unverified=False,
             except ActionError as exc:
                 raise QueueRunError(f"账号身份门禁拒绝整队执行：{exc}") from exc
 
-    routine_kwargs = {}
-    if identity_evidence:
-        routine_kwargs["platform_user_id"] = identity_evidence[
-            "observed_platform_identity"]
-    if routine is True:
-        precheck(channel, action, data, campaign, go, allow_unverified,
-                 routine=True, account=account, **routine_kwargs)
-    else:
-        precheck(channel, action, data, campaign, go, allow_unverified)
-    throttle = Throttle(data / "state")
-    if go and not throttle.daily_allows(channel, action, len(items)):
-        raise QueueRunError(f"日预算不足：{channel}/{action} 今日已用 "
-                            f"{throttle.daily_used(channel, action)}，本次 {len(items)} 条")
+    if transport != "browser-attach":
+        routine_kwargs = {}
+        if identity_evidence:
+            routine_kwargs["platform_user_id"] = identity_evidence[
+                "observed_platform_identity"]
+        if routine is True:
+            precheck(channel, action, data, campaign, go, allow_unverified,
+                     routine=True, account=account, **routine_kwargs)
+        else:
+            precheck(channel, action, data, campaign, go, allow_unverified)
+        throttle = Throttle(data / "state")
+        if go and not throttle.daily_allows(channel, action, len(items)):
+            raise QueueRunError(f"日预算不足：{channel}/{action} 今日已用 "
+                                f"{throttle.daily_used(channel, action)}，本次 {len(items)} 条")
 
     results = []
     for idx, item in enumerate(items):
@@ -168,7 +186,8 @@ def run_queue(queue_path, *, data_dir=None, go=False, allow_unverified=False,
             "allow_unverified": allow_unverified, "target": target, "text": text,
             "title": item.get("title"), "url": item.get("url"),
             "subreddit": item.get("subreddit"), "number": item.get("number"),
-            "extra": item.get("extra"), "log": log,
+            "extra": item.get("extra"), "log": log, "transport": transport,
+            "actor": item.get("actor") or item.get("handle") or item.get("author") or "",
         }
         if routine is True:
             action_kwargs.update(routine=True, account=account,
@@ -187,6 +206,8 @@ def run_queue(queue_path, *, data_dir=None, go=False, allow_unverified=False,
             rec = run_action(**action_kwargs)
         except SystemExit as exc:
             raise QueueRunError(f"执行器中止：{exc}") from exc
+        except browser_errors as exc:
+            raise QueueRunError("browser-attach 拒跑：%s" % exc) from exc
         rec = dict(rec)
         rec.setdefault("campaign", campaign)
         rec.setdefault("channel", channel)

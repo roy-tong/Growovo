@@ -22,6 +22,7 @@
 ## 为什么第一期自主执行只承诺 Email
 
 - X：常驻非 API 写仍拒绝。非 routine `--go` 的单条 publish/reply 可以使用操作者提供的已登录浏览器，但要求 `cdp_observed` 实际账号证据、既有审批／adhoc 留痕、配额、防重发和回读全部通过；message/engage 不在该路线内。
+- 夜间循环（`mkt cycle`）：操作者按平台签发 `owner_attested_session` 授权后，Growovo 在其已打开的标签页里按波执行 X 回复／原创、GitHub 评论、Discord 频道发帖；默认只复用现有标签页，找不到即 `tab_not_found`，不会擅自新开。第一件事是读通知并回别人给我的回复。身份按页面可见账号现场读取，`cdp_observed` 在此只表示"身份来自实际执行的浏览器"。每条动作经过 `action_runner(transport="browser-attach")`，使用独立 owner-attested 授权而非 plan/routine，统一写任务结果和操作日志。这是操作者自担风险的路线，不是平台许可；额度为自设上限，X premium 的官方上限未公开。
 - Email：SMTP 是协议通道，发送前异常记 failed，**提交后**异常（超时/断连/回执丢失）记 `indeterminate`——服务端可能已收下，按未知结果停机，不自动重发；适合做结果单投递和一对一承接。
 - 其他写渠道（GitHub / Reddit / HN / LinkedIn）选择器按公开 UI 编写、没有在真实账号跑过完整链路。把它们放进「全自动」承诺，等于把未验证的失败风险转嫁给用户。它们保留在系统里，但必须人工首跑、显式解锁，且结果单独标注。
 

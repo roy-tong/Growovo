@@ -26,7 +26,8 @@ ROUTINE_ACTIONS = frozenset({
     "reddit:publish", "reddit:reply",
     "hn:publish", "hn:reply",
     "linkedin:message",
-    "github:reply",
+    "github:reply", "github:publish",
+    "discord:publish",
 })
 
 

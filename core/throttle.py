@@ -21,7 +21,7 @@ INTERVALS = {
     # X 官方（help.x.com 2026-05 版，06 文档§2）：未验证账号 50 原创+200 回复/日、DM 500/日、
     # 关注 400/日；页面残留旧"2400/日"字样属历史口径，按新表执行
     ("x", "publish"): (45, 90, 50, 40),       # 官方 50 原创/日 → 预算 40 留余量
-    ("x", "reply"): (60, 120, 30, 40),        # 官方 200 回复/日 → 预算 40
+    ("x", "reply"): (60, 120, 30, 80),        # 官方 200 回复/日 → 预算 80（夜间跑批上限）
     ("x", "message"): (75, 150, 15, 30),       # 官方 500 DM/日 → 预算 30（节奏比上限更重要）
     ("x", "engage"): (6, 12, 10, 40),          # 官方关注 400/日 → 预算 40
     ("x", "search"): (5, 10, None, None),
@@ -41,6 +41,9 @@ INTERVALS = {
     ("github", "reply"): (30, 90, 20, 50),
     ("github", "publish"): (60, 120, 10, 10),   # release/discussion 发帖（预留）
     ("github", "search"): (2, 5, None, 500),
+    # Discord：官方文档未公开 per-user 消息速率（UNPUBLISHED）；社区实测约 5 消息/5 秒，
+    # 频道级 slowmode 另计。预算取保守口径：25 秒间隔 / 每小时 6 条 / 每夜 54 条
+    ("discord", "publish"): (25, 45, 6, 54),
     # HN：无公开的 per-user 提交限额口径（过频提交的处置是 shadow 处理，社区共识）；
     # 预算取文化纪律——Show HN 是低频发布动作，守帖（回评论）才是日更负担
     ("hn", "publish"): (60, 120, 1, 1),         # 日 ≤1：HN 文化=稀缺发布，多投自毁
@@ -56,6 +59,7 @@ OFFICIAL_LIMITS = {
     ("x", "message", "free/unverified"): {"daily": 500, "grade": "官方"},
     ("x", "engage", "free/unverified"): {"daily_follow": 400, "total_follow": "5000 后按粉丝比例", "grade": "官方"},
     ("x", "publish", "premium"): {"daily": "未公开（社区传 1 万帖/月）", "grade": "未公开"},
+    ("x", "reply", "premium"): {"daily": "未公开（官方未单列 premium 回复上限；社区传 1 万帖/月含回复）", "grade": "未公开"},
     # Gmail（官方 support.google.com）
     ("email", "*", "gmail-free"): {"daily": 500, "grade": "官方"},
     ("email", "*", "workspace"): {"daily": 2000, "grade": "官方"},

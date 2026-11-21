@@ -15,6 +15,13 @@ TRANSPORTS = {
         "status": "PROVEN 读原语（github audit/inbox/search 实测）；写=UNVERIFIED",
         "tier": "ACTIVE",
     },
+    "browser-attach": {
+        "desc": "WebBridge 扩展桥接管操作者现有标签页（复用现有登录态，不默认新开页）",
+        "credentials": "零（不读不存 cookie/token）",
+        "risk": "高：真实指纹+真实会话，但不是平台许可路线；操作者自担风险",
+        "status": "PROVEN（2026-11-20 夜间跑批：X 回复/原创、Discord 6 频道、GitHub 评论实测）",
+        "tier": "ACTIVE",
+    },
     "browser-cdp": {
         "desc": "CDP 接管真实浏览器（Playwright connect_over_cdp）",
         "credentials": "零（复用本机登录态）",
@@ -83,7 +90,7 @@ TRANSPORTS = {
 
 # 渠道 → 动作 → 降级链（首选在前，含 RESERVE 备件）。"*" 为该渠道缺省。
 CHANNEL_TRANSPORTS = {
-    "x": {"*": ["browser-cdp", "webdriver", "api", "semi-auto-ui"]},
+    "x": {"*": ["browser-attach", "browser-cdp", "webdriver", "api", "semi-auto-ui"]},
     "email": {
         "message": ["protocol", "esp-api", "browser-cdp", "semi-auto-ui"],
         "publish": ["protocol", "esp-api", "browser-cdp", "semi-auto-ui"],
@@ -96,7 +103,8 @@ CHANNEL_TRANSPORTS = {
         "*": ["browser-cdp", "api", "semi-auto-ui"],
     },
     "linkedin": {"*": ["browser-cdp", "semi-auto-ui"]},  # 无个人 API；半自动即兜底
-    "github": {"*": ["api", "semi-auto-ui"]},  # api 即写读主通道；限额耗尽/无 token 时人工 web UI 兜底
+    "github": {"*": ["api", "browser-attach", "semi-auto-ui"]},  # api 即写读主通道；限额耗尽/无 token 时人工 web UI 兜底
+    "discord": {"*": ["browser-attach", "semi-auto-ui"]},  # 无官方 bot 授权；只走操作者会话
     "desktop": {"*": ["os-input", "semi-auto-ui"]},
 }
 
