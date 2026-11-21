@@ -164,8 +164,8 @@ def _github_row(item: Dict[str, Any], query: str) -> Optional[Dict[str, Any]]:
 def mine_github(data_dir, *, queries: Optional[Sequence[str]] = None,
                 per_query: int = 20, gap: float = 3.0, days: int = GH_WINDOW_DAYS,
                 now: Optional[datetime] = None, profile: Optional[Dict[str, Any]] = None,
-                ledger=None, sleep=time.sleep,
-                search=None) -> Dict[str, Any]:
+                ledger=None, sleep=time.sleep, search=None,
+                stop_event=None) -> Dict[str, Any]:
     """跑 GitHub 搜索并合并入池；返回逐条查询的报告。
 
     search 参数只为测试注入，默认走 core.bridge.gh_post.search（gh CLI）。
@@ -176,7 +176,11 @@ def mine_github(data_dir, *, queries: Optional[Sequence[str]] = None,
     now = now or datetime.now().astimezone()
     report: List[Dict[str, Any]] = []
     all_rows: List[Dict[str, Any]] = []
+    stopped = False
     for index, query in enumerate(queries):
+        if stop_event is not None and stop_event.is_set():
+            stopped = True
+            break
         if index and gap:
             sleep(float(gap))
         got = search(query, int(per_query))
@@ -206,7 +210,7 @@ def mine_github(data_dir, *, queries: Optional[Sequence[str]] = None,
                                now=now, profile=profile, ledger=ledger,
                                build_note={"kind": "github", "at": now.isoformat(timespec="seconds"),
                                            "queries": len(queries), "kept": len(all_rows)})
-    return {"ok": bool(merged.get("ok")), "merge": merged,
+    return {"ok": bool(merged.get("ok")), "merge": merged, "stopped": stopped,
             "rows": len(all_rows), "queries": report}
 
 

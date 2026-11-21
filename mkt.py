@@ -3379,7 +3379,7 @@ def cmd_policy(args):
 
 @_business_command
 def cmd_cycle(args):
-    """夜间互动循环：通知优先 → 平台轮转 → 额度/间隔 → 逐条写。
+    """夜间互动循环：通知优先 → 实时选路 → 额度/间隔 → 逐条写。
 
     本命令逐条经过 action_runner，并显式选择 browser-attach 传输；不走通用
     CDP 身份或 plan/routine 预检，授权由 data/policies/owner-attested-*.json
@@ -3473,7 +3473,8 @@ def cmd_cycle(args):
                         max_actions=int(getattr(args, "max_actions", 0) or 0),
                         wave_id=str(getattr(args, "wave", "") or ""),
                         budget_sec=int(getattr(args, "budget_sec", 3000) or 3000),
-                        session=getattr(args, "session", "") or "", log=_log)
+                        session=getattr(args, "session", "") or "",
+                        prefetch=getattr(args, "prefetch", None), log=_log)
         _emit(got)
         return 0 if got.get("ok") else 2
 
@@ -5889,7 +5890,7 @@ def build_parser():
     a.add_argument("--platform-user-id", default="", help="用于核对策略声明的账号身份")
     sp.set_defaults(fn=cmd_policy)
 
-    sp = sub.add_parser("cycle", help="夜间互动循环：通知优先 → 平台轮转 → 额度/间隔 → 回读记账")
+    sp = sub.add_parser("cycle", help="夜间互动循环：通知优先 → 实时选路 → 额度/间隔 → 回读记账")
     cysub = sp.add_subparsers(dest="action", required=True)
     cysub.add_parser("smoke", help="离线自检窗口、间隔与空队列计划")
     a = cysub.add_parser("quota", help="今夜与近一小时已用额度")
@@ -5918,6 +5919,10 @@ def build_parser():
     a.add_argument("--max-actions", type=int, default=0)
     a.add_argument("--go", action="store_true", help="真正执行；不加只列计划")
     a.add_argument("--session", default="", help="WebBridge 会话名；不填用策略值")
+    a.add_argument("--prefetch", dest="prefetch", action="store_true", default=None,
+                   help="执行期间按缺口后台预取 GitHub/内容候选")
+    a.add_argument("--no-prefetch", dest="prefetch", action="store_false",
+                   help="关闭本波后台预取")
     for _sub in cysub.choices.values():
         _sub.add_argument("--json", action="store_true", help="兼容参数：输出本就是 JSON")
     sp.set_defaults(fn=cmd_cycle)

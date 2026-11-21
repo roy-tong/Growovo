@@ -1,4 +1,4 @@
-"""夜间互动循环：读通知回回复 → 平台轮转 → 额度与间隔 → 逐条写。
+"""夜间互动循环：读通知回回复 → 实时选路 → 额度与间隔 → 逐条写。
 
 分工：
   inbox_replies  只读收集通知里的回复（不发送）
@@ -45,6 +45,13 @@ DEFAULT_POLICY = {
     "inbox": {"per_actor_cap": 2, "lookback_hours": 36, "order": ["x", "github", "discord"]},
     "queue": {"max_age_hours": 12},
     "quota": {"hour_mode": "rolling"},
+    "supply": {
+        "wave_targets": {"x/publish": 10, "x/reply": 20,
+                         "github/reply": 15, "discord/publish": 6},
+        "prefetch": {"enabled": False, "lookahead_waves": 2,
+                     "sources": ["github", "content"], "max_queries": 3,
+                     "per_query": 10, "gap_sec": 15, "days": 14},
+    },
     "channels": {"discord_allowed_ids": []},
     "bridge": {"session": ""},
 }
@@ -138,6 +145,85 @@ def channel_gap(policy: Dict[str, Any], channel: str) -> int:
     gaps = [int((row or {}).get("min_gap_sec") or 0) for row in rows.values()
             if isinstance(row, dict)]
     return max(gaps) if gaps else 60
+
+
+def duration_stats(data_dir) -> Dict[str, Dict[str, Any]]:
+    """从统一操作日志读取实测耗时；按 channel/action 做 EMA，坏读数不参与。"""
+    from .operations_log import OperationsLog
+
+    stats: Dict[str, Dict[str, Any]] = {}
+    try:
+        rows = OperationsLog(data_dir).all()
+    except Exception:
+        return {}
+    for row in rows:
+        if str(row.get("result") or "") in {"", "dry-run", "rejected", "skipped"}:
+            continue
+        channel = str(row.get("channel") or "")
+        action = str(row.get("action") or "")
+        started = _parse(row.get("started_at"), _dt.timezone.utc)
+        finished = _parse(row.get("finished_at"), _dt.timezone.utc)
+        if not channel or not action or not started or not finished:
+            continue
+        seconds = (finished - started).total_seconds()
+        if seconds < 0 or seconds > 86400:
+            continue
+        key = "%s/%s" % (channel, action)
+        old = stats.setdefault(key, {"samples": 0, "seconds": 0.0})
+        old["seconds"] = (seconds if not old["samples"]
+                          else round(old["seconds"] * 0.75 + seconds * 0.25, 3))
+        old["samples"] += 1
+    return stats
+
+
+def expected_duration(durations: Dict[str, Any], channel: str, action: str) -> float:
+    row = durations.get("%s/%s" % (channel, action)) or {}
+    return max(0.0, float(row.get("seconds") or 0.0))
+
+
+def choose_next(rows: List[Dict[str, Any]], policy: Dict[str, Any], *, now: _dt.datetime,
+                last_channel: Dict[str, float], last_any: float,
+                durations: Dict[str, Any]) -> Tuple[int, float, Dict[str, Any]]:
+    """在硬间隔内实时选下一条：最早可执行，通知优先，同分取实测较短任务。"""
+    global_gap = int((policy.get("interleave") or {}).get("min_gap_sec") or 0)
+    best: Optional[Tuple[int, float, Dict[str, Any]]] = None
+    for index, raw in enumerate(rows):
+        row = _normalize(raw)
+        channel = row["channel"]
+        previous = float(last_channel.get(channel) or 0.0)
+        channel_ready = previous + channel_gap(policy, channel) if previous else 0.0
+        global_ready = float(last_any) + global_gap if last_any else 0.0
+        ready = max(channel_ready, global_ready)
+        decision = {"channel": channel, "action": row["action"],
+                    "target": row["target"], "ready_at": ready,
+                    "wait_sec": max(0, int(ready - now.timestamp())),
+                    "expected_duration_sec": expected_duration(
+                        durations, channel, row["action"]),
+                    "reason": "earliest_ready"}
+        if best is None:
+            best = (index, ready, decision)
+            continue
+        old_index, old_ready, old = best
+        if ready < old_ready:
+            best = (index, ready, decision)
+            continue
+        if ready > old_ready:
+            continue
+        inbox = row["source"] == "inbox"
+        old_inbox = str(rows[old_index].get("source") or "") == "inbox"
+        if inbox != old_inbox:
+            decision["reason"] = "inbox_first"
+            if inbox:
+                best = (index, ready, decision)
+            continue
+        duration = decision["expected_duration_sec"]
+        old_duration = old["expected_duration_sec"]
+        if duration > 0 and (old_duration <= 0 or duration < old_duration):
+            decision["reason"] = "shortest_observed_duration"
+            best = (index, ready, decision)
+    if best is None:
+        raise ValueError("没有可选择的队列行")
+    return best
 
 
 def hour_mode(policy: Dict[str, Any]) -> str:
@@ -606,11 +692,12 @@ def mark_stopped(data_dir, night: str, channel: str, reason: str) -> Path:
 
 def run(data_dir, *, go: bool = False, queue_path=None, max_actions: int = 0,
         wave_id: str = "", budget_sec: int = 3000, session: str = "",
-        log=print) -> Dict[str, Any]:
+        prefetch: Optional[bool] = None, log=print) -> Dict[str, Any]:
     """串行执行真实波次；dry-run 保持只读且不占用执行锁。"""
     if not go:
         return _run(data_dir, go=False, queue_path=queue_path, max_actions=max_actions,
-                    wave_id=wave_id, budget_sec=budget_sec, session=session, log=log)
+                    wave_id=wave_id, budget_sec=budget_sec, session=session,
+                    prefetch=prefetch, log=log)
     lock_file = _lock_path(data_dir)
     try:
         lock_file.parent.mkdir(parents=True, exist_ok=True)
@@ -625,7 +712,8 @@ def run(data_dir, *, go: bool = False, queue_path=None, max_actions: int = 0,
         return {"ok": False, "reason": "wave_lock_unavailable", "error": str(exc)}
     try:
         return _run(data_dir, go=True, queue_path=queue_path, max_actions=max_actions,
-                    wave_id=wave_id, budget_sec=budget_sec, session=session, log=log)
+                    wave_id=wave_id, budget_sec=budget_sec, session=session,
+                    prefetch=prefetch, log=log)
     finally:
         fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
         handle.close()
@@ -633,7 +721,7 @@ def run(data_dir, *, go: bool = False, queue_path=None, max_actions: int = 0,
 
 def _run(data_dir, *, go: bool = False, queue_path=None, max_actions: int = 0,
          wave_id: str = "", budget_sec: int = 3000, session: str = "",
-         log=print) -> Dict[str, Any]:
+         prefetch: Optional[bool] = None, log=print) -> Dict[str, Any]:
     """执行一波：窗口 → 停手 → 计划 → 逐条 sleep 后发送 → 记波次摘要。"""
     from .action_runner import run_action
     from .browser_attach import BridgeError
@@ -718,75 +806,115 @@ def _run(data_dir, *, go: bool = False, queue_path=None, max_actions: int = 0,
                               "target": row["target"], "actor": row["actor"],
                               "reason": reason})
 
-    for row in prepared["scheduled"]:
-        if row["channel"] in dropped:
-            continue
-        if row["channel"] in deferred_channels:
-            _defer(row, deferred_channels[row["channel"]])
-            continue
-        if budget_exhausted or time.monotonic() >= deadline:
-            budget_exhausted = True
-            _defer(row, "wave_budget")
-            continue
-        wait = (now + _dt.timedelta(seconds=row["delay_sec"])).timestamp() - _now().timestamp()
-        if wait > 0:
-            budget_left = deadline - time.monotonic()
-            if wait >= budget_left:
-                if budget_left > 0:
-                    time.sleep(budget_left)
+    pending = [dict(row) for row in prepared["scheduled"]]
+    observed_durations = duration_stats(data_dir)
+    previous = usage(ledger, policy, now=now)
+    last_channel: Dict[str, float] = {}
+    for key, when in (previous.get("last") or {}).items():
+        channel = key.split("/")[0]
+        last_channel[channel] = max(last_channel.get(channel, 0.0), when.timestamp())
+    last_any = max(last_channel.values()) if last_channel else 0.0
+    summary["scheduler"] = {"mode": "adaptive", "durations": observed_durations,
+                            "decisions": []}
+
+    worker = None
+    prefetch_config = (policy.get("supply") or {}).get("prefetch") or {}
+    prefetch_enabled = (bool(prefetch_config.get("enabled", False))
+                        if prefetch is None else bool(prefetch))
+    if prefetch_enabled:
+        from .supply_prefetch import Prefetcher
+
+        worker_policy = json.loads(json.dumps(policy))
+        worker_policy.setdefault("supply", {}).setdefault(
+            "prefetch", {})["enabled"] = True
+        worker = Prefetcher(data_dir, worker_policy, ledger=ledger, log=log)
+        summary["prefetch"] = worker.start()
+    try:
+        while pending:
+            for item in list(pending):
+                if item["channel"] in dropped:
+                    pending.remove(item)
+                elif item["channel"] in deferred_channels:
+                    _defer(item, deferred_channels[item["channel"]])
+                    pending.remove(item)
+            if not pending:
+                break
+            if budget_exhausted or time.monotonic() >= deadline:
+                budget_exhausted = True
+                for item in pending:
+                    _defer(item, "wave_budget")
+                break
+            index, ready_at, decision = choose_next(
+                pending, policy, now=_now(), last_channel=last_channel,
+                last_any=last_any, durations=observed_durations)
+            row = pending.pop(index)
+            wait = ready_at - _now().timestamp()
+            if wait > 0:
+                budget_left = deadline - time.monotonic()
+                if wait >= budget_left:
+                    if budget_left > 0:
+                        time.sleep(budget_left)
+                    budget_exhausted = True
+                    _defer(row, "wave_budget")
+                    continue
+                time.sleep(wait)
+            if time.monotonic() >= deadline:
                 budget_exhausted = True
                 _defer(row, "wave_budget")
                 continue
-            time.sleep(wait)
-        if time.monotonic() >= deadline:
-            budget_exhausted = True
-            _defer(row, "wave_budget")
-            continue
-        try:
-            got = run_action(
-                channel=row["channel"], action=row["action"], data_dir=data_dir,
-                text=row["text"], target=row["target"], go=True, campaign=campaign,
-                actor=row["actor"], log=log, transport="browser-attach",
-                operator="cycle:%s" % wave, run_id=campaign,
-                queue_item_id=str(row.get("id") or ""))
-            state = got.get("result") or ("skipped" if got.get("skipped") else "unknown")
-            ledger_state = got.get("ledger_result") or (
-                "committed" if state == "success" else state)
-            engine = got.get("engine") or {}
-            summary["results"].append({"channel": row["channel"], "action": row["action"],
-                                       "target": row["target"], "actor": row["actor"],
-                                       "result": state,
-                                       "ledger_result": got.get("ledger_result") or "",
-                                       "error": str(got.get("error") or engine.get("err") or "")[:300],
-                                       "ok": bool(got.get("ok")),
-                                       "ref": got.get("ref") or ""})
-            if ledger_state in ("committed", "indeterminate", "skipped"):
-                _consume(row)
-        except StopChannel as exc:
-            mark_stopped(data_dir, night, row["channel"], exc.reason)
-            dropped.add(row["channel"])
-            summary["stopped"][row["channel"]] = exc.reason
-            log("[%s] 停手：%s" % (row["channel"], exc.reason))
-        except ActionBlocked as exc:
-            summary["results"].append({"channel": row["channel"], "action": row["action"],
-                                       "target": row["target"], "result": "blocked",
-                                       "code": exc.code})
-            if exc.code == "tab_hidden":
-                deferred_channels[row["channel"]] = "tab_hidden"
-                _defer(row, "tab_hidden")
-                log("[%s] 标签页不可见，本波推迟该渠道（不发送、不占额度）" % row["channel"])
-        except BridgeError as exc:
-            if exc.code in ("tab_not_found", "tab_open_timeout"):
-                # 缺页/开页超时只影响该渠道：不新开标签页，也不让整波跟着停。
-                deferred_channels[row["channel"]] = exc.code
-                _defer(row, exc.code)
-                log("[%s] 没有可用标签页（%s），本波推迟该渠道（不发送、不占额度）"
-                    % (row["channel"], exc.code))
-                continue
-            summary["ok"] = False
-            summary["error"] = "bridge: %s" % exc
-            summary["stopped"]["bridge"] = str(exc)
-            break
+            started = max(ready_at, _now().timestamp())
+            last_channel[row["channel"]] = started
+            last_any = started
+            summary["scheduler"]["decisions"].append(dict(
+                decision, started_at=_dt.datetime.fromtimestamp(
+                    started, tz=now.tzinfo).isoformat(timespec="seconds")))
+            try:
+                got = run_action(
+                    channel=row["channel"], action=row["action"], data_dir=data_dir,
+                    text=row["text"], target=row["target"], go=True, campaign=campaign,
+                    actor=row["actor"], log=log, transport="browser-attach",
+                    operator="cycle:%s" % wave, run_id=campaign,
+                    queue_item_id=str(row.get("id") or ""))
+                state = got.get("result") or ("skipped" if got.get("skipped") else "unknown")
+                ledger_state = got.get("ledger_result") or (
+                    "committed" if state == "success" else state)
+                engine = got.get("engine") or {}
+                summary["results"].append({"channel": row["channel"], "action": row["action"],
+                                           "target": row["target"], "actor": row["actor"],
+                                           "result": state,
+                                           "ledger_result": got.get("ledger_result") or "",
+                                           "error": str(got.get("error") or engine.get("err") or "")[:300],
+                                           "ok": bool(got.get("ok")),
+                                           "ref": got.get("ref") or ""})
+                if ledger_state in ("committed", "indeterminate", "skipped"):
+                    _consume(row)
+            except StopChannel as exc:
+                mark_stopped(data_dir, night, row["channel"], exc.reason)
+                dropped.add(row["channel"])
+                summary["stopped"][row["channel"]] = exc.reason
+                log("[%s] 停手：%s" % (row["channel"], exc.reason))
+            except ActionBlocked as exc:
+                summary["results"].append({"channel": row["channel"], "action": row["action"],
+                                           "target": row["target"], "result": "blocked",
+                                           "code": exc.code})
+                if exc.code == "tab_hidden":
+                    deferred_channels[row["channel"]] = "tab_hidden"
+                    _defer(row, "tab_hidden")
+                    log("[%s] 标签页不可见，本波推迟该渠道（不发送、不占额度）" % row["channel"])
+            except BridgeError as exc:
+                if exc.code in ("tab_not_found", "tab_open_timeout"):
+                    deferred_channels[row["channel"]] = exc.code
+                    _defer(row, exc.code)
+                    log("[%s] 没有可用标签页（%s），本波推迟该渠道（不发送、不占额度）"
+                        % (row["channel"], exc.code))
+                    continue
+                summary["ok"] = False
+                summary["error"] = "bridge: %s" % exc
+                summary["stopped"]["bridge"] = str(exc)
+                break
+    finally:
+        if worker is not None:
+            summary["prefetch"] = worker.finish()
 
     states = [str(r.get("ledger_result") or (
         "committed" if r.get("result") == "success" else r.get("result") or ""))
