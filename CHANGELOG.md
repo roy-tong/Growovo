@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.17.1 — 2026-11-21
+
+Fixes the 0.17.0 wheel, which omitted `core/bridge` and made
+`core.browser_attach` unimportable after a pip install. Source checkouts were
+not affected.
+
+### Fixed
+
+- `[tool.setuptools] packages` now lists `core.bridge`, so the installed wheel
+  carries the browser bridges the attach transport imports.
+- `tests/test_packaging.py` fails when a package directory on disk is missing
+  from that list, so the next subpackage cannot repeat this.
+
 ## 0.17.0 — 2026-11-20
 
 A nightly engagement cycle that acts in the operator's own logged-in browser:

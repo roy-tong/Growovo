@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "growovo"
-version = "0.17.0"
+version = "0.17.1"
 description = "Run authorized X and email campaigns with draft checks, execution receipts and human review of uncertain sends."
 readme = "README.md"
 requires-python = ">=3.9"
@@ -39,7 +39,7 @@ Changelog = "https://github.com/roy-tong/Growovo/blob/main/CHANGELOG.md"
 # import ...`) keep working after installation because the packages land at
 # the site-packages root.
 py-modules = ["mkt", "mcp_server"]
-packages = ["core", "channels", "channels.x"]
+packages = ["core", "core.bridge", "channels", "channels.x"]
 include-package-data = false
 
 [tool.setuptools.package-data]
