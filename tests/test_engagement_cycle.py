@@ -26,7 +26,8 @@ TZ = dt.timezone(dt.timedelta(hours=8))
 
 
 def at(text):
-    return dt.datetime.fromisoformat(text).astimezone(TZ)
+    got = dt.datetime.fromisoformat(text)
+    return got.replace(tzinfo=TZ) if got.tzinfo is None else got.astimezone(TZ)
 
 
 def write_rows(path, rows):
