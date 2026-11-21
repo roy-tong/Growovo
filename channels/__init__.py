@@ -12,7 +12,7 @@ REGISTRY = {
         "note": "vendor 引入 x-ops-automation，选择器与纪律为真实账号实测；"
                 "stats 为 UNVERIFIED 读原语（read_stats：截图留证、首周人工对数后升级）",
         "actions": {"publish", "reply", "message", "engage", "search", "inbox", "stats"},
-        "transports": {"cdp"},
+        "transports": {"cdp", "browser-attach"},
     },
     "email": {
         "status": "PORTED",
@@ -37,8 +37,15 @@ REGISTRY = {
         "status": "UNVERIFIED",
         "note": "api 通道首发渠道；读原语 audit/search/inbox PROVEN（2026-10-12 实测）；"
                 "reply 走统一写路径，首跑需人工盯 + 复核公开可见；凭据走 MKT_GITHUB_TOKEN",
-        "actions": {"reply", "search", "inbox", "audit"},
-        "transports": {"api"},
+        "actions": {"reply", "publish", "search", "inbox", "audit"},
+        "transports": {"api", "browser-attach"},
+    },
+    "discord": {
+        "status": "PROVEN",
+        "note": "WebBridge browser-attach 接管操作者已登录的 Discord Web 标签页；"
+                "2026-11-20 夜间 6 频道实测；无官方 bot 授权路径，不做无人值守机器人",
+        "actions": {"publish", "inbox"},
+        "transports": {"browser-attach"},
     },
     "hn": {
         # 安全语义按写原语取级；读原语 search 已于 2026-10-14 实测（Algolia 匿名只读）

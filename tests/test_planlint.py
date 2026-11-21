@@ -133,7 +133,9 @@ class TestTransports(unittest.TestCase):
         self.assertEqual(transports.active_chain("email", "message"),
                          ["protocol", "browser-cdp"])
         self.assertEqual(transports.primary("email", "inbox"), "browser-cdp")
-        self.assertEqual(transports.primary("x", "publish"), "browser-cdp")
+        self.assertEqual(transports.primary("x", "publish"), "browser-attach")
+        # 首选复用操作者已登录标签页；CDP 保留为降级备件
+        self.assertIn("browser-cdp", transports.chain("x", "publish"))
         self.assertEqual(transports.primary("desktop", "publish"), "os-input")
         self.assertEqual(transports.primary("linkedin", "message"), "browser-cdp")
         self.assertEqual(transports.chain("nosuch", "publish"), [])

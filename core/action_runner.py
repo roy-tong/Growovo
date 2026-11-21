@@ -11,7 +11,12 @@
   reddit   publish / reply
   linkedin message（实跑要求 MKT_LINKEDIN_AUTO=1，MCP 无 TTY 不做交互确认）
   x        publish / reply / message / engage（message/engage 透传 vendor 参数）
+  discord  publish（仅 transport=browser-attach）
   email    仅队列（action_runner 拒绝单条发信）
+
+transport=browser-attach 是 X publish/reply、GitHub reply、Discord publish 的
+独立授权路线：跳过通用 CDP 身份与 plan/routine 预检，由 browser_write 强制
+owner-attested、页面身份、pause/DNC/quota/readback；统一回执、任务结果与操作日志。
 """
 import os
 from datetime import datetime, timezone
@@ -173,18 +178,59 @@ def _x_last_record(ledger, campaign, action, fallback):
     return fallback
 
 
+def _dispatch_browser_attach(*, channel, action, data_dir, campaign, go,
+                             target, text, actor="", log=print):
+    """把 browser-attach 适配成统一账本回执；传输层已经记账，这里不重复 append。"""
+    from .browser_write import execute
+
+    rec = dict(execute(channel, action, data_dir, text=text, target=target,
+                       go=go, campaign=campaign, actor=actor, log=log))
+    if rec.get("skipped"):
+        state = "skipped"
+    elif not go or rec.get("dry"):
+        state = "dry-run"
+    else:
+        state = str(rec.get("ledger_result") or "").strip().lower()
+        if state not in {"committed", "failed", "indeterminate", "rejected"}:
+            # 真实动作没有可核验账本终态时，绝不能把 success/ok 当成 committed。
+            state = "indeterminate"
+            rec["error"] = rec.get("error") or "browser-attach 返回缺少有效 ledger_result"
+    rec.update({
+        "ok": state in {"committed", "dry-run", "skipped"},
+        "result": state,
+        "ledger_result": state,
+        "channel": channel,
+        "action": action,
+        "campaign": campaign,
+        "target": target or rec.get("target") or "",
+        "transport": "browser-attach",
+        "mode": "owner_attested_session",
+    })
+    return rec
+
+
 def _dispatch_action_inner(*, channel, action, data_dir=None, campaign="", go=False,
                            allow_unverified=False, target=None, text=None, title=None, url=None,
                            subreddit=None, number=None, extra=None, log=print,
-                           routine=False, account="", platform_user_id=None):
+                           routine=False, account="", platform_user_id=None,
+                           transport="", actor=""):
     """执行单条写动作，返回账本记录 dict。"""
     data = Path(data_dir or resolve())
     channel = (channel or "").strip().lower()
     action = (action or "").strip().lower()
+    transport = str(transport or "").strip().lower()
+    if transport not in {"", "browser-attach"}:
+        raise ActionError("未知传输 %r（可选: browser-attach；缺省走原渠道适配器）" % transport)
     if action in READ_ACTIONS:
         raise ActionError("读动作请用 mkt search/inbox/audit，不走 run_action")
     if not go:
         log(f"[action] {channel}/{action} dry-run（加 --go 才实跑）")
+    if transport == "browser-attach":
+        if routine:
+            raise ActionError("browser-attach 使用 owner-attested 独立授权，不与 routine policy 混用")
+        return _dispatch_browser_attach(
+            channel=channel, action=action, data_dir=data, campaign=campaign,
+            go=go, target=target, text=text, actor=actor, log=log)
 
     # G-01b：真实发送前校验实际账号身份（队列/单动作/MCP 共用此路径）。
     # 必须先于审批：require_identity 的授权在审批里需要 *观测到的* user_id，

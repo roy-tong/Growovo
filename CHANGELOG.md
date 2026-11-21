@@ -1,5 +1,158 @@
 # Changelog
 
+## 0.17.0 — 2026-11-20
+
+A nightly engagement cycle that acts in the operator's own logged-in browser:
+it reads notifications first, replies to people who answered, then interleaves
+X, GitHub and Discord actions under per-platform limits.
+
+### Added
+
+- **`browser-attach` transport reuses the operator's open tabs**: `core/browser_attach.py`
+  drives the WebBridge extension against tabs the operator already has open, so
+  no separate debug port, no browser launch and no copied cookies. Reads and writes
+  both default to reuse-only: a missing site tab raises `tab_not_found`; only an
+  explicit low-level `ensure_tab(..., allow_new=True)` may open one, and `cycle`
+  never enables it. The logged-in account is read from what the page shows — X's
+  account menu `@handle`, Discord's user panel username, GitHub's `user-login`
+  meta tag. The identity record keeps `mode=cdp_observed` as the existing gate
+  label for "observed from the browser that will execute"; it does not imply CDP.
+- **`core/inbox_replies.py` collects who is waiting for an answer**: X mentions
+  from the notifications page, GitHub unread notifications filtered to mention
+  and comment reasons through `gh api`, and Discord replies found in each
+  allowed channel. `plan_replies` orders X, GitHub, Discord and caps actions per
+  person per night.
+- **`core/engagement_cycle.py` plans and runs one wave**: `plan` puts inbox
+  replies first, then rotates platforms so two actions on the same platform keep
+  a minimum gap, and refuses an action with a named reason. `enqueue` atomically
+  merges prepared drafts; real waves use a non-blocking lock, atomic queue writes,
+  a hard execution deadline and ledger-based counts. `run` calls
+  `core/action_runner.run_action(transport="browser-attach")` and stops a channel
+  on a platform warning instead of retrying.
+- **`core/browser_write.py`** is the browser-attach transport adapter for X
+  reply/publish, GitHub comment and Discord channel post: pause, do-not-contact,
+  owner-attested authorization, throttle reservation, readback and one ledger
+  append run in that order. `action_runner` adds normalized results, task outcomes
+  and operations logs without a second ledger append or quota reservation.
+- **`mkt cycle` CLI**: `smoke`, `quota`, `pending-auth`, `attach`, `inbox`,
+  `enqueue`, `plan`, `run`. `attach` and `inbox` are read-only. Single actions and
+  non-email queues can explicitly select `--transport browser-attach`.
+
+### Changed
+
+- `core/transports.py` puts `browser-attach` first for X publish/reply and
+  Discord publish, and second after the API for GitHub comments.
+- `core/platform_compliance.py` accepts `owner_attested_session` as a route that
+  still requires a freshly observed browser identity, and
+  `core/execution_policy.py` issues and checks the per-platform authorization
+  files under `data/policies/owner-attested-<platform>.json`.
+- `core/throttle.py` counts `browser-attach` writes in the per-platform budgets.
+- **Nightly capacity covers the requested nine full waves**: the X ceilings are
+  now 90 original posts and 180 replies per night, matching 10/20 per hour for
+  nine waves; GitHub remains 135 and Discord 54. The supply panel tracks the
+  full 10/20/15/6 per-wave preparation targets. `plan` and `run` default to a
+  50-minute budget, leaving ten minutes before the next hourly wave. This
+  workspace uses calendar-hour quotas so a previous 43.5-minute wave does not
+  consume the next wave's entire rolling-hour budget; unconfigured workspaces
+  retain rolling 60-minute quotas. Channel gaps and all stop conditions are
+  unchanged. These are capacity ceilings, not instructions to fill them with
+  unqualified content. A nine-wave simulated ledger schedules all 459 actions
+  without exceeding any hourly or nightly ceiling.
+
+### Fixed
+
+- **`cycle run` and `cycle attach` now share one WebBridge session**:
+  `run` reached `BrowserAttach()` through `core/browser_write.execute`, which
+  fell back to the environment/default session (`growovo`) while `attach` had
+  been pointed at `ovo-night-run`. In that default session the only X tab was a
+  hidden notifications page, so every X action was refused as `tab_hidden` for
+  the whole night. The policy now carries `bridge.session`, `run` and
+  `collect_inbox` accept `--session` and apply it to the bridge before planning,
+  and the wave summary reports the session actually used. Covered by
+  `tests/test_engagement_cycle.py::BridgeSessionTest`.
+- **Discord submits now happen, instead of typing the text and stopping**:
+  `core/bridge/discord_engine.py` sends Enter by dispatching a `keydown` inside
+  the page on the composer. `Input.dispatchKeyEvent` never reached the page
+  through the WebBridge bridge — a `keydown` probe installed on the document
+  recorded nothing while `Input.insertText` over the same channel worked — so
+  the composer kept the text and the channel got no message. Three channel
+  posts on 2026-11-21 01:10 confirmed the new path against the message list.
+- **`actor_cap` no longer blocks our own original posts**: `usage()` counted
+  every committed row's `actor`, so the X original posts written as
+  `actor=owner` consumed the "two actions per external person per night" budget
+  and the third original post of the night was refused. The cap now applies only
+  to `action=reply`, matching the docstring and the policy note, and `plan()`
+  derives `actor_key` the same way. Covered by
+  `tests/test_engagement_cycle.py::PlanTest::test_own_publish_does_not_consume_actor_cap`.
+- **Drafts left over from an earlier night no longer go out as if fresh**:
+  `core/engagement_cycle.py` refuses a non-inbox draft older than
+  `queue.max_age_hours` (12) with `stale_row`, so a wave that could not send a
+  queued row in its own night does not spend the next night's quota on stale
+  text. The age comes from the row's `queued_at`, falling back to midnight of a
+  `night-YYYYMMDD` campaign; a row with neither stamp stays eligible rather than
+  discarding an operator's text. `run` prunes stale rows from the queue file
+  only under `--go` and counts them separately as `pruned_stale`, not
+  `consumed`; a dry run reports them in `stale` and writes nothing. Covered by
+  `tests/test_engagement_cycle.py::StaleQueueTest`.
+- **Legacy cycle receipts consume the same quotas**: committed rows written
+  before the `transport` field was populated now count toward the nightly and
+  rolling-hour budgets. Other explicit transports remain outside the
+  browser-attach budget, so the five legacy rows from the first night are no
+  longer omitted from X and Discord usage.
+- **Inbox collection cannot overwrite an executing wave's queue**:
+  `cycle inbox` merges through `engagement_cycle.merge_inbox` under the same
+  non-blocking lock as `run` and `enqueue`. A lock conflict returns
+  `wave_already_running`, exits 2 and leaves the queue unchanged instead of
+  reporting a successful merge.
+- **Single browser actions inherit the configured WebBridge session**:
+  `mkt action --transport browser-attach` now applies `bridge.session` from the
+  cycle policy instead of silently staying in the default `growovo` session;
+  `--session` remains available as an explicit override. This fixes the
+  pre-send `tab_not_found` found by the 2026-11-21 live canary.
+- **X readback allows for delayed profile rendering**: the default condition-
+  polling window is 30 seconds rather than 12. The live canary post appeared
+  after the old window and was found later by the same reader without another
+  send; a fake-clock regression covers a post that first appears at second 13.
+  No post-fix live post has been made, so this remains offline-verified.
+- **A missing site tab defers only that channel, not the whole wave**:
+  `core/engagement_cycle.py` records `tab_not_found` / `tab_open_timeout` in
+  `deferred_channels` and continues with the other platforms, so a night with
+  no Discord tab no longer aborts the X portion. Covered by
+  `tests/test_engagement_cycle.py::MissingTabTest` and exercised against the
+  live session: the wave reported `ok true`, `committed 0`,
+  `deferred_channels ["discord","github"]`, and wrote no ledger row.
+- **X original failures now carry a readable reason**: a send whose composer
+  did not clear returned `err: null`, which is why the 2026-11-20 23:10 ledger
+  row read `failed` with an empty error. The engine now reports
+  `composer did not clear after send`; the click was still dispatched, so
+  `browser_write` classifies it as `indeterminate`, never `failed`. Covered by
+  `tests/test_x_engine.py::SendReportsStatusTest::test_original_reports_readable_error_when_composer_does_not_clear`.
+- **A reply composer that does not open gets one clean reload**: when Reply is
+  clicked but no composer appears within eight seconds, `reply_native` reloads
+  the status page and clicks Reply once more before failing. Nothing has been
+  typed at that point, so the retry cannot double-post. The failure detail now
+  reads `no composer after reopen` and keeps the second attempt's reason in
+  `reopen_err`. Covered by
+  `tests/test_x_engine.py::SendReportsStatusTest::test_reply_reopens_composer_after_full_nav`.
+- **Ledger details keep enough of the engine output to diagnose a failure**:
+  the per-row `detail` cap moved from 400 to 1200 characters so fields such as
+  `enter`, `composerAfter` and `send` survive. The classification is unchanged.
+
+### Notes
+
+- `mkt cycle run` uses `core/action_runner` with an explicit browser-attach
+  transport. Its owner-attested authorization intentionally replaces the generic
+  plan/routine approval check, not the other safety gates; the operations log
+  records the route, platform and authorization-file SHA-256. X status IDs and
+  permalinks, verified GitHub URLs and real Discord server IDs flow into receipts;
+  prefix-only X readback does not claim a full-text hash match.
+- Premium posting ceilings are not published by X. The configured budgets
+  (90 original posts and 180 replies per night) are self-imposed capacity
+  ceilings derived from the requested nine waves, not a platform guarantee or
+  a claim about the account's official maximum.
+- Discord has no per-message reply through this path; a Discord answer is a
+  channel post that mentions the person.
+
 ## 0.16.3 — 2026-11-20
 
 Stable task identifiers in the Verovo handoff, so the ledger can name what it

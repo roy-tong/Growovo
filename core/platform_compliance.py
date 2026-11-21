@@ -199,6 +199,111 @@ def require_user_visible_cdp(platform: str, action: str, data_dir, *,
     }
 
 
+def owner_attested_path(data_dir, platform: str) -> Path:
+    return Path(data_dir) / "policies" / ("owner-attested-%s.json" % _text(platform).lower())
+
+
+OWNER_ATTESTED_ACTIONS = {
+    "x": frozenset({"publish", "reply"}),
+    "github": frozenset({"reply"}),
+    "discord": frozenset({"publish"}),
+}
+
+
+def load_owner_attested(data_dir, platform: str) -> Dict[str, Any]:
+    """读操作者自担风险的 browser-attach 常驻授权；缺失或损坏即无授权。"""
+    path = owner_attested_path(data_dir, platform)
+    if not path.is_file():
+        return {}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def require_owner_attested_browser_write(platform: str, action: str, data_dir, *,
+                                        go: bool, actual_transport: str,
+                                        identity: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    """操作者自担风险的 browser-attach 写：独立授权路线，不放宽任何既有拒绝路径。
+
+    约束：必须走 browser-attach 传输；动作在该平台白名单内；授权文件写明
+    route=owner_attested_session、批准人、批准时间、有效窗口、停止条件与
+    ``platform:action`` scope；身份必须是页面内观测到的当前账号。返回里
+    明确 ``platform_permission: False``——这不是平台许可，也不保证账号安全。
+    """
+    platform = _text(platform).lower()
+    action = _text(action).lower()
+    if not go or action not in WRITE_ACTIONS:
+        raise ComplianceError("action_out_of_scope", "只有真实写动作才需要 owner-attested 授权。")
+    if actual_transport != "browser-attach":
+        raise ComplianceError(
+            "transport_mismatch",
+            "owner-attested 路线只接受 browser-attach，实际传输是 %r。" % actual_transport)
+    allowed = OWNER_ATTESTED_ACTIONS.get(platform)
+    if not allowed:
+        raise ComplianceError("platform_out_of_scope", "%s 不在 owner-attested 平台白名单内。" % platform)
+    if action not in allowed:
+        raise ComplianceError(
+            "action_out_of_scope",
+            "%s 的 owner-attested 只支持 %s；%s 仍需官方 API 或人工操作。"
+            % (platform, "/".join(sorted(allowed)), action))
+    auth = load_owner_attested(data_dir, platform)
+    if not auth:
+        raise ComplianceError("authorization_missing",
+                              "缺少 %s 的 owner-attested 授权文件（%s）。"
+                              % (platform, owner_attested_path(data_dir, platform)))
+    if _text(auth.get("route")) != "owner_attested_session":
+        raise ComplianceError("authorization_route_invalid",
+                              "授权文件 route 必须是 owner_attested_session。")
+    if auth.get("revoked") is True:
+        raise ComplianceError("authorization_revoked", "该平台 owner-attested 授权已被撤销。")
+    if not _text(auth.get("approved_by")):
+        raise ComplianceError("authorization_incomplete", "授权缺少 approved_by。")
+    approved_at = _parse_time(auth.get("approved_at"))
+    if not approved_at:
+        raise ComplianceError("authorization_incomplete", "授权 approved_at 不可解析。")
+    start = _parse_time(auth.get("window_start"))
+    end = _parse_time(auth.get("window_end"))
+    if not start or not end:
+        raise ComplianceError("authorization_incomplete",
+                              "授权必须写明可解析的 window_start / window_end；不设永久窗口。")
+    now = datetime.now(start.tzinfo) if start.tzinfo else datetime.now()
+    if not (start <= now <= end):
+        raise ComplianceError(
+            "authorization_window_closed",
+            "当前时间不在授权窗口内（%s — %s）。" % (start.isoformat(), end.isoformat()))
+    stops = auth.get("stop_conditions")
+    if not isinstance(stops, list) or not [s for s in stops if _text(s)]:
+        raise ComplianceError("authorization_incomplete", "授权必须列出 stop_conditions。")
+    scopes = auth.get("scopes")
+    if not isinstance(scopes, list) or ("%s:%s" % (platform, action)) not in {
+            _text(s) for s in scopes}:
+        raise ComplianceError("authorization_scope_missing",
+                              "授权 scopes 未包含 %s:%s。" % (platform, action))
+    if not isinstance(identity, dict) or identity.get("enforced") is not True:
+        raise ComplianceError("identity_observation_required",
+                              "browser-attach 写前必须观测当前浏览器账号。")
+    if identity.get("mode") != "cdp_observed":
+        raise ComplianceError("identity_mode_mismatch",
+                              "要求 identity_mode=cdp_observed，不能用自报账号替代。")
+    for field in ("observed_platform_identity", "handle", "identity_proof_ref",
+                  "browser_context", "observed_at"):
+        if not _text(identity.get(field)):
+            raise ComplianceError("identity_observation_incomplete",
+                                  "当前账号观测缺少 %s；拒绝在账号不明时执行。" % field)
+    return {
+        "route": "owner_attested_session",
+        "transport": "browser-attach",
+        "platform_permission": False,
+        "risk_owner": _text(auth.get("approved_by")),
+        "approved_at": approved_at.isoformat(),
+        "window_end": end.isoformat(),
+        "stop_conditions": [_text(s) for s in stops if _text(s)],
+        "identity_proof_ref": identity["identity_proof_ref"],
+    }
+
+
 def policy_row(platform: str) -> Dict[str, Any]:
     """给平台能力矩阵用的许可说明（不是执行门禁，只是让界面说真话）。"""
     platform = _text(platform).lower()
@@ -207,9 +312,11 @@ def policy_row(platform: str) -> Dict[str, Any]:
             "autonomous_write": False,
             "user_visible_cdp_write": True,
             "user_visible_cdp_actions": sorted(USER_VISIBLE_CDP_ACTIONS),
+            "owner_attested_browser_write": True,
             "code": "non_api_write_forbidden",
             "reason": ("无人值守非 API 自动写不放行；单次非 routine --go 的 publish/reply "
-                       "可在观测当前账号并通过既有审批、配额、防重发与回执门禁后走 CDP"),
+                       "可在观测当前账号并通过既有审批、配额、防重发与回执门禁后走 CDP；"
+                       "操作者自担风险的 browser-attach 常驻授权见 owner-attested 文件"),
             "source": "docs/risk/automation-compliance.md#§二",
         }
     return {"autonomous_write": True, "code": None, "reason": None, "source": None}

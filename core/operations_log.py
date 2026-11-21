@@ -59,7 +59,7 @@ MINIMUM_FIELDS = (
 CONTENT_BEARING_WRITE_ACTIONS = frozenset({"publish", "reply", "message"})
 
 OPERATION_RESULTS = frozenset({
-    "committed", "indeterminate", "failed", "dry-run",
+    "committed", "indeterminate", "failed", "dry-run", "skipped",
     "no-dm", "bounced", "suppressed", "rejected",
 })
 READBACK_RESULTS = frozenset({"verified", "mismatched", "unknown", "indeterminate"})
@@ -133,8 +133,16 @@ def approval_evidence(data_dir, *, campaign="", routine=False,
     """从动作现场推导审批依据与策略哈希（只读，不重跑门禁）。
 
     routine-policy 附带 policy 文件 sha256；plan 附带 plan_id；adhoc 如实标注。
+    owner-attested 附平台名与对应授权文件 sha256，不复制授权正文或任何凭据。
     """
     record = record if isinstance(record, dict) else {}
+    if record.get("mode") == "owner_attested_session":
+        from .platform_compliance import owner_attested_path
+        platform = str(record.get("channel") or "").strip().lower()
+        path = owner_attested_path(data_dir, platform)
+        digest = file_sha256(path) if path.is_file() else None
+        return {"approval_ref": "owner_attested_session:%s" % platform,
+                "policy_sha256": digest}
     if record.get("approval") == "routine-policy" or routine is True:
         from . import execution_policy
         path = execution_policy.policy_path(data_dir)
@@ -414,8 +422,10 @@ def record_action(data_dir, record: Dict[str, Any], *, channel=None, action=None
         "action": action,
         "target": _optional_text(target),
         "content_sha256": content,
-        "browser_context_ref": browser_context_ref()
-        or _optional_text(identity.get("browser_context")),
+        "browser_context_ref": (
+            _optional_text(identity.get("browser_context")) or browser_context_ref()
+            if record.get("transport") == "browser-attach"
+            else browser_context_ref() or _optional_text(identity.get("browser_context"))),
         "account": account,
         "operator": str(operator or "growovo:action_runner"),
         "approval_ref": approval["approval_ref"],
