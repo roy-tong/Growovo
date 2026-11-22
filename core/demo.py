@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """零网络零账号演示（W1 清单 B3）——陌生人 30 秒看懂内核纪律。
 
-不动真实 data/：全部产物写进 data/demo/ 沙盒，每次运行前整目录重建。
+不动真实数据：默认写 data/demo/；显式工作区用其 demo/ 子目录。每次运行前重建沙盒。
 五步即产品主张的最小闭环（计划是数据，人审是闸门，成功与拦截都要可核验）：
   1. 计划校验   plan 过 schema/能力矩阵/日预算 lint
   2. 人审闸门   human_approved=false 时同 campaign 拒跑；模拟人审后放行
@@ -29,7 +29,7 @@ CAMPAIGN = "demo-p0-w1"
 RUN_ID = "demo-p0"
 SUCCESS_ID = "d-000"
 
-# 队列四项：第一条走完整成功路径，后三条分别演示三种拦截/拒绝。
+# 四项分别演示成功与三种拦截；含占位符的坏样本不进入获批队列。
 DEMO_ITEMS = [
     {"id": SUCCESS_ID, "target": "robin@example.com",
      "body": "Robin，看到你在维护 mcp-server-template。工具调用的计量口径我们在三个项目里"
@@ -43,6 +43,7 @@ DEMO_ITEMS = [
      "body": "Jordan，你上周在 HN 上问的口径一致性问题，我们做了一版跨系统对照实验，"
              "三个系统的计量差异最大到 11%，数据和方法都放在附录里，欢迎挑刺。"},
 ]
+APPROVED_DEMO_ITEMS = [item for item in DEMO_ITEMS if item["id"] != "d-002"]
 CORRUPT_IDS = {"d-003"}  # 模拟编辑器丢字：回读比期望少 12 字符
 EXPECTED_RESULTS = {
     SUCCESS_ID: "committed",
@@ -61,10 +62,10 @@ def _demo_plan():
         "icp": {"org": "独立开发者/小团队", "persona": "兼管增长的开发者",
                 "beachhead": "MCP 工具作者"},
         "audience": {"spec": "github:MCP servers 目录维护者",
-                     "target_count": len(DEMO_ITEMS), "evidence_grade": "B"},
+                     "target_count": len(APPROVED_DEMO_ITEMS), "evidence_grade": "B"},
         "waves": [
             {"wave": 1, "channel": "email", "action": "message",
-             "size": len(DEMO_ITEMS),
+             "size": len(APPROVED_DEMO_ITEMS),
              "content_policy": "求评式/千人千面/禁模板",
              "queue": f"data/queues/{CAMPAIGN}.json"},
         ],
@@ -126,10 +127,10 @@ def _write_success_run(data, on, results):
     return run
 
 
-def run_demo(base):
-    """base = 仓库根。返回 0 = 五步全部按预期；1 = 有一步偏离（演示即自检）。"""
+def run_demo(base, *, data_dir=None):
+    """base = 仓库根；显式 data_dir 只用于已选择的独立 demo 沙盒。"""
     base = Path(base)
-    data = base / "data" / "demo"
+    data = Path(data_dir) if data_dir is not None else base / "data" / "demo"
     _reset_sandbox(data)
     plan_file = data / "plans" / "demo-p0.json"
     on = date.today().isoformat()
@@ -146,7 +147,7 @@ def run_demo(base):
     plan_file.write_text(json.dumps(plan, ensure_ascii=False, indent=1), encoding="utf-8")
     (data / "queues" / f"{CAMPAIGN}.json").write_text(json.dumps(
         {"campaign": CAMPAIGN, "channel": "email", "action": "message",
-         "items": DEMO_ITEMS}, ensure_ascii=False, indent=1), encoding="utf-8")
+         "items": APPROVED_DEMO_ITEMS}, ensure_ascii=False, indent=1), encoding="utf-8")
     size = sum(int(w["size"]) for w in plan["waves"])
     daily_cap = Throttle(data / "state").policy("email", "message")[3]
     print(f"[1/5] 计划校验   PASS — schema/beachhead/能力矩阵/"

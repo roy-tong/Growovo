@@ -4,6 +4,10 @@
 
 ### Added
 
+- **Installed demo workspaces stay outside the package.** `mkt demo` writes to `./data/demo` after wheel installation and honors an explicit `--workspace`; source-checkout behavior is unchanged. The approved queue contains only the three executable fixtures; the placeholder sample stays outside approval and demonstrates rejection separately.
+
+- **Plan approval now rechecks every bound queue** through `lint_queue` and the shared read-only content/target gate before writing an approval. Invalid or placeholder-bearing content is rejected before a plan can be approved; the existing plan+queue+account+workspace fingerprint remains unchanged.
+
 - **`mkt --workspace DATA proof export RUN --out NEW_DIR --by NAME`** creates a read-only Prove Anything bundle without external actions. Private targets, bodies, accounts, subjects and authorization documents are excluded. Execution receipts, independent readback and external events map separately to P0/P2/P4; unknown states remain INDETERMINATE and no causal credit is assigned.
 
 Quota limits now slow work down instead of closing it.

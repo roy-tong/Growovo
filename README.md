@@ -9,6 +9,13 @@
 
 给 Growovo 产品事实、目标受众和允许执行的动作。它检查待发内容，把已授权的动作排入队列，并记录执行回执。邮件发送结果不明时会停下等人核对。回复、激活和成交分别看实际记录。
 
+```bash
+git clone https://github.com/roy-tong/Growovo.git && cd Growovo
+python3 mkt.py demo    # 零网络零账号：人审、离线回执、三次拦截和结果卡；写入 ./data/demo
+```
+
+[打开受控执行示例与任务模板](https://roy-tong.github.io/Growovo/examples/controlled-run.html)，先看它能证明什么、不能证明什么。无需安装依赖或配置账号。
+
 **OVO 家族边界：** Prove Anything 是族级结果证明协议候选，Agent 说“完成了”仍需独立复核；Verified Capability Factory（VCF）只是研究候选，不是 Growovo 当前依赖。Growovo 可独立使用，发送回执、有效回复、激活和成交继续分层记录，族级协议不会把它们混成“增长已证明”。
 
 ```bash
@@ -24,8 +31,6 @@ mkt --workspace ./data proof export RUN_ID --out ./proof-bundle --by "proof-revi
 **从这里开始。** 准备产品事实包、常驻动作授权和邮件 SMTP 凭据；选 X 人工辅助时再准备已登录的本机 Codex CLI 和浏览器 CDP 会话。之后每天看结果、决定继续还是优化。配置步骤见[自动运营说明](docs/grow-autonomous-operations.md)。
 
 ```bash
-git clone https://github.com/roy-tong/Growovo.git && cd Growovo
-python3 mkt.py demo                    # 零网络零账号，一秒内返回
 python3 mkt.py grow platforms          # 看第一期哪些平台能自主执行
 python3 mkt.py policy enable --actions email:message --by "$USER"
 python3 mkt.py grow launch g1 --facts facts.json \
@@ -218,7 +223,7 @@ mkt campaign report askovo-p0-w1
 ```
 
 计划指纹 = 计划内容（不含 review 块）的规范化 sha256；旧计划只有 `human_approved=true`
-时仍按 legacy 放行，新审批一律带指纹与有效期。
+时仍按 legacy 放行，新审批一律带指纹与有效期。审批前还会对实际绑定队列执行同一套 lint 与只读门禁；坏正文、缺目标或不合规队列不能被批准。
 
 上限是内核属性：计划里的 size 超过 `core/throttle.py` 日预算会被 lint 拒收（计划阶段就改规模，
 不要靠执行阶段撞额度）。执行阶段撞到单次上限或当日剩余额度时不整批拒跑：能发的先发，

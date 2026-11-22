@@ -80,8 +80,7 @@ footer{border-top:1px solid var(--line);margin-top:56px;padding-top:18px;color:v
 </head>
 <body>
 <main>
-<h1>Growovo</h1>
-<p class="tagline">Run a supervised X or email campaign on your own account</p>
+<h1>Growovo for supervised X and email campaigns</h1>
 <p><strong>Generate Anything. Prove What Matters.</strong> Keep generation, execution and business outcomes on separate evidence.</p>
 <span class="badge">MIT open source</span><span class="badge">CLI / MCP / Agent Skill</span><span class="badge">v0.17.1</span>
 <p><a href="#demo">One concrete task: one successful delivery, and three runs stopped by the gate →</a></p>
@@ -102,17 +101,17 @@ footer{border-top:1px solid var(--line);margin-top:56px;padding-top:18px;color:v
 <p>It does not promise platform reach, and does not dress unverified channels up as full automation.</p>
 
 <h2 id="demo">One concrete task: one successful delivery, and three runs stopped by the gate</h2>
-<p>The input is a plan (demo-p0), one campaign and four queue items. Below is the real <code>mkt demo</code> output — zero network, zero accounts; the sandbox is rebuilt on every run and the whole thing is reproducible locally in about a second:</p>
+<p>The input is a plan (demo-p0), one campaign and four sample actions. Three executable items form the approved queue; the placeholder sample stays outside that approval and is checked separately. Below is the real <code>mkt demo</code> output — zero network, zero accounts; the sandbox is rebuilt on every run and the whole thing is reproducible locally in about a second:</p>
 <table>
 <tr><th>Step</th><th>What happened</th><th>Result</th></tr>
-<tr><td>Plan check</td><td>schema, beachhead, capability matrix, daily kernel budget</td><td>PASS (4 items against a 100/day budget)</td></tr>
+<tr><td>Plan check</td><td>schema, beachhead, capability matrix, daily kernel budget</td><td>PASS (3 approved items against a 100/day budget)</td></tr>
 <tr><td>Human gate</td><td>the campaign belongs to plan demo-p0 with <code>human_approved=false</code></td><td><strong>Refused and stopped</strong> — human approval is a precondition</td></tr>
 <tr><td>Simulated approval</td><td><code>mkt plan approve</code>: signature, plan fingerprint and an approval event set <code>human_approved=true</code></td><td>Released; the write path below still runs in the sandbox, not as a real authorization</td></tr>
 <tr><td>Successful delivery</td><td>d-000 passes the gates → read-back matches → offline send (<code>demo-memory</code>, in-process memory) → committed; one L1 receipt is added</td><td>1 committed row, inspectable line by line</td></tr>
 <tr><td>Three blocked runs</td><td>d-001 dry-run, nothing sent; d-002 rejected for placeholder text; d-003 failed on read-back mismatch</td><td>1 dry-run · 1 rejected · 1 failed, all recorded</td></tr>
 <tr><td>Ledger and daily card</td><td>4 terminal states match expectations; the daily result card reads only the ledger and the receipt layers</td><td>published 1 (planned 1); L1 observed; L2/L3 UNKNOWN, never written as 0</td></tr>
 </table>
-<p class="note">The example shows both what it delivers and where it stops: one complete success path (gate → read-back → offline send → committed → daily result card) and three blocked runs (approval missing, placeholders present, read-back inconsistent). The send is an in-process memory simulation (<code>demo-memory</code>) — nothing was sent; committed only proves the action went out, not conversion; the daily card keeps L2/L3 UNKNOWN instead of writing the unknown as 0. <code>tests/test_demo.py</code> pins "success + three blocked paths + rerunnable" as a regression test.</p>
+<p class="note">The example shows both what it delivers and where it stops: one complete success path (gate → read-back → offline send → committed → daily result card) and three blocked runs (approval missing, placeholders present, read-back inconsistent). The send is an in-process memory simulation (<code>demo-memory</code>) — nothing was sent externally; committed here only proves that the offline adapter recorded the action, not conversion or a platform receipt; the daily card keeps L2/L3 UNKNOWN instead of writing the unknown as 0. <code>tests/test_demo.py</code> pins "success + three blocked paths + rerunnable" as a regression test.</p>
 
 <h2>Install and verify</h2>
 <pre><code>pipx install growovo

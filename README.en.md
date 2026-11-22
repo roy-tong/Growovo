@@ -9,6 +9,13 @@
 
 Give Growovo the product facts, audience and actions you authorize. It checks drafts, queues approved work and records receipts. An uncertain email send stops the batch for review. Track replies, activation and sales from their own records.
 
+```bash
+git clone https://github.com/roy-tong/Growovo.git && cd Growovo
+python3 mkt.py demo    # no network or accounts: approval, offline receipt, three blocked actions; writes ./data/demo
+```
+
+[Open the controlled-run example and task template](https://roy-tong.github.io/Growovo/examples/controlled-run.en.html) to see what the run does and does not establish. No dependency installation or account setup is needed.
+
 **OVO family boundary:** Prove Anything is the family-level result-proof protocol candidate; an agent saying “done” still needs independent review. Verified Capability Factory (VCF) is a gated research candidate, not a Growovo dependency. Growovo works independently and keeps send receipts, meaningful replies, activation and sales on separate evidence layers; the family protocol never collapses them into “growth proven.”
 
 ```bash
@@ -24,8 +31,6 @@ It commits to exactly three verifiable things: **execution volume** (every commi
 **Start here.** Prepare product facts, standing action authorization and SMTP credentials for email; for human-assisted X, also prepare an authenticated local Codex CLI and a browser CDP session. Read results daily and decide whether to continue or optimize. See [autonomous operations](docs/grow-autonomous-operations.md).
 
 ```bash
-git clone https://github.com/roy-tong/Growovo.git && cd Growovo
-python3 mkt.py demo                    # zero network, zero accounts
 python3 mkt.py grow platforms          # what phase one can run autonomously
 python3 mkt.py policy enable --actions email:message --by "$USER"
 python3 mkt.py grow launch g1 --facts facts.json \
@@ -198,7 +203,7 @@ mkt outcome sync --campaign askovo-p0-w1
 mkt campaign report askovo-p0-w1
 ```
 
-The plan fingerprint is the canonicalized sha256 of the plan content (excluding the review block); legacy plans carrying only `human_approved=true` still pass as legacy — all new approvals carry a fingerprint and an expiry.
+The plan fingerprint is the canonicalized sha256 of the plan content (excluding the review block); legacy plans carrying only `human_approved=true` still pass as legacy — all new approvals carry a fingerprint and an expiry. Before approval, every bound queue must pass the same lint and read-only gates; invalid content, missing targets and noncompliant queues cannot be approved.
 
 Caps are a core property: a plan whose size exceeds the `core/throttle.py` daily budget is rejected by lint, so resize the plan instead of spending the budget at run time. At run time, hitting the per-run cap or the remaining daily budget no longer refuses the whole batch: what fits is sent, and the rest comes back as `result=deferred` rows with a `next` hint (split rhythm, wait for the next budget day, or use another channel).
 

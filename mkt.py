@@ -4277,7 +4277,10 @@ def cmd_network(args):
 
 def cmd_demo(args):
     from core.demo import run_demo
-    return run_demo(BASE)
+    default_data = (BASE / "data").resolve()
+    if DATA == default_data:
+        return run_demo(BASE if (BASE / "pyproject.toml").is_file() else Path.cwd())
+    return run_demo(DATA.parent, data_dir=DATA / "demo")
 
 
 def cmd_work_demo(args):
