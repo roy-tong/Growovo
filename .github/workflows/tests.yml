@@ -20,7 +20,20 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
       - name: Offline unit tests
-        run: python -m unittest discover tests -v
+        run: |
+          python - <<'PY'
+          import re, subprocess, sys
+          run = subprocess.run([sys.executable, "-m", "unittest", "discover", "tests", "-v"],
+                               capture_output=True, text=True)
+          output = run.stdout + run.stderr
+          print(output)
+          if run.returncode:
+              blocks = re.findall(r"={70}\n(?:FAIL|ERROR):.*?(?=={70}\n|\Z)", output, re.S)
+              for block in blocks[:10]:
+                  message = block[:12000].replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+                  print("::error::" + message)
+          raise SystemExit(run.returncode)
+          PY
       - name: Zero-network demo
         run: python mkt.py demo
       - name: Doctor self-test
