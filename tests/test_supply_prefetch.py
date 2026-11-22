@@ -56,10 +56,21 @@ class WorkerTest(unittest.TestCase):
     def test_worker_runs_read_only_miner_and_returns_report(self):
         with tempfile.TemporaryDirectory() as tmp:
             report = {"ok": True, "rows": 3, "merge": {"added": 3}}
-            with mock.patch("core.supply_mine.mine_github", return_value=report) as mine:
+            entered = threading.Event()
+            release = threading.Event()
+
+            def blocking_mine(*_args, **_kwargs):
+                entered.set()
+                if not release.wait(timeout=2):
+                    raise TimeoutError("test did not release the miner")
+                return report
+
+            with mock.patch("core.supply_mine.mine_github", side_effect=blocking_mine) as mine:
                 worker = Prefetcher(tmp, policy(sources=["github"]), log=lambda *_: None)
                 started = worker.start()
+                self.assertTrue(entered.wait(timeout=2))
                 self.assertEqual(started["status"], "running")
+                release.set()
                 got = worker.finish()
             self.assertTrue(got["ok"])
             self.assertEqual(got["reports"]["github"]["rows"], 3)
