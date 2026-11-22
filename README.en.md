@@ -9,6 +9,8 @@
 
 Give Growovo the product facts, audience and actions you authorize. It checks drafts, queues approved work and records receipts. An uncertain email send stops the batch for review. Track replies, activation and sales from their own records.
 
+**OVO family boundary:** Prove Anything is the family-level result-proof protocol candidate; an agent saying “done” still needs independent review. Verified Capability Factory (VCF) is a gated research candidate, not a Growovo dependency. Growovo works independently and keeps send receipts, meaningful replies, activation and sales on separate evidence layers; the family protocol never collapses them into “growth proven.”
+
 It commits to exactly three verifiable things: **execution volume** (every committed action is in the ledger), **honest readings** (daily follower and impression snapshots, screenshot-backed and labelled by evidence grade), and **closed-loop responsibility** (completion drives volume changes, supply gaps alert three days early, failures stop the loop for human adjudication). It does not promise platform reach, and it does not dress unverified channels up as full automation.
 
 **Full automation starts with platforms that may actually be automated.** Phase one commits to unattended execution on **Email** only. The **X** write path is technically proven (PROVEN), but X's rules forbid non-API autonomous writes, so X plans compile as human-assisted tasks, or you connect the official API with authorization. GitHub, Reddit, Hacker News and LinkedIn are gated behind a supervised first run. Manual channels such as Xiaohongshu and Zhihu get work orders only and are excluded from automated volume. See the [platform automation matrix](docs/platform-automation-matrix.md).

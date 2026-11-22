@@ -46,7 +46,7 @@
   "@context": "https://schema.org",
   "@type": "FAQPage",
   "mainEntity": [
-    { "@type": "Question", "name": "Growovo 能全自动发哪些平台？", "acceptedAnswer": { "@type": "Answer", "text": "第一期只有 X 和 Email（X 为 PROVEN，Email 为 PORTED）；GitHub、Reddit、Hacker News、LinkedIn 需要人工首跑一次才解锁；小红书、知乎这类人工渠道只出作业单，不计入自动发布量。用 mkt grow platforms 随时查看当前状态。" } },
+    { "@type": "Question", "name": "Growovo 能全自动发哪些平台？", "acceptedAnswer": { "@type": "Answer", "text": "第一期只有 Email 可承诺无人值守自主执行；X 非 API 写入只编成人工辅助任务，或接官方 API 并授权；GitHub、Reddit、Hacker News、LinkedIn 需人工首跑解锁；小红书、知乎等人工渠道只出作业单，不计入自动发布量。用 mkt grow platforms 随时查看当前状态。" } },
     { "@type": "Question", "name": "会不会把我的账号搞封？", "acceptedAnswer": { "@type": "Answer", "text": "只用于你拥有、或被明确授权操作的账号。发送前有授权闸门和 dry-run，可以先看它打算做什么再放行；平台规则之外的路径不提供绕过。同时明确：不承诺平台算法给多少曝光。" } },
     { "@type": "Question", "name": "和定时发帖工具有什么区别？", "acceptedAnswer": { "@type": "Answer", "text": "定时发帖工具执行你写好的内容；Growovo 从产品事实和增长目标出发，自己定策略、排计划、执行，并把执行了多少、读数是多少落成可核验的账本。策略和周报是中间产物，交付的是每天的业务结果。" } },
     { "@type": "Question", "name": "它说的结果怎么核实？", "acceptedAnswer": { "@type": "Answer", "text": "账本里每条执行记录逐条可查；每天落粉丝与曝光读数，截图留证、标证据级别；mkt demo 零网络零账号，本地一秒跑完完整闭环。反例也公开：发布尸检记录了一次没走账本的真实发布实验——0 个新 star，关注与转化没有可靠读数。" } },
@@ -81,12 +81,14 @@ footer{border-top:1px solid var(--line);margin-top:56px;padding-top:18px;color:v
 <main>
 <h1>Growovo</h1>
 <p class="tagline">在自己的 X 和邮件账号上运行一次受控推广</p>
-<span class="badge">开源 MIT</span><span class="badge">CLI / MCP / Agent Skill</span><span class="badge">v0.16.0</span>
+<span class="badge">开源 MIT</span><span class="badge">CLI / MCP / Agent Skill</span><span class="badge">v0.17.1</span>
 <p><a href="#demo">看一个具体任务：一次成功交付，和三次被闸门拦下的执行 →</a></p>
+
+<p class="note"><strong>OVO / Prove Anything：</strong>Agent 说“完成了”，仍需独立复核。Prove Anything 是族级结果证明协议候选；Verified Capability Factory（VCF）只是研究候选，不是 Growovo 当前依赖。Growovo 可独立使用，执行回执、有效回复、激活与成交继续分层，不能合并成“增长已证明”。</p>
 
 <h2>这是什么</h2>
 <p>给 Growovo 产品事实、目标受众和允许执行的动作。它检查待发内容，把已授权的动作排入队列，并记录执行回执。邮件发送结果不明时会停下等人核对。回复、激活和成交分别看实际记录。</p>
-<p><strong>全自动的前提是平台可自动执行。</strong>第一期只承诺 X + Email（X 为 PROVEN，Email 为 PORTED）；GitHub、Reddit、Hacker News、LinkedIn 需人工首跑解锁；小红书、知乎等人工渠道只出作业单，不计入自动发布量。</p>
+<p><strong>全自动的前提是平台可自动执行。</strong>第一期只有 Email 可承诺无人值守自主执行；X 非 API 写入只编成人工辅助任务，或接官方 API 并授权；GitHub、Reddit、Hacker News、LinkedIn 需人工首跑解锁；小红书、知乎等人工渠道只出作业单，不计入自动发布量。</p>
 
 <h2>只承诺三件可核验的事</h2>
 <table>
@@ -131,7 +133,7 @@ python3 mkt.py grow platforms       # 看第一期哪些平台能全自动</code
 
 <h2 id="faq">常见问题</h2>
 <h3>能全自动发哪些平台？</h3>
-<p>第一期只有 X 和 Email（X 为 PROVEN，Email 为 PORTED）；GitHub、Reddit、Hacker News、LinkedIn 需要人工首跑一次才解锁；小红书、知乎这类人工渠道只出作业单，不计入自动发布量。用 <code>mkt grow platforms</code> 随时查看当前状态。</p>
+<p>第一期只有 Email 可承诺无人值守自主执行；X 非 API 写入只编成人工辅助任务，或接官方 API 并授权；GitHub、Reddit、Hacker News、LinkedIn 需人工首跑解锁；小红书、知乎等人工渠道只出作业单，不计入自动发布量。用 <code>mkt grow platforms</code> 随时查看当前状态。</p>
 <h3>会不会把我的账号搞封？</h3>
 <p>只用于你拥有、或被明确授权操作的账号。发送前有授权闸门和 dry-run，可以先看它打算做什么再放行；平台规则之外的路径不提供绕过。同时明确：不承诺平台算法给多少曝光。</p>
 <h3>和定时发帖工具有什么区别？</h3>
