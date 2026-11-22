@@ -7,3 +7,6 @@ Pages: / (Chinese landing: three verifiable promises, a worked demo of one succe
 Canonical repo and full agent entry: https://github.com/roy-tong/Growovo (see repo-root llms.txt for interfaces, promise discipline and launch autopsy). Synthetic demo proves loop structure only — never reach, conversion or business outcomes.
 
 - [Replay a supervised offline batch and inspect each action receipt](https://roy-tong.github.io/Growovo/examples/controlled-run.en.html)
+
+- [OVO Discord community](https://discord.gg/UqrM8MCXb)
+- [OVO product updates on X](https://x.com/elliwoodtong)
