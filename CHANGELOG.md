@@ -10,7 +10,6 @@
 
 - **`mkt --workspace DATA proof export RUN --out NEW_DIR --by NAME`** creates a read-only Prove Anything bundle without external actions. Private targets, bodies, accounts, subjects and authorization documents are excluded. Execution receipts, independent readback and external events map separately to P0/P2/P4; unknown states remain INDETERMINATE and no causal credit is assigned.
 
-Quota limits now slow work down instead of closing it.
 Quota limits now slow work down instead of closing it. Approval, dry-run, pause,
 DNC/suppression, identity binding, ledger dedupe, readback and unknown-result
 protections are unchanged.
