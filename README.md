@@ -11,6 +11,12 @@
 
 **OVO 家族边界：** Prove Anything 是族级结果证明协议候选，Agent 说“完成了”仍需独立复核；Verified Capability Factory（VCF）只是研究候选，不是 Growovo 当前依赖。Growovo 可独立使用，发送回执、有效回复、激活和成交继续分层记录，族级协议不会把它们混成“增长已证明”。
 
+```bash
+mkt --workspace ./data proof export RUN_ID --out ./proof-bundle --by "proof-reviewer"
+```
+
+导出只读账本与事件，不执行外部动作；目标、正文、账号、主体和授权原文不复制。committed 只支持 P0，完整独立回读才支持 P2，外部事件单独进入 P4 且不获得因果功劳。
+
 它只承诺三件可核验的事：**执行量**（账本 committed 逐条可查）、**真实读数**（每天落粉丝与曝光，截图留证、带证据级别）、**闭环责任**（完成率驱动调量建议、供给缺口提前报警、异常停车待人工裁决）。不承诺平台算法给多少曝光，也不把未验证渠道包装成全自动。
 
 **全自动的前提是平台可自主执行。** 第一期只有 **Email** 可承诺无人值守自主执行（写通道已实现）；**X** 写通道技术已跑通（PROVEN），但平台许可禁止非 API 自主写入，只编成人工辅助任务，或接官方 API 并授权；GitHub、Reddit、Hacker News、LinkedIn 需人工首跑解锁；小红书、知乎等人工渠道只出作业单，不计入自动发布量。见[平台自动执行矩阵](docs/platform-automation-matrix.md)。

@@ -5420,6 +5420,22 @@ def cmd_action(args):
     return 3 if rec.get("result") == "indeterminate" else 1
 
 
+def cmd_proof(args):
+    from core import proof_export
+    try:
+        result = proof_export.export_proof(
+            DATA, args.run_id, args.out, by=args.by or "",
+            classification=args.classification or "private")
+    except (proof_export.ProofExportError, proof_export.verovo_handoff.HandoffError) as exc:
+        print(json.dumps({"status": "refused", "reason": str(exc)}, ensure_ascii=False), file=sys.stderr)
+        return 2
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        print(json.dumps({"status": "error", "reason": str(exc)}, ensure_ascii=False), file=sys.stderr)
+        return 2
+    print(json.dumps(result, ensure_ascii=False, indent=2))
+    return 0
+
+
 def cmd_collect(args):
     from core import collector
     act = args.action
@@ -5553,6 +5569,15 @@ def build_parser():
     sp.add_argument("--session", default="", help="browser-attach：WebBridge 会话名；默认读 cycle 策略")
     sp.add_argument("--actor", default="", help="browser-attach：外部对象标识，用于每对象额度")
     sp.set_defaults(fn=cmd_action)
+
+    sp = sub.add_parser("proof", help="Prove Anything：只读导出可复核增长证明包")
+    proof_sub = sp.add_subparsers(dest="proof_action", required=True)
+    a = proof_sub.add_parser("export", help="导出一个 run/campaign；不执行外部动作")
+    a.add_argument("run_id")
+    a.add_argument("--out", required=True, help="新目录；拒绝覆盖")
+    a.add_argument("--by", required=True, help="具名证明复核人")
+    a.add_argument("--classification", choices=["private", "synthetic", "public-redacted"], default="private")
+    a.set_defaults(fn=cmd_proof)
 
     sp = sub.add_parser("collect", help="本地 collector：链接跳转/事件 webhook/CSV 导入")
     sp.add_argument("action", choices=["serve", "event", "import"])

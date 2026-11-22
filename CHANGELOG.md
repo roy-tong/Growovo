@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- **`mkt --workspace DATA proof export RUN --out NEW_DIR --by NAME`** creates a read-only Prove Anything bundle without external actions. Private targets, bodies, accounts, subjects and authorization documents are excluded. Execution receipts, independent readback and external events map separately to P0/P2/P4; unknown states remain INDETERMINATE and no causal credit is assigned.
+
 ## 0.17.1 — 2026-11-21
 
 Fixes the 0.17.0 wheel, which omitted `core/bridge` and made

@@ -8,7 +8,7 @@ Earlier baseline reviewed 2026-11-18. **Baseline on that date: v0.15.0 (delivery
 
 ## Verification snapshot
 
-- `python3 -m unittest discover -s tests`: **1951 tests pass** on 2026-11-21 after the browser-attach unified-runner refactor and queue/quota/session/readback/capacity fixes, plus the packaging tests that keep every package on disk listed in `[tool.setuptools] packages`.
+- `python3 -m unittest discover -s tests`: **1957 tests pass** on 2026-11-22 after adding read-only Prove Anything export. `mkt proof export` performs no external action, excludes private targets/bodies/accounts/subjects/authorization documents, and maps execution/readback/external events separately to P0/P2/P4 with `causality=not_claimed`; the synthetic export passes the family validator with zero structural errors.
 - `python3 mkt.py demo`: all 5 checks pass — plan validation, human approval, one successful offline `demo-memory` delivery, three blocked samples and the daily result card; zero network and zero real accounts. `mkt action discord publish --transport browser-attach` without `--go` and `mkt cycle smoke` also pass in an isolated temporary workspace.
 - `python3 mkt.py work-demo`: context → objective → WorkOrder → SOP → accepted deliverables → receiver handoff → approved plan/queue → independent KPI observation passes; no queue execution or send ledger.
 - v0.15.0 wheel acceptance runs outside the source checkout, covering packaged experience records, target management, goal compilation and scheduler workspace binding.
