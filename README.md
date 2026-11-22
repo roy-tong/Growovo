@@ -16,6 +16,8 @@ python3 mkt.py demo    # 零网络零账号：人审、离线回执、三次拦�
 
 [打开受控执行示例与任务模板](https://roy-tong.github.io/Growovo/examples/controlled-run.html)，先看它能证明什么、不能证明什么。无需安装依赖或配置账号。
 
+**社区与更新：** [OVO Discord](https://discord.gg/UqrM8MCXb) · [X / @elliwoodtong](https://x.com/elliwoodtong)。
+
 **OVO 家族边界：** Prove Anything 是族级结果证明协议候选，Agent 说“完成了”仍需独立复核；Verified Capability Factory（VCF）只是研究候选，不是 Growovo 当前依赖。Growovo 可独立使用，发送回执、有效回复、激活和成交继续分层记录，族级协议不会把它们混成“增长已证明”。
 
 ```bash
