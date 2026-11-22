@@ -93,7 +93,9 @@ def export_proof(data_dir: str | Path, run_id: str, out_dir: str | Path, *, by: 
     out_dir = Path(out_dir).resolve()
     handoff = verovo_handoff.build_handoff(data_dir, run_id)
     operations = handoff["operations"]
+    readbacks = handoff.get("readbacks") or []
     events = handoff["business_events"]
+    public = classification == "public-redacted"
     generated_at = _now()
     safe_run = _safe_id(run_id)
     contract_id = "growovo-%s-proof" % safe_run
@@ -109,7 +111,7 @@ def export_proof(data_dir: str | Path, run_id: str, out_dir: str | Path, *, by: 
                 "operation_id": row.get("operation_id"), "channel": row.get("channel"),
                 "action": row.get("action"), "result": row.get("result"),
                 "content_sha256": row.get("content_sha256"),
-                "receipt_id": (row.get("receipt") or {}).get("id"),
+                "receipt_id": None if public else (row.get("receipt") or {}).get("id"),
                 "readback_sha256": (row.get("receipt") or {}).get("readback_sha256"),
             } for row in operations],
             "business_events": [{
@@ -136,7 +138,11 @@ def export_proof(data_dir: str | Path, run_id: str, out_dir: str | Path, *, by: 
             }],
             "approved_by": by,
         }
-        steps = []
+        steps = [{
+            "step_id": "export-growth-proof", "action": "export_proof",
+            "started_at": generated_at, "ended_at": generated_at, "status": "ok",
+            "tool": "growovo.proof_export", "output_ref": "artifacts/run-summary.json",
+        }]
         entries = []
         checks = []
         for row in operations:
@@ -150,7 +156,7 @@ def export_proof(data_dir: str | Path, run_id: str, out_dir: str | Path, *, by: 
                 "ended_at": str(row.get("finished_at") or generated_at),
                 "status": _trace_status(result), "tool": "growovo.operations/2",
                 "output_ref": "operations.jsonl#%s" % operation_id,
-                "external_id": str(receipt.get("id") or "") or None,
+                "external_id": None if public else (str(receipt.get("id") or "") or None),
             })
             entries.append(_evidence(evidence_id, "operations.jsonl#%s" % operation_id,
                                      _hash_value(row), str(row.get("finished_at") or generated_at)))
@@ -168,15 +174,41 @@ def export_proof(data_dir: str | Path, run_id: str, out_dir: str | Path, *, by: 
                 "只证明该操作记录与回执，不证明互动、激活或收入", reason))
             if result == "committed":
                 content_hash = str(row.get("content_sha256") or "")
-                readback_hash = str(receipt.get("readback_sha256") or "")
-                readback_ok = bool(content_hash and readback_hash and content_hash == readback_hash
-                                   and (receipt.get("id") or receipt.get("url")))
+                candidates = [rb for rb in readbacks
+                              if str(rb.get("operation_id") or "") == operation_id + "::readback"]
+                rb = candidates[-1] if candidates else {}
+                rb_receipt = rb.get("receipt") or {}
+                rb_account = rb.get("account") or {}
+                op_account = row.get("account") or {}
+                account_fields = ("platform_user_id", "handle")
+                account_match = any(str(op_account.get(field) or "") and
+                                    str(op_account.get(field) or "") == str(rb_account.get(field) or "")
+                                    for field in account_fields)
+                account_conflict = any(op_account.get(field) and rb_account.get(field) and
+                                       str(op_account[field]) != str(rb_account[field])
+                                       for field in account_fields)
+                readback_ok = bool(
+                    rb.get("result") == "verified" and content_hash and
+                    rb.get("channel") == row.get("channel") and
+                    rb.get("action") == row.get("action") and
+                    rb.get("target") == row.get("target") and
+                    rb.get("content_sha256") == content_hash and
+                    rb_receipt.get("readback_sha256") == content_hash and
+                    (rb_receipt.get("id") or rb_receipt.get("url")) and
+                    (not receipt.get("id") or receipt.get("id") == rb_receipt.get("id")) and
+                    account_match and not account_conflict and rb.get("finished_at") and
+                    (rb.get("readback") or {}).get("source"))
+                readback_evidence = "readback-" + _safe_id(operation_id)
+                if readback_ok:
+                    entries.append(_evidence(
+                        readback_evidence, "operations.jsonl#%s" % rb.get("operation_id"),
+                        _hash_value(rb), str(rb.get("finished_at")), "independent_state", "observed"))
                 checks.append(_check(
                     "final-state:" + operation_id, "P2", "PASS" if readback_ok else "UNCHECKED",
-                    "目标系统回读与当次内容一致", "independent_state",
-                    [evidence_id] if readback_ok else [],
+                    "目标系统独立回读与当次动作、账号和全文一致", "independent_state",
+                    [readback_evidence] if readback_ok else [],
                     "仅限该渠道、动作、账号和回读时间；不外推业务语义",
-                    "" if readback_ok else "没有完整外部回读哈希与平台动作 id/url"))
+                    "" if readback_ok else "缺少绑定当次动作、账号、全文哈希与时间的独立 readback 记录"))
         event_entries = 0
         for row in events:
             event_id = str(row.get("event_id") or "unknown")
@@ -185,8 +217,7 @@ def export_proof(data_dir: str | Path, run_id: str, out_dir: str | Path, *, by: 
                                      _hash_value(row), str(row.get("occurred_at") or generated_at),
                                      "third_party", "reported"))
             event_entries += 1
-            verified = row.get("verification_state") == "verified" or bool(
-                row.get("verified_by") and row.get("evidence_hash"))
+            verified = row.get("verification_state") == "verified"
             checks.append(_check(
                 "external:" + event_id, "P4", "PASS" if verified else "INDETERMINATE",
                 "外部产品事件 %s 的来源与核验状态" % event_id, "external_observation",
@@ -229,18 +260,21 @@ def export_proof(data_dir: str | Path, run_id: str, out_dir: str | Path, *, by: 
                             "platform": sys.platform},
             "artifacts": [{"artifact_id": "run-summary", "path": "artifacts/run-summary.json",
                            "sha256": summary_hash, "classification": classification}],
-            "replay": {"manifest": "replay/manifest.json", "status": "AVAILABLE", "missing": []},
+            "replay": {"manifest": "replay/manifest.json", "status": "UNAVAILABLE",
+                       "missing": ["operations.jsonl"] + (
+                           ["outcomes/product_events.jsonl"] if events else [])},
             "limitations": [
                 "committed 只证明执行回执，不证明业务增长",
                 "P4 外部事件不带来因果功劳；causality=not_claimed",
                 "目标、正文、账号、主体和授权原文未复制，只保留必要的安全引用与哈希",
             ],
         }
+        missing_inputs = ["operations.jsonl"] + (["outcomes/product_events.jsonl"] if events else [])
         replay = {
-            "schema": "ovo.replay-manifest/1", "contract_id": contract_id, "status": "AVAILABLE",
+            "schema": "ovo.replay-manifest/1", "contract_id": contract_id, "status": "UNAVAILABLE",
             "commands": [{"name": "validate-proof", "argv": ["python3", "-m", "ovo_acceptance", "proof", "${PROOF_DIR}"]}],
             "inputs": [{"ref": entry["source_ref"], "sha256": entry["source_hash"]} for entry in entries],
-            "missing": [],
+            "missing": missing_inputs,
         }
         _write_json(temp / "bundle.json", bundle)
         _write_json(temp / "contract.json", contract)

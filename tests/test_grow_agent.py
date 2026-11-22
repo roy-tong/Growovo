@@ -49,6 +49,16 @@ class ProductionTests(unittest.TestCase):
             "https://x.com/nonkoc/status/1", "https://x.com/koc/status/1"],
             excluded_handles=["done"]))
 
+    def test_unsupported_supply_brief_skips_instead_of_failing(self):
+        data = self.run.load()
+        data['supply']['briefs'].insert(0, {'channel': 'reddit', 'action': 'reply'})
+        self.run.save(data)
+        result = self.run.produce(self.root, on='2026-11-01', writer=self.writer,
+                                  discover=self.discover)
+        self.assertEqual(1, result['added'], result)
+        self.assertTrue(result.get('skipped'), result)
+        self.assertIn('reddit/reply', result['skipped'][0])
+
     def test_production_and_daily_quota_no_duplicate(self):
         result = self.run.produce(self.root,on='2026-11-01',writer=self.writer, discover=self.discover)
         self.assertEqual(1, result['added'], result)

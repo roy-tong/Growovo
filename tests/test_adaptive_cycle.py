@@ -18,8 +18,11 @@ NOW = dt.datetime(2026, 11, 21, 22, 5, tzinfo=TZ)
 
 
 def row(channel, action, target="", text="t", actor="", source="queue"):
-    return {"channel": channel, "action": action, "target": target, "text": text,
-            "actor": actor, "source": source}
+    out = {"channel": channel, "action": action, "target": target, "text": text,
+           "actor": actor, "source": source}
+    if action == "reply":
+        out["their_text"] = "peer context"
+    return out
 
 
 class DurationStatsTest(unittest.TestCase):

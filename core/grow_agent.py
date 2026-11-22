@@ -176,13 +176,22 @@ def produce(run, data_dir, *, on=None, writer=None, discover=None, max_items=3):
         if stopped:
             break
         channel, action = brief["channel"], brief["action"]
+        if not ((channel == "x" and action in ("reply", "publish"))
+                or (channel == "email" and action == "message")):
+            # 自动补货只覆盖有目标发现/联系人规则的渠道；其余渠道跳过并留痕，
+            # 交给人工辅助计划或手动暂存，不因一个 brief 中断整轮供给。
+            result.setdefault("skipped", []).append(
+                f"{channel}/{action} 没有自动补货规则：保留缺口，改用人工辅助计划"
+                "或手动暂存；其他渠道照常供给")
+            continue
         count_done = sum(r.get("channel") == channel and r.get("action") == action for r in done)
         for fill_day in fill_days:
             if stopped:
                 break
             day_week = grow_schedule.split_week(quota.get("actions_per_week", 0),
                 grow_schedule.week_start_of(fill_day, data["started"]), quota.get("action_weights"))
-            quota_day = day_week.get(fill_day, {}).get(action, 0)
+            quota_day = day_week.get(fill_day, {}).get(f"{channel}:{action}",
+                    day_week.get(fill_day, {}).get(action, 0))
             done_day = count_done if fill_day == on else 0
             gap = max(0, quota_day - done_day - inventory.get((channel, action, fill_day), 0))
             for i in range(min(gap, budget - result["attempts"])):
@@ -248,7 +257,11 @@ def produce(run, data_dir, *, on=None, writer=None, discover=None, max_items=3):
                         target = contact["email"]
                         meta = {"target_text": str(contact.get("context") or "")}
                     else:
-                        raise AgentError(f"内容自动供给尚不支持 {channel}/{action}")
+                        # 供给规则与渠道能力脱节时跳过本条并留痕，不中断整轮。
+                        result.setdefault("skipped", []).append(
+                            f"{channel}/{action} 没有自动补货规则：本条跳过，"
+                            "改由人工辅助计划或手动暂存；其他渠道照常供给")
+                        break
                     excluded.add(target)
                     if meta.get("author_handle"):
                         excluded_handles.add(meta["author_handle"].lstrip("@").lower())

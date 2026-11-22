@@ -7,7 +7,7 @@
 import json
 import random
 from contextlib import contextmanager
-from datetime import date
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 try:  # POSIX 锁；Windows 没有 fcntl 时退化为单进程检查（仍比无检查安全）。
@@ -15,13 +15,23 @@ try:  # POSIX 锁；Windows 没有 fcntl 时退化为单进程检查（仍比无
 except ImportError:  # pragma: no cover
     fcntl = None
 
+# 预算日界：夜间发送窗口 19:00→次日 07:00 跨本地 0 点，若按本地自然日记账，
+# 前半夜会继承"当天凌晨"已用额度，导致 19:00-23:59 无额度、0 点后重新计满。
+# utc = 按 UTC 0 点（北京时间 08:00）切分，一个夜间窗口落在一个预算日内，
+# 也与 X 日上限的重置口径一致。需要回到本地自然日时传 day_boundary="local"。
+DAY_BOUNDARY = "utc"
+
+
+def _now():
+    return datetime.now(timezone.utc)
+
 # (min_s, max_s, run_cap, daily_cap)；None = 不设
 # 预算口径 = 我们自己的运营预算，一律低于平台官方上限（OFFICIAL_LIMITS），只保守不放松
 INTERVALS = {
     # X 官方（help.x.com 2026-05 版，06 文档§2）：未验证账号 50 原创+200 回复/日、DM 500/日、
     # 关注 400/日；页面残留旧"2400/日"字样属历史口径，按新表执行
-    ("x", "publish"): (45, 90, 50, 40),       # 官方 50 原创/日 → 预算 40 留余量
-    ("x", "reply"): (60, 120, 30, 80),        # 官方 200 回复/日 → 预算 80（夜间跑批上限）
+    ("x", "publish"): (45, 90, 50, 48),       # 官方 50 原创/日 → 预算 48 留余量
+    ("x", "reply"): (60, 120, 30, 180),       # 官方 200 回复/日 → 预算 180 留余量
     ("x", "message"): (75, 150, 15, 30),       # 官方 500 DM/日 → 预算 30（节奏比上限更重要）
     ("x", "engage"): (6, 12, 10, 40),          # 官方关注 400/日 → 预算 40
     ("x", "search"): (5, 10, None, None),
@@ -38,12 +48,15 @@ INTERVALS = {
     ("linkedin", "reply"): (60, 180, 10, 20),
     # GitHub：REST API 限额 5000 请求/时（认证）——API 不缺额度，预算防的是
     # 对他人仓库的评论骚扰（社区红线：千人千面、回复要人写）
-    ("github", "reply"): (30, 90, 20, 50),
+    ("github", "reply"): (30, 90, 20, 110),
     ("github", "publish"): (60, 120, 10, 10),   # release/discussion 发帖（预留）
     ("github", "search"): (2, 5, None, 500),
     # Discord：官方文档未公开 per-user 消息速率（UNPUBLISHED）；社区实测约 5 消息/5 秒，
-    # 频道级 slowmode 另计。预算取保守口径：25 秒间隔 / 每小时 6 条 / 每夜 54 条
-    ("discord", "publish"): (25, 45, 6, 54),
+    # 频道级 slowmode 另计。预算口径：25 秒间隔 / 每小时 6 条 / 每日 120 条
+    ("discord", "publish"): (25, 45, 6, 120),
+    # 回复与频道发帖同受 slowmode/连发约束；日预算 60 低于 publish 的 120，
+    # 因为入站回复优先、对象有限，且不鼓励为凑数制造对话
+    ("discord", "reply"): (25, 45, 6, 60),
     # HN：无公开的 per-user 提交限额口径（过频提交的处置是 shadow 处理，社区共识）；
     # 预算取文化纪律——Show HN 是低频发布动作，守帖（回评论）才是日更负担
     ("hn", "publish"): (60, 120, 1, 1),         # 日 ≤1：HN 文化=稀缺发布，多投自毁
@@ -82,8 +95,9 @@ class ThrottleError(Exception):
 
 
 class Throttle:
-    def __init__(self, state_dir):
+    def __init__(self, state_dir, day_boundary=None):
         self.state_dir = Path(state_dir)
+        self.day_boundary = day_boundary or DAY_BOUNDARY
 
     def policy(self, channel, action):
         return INTERVALS.get((channel, action), FALLBACK)
@@ -103,8 +117,64 @@ class Throttle:
                 f"{channel}/{action} 单次上限 {run_cap}，本次队列 {n} 条；拆批或分天跑"
             )
 
+    def run_cap(self, channel, action):
+        """单次运行上限（条）；None = 不设上限。"""
+        _, _, cap, _ = self.policy(channel, action)
+        return cap
+
+    def slice_batches(self, channel, action, n):
+        """把 n 条切成每批不超过单次上限的下标区间；无上限时一批跑完。
+
+        与 check_run 的区别：check_run 供调用方显式选择「整批拒跑」，
+        这里供业务继续——切片后逐批执行，超出的部分由调用方记 deferred。
+        """
+        cap = self.run_cap(channel, action)
+        if cap is None or cap <= 0 or n <= cap:
+            return [range(0, n)]
+        return [range(start, min(start + cap, n)) for start in range(0, n, cap)]
+
+    def advice(self, channel, action, n=0):
+        """额度不足时的可执行下一步：拆批节奏 + 顺延到下一预算日。
+
+        只给建议、不抛错也不阻断调用方；涉及平台风控时说明为什么要降频。
+        """
+        lo, hi, cap, daily_cap = self.policy(channel, action)
+        remaining = self.remaining(channel, action)
+        parts = []
+        if cap is not None and n > cap:
+            batches = -(-n // cap)
+            parts.append(
+                f"单次上限 {cap} 条：本批 {n} 条拆成 {batches} 批，"
+                f"每批之间停 {lo}-{hi}s；连续整批发送更容易触发平台风控"
+            )
+        if daily_cap is not None and remaining is not None and n > remaining:
+            when = ("UTC 0 点（北京时间 08:00）" if self.day_boundary != "local"
+                    else "本地 0 点")
+            if remaining > 0:
+                parts.append(
+                    f"日预算 {daily_cap} 条、今日剩余 {remaining} 条：先发 {remaining} 条，"
+                    f"其余 {n - remaining} 条顺延到下一预算日（{when}重置），"
+                    f"或改用其他渠道；把余量一次打满会提高平台风控风险"
+                )
+            else:
+                parts.append(
+                    f"日预算 {daily_cap} 条已用完：本次 {n} 条顺延到下一预算日"
+                    f"（{when}重置），或改用其他渠道；当天补量连发会提高平台风控风险"
+                )
+        if not parts:
+            parts.append(f"额度充足（本次 {n} 条），按 {lo}-{hi}s 节奏发送")
+        return "；".join(parts)
+
+    def _day_key(self):
+        now = _now()
+        if self.day_boundary == "local":
+            return now.astimezone().date().isoformat()
+        return now.date().isoformat()
+
     def _state_file(self):
-        return self.state_dir / f"mkt-daily-{date.today().isoformat()}.json"
+        # 文件名带口径前缀：切换日界时不会误读旧口径的账本（旧文件仍留在磁盘可审计）。
+        prefix = "utc-" if self.day_boundary != "local" else ""
+        return self.state_dir / f"mkt-daily-{prefix}{self._day_key()}.json"
 
     def _read_state(self, f=None):
         f = f or self._state_file()
@@ -131,18 +201,49 @@ class Throttle:
                 fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
             fh.close()
 
+    def _legacy_local_used(self, channel, action):
+        if self.day_boundary == "local":
+            return 0
+        now = _now()
+        utc_start = datetime.combine(now.date(), datetime.min.time(), tzinfo=timezone.utc)
+        local_start = utc_start.astimezone().date()
+        local_end = (utc_start + timedelta(days=1) - timedelta(microseconds=1)).astimezone().date()
+        key = f"{channel}/{action}"
+        total = 0
+        day = local_start
+        while day <= local_end:
+            state = self._read_state(self.state_dir / f"mkt-daily-{day.isoformat()}.json")
+            try:
+                total += max(0, int(state.get(key, 0) or 0))
+            except (TypeError, ValueError):
+                pass
+            day += timedelta(days=1)
+        return total
+
     def daily_used(self, channel, action):
         state = self._read_state()
         try:
-            return int(state.get(f"{channel}/{action}", 0))
+            current = int(state.get(f"{channel}/{action}", 0))
         except (TypeError, ValueError):
-            return 0
+            current = 0
+        return current + self._legacy_local_used(channel, action)
 
     def daily_allows(self, channel, action, n=1):
         _, _, _, daily_cap = self.policy(channel, action)
         if daily_cap is None:
             return True
         return self.daily_used(channel, action) + n <= daily_cap
+
+    def remaining(self, channel, action):
+        """只读：今天还剩多少条额度；无日上限返回 None。
+
+        计划阶段用它判断"排得下、但发到一半就撞日上限"，避免把当天注定
+        发不出的动作排进波次。
+        """
+        _, _, _, daily_cap = self.policy(channel, action)
+        if daily_cap is None:
+            return None
+        return max(0, int(daily_cap) - self.daily_used(channel, action))
 
     def reserve(self, channel, action, n=1):
         """发送前原子预留额度；额度不足抛 ThrottleError。
@@ -157,11 +258,11 @@ class Throttle:
         with self._locked():
             f = self._state_file()
             state = self._read_state(f)
-            used = int(state.get(key, 0) or 0)
+            used = self.daily_used(channel, action)
             if used + n > daily_cap:
                 raise ThrottleError(
                     f"{channel}/{action} 日预算已用 {used}/{daily_cap}，"
-                    f"不能再预留 {n} 次")
+                    f"不能再预留 {n} 次；{self.advice(channel, action, n)}")
             state[key] = used + n
             f.write_text(json.dumps(state, ensure_ascii=False, indent=1), encoding="utf-8")
             return state[key]

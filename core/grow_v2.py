@@ -352,7 +352,7 @@ class GrowRunV2:
         if f"{channel}:{action}" not in data.get("actions", []):
             raise GrowError(f"{channel}:{action} 不在本 run 的动作范围内")
         if channel not in (data.get("channels") or []):
-            raise GrowError(f"{channel} 不在本 run 的自动执行渠道 {data.get('channels')}")
+            raise GrowError(f"{channel} 不在本 run 的渠道（自动执行或人工辅助） {data.get('channels')}")
         if not items:
             raise GrowError("stage 需要至少一条内容（--from 文件为空）")
         day = str(scheduled_for or _today())
@@ -808,14 +808,16 @@ class GrowRunV2:
             q = self._load_queue(queue_path)
             channel = str(q.get("channel") or "")
             action = str(q.get("action") or "")
-            left = int(today_quota.get(action, 0)) - int(done_by_action.get(action, 0)) \
+            action_quota = int(today_quota.get(f"{channel}:{action}",
+                                               today_quota.get(action, 0)))
+            left = action_quota - int(done_by_action.get(action, 0)) \
                 - int(sent.get(action, 0))
             marker = f"{on}T{now.strftime('%H')}"
             if data.get("last_queue_run", {}).get(str(queue_path)) == marker:
                 continue
             if left <= 0:
                 ran.append({"queue": str(queue_path), "records": 0,
-                            "note": f"{action} 今日配额已满（{today_quota.get(action, 0)}），顺延"})
+                            "note": f"{channel}/{action} 今日配额已满（{action_quota}），顺延"})
                 data.setdefault("last_queue_run", {})[str(queue_path)] = marker
                 continue
             stale = self._count_stale(q, on=on,

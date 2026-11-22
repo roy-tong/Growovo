@@ -343,7 +343,8 @@ def run(action, extra_args, *, go=False, adhoc=False, campaign=None, ledger=None
             try:
                 Throttle(data_root / "state").reserve("x", action, 1)
             except ThrottleError as exc:
-                raise SystemExit(f"日预算门禁: {exc}")
+                hint = Throttle(data_root / "state").advice("x", action, 1)
+                raise SystemExit(f"日预算门禁: {exc}；{hint}")
             if ledger is not None:
                 _preflight_ledger(ledger, extra_args)
                 if logical_target:

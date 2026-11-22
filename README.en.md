@@ -19,7 +19,7 @@ Export is read-only and performs no external action. Targets, bodies, accounts, 
 
 It commits to exactly three verifiable things: **execution volume** (every committed action is in the ledger), **honest readings** (daily follower and impression snapshots, screenshot-backed and labelled by evidence grade), and **closed-loop responsibility** (completion drives volume changes, supply gaps alert three days early, failures stop the loop for human adjudication). It does not promise platform reach, and it does not dress unverified channels up as full automation.
 
-**Full automation starts with platforms that may actually be automated.** Phase one commits to unattended execution on **Email** only. The **X** write path is technically proven (PROVEN), but X's rules forbid non-API autonomous writes, so X plans compile as human-assisted tasks, or you connect the official API with authorization. GitHub, Reddit, Hacker News and LinkedIn are gated behind a supervised first run. Manual channels such as Xiaohongshu and Zhihu get work orders only and are excluded from automated volume. See the [platform automation matrix](docs/platform-automation-matrix.md).
+**Unattended automation is committed for Email only; every other channel still gets a plan.** Phase one commits to unattended execution on **Email**. The **X** write path is technically proven (PROVEN), but X's rules forbid non-API autonomous writes, so X plans compile as human-assisted tasks, or you connect the official API with authorization. GitHub, Reddit, Hacker News, LinkedIn and Discord also compile as human-assisted tasks behind a supervised first run. Official APIs and browser-session (CDP) routes are equal options: missing API access does not close the business; a platform risk signal stops only that channel and returns lower-frequency, split-batch or defer guidance. Manual channels such as Xiaohongshu and Zhihu get work orders only and are excluded from automated volume. See the [platform automation matrix](docs/platform-automation-matrix.md).
 
 **Start here.** Prepare product facts, standing action authorization and SMTP credentials for email; for human-assisted X, also prepare an authenticated local Codex CLI and a browser CDP session. Read results daily and decide whether to continue or optimize. See [autonomous operations](docs/grow-autonomous-operations.md).
 
@@ -55,7 +55,7 @@ python3 mkt.py grow daily g1           # one screen a day: volume/readings/suppl
 
 [![tests](https://github.com/roy-tong/Growovo/actions/workflows/tests.yml/badge.svg)](https://github.com/roy-tong/Growovo/actions/workflows/tests.yml)
 
-**Try one result now:** `python3 mkt.py demo` runs plan validation, approval, one successful delivery, three blocked runs, and a daily result card locally. `python3 mkt.py work-demo` adds the full WorkOrder → SOP → deliverable acceptance → handoff → KPI → approved plan/queue flow, with no accounts, network, queue execution or sends. Verification levels for live platform commands are in the table below. See [feature status & trade-offs](docs/feature-status.md).
+**Try one result now:** `python3 mkt.py demo` runs plan validation, approval, one successful delivery, three blocked runs, and a daily result card locally. [Open the controlled-run proof and task template](https://roy-tong.github.io/Growovo/examples/controlled-run.en.html). `python3 mkt.py work-demo` adds the full WorkOrder → SOP → deliverable acceptance → handoff → KPI → approved plan/queue flow, with no accounts, network, queue execution or sends. Verification levels for live platform commands are in the table below. See [feature status & trade-offs](docs/feature-status.md).
 
 > Why not write your own script, or use a general automation platform? [How Growovo compares](docs/compare.md) says where it loses and where it wins, and maps every claim to a file you can check.
 
@@ -200,7 +200,7 @@ mkt campaign report askovo-p0-w1
 
 The plan fingerprint is the canonicalized sha256 of the plan content (excluding the review block); legacy plans carrying only `human_approved=true` still pass as legacy — all new approvals carry a fingerprint and an expiry.
 
-Caps are a core property: a plan whose size exceeds the `core/throttle.py` daily budget is rejected by lint.
+Caps are a core property: a plan whose size exceeds the `core/throttle.py` daily budget is rejected by lint, so resize the plan instead of spending the budget at run time. At run time, hitting the per-run cap or the remaining daily budget no longer refuses the whole batch: what fits is sent, and the rest comes back as `result=deferred` rows with a `next` hint (split rhythm, wait for the next budget day, or use another channel).
 
 ## MCP server (mcp_server.py, stdio, zero dependencies)
 

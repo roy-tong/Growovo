@@ -51,12 +51,27 @@ def _today() -> str:
     return date.today().isoformat()
 
 
-def preflight_policy(data_dir, channels: List[str]) -> Tuple[List[str], str]:
-    """检查常驻授权是否覆盖闭环需要的全部动作；返回（缺哪些，启用命令）。"""
+def preflight_policy(data_dir, channels: List[str],
+                     warnings: Optional[List[str]] = None) -> Tuple[List[str], str]:
+    """检查常驻授权是否覆盖闭环需要的全部动作；返回（缺哪些，启用命令）。
+
+    日循环只接 CHANNEL_ACTIONS 里的渠道（X/Email 有自动读数与 SMTP）。
+    其他渠道不在这里判死：记 warning 后跳过，业务改用 mkt grow compile
+    编人工辅助计划；只有一条可用渠道都不剩时才拒绝启动。
+    """
     from .execution_policy import allows
-    unknown = [c for c in channels if c not in CHANNEL_ACTIONS]
-    if unknown:
-        raise GrowError(f"闭环暂不支持渠道 {unknown}；当前支持：{sorted(CHANNEL_ACTIONS)}")
+    supported = [c for c in channels if c in CHANNEL_ACTIONS]
+    skipped = [c for c in channels if c not in CHANNEL_ACTIONS]
+    if skipped and warnings is not None:
+        warnings.append(
+            f"日循环（自动发布 + 平台读数）只接 {sorted(CHANNEL_ACTIONS)}，"
+            f"已跳过 {skipped}：这些渠道用 mkt grow compile 编成人工辅助计划，"
+            "不影响本闭环继续跑")
+    if not supported:
+        raise GrowError(
+            f"日循环没有可用渠道：{channels} 都不在 {sorted(CHANNEL_ACTIONS)}；"
+            "改用 mkt grow compile 编成人工辅助计划，不会因此中断业务")
+    channels = supported
     missing: List[str] = []
     wanted: List[str] = []
     for ch in channels:
@@ -109,7 +124,10 @@ class GrowRun:
         if not facts_file.is_file():
             raise GrowError(f"找不到产品事实包：{facts_file}")
         facts = json.loads(facts_file.read_text(encoding="utf-8"))
-        missing, command = preflight_policy(data_dir or path.parent.parent, channels)
+        warnings: List[str] = []
+        missing, command = preflight_policy(
+            data_dir or path.parent.parent, channels, warnings=warnings)
+        channels = [c for c in channels if c in CHANNEL_ACTIONS]
         if missing:
             raise GrowError(
                 f"常驻授权未覆盖 {missing}；先人工执行：{command}（授权是人工动作，"
@@ -150,6 +168,7 @@ class GrowRun:
             "last_queue_run": {},       # queue path -> 最后执行日
             "result_cards": [],         # {week, start, end, card}
             "adjustments": [],          # {on, kind: auto|attention|proposal, detail}
+            "warnings": warnings,       # 启动时被跳过的渠道等提示
             "history": [],
         }
         cls(path).save(data)

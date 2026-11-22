@@ -5,6 +5,7 @@
 - 代码：`core/grow_fit.py`（账号/帖子契合度）、`core/grow_content.py`（内容公式与闸门）、
   `core/grow_learning.py`（指标归因与次日建议）、`core/grow_targets.py`（只读发现）
 - 命令：`mkt grow prospects / formulas / stage / metrics / learn / review / decide`
+- 平台机制与风控（2026-11 版，本文件的上层约束）：[grow-平台运营策略-v2-20261121.md](grow-平台运营策略-v2-20261121.md)、[平台风控卡 v1](risk/平台风控卡-v1-20261121.md)、[平台风控经验层 v1](risk/平台风控经验层-v1-20261121.md)；运行时读 `core/platform_risk.py`。
 
 ---
 

@@ -61,6 +61,13 @@ class PreflightTests(TmpDir):
         with self.assertRaises(GrowError):
             preflight_policy(self.dir, ["zhihu"])
 
+    def test_mixed_channels_skip_unsupported_with_warning(self):
+        warnings = []
+        missing, _ = preflight_policy(self.dir, ["x", "zhihu"], warnings=warnings)
+        self.assertIn("x:reply", missing)
+        self.assertTrue(any("zhihu" in w for w in warnings))
+        self.assertTrue(any("grow compile" in w for w in warnings))
+
     def test_start_refuses_without_policy(self):
         facts = _write_facts(self.dir)
         with self.assertRaises(GrowError) as ctx:

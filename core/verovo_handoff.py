@@ -142,8 +142,10 @@ def build_handoff(data_dir, run_id: str) -> Dict[str, Any]:
     run_id = _text(run_id)
     if not run_id:
         raise HandoffError("run_id 不能为空")
-    operations = [copy.deepcopy(row) for row in operations_log.OperationsLog(data_dir).all()
-                  if run_id in (_text(row.get("run_id")), _text(row.get("campaign")))]
+    records = [copy.deepcopy(row) for row in operations_log.OperationsLog(data_dir).all()
+               if run_id in (_text(row.get("run_id")), _text(row.get("campaign")))]
+    operations = [row for row in records if row.get("kind", "operation") == "operation"]
+    readbacks = [row for row in records if row.get("kind") == "readback"]
     events = [copy.deepcopy(row) for row in outcome_layers.read_product_events(data_dir)
               if _text(row.get("campaign_id")) == run_id]
     if not operations and not events:
@@ -160,6 +162,7 @@ def build_handoff(data_dir, run_id: str) -> Dict[str, Any]:
         "schema": SCHEMA,
         "run_id": run_id,
         "operations": operations,
+        "readbacks": readbacks,
         "business_events": events,
         "task_bindings": _task_bindings(run_id, operations, events),
         "event_qualifications": [copy.deepcopy(row) for row in

@@ -121,9 +121,12 @@ class PlanTests(unittest.TestCase):
         self.assertEqual(plan["platforms"]["launch"]["id"], "hackernews")
         self.assertEqual([r["id"] for r in plan["platforms"]["support"]], ["github"])
 
-    def test_launch_only_is_rejected(self):
-        with self.assertRaises(goals.GoalError):
-            goals.build_plan(_facts(), "commercial.first_paid", platforms=["hackernews"])
+    def test_launch_only_warns_and_uses_primary(self):
+        plan = goals.build_plan(_facts(), "commercial.first_paid",
+                                platforms=["hackernews"])
+        self.assertEqual(plan["platforms"]["primary"]["id"], "hackernews")
+        self.assertIsNone(plan["platforms"]["launch"])
+        self.assertTrue(any("一次性曝光" in w for w in plan["warnings"]))
 
     def test_platform_without_goal_fit_is_rejected(self):
         with self.assertRaises(goals.GoalError):
@@ -134,11 +137,12 @@ class PlanTests(unittest.TestCase):
             goals.build_plan(_facts(), "commercial.first_paid",
                              platforms=["reddit", "reddit"])
 
-    def test_too_many_platforms_rejected(self):
-        with self.assertRaises(goals.GoalError):
-            goals.build_plan(_facts(), "commercial.first_paid",
-                             platforms=["reddit", "hackernews", "github", "linkedin",
-                                        "email"])
+    def test_too_many_platforms_warns(self):
+        plan = goals.build_plan(_facts(), "commercial.first_paid",
+                                platforms=["reddit", "hackernews", "github", "linkedin",
+                                           "email"])
+        self.assertEqual(plan["platforms"]["primary"]["id"], "reddit")
+        self.assertTrue(any("配额会被摊薄" in w for w in plan["warnings"]))
 
     def test_inapplicable_goal_rejected(self):
         with self.assertRaises(goals.GoalError):
@@ -344,13 +348,22 @@ class CliTests(unittest.TestCase):
         self.assertEqual(s["primary"]["id"], "github")
         self.assertEqual(s["secondary"]["id"], "adoption.real_data")
 
-    def test_invalid_selection_exits_nonzero(self):
+    def test_launch_only_selection_warns(self):
+        out = self.run_mkt("goal", "plan", "--facts", str(self.facts),
+                           "--goal", "commercial.first_paid",
+                           "--platforms", "hackernews", "--json")
+        plan = json.loads(out)
+        self.assertEqual(plan["platforms"]["primary"]["id"], "hackernews")
+        self.assertTrue(plan["warnings"])
+        self.assertTrue(any("一次性曝光" in w for w in plan["warnings"]))
+
+    def test_unknown_platform_still_exits_nonzero(self):
         proc = subprocess.run(
             [sys.executable, str(MKT), "goal", "plan", "--facts", str(self.facts),
-             "--goal", "commercial.first_paid", "--platforms", "hackernews"],
+             "--goal", "commercial.first_paid", "--platforms", "zhihu"],
             cwd=ROOT, env=self.env, text=True, capture_output=True)
         self.assertNotEqual(proc.returncode, 0)
-        self.assertIn("集中发布不能单独作为主渠道", proc.stderr)
+        self.assertIn("没有可验证的作用", proc.stderr)
 
 
 class McpTests(unittest.TestCase):

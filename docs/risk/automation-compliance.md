@@ -1,29 +1,31 @@
 # 自动化运营与合规边界（研究正本）
 
-> 回答一个问题：**用什么自动化工具与策略，能在合规前提下帮用户做 GTM 运营？** · 研究日期：2026-11-03 · 立场继承：适应不对抗；本文给出的是工具分层的工程答案。
+> 回答一个问题：**用什么自动化工具与策略，能在合规前提下帮用户做 GTM 运营？** · 研究日期：2026-11-03 · 最近巡检：2026-11-21 · 立场继承：适应不对抗；本文给出的是工具分层的工程答案。
 > 结论先行：**自动化合规性不取决于技术（CDP/API/浏览器），取决于平台是否授权该用法**。同一目的，走官方 API 是白名单，走浏览器自动化在多数平台是违禁。
 
 ## 一、自动化四级分层（决策框架）
 
 | 层级 | 定义 | 合规状态 | 适用 |
 |---|---|---|---|
-| **T1 官方 API** | 平台官方提供的接口（含付费档） | ✅ 白名单 | 首选，永远先查有没有 |
+| **T1 官方 API** | 平台官方提供的接口（含付费档） | ✅ 白名单 | 优先查有没有；有 API 不等于 CDP 被排除，二者并列可选 |
 | **T2 官方合作工具** | 平台认证/合作的三方工具（Buffer、Hootsuite 类） | ✅ 白名单 | 发布排期、数据分析类需求 |
-| **T3 自有会话浏览器自动化（CDP）** | 在**自己登录的账号会话**里以人类节奏操作 | ⚠️ 平台各异：GitHub/Reddit 明确禁止爬屏；HN 禁自动发帖；X 禁非官方 API；LinkedIn/Meta 禁一切三方自动化 | 仅用于平台未提供 API 的**自有账号低频操作**，且必须按 §三 的风控包跑 |
+| **T3 自有会话浏览器自动化（CDP）** | 在**自己登录的账号会话**里以人类节奏操作 | ⚠️ 平台各异：GitHub/Reddit 明确禁止爬屏；HN 禁自动发帖；X 禁非官方 API；LinkedIn/Meta 禁一切三方自动化 | 官方 API 的并行选项，用于**自有账号的人类节奏低频操作**；平台风控给提示 + 降频/拆批/顺延建议，不因此关闭业务，且必须按 §三 的风控包跑 |
 | **T4 伪装规避** | 验证码绕过、指纹伪造、代理池、马甲矩阵、AI 文本人性化 | ❌ 违禁（Growovo 红线，不做） | 无 |
 
 ## 二、逐平台官方口径（自动化相关）
 
-| 平台 | 官方口径 | 源 |
-|---|---|---|
-| **X** | **定时/自动发布经官方 API 明文允许**（API 的核心用途）；**爬屏、浏览器自动化、非官方 API 违禁**；关键词触发的自动推销回复、批量 @ 违禁；自动关注/取关轮换违禁；API 限额 ~300 帖/3h | [X Automation Rules 官方页](https://help.x.com/en/rules-and-policies/x-automation)（**已核**） |
-| **LinkedIn** | 禁止一切第三方软件（爬虫/bot/插件）抓取或自动化平台 | [官方帮助页](https://www.linkedin.com/help/linkedin/answer/a1341387)（**已核**）；封号触发器=低接受率/回复率（社区逆向） |
-| **Reddit** | API 商业化后（2023）免费档限额（~100 QPM OAuth 量级）；第三方 app 需遵守开发者条款；浏览器自动化违反 ToS | [报道与时间线](https://www.ghacks.net/2023/04/19/if-reddits-paid-api-plans-become-reality-free-third-party-reddit-apps-are-doomed)（**二手**）+ 站点规则 |
-| **Instagram/Meta** | 连接未授权第三方自动化工具**主动封号**；AI 执法有误伤真号案例 | [UBOS 报道 2025-06](https://ubos.tech/news/instagrams-ai-induced-mass-bans-a-call-for-responsible-automation)（**第三方**）；合规路径=Graph API/官方合作工具 |
-| **Hacker News** | 禁自动发帖（*"please don't automate posting"*，指南原文直引） | 官方指南（**已核**，见 docs/risk/hackernews.md） |
-| **GitHub** | 官方 API 完备（token 5000/h），无任何需绕的场景；滥用检测针对 spam 模式 | throttle.OFFICIAL_LIMITS（**已核**） |
-| **微信公众号/视频号** | 官方 API（公众平台接口）+ 企微合规承接；诱导类违规（见公众号手册 §3） | 珊瑚安全公告（**已核**） |
-| **小红书** | 无公开 API；导流/AI 不标识是内容红线而非自动化红线 | 手册（**部分已核**） |
+| 平台 | 官方口径 | 2026 变更（巡检 2026-11-21） | 源 |
+|---|---|---|---|
+| **X** | **定时/自动发布经官方 API 明文允许**（API 的核心用途）；**爬屏、浏览器自动化、非官方 API 违禁**；关键词触发的自动推销回复、批量 @ 违禁；自动关注/取关轮换违禁；API 限额 ~300 帖/3h | 2026-02 起转 pay-per-use；带链接帖按条约 $0.20 计费（多源转述）。自动化规则本身未放宽 | [X Automation Rules 官方页](https://help.x.com/en/rules-and-policies/x-automation)（**已核**）；计费见风控卡 `x-pay-per-use-2026-02` |
+| **LinkedIn** | 禁止一切第三方软件（爬虫/bot/插件）抓取或自动化平台 | 无官方政策变更；社区阈值仍为 20–25 邀请/日、100/周 | [官方帮助页](https://www.linkedin.com/help/linkedin/answer/a1341387)（**已核**）；限额为社区逆向 |
+| **Reddit** | API 商业化后（2023）免费档限额（~100 QPM OAuth 量级）；第三方 app 需遵守开发者条款；浏览器自动化违反 ToS | **2026-09-30 公布关停时间表**：2026-10-31 停新申请 → 2027-01-12 切未登记应用 → 2027-03 public API 全关；2026-11-13 RSS 停止 | [报道与时间线](https://www.ghacks.net/2023/04/19/if-reddits-paid-api-plans-become-reality-free-third-party-reddit-apps-are-doomed)（**二手**）+ 2026-09-30 时间表（多家二手一致，原帖未直接读到） |
+| **Instagram/Meta** | 连接未授权第三方自动化工具**主动封号**；AI 执法有误伤真号案例 | 2026-11-20 商业条款暂停（媒体转述）；Graph API 商用仍为 200 calls/user/hour 量级 | [UBOS 报道 2025-06](https://ubos.tech/news/instagrams-ai-induced-mass-bans-a-call-for-responsible-automation)（**第三方**）；合规路径=Graph API/官方合作工具 |
+| **Hacker News** | 禁自动发帖（*"please don't automate posting"*，指南原文直引）；账号不得以推广为主 | 无变更；指南页本轮网络不可达，条文按长期稳定版本 | 官方指南（**已核**，见 docs/risk/hackernews.md） |
+| **GitHub** | 官方 API 完备（token 5000/h），无任何需绕的场景；滥用检测针对 spam 模式 | 无变更：REST 5000/h、Search 30/min、二级限流 900 points/min | throttle.OFFICIAL_LIMITS（**已核**） |
+| **微信公众号/视频号** | 官方 API（公众平台接口）+ 企微合规承接；诱导类违规（见公众号手册 §3） | **2026-03-27 非真人自动化创作专项**：脚本、程序托管批量/连续发布属治理对象；2026-05 账号检测新增导流维度 | 珊瑚安全公告（**已核**）；专项与导流维度为媒体逐条转述 |
+| **小红书** | 无公开 API；导流/AI 不标识是内容红线而非自动化红线 | **2026-04 双审 8 红线**：搬运/重复素材、矩阵同稿、站外导流、AI 不标识等在列 | 手册（**部分已核**）；双审为媒体转述 |
+| **Amazon** | 商品数据只走 PA-API / SP-API；ToS 禁止未经许可抓取 | **PA-API 5.0：2026-04-30 弃用、2026-05-15 关闭**；替代 Creators API 需 OAuth + 30 天 10 笔销售；评论正文只走公开数据集 | 官方公告（**已核**）；配额与审核细节为二手 |
+| **YouTube** | 读写走 Data API；浏览器自动化与下载流违反 ToS | 配额无变更：10,000 units/天，search 100 units/次 | 官方配额文档（**已核**） |
 
 ## 三、T3（CDP 自有会话）的风控包——Growovo 内核已有的工程约束
 
@@ -42,7 +44,7 @@
 ## 四、对 Growovo 产品路线的直接推论
 
 1. **X 渠道执行路线分层**：无人值守的非 API 写仍由 `core/platform_compliance.require_autonomous_write` 拒绝；这不等于官方许可了 CDP。针对操作者当次明确要求的低频 publish/reply，非 routine `--go` 可走 `user_visible_cdp`，但必须先通过 `cdp_observed` 读取并记录当前实际账号，再依次经过既有人审／adhoc 留痕、暂停、DNC、日预算、幂等、防重发、回读和未知结果门禁。该路线不继承为常驻权限，也不覆盖 message/engage；平台条款风险必须由操作者确认，产品不得把它宣传为 X 官方认可或零封号风险。
-2. **自动化优先级**：新渠道接入一律 T1 优先（Reddit API、YouTube Data API、Graph API）；T3 只在"无 API 且低频自有操作"时用；T4 永久不做。
+2. **自动化优先级**：新渠道接入优先查 T1（Reddit API、YouTube Data API、Graph API）；但 T1 与 T3 并列可选——API 需采购、拿不到权限或接入成本高于收益时，走 T3 自有账号低频路线，并附平台风控提示与降频建议，不因此关闭业务；T4 永久不做。
 3. **给用户的产品形态**：Growovo 卖的不是"自动发帖机器人"，是**"授权边界内的执行纪律"**——审批/预算/回读/账本这套 T3 风控包本身就是产品差异化（详见 README 合规节）。
 4. **工具侧补充**：排期/发布类需求推荐用户接 T2 官方合作工具（如开源的 Postiz 走各平台官方 API [**未核其认证状态**]），Growovo 做上层的 plan/账本/复盘。
 
@@ -58,8 +60,12 @@
 6. **仍受既有门禁**：暂停总闸、DNC、幂等、防重发、回读、`indeterminate` 不重试全部有效；页面出现风控提示、验证码或 429 时立即停该渠道，不绕过、不换马甲。
 7. **默认不新开标签页**：`browser-attach` 找不到目标站点的现有标签页即 `tab_not_found`；底层 `allow_new=True` 只保留给显式调用，`cycle` 不使用它。
 8. **统一执行而非旁路**：`cycle`、单动作和队列经 `action_runner(transport="browser-attach")` 调用传输适配器。owner-attested 替代通用 plan/routine 审批，但不替代其他安全门；操作日志记录授权路线、平台与授权文件 SHA-256，X／GitHub／Discord 回执只携带真实取得的 ID／URL。
-9. **能力边界要如实说**：Discord 走不了单条消息回复，只能整频道发帖并 `@` 对方；GitHub 评论走 REST API，浏览器只作为备用路线。
+9. **能力边界要如实说**：Discord 支持整频道发帖与按 `channel_id:message_id` 的单条回复，回复后回读该消息；GitHub 评论优先 REST API，浏览器可作 owner-attested 的备用路线。
 
 ## 五、更新纪律
 
-本文随平台政策变化滚动更新：每季度巡检各官方政策页链接有效性；政策变更 → 更新本表 + 对应风控卡 + core/gtm.py 注册表的 channel_status。下一轮巡检：2026-12-03。
+本文随平台政策变化滚动更新：每季度巡检各官方政策页链接有效性；政策变更 → 更新本表 + 对应风控卡 + core/gtm.py 注册表的 channel_status。下一轮巡检：**2027-02-21**。
+
+配套文档：[平台风控卡 v1](平台风控卡-v1-20261121.md)（每平台的预算/熔断/停手/次日恢复）、[平台风控经验层 v1](平台风控经验层-v1-20261121.md)（社区经验、证据分级与打折公式）；平台分发机制见 [grow-平台运营策略-v2-20261121.md](../grow-平台运营策略-v2-20261121.md)。运行时代码：`core/platform_risk.py`（`mkt strategy card|cards|validate` 读取）。
+
+最高优先级跟踪项：**Reddit public API 2027-03 全关**。2027-01-12 起未登记应用先被切断，现有 Reddit 自动发布通道必须在 2027-01 前完成退出或迁移；2026-12 起在策略卡与执行日志里显示「通道即将失效」。其次：X pay-per-use 实际账单口径、Instagram 2026-11-20 条款暂停的恢复结果、Amazon Creators API 审核门槛。

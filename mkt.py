@@ -3457,13 +3457,15 @@ def cmd_cycle(args):
 
     if args.action == "plan":
         from core.ledger import Ledger
+        from core.throttle import Throttle
         policy = cycle.load_policy(DATA)
         path = _queue_path()
         got = cycle.plan(cycle.load_queue(path), policy,
                          ledger=Ledger(DATA / "ledger.jsonl"), now=_when(),
                          budget_sec=int(getattr(args, "budget_sec", 3000) or 3000),
                          max_actions=int(getattr(args, "max_actions", 0) or 0),
-                         campaign=str(getattr(args, "campaign", "") or ""))
+                         campaign=str(getattr(args, "campaign", "") or ""),
+                         throttle=Throttle(DATA / "state"), data_dir=DATA)
         got["queue_path"] = str(path)
         _emit(got)
         return 0
@@ -3519,7 +3521,12 @@ def cmd_supply(args):
         return got or None
 
     if args.action == "stats":
-        got = supply_pool.stats(DATA, _policy(), nights=int(args.nights or 3))
+        from core import engagement_cycle as cycle
+        policy = _policy()
+        caps = {key: row["effective_per_night"]
+                for key, row in cycle.budget_rows(policy, used={"night": {}}).items()
+                if row.get("effective_per_night") is not None}
+        got = supply_pool.stats(DATA, policy, nights=int(args.nights or 3), per_night=caps)
         _emit(got)
         return 0
 
@@ -3536,9 +3543,11 @@ def cmd_supply(args):
         return 0
 
     if args.action == "wave":
+        from core.ledger import Ledger
         got = supply_pool.wave_plan(
             DATA, _policy(), wave=int(getattr(args, "wave_no", 1) or 1),
-            out_path=Path(args.out) if getattr(args, "out", "") else None)
+            out_path=Path(args.out) if getattr(args, "out", "") else None,
+            ledger=Ledger(DATA / "ledger.jsonl"))
         _emit(got)
         return 0
 
@@ -4635,9 +4644,32 @@ def cmd_next(args):
 
 
 def cmd_experiment(args):
+    from core import experiment_hypothesis as hyp
     from core import experiments
-    if args.action in ("start", "obs", "conclude", "stop") and not args.id:
+    if args.action in ("start", "obs", "conclude", "stop", "card-check", "card-show") \
+            and not args.id:
         raise SystemExit(f"experiment {args.action} 需要 --id")
+    if args.action == "card-new":
+        if not args.card:
+            raise SystemExit("experiment card-new 需要 --card 假设卡 JSON 文件")
+        card = json.loads(Path(args.card).read_text(encoding="utf-8"))
+        exp = hyp.create_from_card(DATA, card)
+        print(json.dumps({"exp_id": exp["exp_id"], "status": exp["status"],
+                          "hypothesis_card": exp["hypothesis_card"],
+                          "hypothesis_card_sha256": exp["hypothesis_card_sha256"]},
+                         ensure_ascii=False, indent=1))
+        return 0
+    if args.action == "card-check":
+        out = hyp.check_card(DATA, args.id)
+        print(json.dumps(out, ensure_ascii=False, indent=1))
+        return 0 if out["ok"] else 2
+    if args.action == "card-show":
+        card = hyp.load_card(DATA, args.id)
+        if card is None:
+            raise SystemExit(f"experiment {args.id} 没有假设卡")
+        doc = hyp.next_change_hint(card, args.result) if args.result else card
+        print(json.dumps(doc, ensure_ascii=False, indent=1))
+        return 0
     if args.action == "new":
         if not (args.id and args.hypothesis and args.metric and args.rule
                 and args.start and args.end):
@@ -6355,7 +6387,8 @@ def build_parser():
     a.add_argument("file", help="回复文件路径（CSV/JSONL/JSON）")
     a.add_argument("--account", required=True, help="接收回复的账号 id")
     a.add_argument("--channel", default="email",
-                   choices=["email", "x", "linkedin", "reddit", "github"])
+                   choices=["email", "x", "linkedin", "reddit", "github",
+                            "discord", "hn"])
     a.add_argument("--by", required=True, help="导入人署名")
     a.add_argument("--authorization", required=True,
                    help="授权引用（工单/邮件/批次）")
@@ -7176,8 +7209,11 @@ def build_parser():
     sp.set_defaults(fn=cmd_hn)
 
     sp = sub.add_parser("experiment", help="实验引擎：预注册→观察→人判（机器不判因果）")
-    sp.add_argument("action", choices=["new", "start", "obs", "list", "conclude", "stop"])
+    sp.add_argument("action",
+                    choices=["new", "start", "obs", "list", "conclude", "stop",
+                             "card-new", "card-check", "card-show"])
     sp.add_argument("--id", help="实验 id（小写/数字/连字符）")
+    sp.add_argument("--card", help="card-new：假设卡 JSON 文件（支持/证伪指标、替代解释、下一轮改哪层）")
     sp.add_argument("--hypothesis"); sp.add_argument("--metric")
     sp.add_argument("--rule", help="预注册判定规则（启动前必填）")
     sp.add_argument("--start"); sp.add_argument("--end")

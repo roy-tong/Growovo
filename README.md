@@ -19,7 +19,7 @@ mkt --workspace ./data proof export RUN_ID --out ./proof-bundle --by "proof-revi
 
 它只承诺三件可核验的事：**执行量**（账本 committed 逐条可查）、**真实读数**（每天落粉丝与曝光，截图留证、带证据级别）、**闭环责任**（完成率驱动调量建议、供给缺口提前报警、异常停车待人工裁决）。不承诺平台算法给多少曝光，也不把未验证渠道包装成全自动。
 
-**全自动的前提是平台可自主执行。** 第一期只有 **Email** 可承诺无人值守自主执行（写通道已实现）；**X** 写通道技术已跑通（PROVEN），但平台许可禁止非 API 自主写入，只编成人工辅助任务，或接官方 API 并授权；GitHub、Reddit、Hacker News、LinkedIn 需人工首跑解锁；小红书、知乎等人工渠道只出作业单，不计入自动发布量。见[平台自动执行矩阵](docs/platform-automation-matrix.md)。
+**无人值守全自动只承诺 Email，其他渠道照常编计划。** 第一期只有 **Email** 可承诺无人值守自主执行（写通道已实现）；**X** 写通道技术已跑通（PROVEN），但平台许可禁止非 API 自主写入，编成人工辅助任务，或接官方 API 并授权；GitHub、Reddit、Hacker News、LinkedIn、Discord 同样编成人工辅助任务，首跑人工确认解锁。官方 API 与浏览器会话（CDP）并列可选：拿不到 API 不关闭业务；遇到平台风控只停当前渠道并提示降频、拆批或顺延。小红书、知乎等人工渠道只出作业单，不计入自动发布量。见[平台自动执行矩阵](docs/platform-automation-matrix.md)。
 
 **从这里开始。** 准备产品事实包、常驻动作授权和邮件 SMTP 凭据；选 X 人工辅助时再准备已登录的本机 Codex CLI 和浏览器 CDP 会话。之后每天看结果、决定继续还是优化。配置步骤见[自动运营说明](docs/grow-autonomous-operations.md)。
 
@@ -64,7 +64,7 @@ python3 mkt.py grow produce g1 --max-items 3
 
 [![tests](https://github.com/roy-tong/Growovo/actions/workflows/tests.yml/badge.svg)](https://github.com/roy-tong/Growovo/actions/workflows/tests.yml)
 
-**先试一个结果：** `python3 mkt.py demo` 在本地完成计划校验、审批、一条成功投递、三道拦截和日结果卡演示；`python3 mkt.py work-demo` 继续演示 WorkOrder→SOP→交付验收→交接→KPI→已审批 plan/queue，全程无需账号或网络且不执行队列。实际平台命令的验证等级见下表。[能力进度与技术取舍](docs/feature-status.md)。
+**先试一个结果：** `python3 mkt.py demo` 在本地完成计划校验、审批、一条成功投递、三道拦截和日结果卡演示；[打开受控执行证明页与任务模板](https://roy-tong.github.io/Growovo/examples/controlled-run.html)。`python3 mkt.py work-demo` 继续演示 WorkOrder→SOP→交付验收→交接→KPI→已审批 plan/queue，全程无需账号或网络且不执行队列。实际平台命令的验证等级见下表。[能力进度与技术取舍](docs/feature-status.md)。
 
 > 为什么不自己写个脚本，或者用通用自动化平台？[对比页](docs/compare.md)（英文）逐项写了 Growovo 在哪输、在哪赢，并给出每条主张对应的仓库文件。
 
@@ -220,7 +220,9 @@ mkt campaign report askovo-p0-w1
 计划指纹 = 计划内容（不含 review 块）的规范化 sha256；旧计划只有 `human_approved=true`
 时仍按 legacy 放行，新审批一律带指纹与有效期。
 
-上限是内核属性：计划里的 size 超过 `core/throttle.py` 日预算会被 lint 拒收。
+上限是内核属性：计划里的 size 超过 `core/throttle.py` 日预算会被 lint 拒收（计划阶段就改规模，
+不要靠执行阶段撞额度）。执行阶段撞到单次上限或当日剩余额度时不整批拒跑：能发的先发，
+其余条目返回 `result=deferred` 并附 `next` 建议（拆批节奏、顺延到下一预算日或换渠道）。
 
 ## MCP 服务（mcp_server.py，stdio，零依赖）
 
