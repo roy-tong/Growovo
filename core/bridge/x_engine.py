@@ -267,6 +267,20 @@ def _full_nav(tab, url):
         return "page load timeout" in msg or "timeout" in msg
 
 
+def _reload(tab, settle: float = 3.0):
+    """强制整页重载一次。
+
+    整页 navigate 到同一路径时，X 的客户端路由可能接管而不重新取数据，
+    帖子就一直是「未渲染」。reload 一定会重新加载文档。
+    """
+    try:
+        wb.ev(tab, "(() => { location.reload(); return {ok: true}; })()")
+    except Exception:  # noqa: BLE001 - reload 会打断本次 evaluate，属预期
+        pass
+    time.sleep(settle)
+    return True
+
+
 def reply(tab, url, text, dupe_prefix=None, dry=False):
     t0 = time.time()
     prep = _prep(tab)
@@ -656,10 +670,18 @@ OPEN_REPLY_NATIVE = r"""(async () => {
     history.pushState({}, '', PATH);
     window.dispatchEvent(new PopStateEvent('popstate', {state: {}}));
   }
+  const gone = () => {
+    const col = document.querySelector('[data-testid="primaryColumn"]');
+    const t = ((col || document.body).innerText || '').slice(0, 1200);
+    return /This post is unavailable|This page doesn.t exist|Hmm\\.\\.\\.this page|该帖子不可用|此帖不可用|Post unavailable/i.test(t);
+  };
   let art = null;
-  while (Date.now() - t0 < 8000) {
+  while (Date.now() - t0 < 12000) {
     art = Array.from(document.querySelectorAll('article')).find(a => (a.innerHTML || '').includes(SID));
     if (art) break;
+    if (Date.now() - t0 > 1500 && gone()) {
+      return {ok: false, err: 'post gone', path: location.pathname, log};
+    }
     await sleep(50);
   }
   if (!art) return {ok: false, err: 'article not rendered', path: location.pathname, log};
@@ -836,12 +858,23 @@ def reply_native(tab, url, text, dupe_prefix=None, dry=False):
     o = wb.ev(tab, script).get("value") or {}
     out["steps"]["open"] = round((time.time() - t0) * 1000)
     out["open"] = o.get("log", {})
-    if not o.get("ok"):
+    if not o.get("ok") and str(o.get("err", "")) != "post gone":
         if str(o.get("err", "")).startswith("article not rendered") and _full_nav(tab, url):
             t1 = time.time()
             o = wb.ev(tab, script).get("value") or {}
             out["steps"]["open_fallback"] = round((time.time() - t1) * 1000)
             out["out"] = o.get("log", {})
+        if str(o.get("err", "")).startswith("article not rendered"):
+            # 第二轮仍没渲染：强制重载一次。缓存陈旧时整页导航可能被
+            # 客户端路由接管，reload 才会重新取数据。
+            t1 = time.time()
+            try:
+                if _reload(tab):
+                    o = wb.ev(tab, script).get("value") or {}
+                    out["steps"]["open_reload"] = round((time.time() - t1) * 1000)
+                    out["reload_out"] = o.get("log", {})
+            except Exception:  # noqa: BLE001 - 重载失败保留第一次的错误
+                pass
     if not o.get("ok"):
         out.update({"ok": False, "err": o.get("err")})
         out["ms"] = round((time.time() - t0) * 1000)

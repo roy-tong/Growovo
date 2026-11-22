@@ -116,13 +116,14 @@ python3 mkt.py queue run data/queues/<campaign>.json --go --routine
 **执行阶段**（整点只做确定性步骤）：
 
 ```text
-quota / pending-auth → 已授权的 attach 与 inbox → enqueue 已准备草稿
+quota / pending-auth → 已授权的 attach → enqueue 已准备草稿
 → plan → run（默认 dry-run；只有有效 owner-attested 授权才允许 --go）→ 读取波次摘要
 ```
 
+- 当前工作区 `inbox.auto_collect=true`：真实 `run` 会在读取队列和排程前再次收集三平台入站回复，并在同一把波次锁内去重合并，不依赖 cron 提示词记得调用 `inbox`。`--no-inbox` 可关闭当波重读；`--inbox` 可显式开启。准备阶段仍需提前运行 `cycle inbox` 并补真实正文，否则最后几分钟新到的消息会留在 `pending_text`，不会自动发送。嵌入式调用方可给 `cycle.run(inbox_writer=...)` 传写稿器；它只能补现有空白 inbox 行，不能新增动作。
 - `budget-sec` 必须小于调度间隔；当前默认 3000 秒，给下一小时波次留 10 分钟。锁冲突返回 `wave_already_running` 时直接记“跳过，不重试”，不得再开一波。预算耗尽记 `wave_budget`，未执行行保留队列。
-- 在 `data/policies/engagement-cycle.json` 的 `supply.wave_targets` 配置每波供给目标；当前按用户基线跟踪 X 原创 10、X 回复 20、GitHub 评论 15、Discord 6。`supply` 分别报告 `target / queued / scheduled / rejected / gap / unscheduled / reasons`。当前工作区 `quota.hour_mode=calendar`，按整点小时对齐波次；未配置时默认 `rolling`。`per_hour / per_night` 是平台与动作上限，不是必须填满的发帖目标；Discord 上限按 `discord/publish` 全平台合计，不是每个频道各一份。
-- 摘要以 `ledger_result` 为准，分别报告 `committed / failed / indeterminate / blocked / deferred / budget_exhausted`。已触发发送但回读未命中是 `indeterminate`，消费队列并等待人工核查，绝不自动重试。
+- 在 `data/policies/engagement-cycle.json` 的 `supply.wave_targets` 配置每波供给目标。`supply` 分别报告 `target / queued / scheduled / rejected / gap / unscheduled / reasons`。当前工作区 `quota.hour_mode=calendar`，按整点小时对齐波次；未配置时默认 `rolling`。`per_hour / per_night` 是平台与动作上限，不是必须填满的发帖目标；Discord 上限按 `discord/publish` 全平台合计，不是每个频道各一份。
+- 摘要中的 `inbox` 分别报告收集数、已补正文数、待补正文数、各平台读取错误和能力覆盖。X/Discord 私信、Discord 原生单条回复目前未覆盖，不能把支持渠道的空结果当成所有私信为零。发送结果仍以 `ledger_result` 为准，分别报告 `committed / failed / indeterminate / blocked / deferred / budget_exhausted`。已触发发送但回读未命中是 `indeterminate`，消费队列并等待人工核查，绝不自动重试。
 - cron 中禁止代码修改、临时研发、无依据写稿和手工改执行结果；committed 只表示平台动作回读命中，不表示看到、回复、激活或转化。
 
 ## 入口是一个 GTM 目标，不是单个渠道动作
