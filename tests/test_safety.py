@@ -107,14 +107,15 @@ class TestContacts(TmpDir):
 
 
 class TestBudgetCalibration(TmpDir):
-    """X Premium 官方日上限未公开：原创仍按 50/日的保守线下设 40，回复单独预算 80。"""
+    """X 官方日上限：未验证账号 50 原创 + 200 回复；预算线紧贴上限但留余量。"""
 
     def test_x_publish_budget_below_official_ceiling(self):
         th = Throttle(self.dir)
         lo, hi, run_cap, daily = th.policy("x", "publish")
-        self.assertEqual(daily, 40)
-        self.assertLess(daily, 50)  # 未验证档官方上限之下留余量
-        self.assertEqual(th.policy("x", "reply")[3], 80)
+        self.assertEqual(daily, 48)
+        self.assertLess(daily, 50)  # 官方上限之下留余量
+        self.assertEqual(th.policy("x", "reply")[3], 180)
+        self.assertLess(th.policy("x", "reply")[3], 200)
 
     def test_email_budget_within_smtp_consensus(self):
         th = Throttle(self.dir)

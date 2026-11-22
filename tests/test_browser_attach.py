@@ -60,7 +60,11 @@ class TabTest(unittest.TestCase):
             tab(15, "https://example.com/"),
         ]
 
-    def fake_call(self, _tool, _timeout=180, **kwargs):
+    def fake_call(self, tool, _timeout=180, **kwargs):
+        if tool == "evaluate":
+            tid = kwargs.get("tabId")
+            url = next((t["url"] for t in self.tabs if t["tabId"] == tid), "")
+            return {"ok": True, "data": {"value": url}}
         return {"ok": True, "data": {"tabs": list(self.tabs)}}
 
     def test_list_tabs_labels_sites(self):
@@ -125,6 +129,25 @@ class TabTest(unittest.TestCase):
             with self.assertRaises(browser_attach.BridgeError) as ctx:
                 self.attach.ensure_tab("github", "https://github.com/", allow_new=True)
         self.assertEqual(ctx.exception.code, "tab_open_timeout")
+
+    def test_attach_site_skips_dead_tab_with_stale_url(self):
+        # 扩展列表可能仍按旧 URL 报告已崩溃的标签；探活读到的真实地址是错误页。
+        self.tabs = [tab(61, "https://github.com/notifications"),
+                     tab(62, "https://github.com/notifications")]
+        real = {61: "chrome-error://chromewebdata/",
+                62: "https://github.com/notifications"}
+
+        def fake_call(tool, _timeout=180, **kwargs):
+            if tool == "evaluate":
+                return {"ok": True, "data": {"value": real.get(kwargs.get("tabId"), "")}}
+            if tool == "list_browser_tabs":
+                return {"ok": False, "error": {"code": "unknown_tool"}}
+            return {"ok": True, "data": {"tabs": list(self.tabs)}}
+
+        with mock.patch.object(wb, "call", side_effect=fake_call), \
+                mock.patch.object(wb, "nav") as nav:
+            self.assertEqual(self.attach.attach_site("github"), 62)
+        nav.assert_not_called()
 
     def test_attach_site_prefers_visible_tab(self):
         states = {11: "hidden", 12: "visible"}

@@ -142,6 +142,15 @@ def approve_plan(data_dir, plan_id, *, by, note="", days=None, account=None, wor
     errs = lint_plan(plan)
     if errs:
         raise ApprovalError("计划校验未过，不能批准：" + "；".join(errs))
+    from .campaign import preflight
+    from .queue import lint_queue
+    for bound in _queue_payloads(plan, data_dir=data_dir):
+        queue = bound["queue"]
+        queue_errors = lint_queue(queue, path=bound["path"])
+        gate_errors = [row for row in preflight(queue, data_dir) if not row.get("ok")]
+        if queue_errors or gate_errors:
+            details = queue_errors + [str(row.get("reason") or row.get("id")) for row in gate_errors]
+            raise ApprovalError("队列校验或门禁未过，不能批准：" + "；".join(details[:8]))
 
     now = datetime.now()
     fp = execution_fingerprint(plan, data_dir=data_dir, workspace=workspace, account=account)

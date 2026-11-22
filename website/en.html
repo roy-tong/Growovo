@@ -46,7 +46,7 @@
   "@context": "https://schema.org",
   "@type": "FAQPage",
   "mainEntity": [
-    { "@type": "Question", "name": "Which platforms can Growovo fully automate?", "acceptedAnswer": { "@type": "Answer", "text": "Phase one commits to X and Email only (X is PROVEN, Email is PORTED). GitHub, Reddit, Hacker News and LinkedIn are gated behind a supervised first run. Manual channels such as Xiaohongshu and Zhihu get work orders only and are excluded from automated volume. Check the current state any time with mkt grow platforms." } },
+    { "@type": "Question", "name": "Which platforms can Growovo fully automate?", "acceptedAnswer": { "@type": "Answer", "text": "Phase one commits to unattended Email execution only. X non-API writes compile as human-assisted tasks, or use an authorized official API path. GitHub, Reddit, Hacker News and LinkedIn require a supervised first run. Manual channels such as Xiaohongshu and Zhihu get work orders only and are excluded from automated volume. Check the current state any time with mkt grow platforms." } },
     { "@type": "Question", "name": "Will it get my account banned?", "acceptedAnswer": { "@type": "Answer", "text": "It only operates accounts you own or are explicitly authorized to run. Every send goes through authorization gates and a dry-run, so you can see what it intends to do before allowing it; no bypasses around platform rules are provided. It also does not promise platform reach." } },
     { "@type": "Question", "name": "How is this different from a scheduling tool?", "acceptedAnswer": { "@type": "Answer", "text": "A scheduler publishes content you already wrote. Growovo starts from your product facts and one growth goal: it sets the strategy, builds the plan, executes, and records execution volume and daily readings in a verifiable ledger. Strategy and weekly reports are internal artifacts; the deliverable is a daily business result." } },
     { "@type": "Question", "name": "How do I verify the results it reports?", "acceptedAnswer": { "@type": "Answer", "text": "Every committed action is in the ledger; daily follower and impression readings are screenshot-backed and labelled by evidence grade; mkt demo runs the full loop locally in about a second with zero network and zero accounts. The counter-examples are public too: the launch autopsy documents a real launch experiment run without the ledger — 0 new stars, and no reliable readings for followers or conversion." } },
@@ -80,14 +80,16 @@ footer{border-top:1px solid var(--line);margin-top:56px;padding-top:18px;color:v
 </head>
 <body>
 <main>
-<h1>Growovo</h1>
-<p class="tagline">Run a supervised X or email campaign on your own account</p>
-<span class="badge">MIT open source</span><span class="badge">CLI / MCP / Agent Skill</span><span class="badge">v0.16.0</span>
+<h1>Growovo for supervised X and email campaigns</h1>
+<p><strong>Generate Anything. Prove What Matters.</strong> Keep generation, execution and business outcomes on separate evidence.</p>
+<span class="badge">MIT open source</span><span class="badge">CLI / MCP / Agent Skill</span><span class="badge">v0.18.0</span>
 <p><a href="#demo">One concrete task: one successful delivery, and three runs stopped by the gate →</a></p>
+<p><a href="./examples/controlled-run.en.html">Open the replayable controlled-run proof →</a></p>
+<p class="note"><strong>OVO / Prove Anything:</strong> an agent saying “done” still needs independent review. Prove Anything is the family-level result-proof protocol candidate; Verified Capability Factory (VCF) is a gated research candidate, not a Growovo dependency. Growovo works independently and keeps execution receipts, meaningful replies, activation and sales on separate evidence layers.</p>
 
 <h2>What it is</h2>
 <p>Give Growovo the product facts, audience and actions you authorize. It checks drafts, queues approved work and records receipts. An uncertain email send stops the batch for review. Track replies, activation and sales from their own records.</p>
-<p><strong>Full automation starts with platforms that can actually be automated.</strong> Phase one commits to X + Email (verified write paths). GitHub, Reddit, Hacker News and LinkedIn are gated behind a supervised first run; manual channels such as Xiaohongshu and Zhihu get work orders only. See the <a href="https://github.com/roy-tong/Growovo/blob/main/docs/platform-automation-matrix.md">platform automation matrix</a>.</p>
+<p><strong>Full automation starts with platforms that can actually be automated.</strong> Phase one commits to unattended Email execution only. X non-API writes compile as human-assisted tasks, or use an authorized official API path. GitHub, Reddit, Hacker News and LinkedIn require a supervised first run; manual channels such as Xiaohongshu and Zhihu get work orders only. See the <a href="https://github.com/roy-tong/Growovo/blob/main/docs/platform-automation-matrix.md">platform automation matrix</a>.</p>
 
 <h2>Exactly three verifiable commitments</h2>
 <table>
@@ -99,17 +101,17 @@ footer{border-top:1px solid var(--line);margin-top:56px;padding-top:18px;color:v
 <p>It does not promise platform reach, and does not dress unverified channels up as full automation.</p>
 
 <h2 id="demo">One concrete task: one successful delivery, and three runs stopped by the gate</h2>
-<p>The input is a plan (demo-p0), one campaign and four queue items. Below is the real <code>mkt demo</code> output — zero network, zero accounts; the sandbox is rebuilt on every run and the whole thing is reproducible locally in about a second:</p>
+<p>The input is a plan (demo-p0), one campaign and four sample actions. Three executable items form the approved queue; the placeholder sample stays outside that approval and is checked separately. Below is the real <code>mkt demo</code> output — zero network, zero accounts; the sandbox is rebuilt on every run and the whole thing is reproducible locally in about a second:</p>
 <table>
 <tr><th>Step</th><th>What happened</th><th>Result</th></tr>
-<tr><td>Plan check</td><td>schema, beachhead, capability matrix, daily kernel budget</td><td>PASS (4 items against a 100/day budget)</td></tr>
+<tr><td>Plan check</td><td>schema, beachhead, capability matrix, daily kernel budget</td><td>PASS (3 approved items against a 100/day budget)</td></tr>
 <tr><td>Human gate</td><td>the campaign belongs to plan demo-p0 with <code>human_approved=false</code></td><td><strong>Refused and stopped</strong> — human approval is a precondition</td></tr>
 <tr><td>Simulated approval</td><td><code>mkt plan approve</code>: signature, plan fingerprint and an approval event set <code>human_approved=true</code></td><td>Released; the write path below still runs in the sandbox, not as a real authorization</td></tr>
 <tr><td>Successful delivery</td><td>d-000 passes the gates → read-back matches → offline send (<code>demo-memory</code>, in-process memory) → committed; one L1 receipt is added</td><td>1 committed row, inspectable line by line</td></tr>
 <tr><td>Three blocked runs</td><td>d-001 dry-run, nothing sent; d-002 rejected for placeholder text; d-003 failed on read-back mismatch</td><td>1 dry-run · 1 rejected · 1 failed, all recorded</td></tr>
 <tr><td>Ledger and daily card</td><td>4 terminal states match expectations; the daily result card reads only the ledger and the receipt layers</td><td>published 1 (planned 1); L1 observed; L2/L3 UNKNOWN, never written as 0</td></tr>
 </table>
-<p class="note">The example shows both what it delivers and where it stops: one complete success path (gate → read-back → offline send → committed → daily result card) and three blocked runs (approval missing, placeholders present, read-back inconsistent). The send is an in-process memory simulation (<code>demo-memory</code>) — nothing was sent; committed only proves the action went out, not conversion; the daily card keeps L2/L3 UNKNOWN instead of writing the unknown as 0. <code>tests/test_demo.py</code> pins "success + three blocked paths + rerunnable" as a regression test.</p>
+<p class="note">The example shows both what it delivers and where it stops: one complete success path (gate → read-back → offline send → committed → daily result card) and three blocked runs (approval missing, placeholders present, read-back inconsistent). The send is an in-process memory simulation (<code>demo-memory</code>) — nothing was sent externally; committed here only proves that the offline adapter recorded the action, not conversion or a platform receipt; the daily card keeps L2/L3 UNKNOWN instead of writing the unknown as 0. <code>tests/test_demo.py</code> pins "success + three blocked paths + rerunnable" as a regression test.</p>
 
 <h2>Install and verify</h2>
 <pre><code>pipx install growovo
@@ -134,7 +136,7 @@ python3 mkt.py grow platforms       # what phase one can fully automate</code></
 
 <h2 id="faq">FAQ</h2>
 <h3>Which platforms can it fully automate?</h3>
-<p>Phase one: X and Email only (X is PROVEN, Email is PORTED). GitHub, Reddit, Hacker News and LinkedIn need one supervised first run. Manual channels such as Xiaohongshu and Zhihu get work orders only and never count toward automated volume. Check any time with <code>mkt grow platforms</code>.</p>
+<p>Phase one commits to unattended Email execution only. X non-API writes compile as human-assisted tasks, or use an authorized official API path. GitHub, Reddit, Hacker News and LinkedIn require a supervised first run. Manual channels such as Xiaohongshu and Zhihu get work orders only and never count toward automated volume. Check any time with <code>mkt grow platforms</code>.</p>
 <h3>Will it get my account banned?</h3>
 <p>It only operates accounts you own or are explicitly authorized to run. Sends go through authorization gates and a dry-run first; there are no bypasses around platform rules, and no promises about platform reach.</p>
 <h3>How is this different from a scheduling tool?</h3>

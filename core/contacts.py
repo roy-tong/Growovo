@@ -7,7 +7,7 @@ contacts.jsonl 统一跨平台身份（schema 见 data/schemas.md）。
 import json
 from pathlib import Path
 
-PLATFORM_KEYS = {"email", "x", "linkedin", "reddit", "github"}
+PLATFORM_KEYS = {"email", "x", "linkedin", "reddit", "github", "discord", "hn"}
 
 
 class Contacts:

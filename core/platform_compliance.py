@@ -1,14 +1,18 @@
 #!/usr/bin/env python3
-"""平台执行许可 —— 单次用户可见浏览器操作与无人值守写分开授权。
+"""平台执行许可 —— 官方 API 与浏览器（CDP / browser-attach）并列可选。
 
-X 官方自动化规则（docs/risk/automation-compliance.md §二）对非 API 自动化、
-未经请求自动回复与批量动作有明确限制。本模块不把 CDP 能点页面说成平台许可：
-routine/autonomous 的非 API 写始终拒绝，official_api 授权也不能挪给 CDP 使用。
+官方 API 不是唯一路线：平台没有开放写 API、或采购 API 周期太长时，自有账号
+的浏览器可见操作可以继续跑，只是要按该平台的风控要点降频、拆批、顺延或转人工
+（见 docs/risk/automation-compliance.md 与 docs/platform-automation-matrix.md）。
+``policy_row`` 给每个平台写明「无人值守自主写」是否放行，以及被拦时下一步怎么走；
+它只影响能否承诺全自动，不关闭人工辅助计划。
 
-唯一的浏览器写例外是操作者当次明确发起的非 routine ``--go`` publish/reply：
-必须先从实际执行浏览器观测当前账号（cdp_observed），再继续通过既有人审／adhoc、
-暂停、DNC、配额、幂等、防重发与回执门禁。它不形成常驻扩权，不覆盖 message/engage，
-也不构成平台认可或账号安全保证。dry-run 与只读动作不受影响。
+X 官方自动化规则对非 API 自动化、未经请求自动回复与批量动作有明确限制：
+routine/autonomous 的 X 非 API 写拒绝，official_api 授权也不能挪给 CDP 使用。
+操作者当次明确发起的非 routine ``--go`` publish/reply 可先观测当前账号
+（cdp_observed），再通过既有人审／adhoc、暂停、DNC、配额、幂等、防重发与回执门禁
+执行；它不形成常驻扩权，不覆盖 message/engage，也不构成平台认可或账号安全保证。
+dry-run 与只读动作不受影响。
 """
 from __future__ import annotations
 
@@ -25,6 +29,9 @@ WRITE_ACTIONS = frozenset({"publish", "reply", "message", "engage"})
 
 #: 只有官方 API 通道可以自主执行；浏览器自动化不是可授权路线。
 ALLOWED_ROUTE = "official_api"
+
+#: 许可表按内核渠道名查；平台 id 先归一（hackernews → hn）。
+_POLICY_ALIASES = {"hackernews": "hn"}
 
 
 class ComplianceError(RuntimeError):
@@ -206,7 +213,7 @@ def owner_attested_path(data_dir, platform: str) -> Path:
 OWNER_ATTESTED_ACTIONS = {
     "x": frozenset({"publish", "reply"}),
     "github": frozenset({"reply"}),
-    "discord": frozenset({"publish"}),
+    "discord": frozenset({"publish", "reply"}),
 }
 
 
@@ -305,8 +312,13 @@ def require_owner_attested_browser_write(platform: str, action: str, data_dir, *
 
 
 def policy_row(platform: str) -> Dict[str, Any]:
-    """给平台能力矩阵用的许可说明（不是执行门禁，只是让界面说真话）。"""
+    """给平台能力矩阵用的许可说明（不是执行门禁，只是让界面说真话）。
+
+    每行都带 ``next``：写清被拦时还能怎么继续（人工辅助、降频、拆批、
+    顺延或改官方 API），避免把平台风控变成业务关闭。
+    """
     platform = _text(platform).lower()
+    platform = _POLICY_ALIASES.get(platform, platform)
     if platform == "x":
         return {
             "autonomous_write": False,
@@ -317,9 +329,69 @@ def policy_row(platform: str) -> Dict[str, Any]:
             "reason": ("无人值守非 API 自动写不放行；单次非 routine --go 的 publish/reply "
                        "可在观测当前账号并通过既有审批、配额、防重发与回执门禁后走 CDP；"
                        "操作者自担风险的 browser-attach 常驻授权见 owner-attested 文件"),
+            "next": ("要无人值守：接 X 官方 API 并写入 platform-authorization.json；"
+                     "不接 API：走人工辅助或当次 --go，原创日≤3 条、回复间隔≥10 分钟。"),
             "source": "docs/risk/automation-compliance.md#§二",
         }
-    return {"autonomous_write": True, "code": None, "reason": None, "source": None}
+    if platform == "email":
+        return {
+            "autonomous_write": True,
+            "code": None,
+            "reason": "邮件走官方 SMTP，可按 routine 自主执行",
+            "next": "保持退订/抑制名单、日配额与回执校验；退信率升高时降频并清洗名单。",
+            "source": "docs/risk/automation-compliance.md",
+        }
+    if platform == "github":
+        return {
+            "autonomous_write": True,
+            "owner_attested_browser_write": True,
+            "code": None,
+            "reason": "GitHub 官方 API 允许评论/发帖自动化；浏览器接管路径需操作者自担风险授权",
+            "next": "优先用 MKT_GITHUB_TOKEN 走 API；触发限流时错峰重试；无 token 时转人工辅助。",
+            "source": "docs/platform-automation-matrix.md",
+        }
+    if platform == "reddit":
+        return {
+            "autonomous_write": False,
+            "code": "non_api_write_forbidden",
+            "reason": "Reddit 要求走 OAuth API；当前适配器只有 CDP 写路径，无人值守不放行",
+            "next": ("接 Reddit OAuth API 后可自主；未接前按人工辅助跑，"
+                     "单账号日≤3–5 条、同 subreddit 间隔≥30 分钟、推广占比≤10%。"),
+            "source": "docs/platform-automation-matrix.md",
+        }
+    if platform == "hn":
+        return {
+            "autonomous_write": False,
+            "code": "platform_forbids_automation",
+            "reason": "Hacker News 明确不要自动化发帖/回复；只出人工草稿与提交单",
+            "next": "用 showhn-pack 生成草稿，人工提交；发布日≤1，回复只答被问到的问题。",
+            "source": "docs/platform-automation-matrix.md",
+        }
+    if platform == "linkedin":
+        return {
+            "autonomous_write": False,
+            "code": "platform_forbids_automation",
+            "reason": "LinkedIn 禁止第三方自动化；只走人工辅助与终端确认",
+            "next": "人工辅助发送，日≤5 条连接邀请、附言≤300 字符；先热身账号再提量。",
+            "source": "docs/platform-automation-matrix.md",
+        }
+    if platform == "discord":
+        return {
+            "autonomous_write": False,
+            "owner_attested_browser_write": True,
+            "code": "self_bot_forbidden",
+            "reason": "浏览器接管属操作者自担风险；无人值守请用官方 bot 授权",
+            "next": ("用 owner-attested 窗口 + 人工首跑，单频道日≤3 条、间隔≥10 分钟；"
+                     "要无人值守改官方 bot。"),
+            "source": "docs/platform-automation-matrix.md",
+        }
+    return {
+        "autonomous_write": False,
+        "code": "platform_not_declared",
+        "reason": "该平台未声明写许可与传输，按人工处理",
+        "next": "先补平台许可与传输说明，再决定人工辅助或接官方 API。",
+        "source": None,
+    }
 
 
 def autonomous_channels(channels: Iterable[str]) -> list:

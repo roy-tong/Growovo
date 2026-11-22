@@ -175,5 +175,175 @@ class StatusBindingTest(unittest.TestCase):
         self.assertEqual(got["status_binding"], "readback")
 
 
+class ChannelTargetFailureTest(unittest.TestCase):
+    """渠道内去重、422 目标隔离与 X 渲染失败的单目标隔离。"""
+
+    def test_discord_same_channel_three_texts_all_execute(self):
+        fake = mock.Mock()
+        fake.ensure_tab.return_value = 11
+        fake.observe_identity.return_value = {"handle": "owner"}
+        with tempfile.TemporaryDirectory() as tmp, \
+                mock.patch.object(browser_write, "BrowserAttach", return_value=fake), \
+                mock.patch.object(browser_write, "require_owner_attested_browser_write",
+                                  return_value={"route": "test"}), \
+                mock.patch("core.throttle.Throttle.reserve", return_value=None), \
+                mock.patch.object(browser_write.discord_engine, "post",
+                                  return_value={"ok": True, "serverId": "911", "author": "owner"}):
+            results = [browser_write.execute(
+                "discord", "publish", Path(tmp), text=text,
+                target="1573250833871536161", go=True, log=lambda *_: None)
+                for text in ("a", "b", "c")]
+            rows = browser_write._ledger(tmp).all()
+
+        self.assertEqual([r["ledger_result"] for r in results], ["committed"] * 3)
+        self.assertEqual([r["result"] for r in rows], ["committed"] * 3)
+
+    def test_discord_repeated_text_is_skipped_as_duplicate_content(self):
+        fake = mock.Mock()
+        fake.ensure_tab.return_value = 11
+        fake.observe_identity.return_value = {"handle": "owner"}
+        with tempfile.TemporaryDirectory() as tmp, \
+                mock.patch.object(browser_write, "BrowserAttach", return_value=fake), \
+                mock.patch.object(browser_write, "require_owner_attested_browser_write",
+                                  return_value={"route": "test"}), \
+                mock.patch("core.throttle.Throttle.reserve", return_value=None), \
+                mock.patch.object(browser_write.discord_engine, "post",
+                                  return_value={"ok": True, "serverId": "911", "author": "owner"}):
+            first = browser_write.execute(
+                "discord", "publish", Path(tmp), text="same",
+                target="1573250833871536161", go=True, log=lambda *_: None)
+            second = browser_write.execute(
+                "discord", "publish", Path(tmp), text="same",
+                target="1573250833871536161", go=True, log=lambda *_: None)
+            rows = browser_write._ledger(tmp).all()
+
+        self.assertEqual(first["ledger_result"], "committed")
+        self.assertTrue(second["skipped"])
+        self.assertEqual(second["reason"], "already_done_content")
+        self.assertEqual(len(rows), 1)
+
+    def test_single_github_422_isolates_target_without_stopping_channel(self):
+        fake = mock.Mock()
+        fake.ensure_tab.return_value = 11
+        fake.observe_identity.return_value = {"handle": "owner"}
+        with tempfile.TemporaryDirectory() as tmp, \
+                mock.patch.object(browser_write, "BrowserAttach", return_value=fake), \
+                mock.patch.object(browser_write, "require_owner_attested_browser_write",
+                                  return_value={"route": "test"}), \
+                mock.patch("core.throttle.Throttle.reserve", return_value=None), \
+                mock.patch.object(browser_write.gh_post, "post",
+                                  return_value={"ok": False,
+                                                "err": "422 Unprocessable Entity"}):
+            got = browser_write.execute(
+                "github", "reply", Path(tmp), text="body", target="a/b#1",
+                go=True, log=lambda *_: None)
+            rows = browser_write._ledger(tmp).all()
+
+        self.assertEqual(got["ledger_result"], "target_rejected")
+        self.assertTrue(got["target_isolated"])
+        self.assertEqual(rows[-1]["result"], "target_rejected")
+
+    def test_three_distinct_github_targets_422_stop_the_channel(self):
+        fake = mock.Mock()
+        fake.ensure_tab.return_value = 11
+        fake.observe_identity.return_value = {"handle": "owner"}
+        with tempfile.TemporaryDirectory() as tmp, \
+                mock.patch.object(browser_write, "BrowserAttach", return_value=fake), \
+                mock.patch.object(browser_write, "require_owner_attested_browser_write",
+                                  return_value={"route": "test"}), \
+                mock.patch("core.throttle.Throttle.reserve", return_value=None), \
+                mock.patch.object(browser_write.gh_post, "post",
+                                  return_value={"ok": False,
+                                                "err": "422 Unprocessable Entity"}):
+            for target in ("a/b#1", "a/b#2"):
+                got = browser_write.execute(
+                    "github", "reply", Path(tmp), text="body", target=target,
+                    go=True, log=lambda *_: None)
+                self.assertEqual(got["ledger_result"], "target_rejected")
+            with self.assertRaises(browser_write.StopChannel):
+                browser_write.execute(
+                    "github", "reply", Path(tmp), text="body", target="a/b#3",
+                    go=True, log=lambda *_: None)
+
+    def test_x_unrendered_target_is_isolated_not_retried(self):
+        fake = mock.Mock()
+        fake.ensure_tab.return_value = 11
+        fake.probe_visibility.return_value = "visible"
+        fake.observe_identity.return_value = {"handle": "owner"}
+        target = "https://x.com/a/status/1"
+        with tempfile.TemporaryDirectory() as tmp, \
+                mock.patch.object(browser_write, "BrowserAttach", return_value=fake), \
+                mock.patch.object(browser_write, "require_owner_attested_browser_write",
+                                  return_value={"route": "test"}), \
+                mock.patch("core.throttle.Throttle.reserve", return_value=None), \
+                mock.patch.object(browser_write.x_engine, "reply_native",
+                                  return_value={"ok": False,
+                                                "err": "article not rendered"}):
+            first = browser_write.execute("x", "reply", Path(tmp), text="hello",
+                                          target=target, go=True, log=lambda *_: None)
+            second = browser_write.execute("x", "reply", Path(tmp), text="hello again",
+                                           target=target, go=True, log=lambda *_: None)
+            rows = browser_write._ledger(tmp).all()
+
+        self.assertEqual(first["ledger_result"], "unavailable_or_unrenderable")
+        self.assertTrue(first["gone"])
+        self.assertTrue(second["skipped"])
+        self.assertEqual(second["reason"], "target_isolated")
+        self.assertEqual(len(rows), 1)
+
+
+class DiscordReplyRouteTest(unittest.TestCase):
+    """Discord 原生回复：target 必须编码 channel_id:message_id，回执带 reply_to。"""
+
+    def _run(self, target, engine=None):
+        fake = mock.Mock()
+        fake.ensure_tab.return_value = 11
+        fake.observe_identity.return_value = {"handle": "owner"}
+        engine = engine or {"ok": True, "serverId": "9001", "author": "owner"}
+        with tempfile.TemporaryDirectory() as tmp, \
+                mock.patch.object(browser_write, "BrowserAttach", return_value=fake), \
+                mock.patch.object(browser_write, "require_owner_attested_browser_write",
+                                  return_value={"route": "test"}), \
+                mock.patch("core.throttle.Throttle.reserve", return_value=None), \
+                mock.patch.object(browser_write.discord_engine, "reply",
+                                  return_value=engine) as reply:
+            got = browser_write.execute("discord", "reply", Path(tmp), text="answer",
+                                        target=target, go=True, log=lambda *_: None)
+            rows = browser_write._ledger(tmp).all()
+        return got, rows, reply
+
+    def test_reply_splits_channel_and_message_and_records_receipt(self):
+        got, rows, reply = self._run("111:222")
+        reply.assert_called_once()
+        self.assertEqual(reply.call_args.args, (11, "111", "222", "answer"))
+        self.assertEqual(got["receipt"], {"id": "9001", "reply_to": "222"})
+        self.assertEqual(got["ledger_result"], "committed")
+        self.assertEqual(rows[-1]["target"], "111:222")
+
+    def test_target_without_message_id_is_rejected_before_typing(self):
+        for target in ("111", "a:b", ":222", "111:"):
+            with self.assertRaises(browser_write.ActionBlocked) as ctx:
+                self._run(target)
+            self.assertEqual(ctx.exception.code, "target_invalid")
+
+    def test_non_numeric_server_id_does_not_forge_a_receipt(self):
+        got, _rows, _reply = self._run("111:222",
+                                       engine={"ok": True, "serverId": "local-temp",
+                                               "author": "owner"})
+        self.assertTrue(got["ok"])
+        self.assertNotIn("receipt", got)
+
+    def test_readback_author_mismatch_is_indeterminate_not_committed(self):
+        got, rows, _reply = self._run("111:222", engine={
+            "ok": True, "serverId": "9001", "author": "someone-else",
+            "enter": {"ok": True},
+        })
+        self.assertFalse(got["ok"])
+        self.assertEqual(got["ledger_result"], "indeterminate")
+        self.assertEqual(rows[-1]["result"], "indeterminate")
+        self.assertNotIn("receipt", got)
+        self.assertEqual(got["error"], "readback_identity_mismatch")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -2,9 +2,12 @@
 
 > Give Growovo the product facts, audience and actions you authorize. It checks drafts, queues approved work and records receipts. An uncertain email send stops the batch for review. Track replies, activation and sales from their own records.
 
+OVO family boundary: Prove Anything is the family-level result-proof protocol candidate; an agent saying “done” remains a claim to verify. Verified Capability Factory is a gated research candidate, not a Growovo dependency. Growovo works independently and keeps execution receipts, replies, activation and sales on separate evidence layers.
+
 ## Start here
 
 - Zero-network check first: `python3 mkt.py demo` (about one second, no accounts), then `python3 mkt.py grow platforms` to see which channels are fully automated this phase.
+- Read-only proof export: `mkt --workspace DATA proof export RUN_ID --out NEW_DIR --by NAME`; no external action, private source fields excluded, P0/P2/P4 kept separate with no causal credit.
 - [Quickstart](https://github.com/roy-tong/Growovo#readme) · [README (English)](https://github.com/roy-tong/Growovo/blob/main/README.en.md)
 - [Result loop (grow v2)](https://github.com/roy-tong/Growovo/blob/main/docs/grow-%E9%97%AD%E7%8E%AF.md) · [Platform matrix](https://github.com/roy-tong/Growovo/blob/main/docs/platform-automation-matrix.md)
 - [Feature status](https://github.com/roy-tong/Growovo/blob/main/docs/feature-status.md): what works, what is gated, what is deferred

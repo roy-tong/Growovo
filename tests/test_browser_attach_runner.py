@@ -159,13 +159,49 @@ class BrowserAttachQueueTest(unittest.TestCase):
             run_queue(self.queue_path, data_dir=self.data, transport="",
                       log=lambda *_: None)
 
-    def test_structured_browser_rejection_becomes_queue_error(self):
+    def _write_two_item_queue(self):
+        self.queue_path.write_text(json.dumps({
+            "campaign": "c-queue", "channel": "x", "action": "publish",
+            "transport": "browser-attach",
+            "items": [
+                {"id": "i1", "target": "", "body": "hello", "actor": "alice"},
+                {"id": "i2", "target": "", "body": "again", "actor": "alice"},
+            ],
+        }, ensure_ascii=False), encoding="utf-8")
+
+    def test_paused_channel_defers_instead_of_queue_error(self):
+        self._write_two_item_queue()
         blocked = browser_write.ActionBlocked("paused", "test pause")
-        with mock.patch("core.queue_runner.run_action", side_effect=blocked):
-            with self.assertRaises(QueueRunError) as ctx:
-                run_queue(self.queue_path, data_dir=self.data, go=True,
-                          log=lambda *_: None)
-        self.assertIn("paused", str(ctx.exception))
+        with mock.patch("core.queue_runner.run_action", side_effect=blocked) as run:
+            rows = run_queue(self.queue_path, data_dir=self.data, go=True,
+                             log=lambda *_: None)
+        self.assertEqual([r["result"] for r in rows], ["deferred", "deferred"])
+        self.assertIn("paused", rows[0]["detail"])
+        self.assertTrue(rows[0]["next"])
+        self.assertIn("渠道已停", rows[1]["detail"])
+        self.assertEqual(run.call_count, 1)
+
+    def test_platform_risk_signal_blocks_channel_and_defers_rest(self):
+        self._write_two_item_queue()
+        stop = browser_write.StopChannel("x", "challenge page")
+        with mock.patch("core.queue_runner.run_action", side_effect=stop):
+            rows = run_queue(self.queue_path, data_dir=self.data, go=True,
+                             log=lambda *_: None)
+        self.assertEqual([r["result"] for r in rows], ["blocked", "deferred"])
+        self.assertIn("challenge page", rows[0]["detail"])
+        self.assertIn("风控", rows[0]["next"])
+
+    def test_item_level_rejection_continues_with_next_item(self):
+        self._write_two_item_queue()
+        blocked = browser_write.ActionBlocked("suppressed", "target in suppression list")
+        with mock.patch("core.queue_runner.run_action",
+                        side_effect=[blocked, {"result": "committed"}]) as run:
+            rows = run_queue(self.queue_path, data_dir=self.data, go=True,
+                             log=lambda *_: None)
+        self.assertEqual([r["result"] for r in rows], ["rejected", "committed"])
+        self.assertIn("suppressed", rows[0]["detail"])
+        self.assertTrue(rows[0]["next"])
+        self.assertEqual(run.call_count, 2)
 
     def test_queue_lint_rejects_unknown_transport(self):
         queue = {"campaign": "c", "channel": "x", "action": "publish",
@@ -221,7 +257,8 @@ class ReceiptTest(unittest.TestCase):
         attach, auth, quota = self._patches("discord")
         with attach, auth, quota, \
                 mock.patch.object(browser_write.discord_engine, "post", return_value={
-                    "ok": True, "serverId": "998877", "readback": {"lastId": "998877"}}):
+                    "ok": True, "serverId": "998877", "author": "owner",
+                    "readback": {"lastId": "998877"}}):
             rec = browser_write.execute(
                 "discord", "publish", self.data, text="hello", target="12345",
                 go=True, log=lambda *_: None)

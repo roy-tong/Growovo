@@ -164,6 +164,11 @@ class PolicyMetadataTests(unittest.TestCase):
         self.assertEqual("non_api_write_forbidden", row["policy"]["code"])
         self.assertTrue(platform_caps.classify("email")["policy"]["autonomous_write"])
 
+    def test_discord_reply_has_independent_unverified_maturity(self):
+        from channels import REGISTRY
+        self.assertEqual("PROVEN", REGISTRY["discord"]["status"])
+        self.assertEqual("UNVERIFIED", REGISTRY["discord"]["action_status"]["reply"])
+
     def test_x_gate_in_strategy_is_error_level(self):
         gates = [g for g in platform_strategy.gates("x", scope="execution")
                  if g["code"] == "non_api_write"]

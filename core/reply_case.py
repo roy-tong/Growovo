@@ -32,7 +32,8 @@ QUEUE_SCHEMA = "growovo.reply-review-queue/1"
 
 LABELS = ("unsubscribe", "not_interested", "OOO", "interested", "question",
           "unknown")
-CHANNELS = ("email", "x", "linkedin", "reddit", "github")
+CHANNELS = ("email", "x", "linkedin", "reddit", "github", "discord", "hn")
+CHANNEL_ALIASES = {"hackernews": "hn"}
 DNC_STATES = ("unknown", "not_requested", "pending", "active", "failed")
 
 QUEUE_HEADERS = [
@@ -468,6 +469,7 @@ def import_replies(data_dir, path, *, account_id: str, channel: str = "email",
     imported_by = _text(imported_by)
     authorization_ref = _text(authorization_ref)
     channel = _text(channel).lower()
+    channel = CHANNEL_ALIASES.get(channel, channel)
     if not account_id:
         raise ReplyError("导入回复必须绑定授权账号（--account）")
     if not imported_by:

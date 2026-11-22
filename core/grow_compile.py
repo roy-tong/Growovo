@@ -34,9 +34,23 @@ class CompileError(RuntimeError):
         self.payload = payload
 
 
+_PLATFORM_TO_CHANNEL = {pid: pair[0] for pid, pair in PLATFORM_WRITE.items()}
+_CHANNEL_TO_PLATFORM = {pair[0]: pid for pid, pair in PLATFORM_WRITE.items()}
+
+
 def _platform_channel(platform_id: str) -> Optional[str]:
     pair = PLATFORM_WRITE.get(platform_id)
     return pair[0] if pair else None
+
+
+def _channel_of(value: str) -> str:
+    """平台 id → 内核渠道名（hackernews → hn），已是渠道名则原样返回。"""
+    return _PLATFORM_TO_CHANNEL.get(value, value)
+
+
+def _platform_of(value: str) -> str:
+    """内核渠道名 → 平台 id（hn → hackernews），已是平台 id 则原样返回。"""
+    return _CHANNEL_TO_PLATFORM.get(value, value)
 
 
 def _handle_from_account(data_dir, account_id: str) -> str:
@@ -97,35 +111,41 @@ def compile_run(*, run_id: str, facts: Dict[str, Any], goal_id: str,
     if not run_id:
         raise CompileError("闭环 id 不能为空")
     started = str(started or date.today().isoformat())
-    requested = [c.strip() for c in (channels or ["x", "email"]) if str(c).strip()]
-    if not requested:
-        raise CompileError("至少要指定一个渠道（第一期自动执行：x、email）")
+    requested_raw = list(dict.fromkeys(
+        str(c).strip().lower() for c in (channels or ["x", "email"]) if str(c).strip()))
+    if not requested_raw:
+        raise CompileError(
+            "至少要指定一个渠道（自动执行或人工辅助：x、email、github、reddit、"
+            "hackernews/hn、linkedin、discord）")
     # requires_procurement 显式分支（评审 §5）：付费渠道/数据源在规划期就
     # 转成结构化用户行动项，不静默跳过、不代购买、也不当作普通编译错误。
     from . import procurement
-    paid = procurement.match_paid_channel(requested)
+    paid = procurement.match_paid_channel(requested_raw)
     if paid:
         payload = procurement.blocked(
             item=paid["item"], why=paid["why"],
             user_action="由用户自行开通/采购并承担费用后，把数据或授权交给 "
                         "Growovo；或改用免费替代（organic 渠道/CDP 可见页）")
         raise CompileError(procurement.message(payload), payload=payload)
-    supported = {pair[0] for pair in PLATFORM_WRITE.values()}
-    unsupported = [c for c in requested if c not in supported]
+    supported_channels = set(_PLATFORM_TO_CHANNEL) | set(_CHANNEL_TO_PLATFORM)
+    unsupported = [c for c in requested_raw if c not in supported_channels]
     if unsupported:
         raise CompileError(
-            f"第一期只支持自动执行或人工辅助渠道 {sorted(supported)}；"
+            f"第一期支持自动执行或人工辅助渠道 {sorted(supported_channels)}；"
             f"这些渠道不能进入计划：{unsupported}")
+    # 平台 id 与内核渠道名统一成渠道名，避免 hackernews/hn 重复或匹配不上
+    requested = list(dict.fromkeys(_channel_of(c) for c in requested_raw))
+    requested_platforms = list(dict.fromkeys(_platform_of(c) for c in requested))
     if audience not in tw.AUDIENCES:
         raise CompileError(f"未知受众 {audience}；可选：{sorted(tw.AUDIENCES)}")
 
     spec = goals.get(goal_id)  # 未知目标在这里抛 GoalError
     affinity = set((spec.get("affinity") or {}).keys())
-    goal_channels = [c for c in requested if c in affinity]
+    goal_channels = [p for p in requested_platforms if p in affinity]
     if not goal_channels:
         raise CompileError(
-            f"目标 {goal_id} 与渠道 {requested} 对不上；可选目标："
-            f"{sorted(g for g in goals.BY_ID if set((goals.get(g).get('affinity') or {})) & set(requested))}")
+            f"目标 {goal_id} 与渠道 {requested_raw} 对不上；可选目标："
+            f"{sorted(g for g in goals.BY_ID if set((goals.get(g).get('affinity') or {})) & set(requested_platforms))}")
 
     try:
         plan = goals.build_plan(facts, goal_id, platforms=goal_channels,
@@ -148,7 +168,7 @@ def compile_run(*, run_id: str, facts: Dict[str, Any], goal_id: str,
     if not primary_channel:
         raise CompileError(
             f"主渠道 {primary_platform or '未知'} 没有可写入通道；第一期支持 "
-            f"自动执行或人工辅助渠道 {sorted(supported)}")
+            f"自动执行或人工辅助渠道 {sorted(supported_channels)}")
 
     # 主渠道 + 用户点名的承接渠道（email 常作为承接层，不参与目标口径）
     channel_list = [primary_channel] + [c for c in requested if c != primary_channel]
@@ -160,13 +180,20 @@ def compile_run(*, run_id: str, facts: Dict[str, Any], goal_id: str,
             chosen = [a for a in (actions or ["reply"]) if a in ("reply", "publish")]
             actions_map[ch] = chosen or ["reply"]
         else:
-            raise CompileError(f"渠道 {ch} 暂无自动动作定义")
+            pair = PLATFORM_WRITE.get(_platform_of(ch))
+            if not pair:
+                raise CompileError(
+                    f"渠道 {ch} 没有可写入通道；第一期支持自动执行或人工辅助渠道 "
+                    f"{sorted(supported_channels)}")
+            # 每个渠道默认用它注册的写动作（github/reddit/hn=reply、
+            # linkedin=message、discord=publish），不再因「暂无自动动作定义」拒编。
+            actions_map[ch] = [pair[1]]
 
     policy_actions = sorted({f"{ch}:{a}" for ch, acts in actions_map.items() for a in acts})
 
     autonomous_channels = [c for c in channel_list if platform_caps.is_auto(c)]
     assisted_channels = [c for c in channel_list if not platform_caps.is_auto(c)]
-    warnings: List[str] = []
+    warnings: List[str] = list(plan.get("warnings") or [])
     for ch in assisted_channels:
         row = platform_caps.classify(ch)
         code = str((row.get("policy") or {}).get("code") or "")
@@ -183,16 +210,18 @@ def compile_run(*, run_id: str, facts: Dict[str, Any], goal_id: str,
         weights: Dict[str, float] = {}
         primary_share = 0.85
         for i, act in enumerate(primary_actions):
-            weights[act] = weights.get(act, 0.0) + primary_share / len(primary_actions)
+            key = f"{primary_channel}:{act}"
+            weights[key] = weights.get(key, 0.0) + primary_share / len(primary_actions)
         secondary_share = 1.0 - primary_share
-        secondary_actions = [a for c in secondary_channels for a in actions_map[c]]
-        for act in secondary_actions:
-            weights[act] = weights.get(act, 0.0) + secondary_share / len(secondary_actions)
+        secondary_actions = [(c, a) for c in secondary_channels for a in actions_map[c]]
+        for ch, act in secondary_actions:
+            key = f"{ch}:{act}"
+            weights[key] = weights.get(key, 0.0) + secondary_share / len(secondary_actions)
     else:
-        weights = {a: (0.8 if i == 0 else 0.2 / max(1, len(primary_actions) - 1))
+        weights = {f"{primary_channel}:{a}": (0.8 if i == 0 else 0.2 / max(1, len(primary_actions) - 1))
                    for i, a in enumerate(primary_actions)}
         if len(primary_actions) == 1:
-            weights = {primary_actions[0]: 1.0}
+            weights = {f"{primary_channel}:{primary_actions[0]}": 1.0}
     daily = split_week(actions_per_week, started, weights)
     total_supply = int(actions_per_week)
     brief_counts: Dict[str, int] = {}
@@ -201,7 +230,7 @@ def compile_run(*, run_id: str, facts: Dict[str, Any], goal_id: str,
             brief_counts[act] = brief_counts.get(act, 0) + int(n)
 
     tactic = "x-reply-guy" if primary_channel == "x" and "reply" in primary_actions else ""
-    briefs = [_supply_brief(primary_channel, act, brief_counts.get(act, 0), audience, tactic)
+    briefs = [_supply_brief(primary_channel, act, brief_counts.get(f"{primary_channel}:{act}", 0), audience, tactic)
               for act in primary_actions]
     for ch in channel_list:
         if ch == primary_channel:

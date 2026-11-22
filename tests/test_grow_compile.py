@@ -91,7 +91,7 @@ class CompileTests(unittest.TestCase):
                            actions_per_week=10, actions=["reply", "publish"],
                            started="2026-11-14", data_dir=Path("/tmp"))
         self.assertEqual(["x:publish", "x:reply"], spec["actions"])
-        self.assertEqual({"reply", "publish"},
+        self.assertEqual({"x:reply", "x:publish"},
                          set(spec["quota"]["action_weights"]))
         self.assertEqual(10, sum(sum(d.values()) for d in
                                  spec["quota"]["daily_preview"].values()))

@@ -1,0 +1,1 @@
+{"schema":"growovo.controlled-run-template/1","classification":"synthetic","transport":"demo-memory","steps":["plan validation","human approval","offline execution","ledger and daily-card readback"],"demo_command":"mkt demo","note":"Synthetic only. New real runs require their own authorization; committed is not conversion."}

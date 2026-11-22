@@ -1,5 +1,43 @@
 # Changelog
 
+## 0.18.0 — 2026-11-22
+
+### Added
+
+- **Installed demo workspaces stay outside the package.** `mkt demo` writes to `./data/demo` after wheel installation and honors an explicit `--workspace`; source-checkout behavior is unchanged. The approved queue contains only the three executable fixtures; the placeholder sample stays outside approval and demonstrates rejection separately.
+
+- **Plan approval now rechecks every bound queue** through `lint_queue` and the shared read-only content/target gate before writing an approval. Invalid or placeholder-bearing content is rejected before a plan can be approved; the existing plan+queue+account+workspace fingerprint remains unchanged.
+
+- **`mkt --workspace DATA proof export RUN --out NEW_DIR --by NAME`** creates a read-only Prove Anything bundle without external actions. Private targets, bodies, accounts, subjects and authorization documents are excluded. Execution receipts, independent readback and external events map separately to P0/P2/P4; unknown states remain INDETERMINATE and no causal credit is assigned.
+
+Quota limits now slow work down instead of closing it. Approval, dry-run, pause,
+DNC/suppression, identity binding, ledger dedupe, readback and unknown-result
+protections are unchanged.
+
+### Changed
+
+- **Over-limit email and queue batches are sliced, not refused**:
+  `channels/email_smtp.py` and `core/queue_runner.py` send the part that fits
+  the per-run cap and the remaining daily budget, then return the rest as
+  `result: "deferred"` rows carrying a `next` hint. A dry run is never sliced,
+  so a preview without `--go` still shows the whole batch. Approval, pause,
+  DNC/suppression, identity, readback and unknown-result refusals still stop
+  the batch.
+- **`core/throttle.py` exposes the limits as advice**: `run_cap`,
+  `slice_batches` and `advice` report the per-run cap, how many batches with the
+  configured pause the requested size would take, and how many rows move to the
+  next budget day (UTC midnight, 08:00 Beijing time) or to another channel.
+  `check_run` keeps its existing raise-on-over-limit contract for callers that
+  want a hard refusal.
+- **Single-action quota refusals name the next step**: `channels/linkedin.py`
+  and `channels/x/adapter.py` say whether to resume next budget day or use
+  email instead, and warn that topping up the same day raises platform risk.
+
+### Added
+
+- `tests/test_core.py` pins the slicing boundaries (120 rows at a cap of 50 →
+  50/50/20), the unlimited case and the advice text.
+
 ## 0.17.1 — 2026-11-21
 
 Fixes the 0.17.0 wheel, which omitted `core/bridge` and made

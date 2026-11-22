@@ -6,10 +6,14 @@
 （含 449 事故的核心回归：回读不一致绝不 SEND）。
 """
 import json
+import os
 import sys
 import tempfile
+import time
 import unittest
+from datetime import datetime, timezone
 from pathlib import Path
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -18,6 +22,7 @@ from core.gates import (Gate, GateError, check_content, check_target,
                         load_contact_suppressions, load_suppress, load_suppressions)
 from core.ledger import Ledger, LedgerCorruptError
 from core.pipeline import WritePipeline, standard_pipeline
+from core import throttle
 from core.throttle import Throttle, ThrottleError
 
 
@@ -187,6 +192,94 @@ class TestThrottle(TmpDir):
         self.assertEqual(th.daily_used("reddit", "publish"), 3)
         self.assertFalse(th.daily_allows("reddit", "publish", 1))   # 日 ≤3 帖
         self.assertTrue(th.daily_allows("x", "search", 999))         # 只读无上限
+
+    def test_slice_batches_keeps_business_running(self):
+        th = Throttle(self.dir)
+        self.assertEqual(th.slice_batches("email", "message", 120),
+                         [range(0, 50), range(50, 100), range(100, 120)])
+        self.assertEqual(th.slice_batches("x", "search", 999), [range(0, 999)])
+        self.assertEqual(th.slice_batches("hn", "publish", 1), [range(0, 1)])
+
+    def test_advice_gives_split_and_reset_hint(self):
+        th = Throttle(self.dir)
+        th.daily_charge("email", "message", 20)
+        hint = th.advice("email", "message", 120)
+        self.assertIn("拆成 3 批", hint)
+        self.assertIn("今日剩余 80 条", hint)
+        self.assertIn("UTC 0 点", hint)
+        self.assertIn("风控", hint)
+        self.assertIn("45-90s", th.advice("x", "publish", 3))
+
+
+class TestBudgetDayBoundary(TmpDir):
+    """夜间窗口 19:00→次日 07:00 跨本地 0 点：预算日界不能把一晚切成两段。"""
+
+    def setUp(self):
+        super().setUp()
+        self._old_tz = os.environ.get("TZ")
+        os.environ["TZ"] = "Asia/Shanghai"
+        time.tzset()
+        self.addCleanup(self._restore_tz)
+
+    def _restore_tz(self):
+        if self._old_tz is None:
+            os.environ.pop("TZ", None)
+        else:
+            os.environ["TZ"] = self._old_tz
+        time.tzset()
+
+    def _at(self, *args):
+        when = datetime(*args, tzinfo=timezone.utc)
+        return mock.patch.object(throttle, "_now", return_value=when)
+
+    def test_night_window_stays_in_one_budget_day(self):
+        th = Throttle(self.dir)
+        with self._at(2026, 11, 22, 15, 30):        # 北京 23:30
+            th.daily_charge("x", "publish")
+            self.assertEqual(th.daily_used("x", "publish"), 1)
+        with self._at(2026, 11, 22, 16, 30):        # 北京次日 00:30
+            th.daily_charge("x", "publish")
+            self.assertEqual(th.daily_used("x", "publish"), 2)
+
+    def test_local_boundary_still_splits_at_midnight(self):
+        th = Throttle(self.dir, day_boundary="local")
+        with self._at(2026, 11, 22, 15, 30):
+            th.daily_charge("x", "publish")
+        with self._at(2026, 11, 22, 16, 30):
+            self.assertEqual(th.daily_used("x", "publish"), 0)
+
+    def test_old_local_day_file_is_inherited_without_resetting_quota(self):
+        th = Throttle(self.dir)
+        now = datetime(2026, 11, 22, 11, 0, tzinfo=timezone.utc)
+        local_day = now.astimezone().date().isoformat()
+        (self.dir / f"mkt-daily-{local_day}.json").write_text(
+            json.dumps({"x/publish": 48}), encoding="utf-8")
+        with mock.patch.object(throttle, "_now", return_value=now):
+            self.assertEqual(th.daily_used("x", "publish"), 48)
+            with self.assertRaises(ThrottleError):
+                th.reserve("x", "publish")
+
+    def test_utc_day_inherits_both_overlapping_legacy_local_days(self):
+        th = Throttle(self.dir)
+        now = datetime(2026, 11, 22, 16, 30, tzinfo=timezone.utc)
+        previous = now.astimezone().date().fromordinal(now.astimezone().date().toordinal() - 1)
+        (self.dir / f"mkt-daily-{previous.isoformat()}.json").write_text(
+            json.dumps({"x/publish": 20}), encoding="utf-8")
+        (self.dir / f"mkt-daily-{now.astimezone().date().isoformat()}.json").write_text(
+            json.dumps({"x/publish": 10}), encoding="utf-8")
+        with mock.patch.object(throttle, "_now", return_value=now):
+            self.assertEqual(th.daily_used("x", "publish"), 30)
+
+    def test_cap_resets_after_boundary(self):
+        th = Throttle(self.dir)
+        with self._at(2026, 11, 22, 15, 30):
+            for _ in range(48):
+                th.reserve("x", "publish")
+            with self.assertRaises(ThrottleError):
+                th.reserve("x", "publish")
+        with self._at(2026, 11, 23, 1, 0):              # 北京次日 09:00，已过 UTC 0 点
+            self.assertEqual(th.daily_used("x", "publish"), 0)
+            self.assertEqual(th.reserve("x", "publish"), 1)
 
 
 def make_pipeline(tmpdir, readback_text=None):

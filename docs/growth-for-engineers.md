@@ -60,7 +60,7 @@ python3 mkt.py grow learn g1
 
 - [发布尸检：11 小时 73 条推文，0 个新 star](launch-autopsy-20261105.md)——一次真实的 GTM 发布实验（当晚没走账本，进度靠临时脚本记）：拿到的数字，以及它暴露的账本缺口。
 - [为什么不自己写个脚本，或者用通用自动化平台？Why not just write a script?](compare.md)（英文）——逐项对比，每条主张对应仓库文件。
-- [平台自动执行矩阵](platform-automation-matrix.md)——第一期只有 Email 可无人值守自主执行；X 写通道技术可用但平台许可禁止自主写入，只编人工辅助任务；GitHub、Reddit、Hacker News、LinkedIn 需人工首跑解锁；小红书、知乎等人工渠道只出作业单。
+- [平台自动执行矩阵](platform-automation-matrix.md)——无人值守全自动执行只承诺 Email；X 写通道技术可用但平台禁止非 API 自主写入，只编人工辅助任务；GitHub 走 REST API，浏览器 owner-attested 作备用；Reddit、Hacker News、LinkedIn、Discord 的浏览器写尚未验证，首次运行需人工盯，但仍可正常编入人工辅助计划；小红书、知乎等人工渠道只出作业单。受限渠道不会关闭业务：风控只停当前渠道，并给出降频、拆批、顺延建议。
 
 ## 合规底线（也是你的安全带）
 

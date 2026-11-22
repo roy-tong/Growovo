@@ -6,14 +6,17 @@
 import contextlib
 import io
 import json
+import os
 import re
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+import mkt
 from core.demo import CAMPAIGN, EXPECTED_RESULTS, run_demo
 
 
@@ -101,6 +104,11 @@ class TestDemo(unittest.TestCase):
                           .read_text(encoding="utf-8"))
         self.assertTrue(plan["review"]["human_approved"])
         self.assertEqual(plan["waves"][0]["queue"], f"data/queues/{CAMPAIGN}.json")
+        queue = json.loads((self.base / "data" / "demo" / "queues" / f"{CAMPAIGN}.json")
+                           .read_text(encoding="utf-8"))
+        self.assertEqual(["d-000", "d-001", "d-003"],
+                         [item["id"] for item in queue["items"]])
+        self.assertNotIn("{{NAME}}", json.dumps(queue, ensure_ascii=False))
 
     def test_demo_only_writes_its_sandbox(self):
         """demo 只碰 data/demo；真实 data 账本/计划目录不应出现。"""
@@ -108,6 +116,31 @@ class TestDemo(unittest.TestCase):
         self.assertTrue((self.base / "data" / "demo" / "ledger.jsonl").exists())
         self.assertFalse((self.base / "data" / "ledger.jsonl").exists())
         self.assertFalse((self.base / "data" / "plans").exists())
+
+    def test_installed_demo_defaults_to_cwd_not_package_directory(self):
+        install_dir = self.base / "installed"
+        run_dir = self.base / "run"
+        run_dir.mkdir()
+        old_cwd = Path.cwd()
+        try:
+            os.chdir(run_dir)
+            with mock.patch.object(mkt, "BASE", install_dir), \
+                    mock.patch.dict(os.environ, {}, clear=True), \
+                    contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(0, mkt.main(["demo"]))
+        finally:
+            os.chdir(old_cwd)
+        self.assertTrue((run_dir / "data" / "demo" / "ledger.jsonl").is_file())
+        self.assertFalse(install_dir.exists())
+
+    def test_demo_honors_explicit_workspace(self):
+        install_dir = self.base / "installed"
+        workspace = self.base / "selected"
+        with mock.patch.object(mkt, "BASE", install_dir), \
+                contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(0, mkt.main(["--workspace", str(workspace), "demo"]))
+        self.assertTrue((workspace / "demo" / "ledger.jsonl").is_file())
+        self.assertFalse(install_dir.exists())
 
 
 if __name__ == "__main__":

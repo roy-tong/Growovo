@@ -60,7 +60,8 @@ CONTENT_BEARING_WRITE_ACTIONS = frozenset({"publish", "reply", "message"})
 
 OPERATION_RESULTS = frozenset({
     "committed", "indeterminate", "failed", "dry-run", "skipped",
-    "no-dm", "bounced", "suppressed", "rejected",
+    "no-dm", "bounced", "suppressed", "rejected", "target_rejected",
+    "unavailable_or_unrenderable", "deferred", "blocked",
 })
 READBACK_RESULTS = frozenset({"verified", "mismatched", "unknown", "indeterminate"})
 
@@ -362,6 +363,10 @@ _RESULT_ERRORS = {
     "failed": ("action_failed", "mkt grow incident <run> --list；修复后重试"),
     "indeterminate": ("indeterminate", "人工核对平台后台后 mkt ledger resolve"),
     "rejected": ("rejected_by_gate", "按账本 detail 中的下一步处理"),
+    "target_rejected": ("target_rejected", "隔离该目标，不要换正文重试"),
+    "unavailable_or_unrenderable": ("target_unavailable", "隔离该目标，不要自动重试"),
+    "deferred": ("deferred", "等待下一预算窗口或解除渠道阻断"),
+    "blocked": ("blocked", "按队列阻断原因处理后再入队"),
 }
 
 

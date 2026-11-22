@@ -29,6 +29,8 @@ import re
 from datetime import date, datetime
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
+from . import platform_risk
+
 SCHEMA = "growovo.platform-strategy/1"
 
 # 平台玩法两三个月就换一轮；60 天是经验库既有的新鲜度窗口。
@@ -107,6 +109,10 @@ STRATEGY: Dict[str, Dict[str, Any]] = {
              "statement": "自己的笔记 3 个月内不要重复发；搬运/洗稿直接限制推送",
              "fix": "同题换场景、证据或反例，不换标题重发",
              "source": "docs/playbooks/国内/xiaohongshu.md#§5 死路", "grade": "craft"},
+            {"code": "duplicate_material", "level": "error", "scope": "content", "detector": None,
+             "statement": "同一素材或模板跨账号重复发布（搬运、洗稿、矩阵同稿）属 2026 年双审 8 红线",
+             "fix": "一稿只发一个账号；同题要换场景、证据或反例，不换标题重发",
+             "source": "docs/risk/automation-compliance.md#§二 逐平台官方口径", "grade": "official"},
         ],
         "overrides": [
             {"id": "daily-two", "per_day": 2, "per_week": 14,
@@ -155,7 +161,7 @@ STRATEGY: Dict[str, Dict[str, Any]] = {
             "「流量池逐级晋级」「新号保护期」无官方依据，只能当假说。",
             "官方口径里没有「限流」这个说法，称流量异常；别把数据差先归因限流。",
         ],
-        "reviewed_at": "2026-11-17",
+        "reviewed_at": "2026-11-21",
     },
 
     # ------------------------------------------------------------- 公众号
@@ -197,6 +203,10 @@ STRATEGY: Dict[str, Dict[str, Any]] = {
              "statement": "AI 生成内容需主动声明；AI 占比过大仍声明原创可能被投诉撤销",
              "fix": "AI 率控制在 30% 以下，个人视角部分人工重写",
              "source": "docs/playbooks/国内/wechat-official.md#§3 官方规矩", "grade": "official"},
+            {"code": "scripted_bulk_publish", "level": "error", "scope": "execution", "detector": None,
+             "statement": "使用脚本、程序托管等自动化方式批量、连续发布，属官方专项治理对象",
+             "fix": "定时任务只产出草稿；群发逐篇人工确认后再发",
+             "source": "docs/risk/automation-compliance.md#§二 逐平台官方口径", "grade": "official"},
             {"code": "ad_slot_floor", "level": "warning", "scope": "content", "detector": None,
              "statement": "广告前后各需 300 字：600 字以下没有文中广告位",
              "fix": "正文过 600 字再考虑文中广告；千字以上才有文中 2+文末 1",
@@ -240,7 +250,7 @@ STRATEGY: Dict[str, Dict[str, Any]] = {
             "流量主 100 粉是手册实测口径，不是官方公告；以自己后台为准。",
             "「2026 订阅弱化」是灰度观察，不是官方公告。",
         ],
-        "reviewed_at": "2026-11-17",
+        "reviewed_at": "2026-11-21",
     },
 
     # ------------------------------------------------------------- 知乎
@@ -307,7 +317,7 @@ STRATEGY: Dict[str, Dict[str, Any]] = {
              "action": "一个粉丝都不要刷", "grade": "craft"},
         ],
         "notes": ["盐值、折叠、AI 标注的官方原文未逐条核实，标 craft 的条目按二手处理。"],
-        "reviewed_at": "2026-11-17",
+        "reviewed_at": "2026-11-21",
     },
 
     # ------------------------------------------------------------- 抖音
@@ -360,7 +370,7 @@ STRATEGY: Dict[str, Dict[str, Any]] = {
              "action": "工具类演示压到 15–30 秒，竖屏拍", "grade": "lead"},
         ],
         "notes": ["分发机制与流量池晋级没有官方公开依据，只能当假说。"],
-        "reviewed_at": "2026-11-17",
+        "reviewed_at": "2026-11-21",
     },
 
     # ------------------------------------------------------------- X
@@ -396,6 +406,10 @@ STRATEGY: Dict[str, Dict[str, Any]] = {
              "statement": "一天发十几条刷曝光会被限；原创 1–3 条/日是上限",
              "fix": "当日原创数 > 3 即拒发",
              "source": "docs/playbooks/海外/x.md#§7 账号与节奏", "grade": "craft"},
+            {"code": "link_cost", "level": "warning", "scope": "execution", "detector": None,
+             "statement": "带链接帖按条计费（转述 $0.20/条），且外链帖分发显著走低",
+             "fix": "链接默认放首条回复或个人主页；单日带链接帖 ≤5 条",
+             "source": "docs/risk/automation-compliance.md#§二 逐平台官方口径", "grade": "official"},
         ],
         "overrides": [],
         "monetization": [],
@@ -415,7 +429,7 @@ STRATEGY: Dict[str, Dict[str, Any]] = {
             "X 的 27 条新经验全部是单源二手 playbook，只能当实验线索，不进自动门禁、不改默认参数。",
             "手册未写单条字符上限；280 是官方 API 限额，API 侧约 300 帖/3 小时。",
         ],
-        "reviewed_at": "2026-11-17",
+        "reviewed_at": "2026-11-21",
     },
 
     # ------------------------------------------------------------- Reddit
@@ -465,7 +479,7 @@ STRATEGY: Dict[str, Dict[str, Any]] = {
             "karma/账号年龄门槛各 sub 自定且不公开，没有统一数值。",
             "shadowban 不通知；零数据不等于零曝光。",
         ],
-        "reviewed_at": "2026-11-17",
+        "reviewed_at": "2026-11-21",
     },
 
     # ------------------------------------------------------------- Hacker News
@@ -523,7 +537,7 @@ STRATEGY: Dict[str, Dict[str, Any]] = {
         ],
         "notes": ["标题 80 字符与一小时内补首评都是惯例，不是官方硬规则。",
                   "内容契约来源：经验库 hackernews（2026-11-17 Algolia 一手评论树采集，boringBar 520赞/Write It Down 271赞两帖）。"],
-        "reviewed_at": "2026-11-17",
+        "reviewed_at": "2026-11-21",
     },
 
     # ------------------------------------------------------------- LinkedIn
@@ -565,7 +579,7 @@ STRATEGY: Dict[str, Dict[str, Any]] = {
         ],
         "rules": [],
         "notes": ["接受率低于约 30% 应停手修定向；封号触发器是接受率/回复率（社区逆向，非官方）。"],
-        "reviewed_at": "2026-11-17",
+        "reviewed_at": "2026-11-21",
     },
 }
 
@@ -711,7 +725,8 @@ def validate(platforms: Optional[Iterable[str]] = None) -> Dict[str, List[str]]:
     from . import platforms as platform_registry
 
     problems: Dict[str, List[str]] = {}
-    for pid in (platforms or STRATEGY):
+    pids = list(platforms) if platforms else list(STRATEGY)
+    for pid in pids:
         issues: List[str] = []
         if pid not in platform_registry.BY_ID:
             issues.append("platforms.py 里没有这个平台，策略卡会与执行层脱节")
@@ -765,6 +780,8 @@ def validate(platforms: Optional[Iterable[str]] = None) -> Dict[str, List[str]]:
                 issues.append(f"多源经验至少要有 2 篇独立来源：{rule.get('claim')[:24]} 库里只有 {library[claim]} 篇")
         if issues:
             problems[pid] = issues
+    for pid, risk_issues in platform_risk.validate(pids).items():
+        problems.setdefault(pid, []).extend(risk_issues)
     return problems
 
 
@@ -795,6 +812,7 @@ def card(platform: str, *, on: Optional[Any] = None) -> Dict[str, Any]:
         "cadence": cadence(pid),
         "gates": gates(pid, scope="content"),
         "execution_gates": gates(pid, scope="execution"),
+        "risk": platform_risk.card(pid, on=on),
         "checklist": checklist(pid),
         "overrides": overrides(pid),
         "monetization": [dict(x) for x in spec.get("monetization") or []],
@@ -852,6 +870,8 @@ def render_card(platform: str, *, on: Optional[Any] = None) -> str:
         lines.append("## 执行边界（发送前检查）")
         for g in c["execution_gates"]:
             lines.append(f"- [{g['level']}] {g['statement']} → {g.get('fix', '')}（{g.get('source', '')}）")
+    lines.append("")
+    lines.append(platform_risk.render_card(platform, on=on))
     lines.append("")
     if c["monetization"]:
         lines.append("## 变现门槛")

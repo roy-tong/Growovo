@@ -25,7 +25,12 @@ from pathlib import Path
 OK_RESULTS = ("committed",)
 # indeterminate = 可能已发送但未能确认。自动重发会造成重复触达，必须先由人
 # 通过 ledger.resolve 覆盖为 committed/failed；不能在未知状态上再发一次。
-NO_RETRY_CODES = frozenset({"indeterminate", "no-dm", "bounced", "suppressed"})
+# target_rejected / unavailable_or_unrenderable = 目标级永久失败（正文被拒、
+# 帖子已删、客户端渲染不出来）：隔离这一个目标，不升级成渠道停止。
+NO_RETRY_CODES = frozenset({"indeterminate", "no-dm", "bounced", "suppressed",
+                            "target_rejected", "unavailable_or_unrenderable"})
+# 目标级不可重试终态：不该再对同一个目标重试，但与渠道健康无关。
+TARGET_BLOCKED = ("target_rejected", "unavailable_or_unrenderable")
 
 
 class LedgerCorruptError(RuntimeError):

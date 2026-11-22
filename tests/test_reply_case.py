@@ -292,6 +292,28 @@ class ImportTests(ReplyFixture):
                 self.data, path, account_id="acc-1", channel="x",
                 imported_by="owner", authorization_ref="ticket-42", now=NOW)
 
+    def test_discord_and_hn_replies_import_with_channel_alias(self):
+        accounts = json.loads(json.dumps(ACCOUNTS))
+        accounts["accounts"].extend([
+            {"id": "acc-dc", "platform": "discord", "handle": "owner#0001",
+             "identity_type": "pseudonymous", "status": "eligible"},
+            {"id": "acc-hn", "platform": "hn", "handle": "owner",
+             "identity_type": "pseudonymous", "status": "eligible"},
+        ])
+        (self.data / "accounts.json").write_text(
+            json.dumps(accounts, ensure_ascii=False), encoding="utf-8")
+        for account_id, channel, ref, name, expected in (
+                ("acc-dc", "discord", "msg-dc", "dc.csv", "discord"),
+                ("acc-hn", "hackernews", "msg-hn", "hn.csv", "hn")):
+            path = self.write_file(name, [_row(ref=ref)])
+            result = reply_case.import_replies(
+                self.data, path, account_id=account_id, channel=channel,
+                imported_by="owner", authorization_ref="ticket-42", now=NOW)
+            self.assertEqual(1, result["created"])
+            self.assertEqual(expected, result["channel"])
+            case = reply_case.get_case(self.data, result["case_ids"][0])
+            self.assertEqual(expected, case["channel"])
+
     def test_unknown_columns_rejected_unless_explicitly_ignored(self):
         rows = [_row(weird_column="value")]
         path = self.write_file("replies.csv", rows)
