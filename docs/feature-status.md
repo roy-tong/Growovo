@@ -1,6 +1,6 @@
 # Growovo: implementation status
 
-**Current release, 2026-11-21 · [v0.17.1](../CHANGELOG.md).** The content check rejects placeholders and drafts that miss required audience or product facts before handoff. Human review still decides whether a draft is fit to send. An uncertain SMTP receipt halts the batch for reconciliation. Refusals now carry one of seven shared error families with what is missing, the impact, the legal next action and an example; `queue run` exits 2 on a business refusal (3 still means an unknown external submission).
+**Release update, 2026-11-22 · [v0.18.0](../CHANGELOG.md).** The content check rejects placeholders and drafts that miss required audience or product facts before handoff. Human review still decides whether a draft is fit to send. An uncertain SMTP receipt halts the batch for reconciliation. Refusals now carry one of seven shared error families with what is missing, the impact, the legal next action and an example; `queue run` exits 2 on a business refusal (3 still means an unknown external submission).
 
 Earlier baseline reviewed 2026-11-18. **Baseline on that date: v0.15.0 (delivery golden chain, platform strategy layer and grow v2).** Available means local implementation and local tests, not production validation on every platform or proof of business outcomes.
 
