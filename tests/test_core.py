@@ -6,8 +6,10 @@
 （含 449 事故的核心回归：回读不一致绝不 SEND）。
 """
 import json
+import os
 import sys
 import tempfile
+import time
 import unittest
 from datetime import datetime, timezone
 from pathlib import Path
@@ -211,6 +213,20 @@ class TestThrottle(TmpDir):
 
 class TestBudgetDayBoundary(TmpDir):
     """夜间窗口 19:00→次日 07:00 跨本地 0 点：预算日界不能把一晚切成两段。"""
+
+    def setUp(self):
+        super().setUp()
+        self._old_tz = os.environ.get("TZ")
+        os.environ["TZ"] = "Asia/Shanghai"
+        time.tzset()
+        self.addCleanup(self._restore_tz)
+
+    def _restore_tz(self):
+        if self._old_tz is None:
+            os.environ.pop("TZ", None)
+        else:
+            os.environ["TZ"] = self._old_tz
+        time.tzset()
 
     def _at(self, *args):
         when = datetime(*args, tzinfo=timezone.utc)
