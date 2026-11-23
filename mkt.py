@@ -27,7 +27,6 @@
   mkt gtm design "…"      GTM 设计：对象×目标×机制×渠道 + 结果契约（只设计，不执行）
   mkt gtm handoff <json>  设计 → 候选岗位编排 + 目标契约映射（可选 --product）
   mkt optimize              优化建议（需人工决定，不自动改预算或重放）
-  mkt review-ops …         求评/暖回访：当日证据、人员资格、冷却、未批准队列与私有反馈投影
   mkt schedule …            持久化排期：add/list/tick/status/resume
   mkt outcome …             效果归因：事件/计数台账 + 漏斗（口径非因果）
   mkt grow events|layers|journey|qualify|goal-exit
@@ -53,11 +52,9 @@
   python3 mkt.py linkedin message --url <profile> --note-file note.txt
 """
 import argparse
-import hashlib
 import json
 import os
 import sys
-from datetime import datetime
 from pathlib import Path
 
 BASE = Path(__file__).resolve().parent
@@ -3384,12 +3381,10 @@ def cmd_policy(args):
 def cmd_cycle(args):
     """夜间互动循环：通知优先 → 实时选路 → 额度/间隔 → 逐条写。
 
-    本命令允许的写动作逐条经过 action_runner，并显式选择 browser-attach 传输；
-    X 在计划阶段以 platform_permission_required 排除，保留只读采集但不发送。
-    GitHub/Discord 不走通用 CDP 身份或 plan/routine 预检，授权由
-    data/policies/owner-attested-*.json 的 owner_attested_session 独立承担。
-    run 默认 dry-run，--go 才执行；暂停、DNC、页面身份、日预算、回读、账本、
-    任务结果和统一操作日志全部保留。
+    本命令逐条经过 action_runner，并显式选择 browser-attach 传输；不走通用
+    CDP 身份或 plan/routine 预检，授权由 data/policies/owner-attested-*.json
+    的 owner_attested_session 独立承担。run 默认 dry-run，--go 才执行；暂停、
+    DNC、页面身份、日预算、回读、账本、任务结果和统一操作日志全部保留。
     """
     import datetime as _dt
     from core import engagement_cycle as cycle
@@ -3417,6 +3412,41 @@ def cmd_cycle(args):
 
     if args.action == "quota":
         return _emit(cycle.quota_snapshot(DATA, now=_when()))
+
+    if args.action == "report":
+        from core import cycle_report
+        got = cycle_report.build_report(
+            DATA, night=str(getattr(args, "night", "") or ""),
+            scheduled_only=bool(getattr(args, "scheduled_only", False)))
+        _emit(got)
+        return 0 if got.get("status") == "complete" else 2
+
+    if args.action == "receipts":
+        from core import receipt_audit
+        got = receipt_audit.audit(
+            DATA, night=str(args.night or ""),
+            scheduled_only=bool(getattr(args, "scheduled_only", False)),
+            live=bool(getattr(args, "live", False)))
+        _emit(got)
+        return 0 if got.get("ok") else 2
+
+    if args.action == "observe":
+        from core import business_observations
+        got = business_observations.import_observation(
+            DATA, _load_structured(args.file), night=str(args.night or ""),
+            phase=str(args.phase or ""), by=str(args.by or ""), apply=bool(args.apply))
+        _emit(got)
+        return 0
+
+    if args.action in ("jobs-tick", "jobs-status"):
+        from core import cycle_scheduler
+        if args.action == "jobs-tick":
+            got = cycle_scheduler.tick(DATA, args.file, now=_when(), go=bool(args.go),
+                                       max_jobs=int(args.max_jobs or 1))
+        else:
+            got = cycle_scheduler.status(DATA, args.file, now=_when())
+        _emit(got)
+        return 0 if got.get("ok") else 2
 
     if args.action == "pending-auth":
         from core import browser_write
@@ -3451,6 +3481,19 @@ def cmd_cycle(args):
         rows = cycle.collect_inbox(DATA, lookback_hours=getattr(args, "lookback_hours", 0) or None,
                                    session=getattr(args, "session", "") or "", log=_log)
         got = cycle.merge_inbox(DATA, rows, queue_path=_queue_path())
+        _emit(got)
+        return 0 if got.get("ok") else 2
+
+    if args.action == "inbox-update":
+        got = cycle.update_inbox(DATA, _load_structured(args.file), queue_path=_queue_path(),
+                                 by=str(args.by or ""))
+        _emit(got)
+        return 0 if got.get("ok") and not got.get("rejected") else 2
+
+    if args.action == "inbox-status":
+        from core import inbox_tracking
+        got = inbox_tracking.status_report(
+            DATA, _queue_path(), stale_minutes=int(getattr(args, "stale_minutes", 60) or 60))
         _emit(got)
         return 0 if got.get("ok") else 2
 
@@ -3535,6 +3578,38 @@ def cmd_supply(args):
         _emit(got)
         return 0
 
+    if args.action == "readiness":
+        from core import engagement_cycle as cycle
+        from core import supply_readiness
+        now = cycle._now()
+        if str(getattr(args, "now", "") or ""):
+            import datetime as _dt
+            now = _dt.datetime.fromisoformat(str(args.now).replace("Z", "+00:00"))
+        got = supply_readiness.assess(DATA, cycle.load_policy(DATA), now=now,
+                                      waves=int(getattr(args, "waves", 3) or 3))
+        _emit(got)
+        return 0
+
+    if args.action == "koc-audit":
+        from core import koc_qualification
+        _emit(koc_qualification.report(DATA))
+        return 0
+
+    if args.action == "koc-recompute":
+        from core import koc_qualification
+        got = koc_qualification.recompute(DATA, apply=bool(args.apply), by=str(args.by or ""))
+        _emit(got)
+        return 0 if got.get("ok") else 2
+
+    if args.action == "koc-qualify":
+        from core import koc_qualification
+        got = koc_qualification.qualify(
+            DATA, args.handle, status=args.status, by=str(args.by or ""),
+            evidence=args.evidence or [], account_type=args.account_type,
+            contact_handle=str(args.contact_handle or ""), note=str(args.note or ""))
+        _emit(got)
+        return 0 if got.get("ok") else 2
+
     if args.action == "pick":
         rows = supply_pool.pick(
             DATA, args.channel, args.action_name, int(args.n or 5),
@@ -3595,6 +3670,30 @@ def cmd_supply(args):
         return 0 if got.get("ok") else 2
 
     raise ValueError("未知 supply 动作：%s" % args.action)
+
+
+@_business_command
+def cmd_review_ops(args):
+    from core import legacy_commands
+    return legacy_commands.review_ops(DATA, args)
+
+
+@_business_command
+def cmd_proof(args):
+    from core import legacy_commands
+    return legacy_commands.proof(DATA, args)
+
+
+@_business_command
+def cmd_runtime(args):
+    from core import cli_runtime
+    return cli_runtime.cmd_runtime(DATA, args)
+
+
+@_business_command
+def cmd_outreach(args):
+    from core import cli_runtime
+    return cli_runtime.cmd_outreach(DATA, args, _load_structured)
 
 
 @_business_command
@@ -4281,11 +4380,8 @@ def cmd_network(args):
 
 
 def cmd_demo(args):
-    from core.demo import run_demo
-    default_data = (BASE / "data").resolve()
-    if DATA == default_data:
-        return run_demo(BASE if (BASE / "pyproject.toml").is_file() else Path.cwd())
-    return run_demo(DATA.parent, data_dir=DATA / "demo")
+    from core import legacy_commands
+    return legacy_commands.demo(BASE, DATA)
 
 
 def cmd_work_demo(args):
@@ -5563,161 +5659,6 @@ def cmd_action(args):
     return 3 if rec.get("result") == "indeterminate" else 1
 
 
-def _review_now(value=""):
-    if not value:
-        return datetime.now().astimezone()
-    got = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
-    return got if got.tzinfo else got.replace(tzinfo=datetime.now().astimezone().tzinfo)
-
-
-def _review_candidates(path):
-    payload = json.loads(Path(path).read_text(encoding="utf-8"))
-    rows = payload.get("candidates") if isinstance(payload, dict) else payload
-    if not isinstance(rows, list):
-        raise ValueError("求评候选文件必须是 JSON 数组，或含 candidates 数组")
-    return rows
-
-
-def _review_contacts(data_dir, legacy_root):
-    from core import review_outreach
-    rows = review_outreach.load_legacy_history(legacy_root)
-    for row in _ledger().all():
-        if row.get("result") != "committed":
-            continue
-        rows.append({"target": row.get("target") or "", "sent_at": row.get("ts") or "",
-                     "campaign": row.get("campaign") or "", "company": ""})
-    return rows
-
-
-def _review_check(data_dir, *, candidates_path, legacy_root, out_dir, campaign, now):
-    from core import review_outreach
-    from core.gates import load_suppressions
-    out = Path(out_dir)
-    if out.exists() and any(out.iterdir()):
-        raise ValueError("求评输出目录必须为空；不得覆盖已批准队列")
-    out.mkdir(parents=True, exist_ok=True)
-    candidates = _review_candidates(candidates_path)
-    suppressions = set(load_suppressions(data_dir))
-    suppressions.update(review_outreach.load_legacy_suppressions(legacy_root))
-    contacts = _review_contacts(data_dir, legacy_root)
-    email_candidates = [row for row in candidates
-                        if str((row.get("person") or {}).get("channel") or "email") == "email"]
-    github_candidates = [row for row in candidates
-                         if str((row.get("person") or {}).get("channel") or "") == "github"]
-    rejected = []
-    for row in candidates:
-        channel = str((row.get("person") or {}).get("channel") or "email")
-        if channel not in ("email", "github"):
-            rejected.append({"target": str((row.get("person") or {}).get("target") or ""),
-                             "issues": ["channel_unsupported"]})
-    email = review_outreach.build_email_queue(
-        email_candidates, campaign=campaign, now=now,
-        contacts=contacts, suppressions=suppressions)
-    github_campaign = campaign + "_github"
-    github = review_outreach.build_github_queue(
-        github_candidates, campaign=github_campaign, now=now,
-        contacts=contacts, suppressions=suppressions)
-    rejected.extend(email["rejected"])
-    rejected.extend(github["rejected"])
-    hashes = {}
-    for name, built in ((campaign, email), (github_campaign, github)):
-        queue = built.get("queue")
-        if not queue:
-            continue
-        queue_text = json.dumps(queue, ensure_ascii=False, indent=2) + "\n"
-        (out / (name + ".json")).write_text(queue_text, encoding="utf-8")
-        hashes[name] = hashlib.sha256(queue_text.encode("utf-8")).hexdigest()
-    business_goals = {}
-    for built in (email, github):
-        for objective, count in (built.get("business_goals") or {}).items():
-            business_goals[objective] = business_goals.get(objective, 0) + count
-    report = {
-        "schema": "growovo.review-outreach-run/1",
-        "campaign": campaign,
-        "checked_at": now.isoformat(timespec="seconds"),
-        "accepted": sum(len((built.get("queue") or {}).get("items") or [])
-                        for built in (email, github)),
-        "rejected": rejected,
-        "queue_sha256": hashes.get(campaign, ""),
-        "queue_sha256_by_campaign": hashes,
-        "business_goals": business_goals,
-        "capacity_per_channel_per_wave": review_outreach.CHANNEL_WAVE_CAPACITY,
-        "quantity_policy": "eligible_only_no_padding",
-        "human_approval_required": True,
-        "external_action": "none",
-    }
-    (out / "report.json").write_text(
-        json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    return report
-
-
-def cmd_review_ops(args):
-    from core import review_outreach
-    act = args.review_action
-    if act == "feedback":
-        result = review_outreach.sync_feedback(DATA)
-        print(json.dumps({"written": len(result["written"]),
-                          "unchanged": len(result["unchanged"]),
-                          "skipped": len(result["skipped"]),
-                          "external_action": "none"}, ensure_ascii=False, indent=1))
-        return 0
-    now = _review_now(getattr(args, "now", ""))
-    if act == "check":
-        report = _review_check(
-            DATA, candidates_path=args.file, legacy_root=args.legacy_root,
-            out_dir=args.out, campaign=args.campaign, now=now)
-        print(json.dumps({"accepted": report["accepted"],
-                          "rejected": len(report["rejected"]),
-                          "business_goals": report["business_goals"],
-                          "capacity_per_channel_per_wave": report["capacity_per_channel_per_wave"],
-                          "out": str(Path(args.out)),
-                          "human_approval_required": True,
-                          "external_action": "none"}, ensure_ascii=False, indent=1))
-        return 0
-
-    config_path = Path(args.config).resolve()
-    config = json.loads(config_path.read_text(encoding="utf-8"))
-
-    def config_path_value(key, default):
-        value = Path(config.get(key) or default)
-        return value if value.is_absolute() else (config_path.parent / value).resolve()
-
-    data_dir = config_path_value("workspace", "data")
-    candidates = config_path_value("candidates", "candidates.json")
-    legacy_root = config_path_value("legacy_root", "legacy")
-    out_root = config_path_value("out_root", "runs")
-    campaign = str(config.get("campaign") or "expert_review_v2")
-    out = out_root / ("run-" + now.strftime("%Y%m%dT%H%M%S%z"))
-    report = _review_check(
-        data_dir, candidates_path=candidates, legacy_root=legacy_root,
-        out_dir=out, campaign=campaign, now=now)
-    feedback = review_outreach.sync_feedback(data_dir, now=now)
-    print(json.dumps({"accepted": report["accepted"], "rejected": len(report["rejected"]),
-                      "business_goals": report["business_goals"],
-                      "capacity_per_channel_per_wave": report["capacity_per_channel_per_wave"],
-                      "feedback_written": len(feedback["written"]),
-                      "feedback_skipped": len(feedback["skipped"]),
-                      "out": str(out), "human_approval_required": True,
-                      "external_action": "none"}, ensure_ascii=False, indent=1))
-    return 0
-
-
-def cmd_proof(args):
-    from core import proof_export
-    try:
-        result = proof_export.export_proof(
-            DATA, args.run_id, args.out, by=args.by or "",
-            classification=args.classification or "private")
-    except (proof_export.ProofExportError, proof_export.verovo_handoff.HandoffError) as exc:
-        print(json.dumps({"status": "refused", "reason": str(exc)}, ensure_ascii=False), file=sys.stderr)
-        return 2
-    except (OSError, ValueError, json.JSONDecodeError) as exc:
-        print(json.dumps({"status": "error", "reason": str(exc)}, ensure_ascii=False), file=sys.stderr)
-        return 2
-    print(json.dumps(result, ensure_ascii=False, indent=2))
-    return 0
-
-
 def cmd_collect(args):
     from core import collector
     act = args.action
@@ -6114,13 +6055,42 @@ def build_parser():
     cysub.add_parser("smoke", help="离线自检窗口、间隔与空队列计划")
     a = cysub.add_parser("quota", help="今夜与近一小时已用额度")
     a.add_argument("--now", default="", help="模拟当前时间，ISO 格式")
-    cysub.add_parser("pending-auth", help="GitHub/Discord owner-attested 授权窗口（只读）；X browser-attach 写不可用")
+    a = cysub.add_parser("report", help="按持久化波次确定性汇总目标、排程、回执与缺口（只读）")
+    a.add_argument("--night", default="", help="夜间起始日 YYYY-MM-DD；不填报最新有波次的一夜")
+    a.add_argument("--scheduled-only", action="store_true",
+                   help="只汇总定时波次；补发等辅助波次单独计数，不混入定时任务完成率")
+    a = cysub.add_parser("receipts", help="按 wave 与账本独立核对回执；只读，不裁决、不重试")
+    a.add_argument("--night", required=True, help="夜间起始日 YYYY-MM-DD")
+    a.add_argument("--scheduled-only", action="store_true", help="只核对定时波次")
+    a.add_argument("--live", action="store_true", help="调用支持的平台只读接口；不支持时明确 unknown")
+    a = cysub.add_parser("observe", help="导入带证据的业务基线/终点观察；默认 dry-run，--apply 才追加")
+    a.add_argument("--file", required=True, help="observed_at + metrics + source.evidence JSON")
+    a.add_argument("--night", required=True)
+    a.add_argument("--phase", required=True, choices=["baseline", "final"])
+    a.add_argument("--by", required=True)
+    a.add_argument("--apply", action="store_true")
+    a = cysub.add_parser("jobs-tick", help="执行持久作业配置中的到期作业；默认 dry-run")
+    a.add_argument("--file", required=True, help="作业配置 JSON")
+    a.add_argument("--now", default="", help="模拟 tick 时间，ISO 格式")
+    a.add_argument("--go", action="store_true", help="执行到期作业；wave 仍须自身安全门通过")
+    a.add_argument("--max-jobs", type=int, default=1)
+    a = cysub.add_parser("jobs-status", help="查看持久作业与依赖状态（只读）")
+    a.add_argument("--file", required=True, help="作业配置 JSON")
+    a.add_argument("--now", default="", help="模拟状态时间，ISO 格式")
+    cysub.add_parser("pending-auth", help="三平台 owner-attested 授权窗口（只读）")
     a = cysub.add_parser("attach", help="列出现有标签页并读三平台身份（只读，不新建标签页）")
     a.add_argument("--session", default="", help="WebBridge 会话名；默认 ovo-night-run")
     a = cysub.add_parser("inbox", help="只读收集通知回复并合并进队列（不发送）")
     a.add_argument("--lookback-hours", type=int, default=0, help="回看小时数；不填用策略值")
     a.add_argument("--queue", default="", help="队列文件；默认 data/state/engagement-queue.json")
     a.add_argument("--session", default="", help="WebBridge 会话名；不填用策略值")
+    a = cysub.add_parser("inbox-update", help="给已有空白入站行补正文，或带原因署名忽略（不发送）")
+    a.add_argument("--file", required=True, help="JSON/JSONL：target/id + text 或 not_replied_reason")
+    a.add_argument("--queue", default="")
+    a.add_argument("--by", required=True, help="补写或忽略的操作者署名")
+    a = cysub.add_parser("inbox-status", help="逐条查看入站草稿、排程、回执、忽略与对账状态（只读）")
+    a.add_argument("--queue", default="")
+    a.add_argument("--stale-minutes", type=int, default=60, help="待处理超过多少分钟算超龄")
     a = cysub.add_parser("enqueue", help="校验、去重并合并已准备草稿（只写本地队列）")
     a.add_argument("--file", required=True, help="JSON 数组、JSONL 或含 items 数组的 JSON")
     a.add_argument("--queue", default="")
@@ -6154,6 +6124,9 @@ def build_parser():
     susub = sp.add_subparsers(dest="action", required=True)
     a = susub.add_parser("stats", help="按渠道看可用候选、每夜需求与缺口")
     a.add_argument("--nights", type=int, default=3, help="按几晚容量计算；默认 3")
+    a = susub.add_parser("readiness", help="分开投影候选、成稿与当波 eligible 供给（只读、不发送）")
+    a.add_argument("--waves", type=int, default=3, help="投影未来几波；默认 3")
+    a.add_argument("--now", default="", help="评估起点；窗口外自动取下一夜间窗口")
     a = susub.add_parser("mine", help="挖掘候选并入储备（不写队列、不发送）")
     a.add_argument("--channel", required=True, choices=["github", "x", "content"])
     a.add_argument("--query", action="append", default=[], help="覆盖默认查询，可重复")
@@ -6175,6 +6148,18 @@ def build_parser():
     a.add_argument("--why", default="")
     a = susub.add_parser("koc", help="查看 KOC 账号登记")
     a.add_argument("--limit", type=int, default=0, help="只列前 N 个；0 列全部")
+    susub.add_parser("koc-audit", help="分开统计注册、补全、人工资格、互动、回应和分层漂移（只读）")
+    a = susub.add_parser("koc-recompute", help="按粉丝数重算启发式分层；默认预览，--apply 才写")
+    a.add_argument("--apply", action="store_true")
+    a.add_argument("--by", default="", help="--apply 时必填的署名")
+    a = susub.add_parser("koc-qualify", help="人工写入 KOC 资格与证据；不触达、不发送")
+    a.add_argument("--handle", required=True)
+    a.add_argument("--status", required=True, choices=["qualified", "needs_review", "excluded"])
+    a.add_argument("--by", required=True)
+    a.add_argument("--evidence", action="append", default=[], help="资格证据，可重复")
+    a.add_argument("--account-type", required=True, choices=["person", "company"])
+    a.add_argument("--contact-handle", default="", help="公司账号的具体联系人")
+    a.add_argument("--note", default="")
     a = susub.add_parser("wave", help="按每波额度生成某一波的工作清单（不写正文、不改状态）")
     a.add_argument("--wave", dest="wave_no", type=int, default=1, help="波次序号，仅作标记")
     a.add_argument("--out", default="", help="清单路径；默认 data/state/wave-supply.json")
@@ -6183,6 +6168,9 @@ def build_parser():
     for _sub in susub.choices.values():
         _sub.add_argument("--json", action="store_true", help="兼容参数：输出本就是 JSON")
     sp.set_defaults(fn=cmd_supply)
+
+    from core.cli_runtime import register as register_runtime_commands
+    register_runtime_commands(sub, runtime_handler=cmd_runtime, outreach_handler=cmd_outreach)
 
     sp = sub.add_parser("orchestrate", help="按产品/目标/任务选择最小岗位组合、交付物与表达方式")
     sp.add_argument("--product", required=True, help="产品事实 JSON；也接受含 product 的事实包")

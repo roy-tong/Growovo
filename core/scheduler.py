@@ -59,16 +59,17 @@ def _parse(value: str) -> Optional[datetime]:
 
 
 def load(data_dir: Path, schedule_id: str) -> Dict[str, Any]:
+    from .storage import AtomicJSONStore
     path = _path(data_dir, schedule_id)
     if not path.is_file():
         raise ScheduleError(f"unknown schedule {schedule_id!r}")
-    return json.loads(path.read_text(encoding="utf-8"))
+    return AtomicJSONStore(path).load()
 
 
 def save(data_dir: Path, schedule: Dict[str, Any]) -> Path:
+    from .storage import AtomicJSONStore
     path = _path(data_dir, schedule["id"])
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(schedule, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    AtomicJSONStore(path).save(schedule)
     return path
 
 
@@ -118,11 +119,9 @@ def list_schedules(data_dir: Path) -> List[Dict[str, Any]]:
     if not directory.is_dir():
         return []
     rows = []
+    from .storage import AtomicJSONStore
     for path in sorted(directory.glob("*.json")):
-        try:
-            rows.append(json.loads(path.read_text(encoding="utf-8")))
-        except (OSError, json.JSONDecodeError):
-            continue
+        rows.append(AtomicJSONStore(path).load())
     return rows
 
 
@@ -155,7 +154,8 @@ def tick(data_dir: Path, *, now: Optional[datetime] = None,
         schedule_id = schedule.get("id")
         status = schedule.get("status")
         if status == "running":
-            schedule["status"] = "needs_review"
+            from .job_kernel import JobStateMachine
+            schedule["status"] = JobStateMachine.interrupted(status)
             schedule["stop_reason"] = "interrupted_wave"
             save(data_dir, schedule)
             skipped.append({"id": schedule_id, "reason": "interrupted"})
@@ -192,7 +192,8 @@ def tick(data_dir: Path, *, now: Optional[datetime] = None,
                 results = [str(record.get("result") or "") for record in records if isinstance(record, dict)]
                 wave["queues"].append({"queue": queue_path, "records": len(records),
                                        "results": results})
-                if any(result in ("indeterminate", "failed", "rejected") for result in results):
+                from .job_kernel import JobStateMachine
+                if JobStateMachine.legacy_results(results) == "needs_review":
                     raise ScheduleError(f"queue {queue_path} produced an unknown or failed result")
         except Exception as exc:
             schedule["status"] = "needs_review"

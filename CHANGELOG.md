@@ -2,9 +2,38 @@
 
 ## Unreleased
 
+## 0.19.0 — 2026-11-23
+
+A compatibility-preserving architecture release that combines the v0.18.1 platform-security boundary, evidence-qualified review operations, deterministic execution evidence and a progressive modular runtime.
+
 ### Added
 
-- `mkt review-ops` adds evidence-qualified expert-review and warm-follow-up preparation. Named-person/account mapping, same-day hook checks, cross-campaign cooldown, company spacing, specific review artifacts and anti-template rules feed native unapproved email/GitHub queues. Business goals record reader value, observable outcomes and non-goals; high-marketing CTAs are refused. Capacity is three deep-research items per channel per wave with no quota padding. Confirmed replies project to idempotent private feedback drafts; no sender, credential, approval bypass, repository write or external action is added.
+- **One runtime and policy contract**: `RunContext` correlates run/attempt/action ids through manifests, wave results and operations logs. Atomic JSON/JSONL storage fails loudly on corruption; EffectivePolicy binds a canonical policy hash and ordered decision explanations without replacing existing approval or transport gates.
+- **Durable local execution state**: queue snapshots now replay consume events after interruption without replaying external sends. Both scheduler interfaces share one job state machine for dependencies, expiry, interruption, lock deferral and indeterminate no-retry handling.
+- **Deterministic evidence and projections**: `cycle report`, independent structural/live receipt audits, inbox ownership, eligible-supply forecasts, KOC qualification, business baseline/final observations and rebuildable named projections separate execution receipts from replies, product use and causal claims.
+- **Qualified outreach and feedback**: B2B company-to-person mapping, same-day public hooks, warm/expert draft gates and scene-routed my-voice metadata produce unapproved DraftBundles only. Append-only feedback contributions require review and a real change reference before `merged`; no automatic repository write, approval or send is added.
+- **`mkt review-ops`** adds named-person/account mapping, cross-campaign cooldown, company spacing, specific review artifacts and anti-template rules for native unapproved email/GitHub queues. Business goals define reader value, observable outcomes and non-goals; capacity is three deep-research items per channel per wave with no quota padding. Confirmed replies project to idempotent private feedback drafts without external actions.
+- **Modern lazy CLI and compatibility handlers**: `runtime context/project`, `outreach prepare/feedback`, `review-ops` and `proof export` coexist with existing cycle/supply/grow commands.
+
+### Changed
+
+- Planning uses a one-pass ledger index and batch inbox terminal lookup. On the local 500-action/5000-ledger fixture, planning fell from about 0.397 seconds to 0.0276 seconds with the same 500 scheduled actions.
+- Queue persistence compacts snapshots after local consume events; malformed queues/journals/schedules fail before an external write instead of becoming empty work.
+- Chinese and English landing pages combine the growth value proposition with the exact automation boundary and a machine-readable `growovo:auto-channels=email` declaration.
+
+### Security
+
+- All v0.18.1 X protections remain: scripted non-API X browser writes fail closed before vendor execution or committed-ledger append. X read-only collection, dry runs, drafts and human handoff remain; automated writing requires a compliant official API.
+- Pause, DNC/suppression, approval, identity, readback, independent safety caps and unknown-result reconciliation remain mandatory. Content adapters cannot select destinations, approve, send, commit or push.
+
+### Fixed
+
+- Operations logs accept target rejection, unavailable/unrenderable, deferred and blocked outcomes. Indeterminate wave results stop the affected channel pending named human resolution.
+- Discord native reply fixtures now verify explicit reply-target binding and a genuinely new readback row; production fail-closed checks are unchanged.
+
+### Verification
+
+- 2242 offline tests pass, followed by the five-check zero-network demo. Wheel and sdist build successfully; isolated installed-wheel acceptance passes outside the source checkout. No real account sends or X writes are performed.
 
 ## 0.18.1 — 2026-11-23
 

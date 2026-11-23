@@ -42,8 +42,8 @@ DEFAULT_POLICY = {
             "reply": {"min_gap_sec": 90, "per_hour": 20, "per_night": 180},
         },
         "github": {"reply": {"min_gap_sec": 20, "per_hour": 15, "per_night": 135}},
-        "discord": {"publish": {"min_gap_sec": 25, "per_hour": 6, "per_night": 54},
-                    "reply": {"min_gap_sec": 25, "per_hour": 0, "per_night": 0}},
+        "discord": {"publish": {"min_gap_sec": 25, "per_hour": 9, "per_night": 108},
+                    "reply": {"min_gap_sec": 25, "per_hour": 6, "per_night": 60}},
     },
     "interleave": {"priority": ["x", "github", "discord"], "min_gap_sec": 15,
                    "max_actions_per_wave": 51},
@@ -53,7 +53,7 @@ DEFAULT_POLICY = {
     "quota": {"hour_mode": "rolling"},
     "supply": {
         "wave_targets": {"x/publish": 10, "x/reply": 20,
-                         "github/reply": 15, "discord/publish": 6},
+                         "github/reply": 15, "discord/publish": 9},
         "prefetch": {"enabled": False, "lookahead_waves": 2,
                      "sources": ["github", "content"], "max_queries": 3,
                      "per_query": 10, "gap_sec": 15, "days": 14},
@@ -277,6 +277,20 @@ def usage(ledger: Ledger, policy: Dict[str, Any], *, now: _dt.datetime) -> Dict[
     return out
 
 
+def quota_enforced(policy: Dict[str, Any]) -> bool:
+    """配额上限是否拦截业务。
+
+    Owner 2026-11-22：删除配额上限，配额计算的偏差不该让业务发不出去。
+    策略里显式写 quota.enforce=false 时只记账、不拒绝；缺省保持旧行为，
+    以便回滚和测试默认口径不变。
+    """
+    quota = policy.get("quota") or {}
+    value = quota.get("enforce", True)
+    if isinstance(value, str):
+        return value.strip().lower() not in ("false", "0", "no", "off")
+    return bool(value)
+
+
 def budget_rows(policy: Dict[str, Any], *, used: Dict[str, Any],
                 throttle=None) -> Dict[str, Dict[str, Any]]:
     """每个动作的夜间配置目标与今晚真正可达的目标。
@@ -284,7 +298,11 @@ def budget_rows(policy: Dict[str, Any], *, used: Dict[str, Any],
     夜间目标必须装得进平台日额度：跨过本地午夜不等于平台重新给了一天的
     额度，所以 effective_per_night = min(per_night, daily_cap)。这样报告
     不会再拿 120/夜 去对比一个只有 48 额度的账号，制造虚假缺口。
+
+    quota.enforce=false 时不再展示日额度与压减（只保留已用计数），
+    effective 就是配置目标，避免报表继续用配额口径解释发不出去。
     """
+    enforced = quota_enforced(policy)
     rows: Dict[str, Dict[str, Any]] = {}
     for channel, actions in (policy.get("platforms") or {}).items():
         for action, spec in (actions or {}).items():
@@ -294,7 +312,7 @@ def budget_rows(policy: Dict[str, Any], *, used: Dict[str, Any],
             configured = int(spec.get("per_night") or 0)
             night_used = int((used.get("night") or {}).get(key, 0))
             day_cap = day_used = day_left = None
-            if throttle is not None:
+            if throttle is not None and enforced:
                 try:
                     _, _, _, cap = throttle.policy(channel, action)
                     if cap is not None:
@@ -314,10 +332,34 @@ def budget_rows(policy: Dict[str, Any], *, used: Dict[str, Any],
                 "capped_by_daily_budget": bool(configured and day_cap is not None
                                                and configured > day_cap),
                 "night_used": night_used,
-                "night_left": max(0, effective - night_used),
+                # 非强制配额时 night_left 只表示“距配置目标还差多少”，
+                # 不能作为 plan 的压减依据，否则删掉配额上限只是表面生效。
+                "night_left": max(0, effective - night_used) if enforced else None,
                 "day_cap": day_cap,
                 "day_used": day_used,
                 "day_left": day_left,
+            }
+    return rows
+
+
+def safety_rows(policy: Dict[str, Any], *, used: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
+    """Independent hard safety caps; quota.enforce=false never disables this layer."""
+    quota = policy.get("quota") or {}
+    safety = quota.get("safety") or {}
+    enforced = bool(safety.get("enforced", False))
+    caps = safety.get("per_night") or {}
+    rows = {}
+    for channel, actions in (policy.get("platforms") or {}).items():
+        for action in (actions or {}):
+            key = "%s/%s" % (channel, action)
+            raw_cap = caps.get(key)
+            cap = int(raw_cap) if raw_cap is not None else None
+            consumed = int((used.get("night") or {}).get(key, 0))
+            rows[key] = {
+                "status": "enforced" if enforced and cap is not None else (
+                    "missing" if enforced else "disabled"),
+                "enforced": enforced, "cap": cap, "used": consumed,
+                "left": max(0, cap - consumed) if enforced and cap is not None else None,
             }
     return rows
 
@@ -436,6 +478,20 @@ def _interleave_by_target(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     return out
 
 
+def _channel_holds(policy: Dict[str, Any]) -> Dict[str, _dt.datetime]:
+    """频道暂停：到点前整个渠道不排程，不消耗队列、不计发送失败。"""
+    out: Dict[str, _dt.datetime] = {}
+    for name, stamp in (policy.get("channel_holds") or {}).items():
+        try:
+            when = _dt.datetime.fromisoformat(str(stamp))
+        except (TypeError, ValueError):
+            continue
+        if when.tzinfo is None:
+            when = when.replace(tzinfo=_dt.timezone.utc)
+        out[str(name)] = when
+    return out
+
+
 def plan(queue: List[Dict[str, Any]], policy: Dict[str, Any], *, ledger: Ledger,
          now: _dt.datetime, budget_sec: int = 3000, max_actions: int = 0,
          campaign: str = "", throttle=None, data_dir=None) -> Dict[str, Any]:
@@ -446,13 +502,21 @@ def plan(queue: List[Dict[str, Any]], policy: Dict[str, Any], *, ledger: Ledger,
     data_dir 传数据目录时读取集中目标清单，命中的行优先排程。
     """
     start = night_start(now, policy)
+    from .effective_policy import EffectivePolicy
+    effective_policy = EffectivePolicy.compile(policy, now, data_dir=data_dir)
     used = usage(ledger, policy, now=now)
+    from .ledger_index import LedgerIndex
+    ledger_index = LedgerIndex.build(ledger.all())
     cap = int((policy.get("inbox") or {}).get("per_actor_cap", 2))
     focus = content_rules.focus_targets(data_dir, policy) if data_dir is not None else {}
     allowed_dc = {str(x) for x in ((policy.get("channels") or {}).get("discord_allowed_ids") or [])}
     priority = [str(x) for x in ((policy.get("interleave") or {}).get("priority")
                                  or ["x", "github", "discord"])]
     limit = int(max_actions or (policy.get("interleave") or {}).get("max_actions_per_wave") or 0)
+    enforced = quota_enforced(policy)
+    targets = (policy.get("supply") or {}).get("wave_targets") or {}
+    holds = _channel_holds(policy)
+    safety = safety_rows(policy, used=used)
 
     scheduled: List[Dict[str, Any]] = []
     skipped: List[Dict[str, Any]] = []
@@ -471,6 +535,7 @@ def plan(queue: List[Dict[str, Any]], policy: Dict[str, Any], *, ledger: Ledger,
     def _reject(row: Dict[str, Any], reason: str) -> None:
         skipped.append({"channel": row["channel"], "action": row["action"],
                         "target": row["target"], "reason": reason})
+        effective_policy.record(row, effective_policy.from_legacy_reason(reason))
 
     def _candidate_rows() -> List[Dict[str, Any]]:
         inbox: List[Dict[str, Any]] = []
@@ -502,13 +567,28 @@ def plan(queue: List[Dict[str, Any]], policy: Dict[str, Any], *, ledger: Ledger,
                                     key=lambda r: 0 if content_rules.in_focus(r, focus) else 1)
         if rest.get("discord"):
             rest["discord"] = _interleave_by_target(rest["discord"])
-        while any(rest[name] for name in priority):
-            for name in priority:
-                if rest.get(name):
-                    mixed.append(rest[name].pop(0))
+        # 非通知行按动作键逐条轮转：X 的 90 秒间隔足以让 GitHub/Discord
+        # 插进空档，不会像整块轮转那样把非 X 渠道挤到 50 分钟预算之外。
+        buckets: Dict[str, List[Dict[str, Any]]] = {}
+        key_order: List[str] = []
+        for name in priority:
+            for row in rest.get(name) or []:
+                key = "%s/%s" % (row["channel"], row["action"])
+                if key not in buckets:
+                    buckets[key] = []
+                    key_order.append(key)
+                buckets[key].append(row)
+        while any(buckets[key] for key in key_order):
+            for key in key_order:
+                if buckets[key]:
+                    mixed.append(buckets[key].pop(0))
         return mixed
 
     for row in _candidate_rows():
+        hold_until = holds.get(row["channel"])
+        if hold_until and now < hold_until:
+            _reject(row, "channel_hold")
+            continue
         if _stale(row, tz=now.tzinfo, now=now, limit_sec=_stale_limit(policy)):
             _reject(row, "stale_row")
             continue
@@ -539,28 +619,42 @@ def plan(queue: List[Dict[str, Any]], policy: Dict[str, Any], *, ledger: Ledger,
         seen.add(key)
 
         lookup = "%s/%s" % (row["channel"], row["action"])
-        if row["action"] == "reply" and row["target"] and ledger.already(
-                channel=row["channel"], target=row["target"], ok=TARGET_BLOCKED):
+        if row["action"] == "reply" and row["target"] and ledger_index.blocked(
+                row["channel"], row["target"]):
             _reject(row, "target_isolated")
             continue
-        if row["action"] == "reply" and ledger.already(channel=row["channel"], target=row["target"]):
+        if row["action"] == "reply" and ledger_index.committed(row["channel"], row["target"]):
             _reject(row, "already_done")
             continue
         night_used = used["night"].get(lookup, 0) + planned.get(lookup, 0)
-        if night_used >= int(spec.get("per_night") or 0):
+        if enforced and night_used >= int(spec.get("per_night") or 0):
             _reject(row, "night_quota_exhausted")
             continue
         hour_used = used["hour"].get(lookup, 0) + planned.get(lookup, 0)
-        if hour_used >= int(spec.get("per_hour") or 0):
+        if enforced and hour_used >= int(spec.get("per_hour") or 0):
             _reject(row, "hour_quota_exhausted")
             continue
-        if throttle is not None:
+        if enforced and throttle is not None:
             left = throttle.remaining(row["channel"], row["action"])
             if left is not None and left - planned.get(lookup, 0) <= 0:
                 _reject(row, "daily_quota_exhausted")
                 continue
+        safety_row = safety.get(lookup) or {"status": "missing", "left": None}
+        if safety_row["status"] == "missing":
+            _reject(row, "safety_cap_missing")
+            continue
+        if safety_row["status"] == "enforced" and \
+                int(safety_row["left"]) - planned.get(lookup, 0) <= 0:
+            _reject(row, "safety_cap_exhausted")
+            continue
+        wave_target = int(targets.get(lookup) or 0)
+        if wave_target and planned.get(lookup, 0) >= wave_target:
+            # 波次构成目标（10/20/15/9），不是配额上限：先保证每个动作键拿到
+            # 自己的份额，X 的 90 秒间隔才不会把 GitHub/Discord 挤出预算。
+            _reject(row, "wave_target_met")
+            continue
         actor_key = row["actor"].lower() if row["action"] == "reply" else ""
-        if actor_key and actors.get(actor_key, 0) >= cap:
+        if actor_key and row.get("source") != "inbox" and actors.get(actor_key, 0) >= cap:
             _reject(row, "actor_cap")
             continue
         if limit and len(scheduled) >= limit:
@@ -578,13 +672,13 @@ def plan(queue: List[Dict[str, Any]], policy: Dict[str, Any], *, ledger: Ledger,
         scheduled.append(dict(row, scheduled_at=at.isoformat(timespec="seconds"),
                               delay_sec=int(earliest - now.timestamp()),
                               quota_key=lookup))
+        effective_policy.allow(row)
         last_at[row["channel"]] = earliest
         last_any = earliest
         planned[lookup] = planned.get(lookup, 0) + 1
         if actor_key:
             actors[actor_key] = actors.get(actor_key, 0) + 1
 
-    targets = (policy.get("supply") or {}).get("wave_targets") or {}
     queued_by_key: Dict[str, int] = {}
     for raw in queue:
         row = _normalize(raw)
@@ -628,6 +722,18 @@ def plan(queue: List[Dict[str, Any]], policy: Dict[str, Any], *, ledger: Ledger,
         }
 
     content = content_rules.summarize(scheduled, policy, data_dir=data_dir, focus=focus)
+    content_failures = content_rules.gate_failures(content, policy)
+    content_blocked = bool(content_failures)
+    if content_blocked:
+        for row in scheduled:
+            _reject(row, "content_gate_blocked")
+        scheduled = []
+        planned = {}
+    for key, row in safety.items():
+        allocated = int(planned.get(key, 0))
+        row["planned"] = allocated
+        if row["left"] is not None:
+            row["left"] = max(0, int(row["left"]) - allocated)
     return {
         "scheduled": scheduled,
         "skipped": skipped,
@@ -639,69 +745,51 @@ def plan(queue: List[Dict[str, Any]], policy: Dict[str, Any], *, ledger: Ledger,
         "planned": planned,
         "supply": supply,
         "budget": budget,
+        "safety": safety,
+        "effective_policy": effective_policy.explain(),
         "content": content,
+        "content_gate": {"enforced": bool((policy.get("content_rules") or {}).get("enforce", False)),
+                         "blocked": content_blocked, "failures": content_failures},
         "content_text": content_rules.render(content),
     }
 
 
 def load_queue(path) -> List[Dict[str, Any]]:
-    """读队列文件：接受 JSON 数组或 {"items": [...]}。
-
-    老队列行没有 id（id 是后加的），读的时候补上；下次 save_queue 会落盘。
-    补 id 只影响追踪字段，不参与去重和额度计算。
-    """
-    file = Path(path)
-    if not file.is_file():
-        return []
-    try:
-        payload = json.loads(file.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return []
-    if isinstance(payload, dict):
-        payload = payload.get("items") or []
-    rows = [row for row in payload if isinstance(row, dict)] if isinstance(payload, list) else []
-    for row in rows:
-        if not row.get("id"):
-            row["id"] = stable_id(row)
-    return rows
+    """Compatibility facade: read the snapshot and replay local consume events."""
+    from .queue_store import QueueStore
+    return QueueStore(path).load()
 
 
 def _atomic_write_text(path, text: str) -> Path:
-    """同目录临时文件 + replace，避免进程中断留下半截 JSON。"""
-    file = Path(path)
-    file.parent.mkdir(parents=True, exist_ok=True)
-    fd, tmp_name = tempfile.mkstemp(prefix=file.name + ".", suffix=".tmp", dir=str(file.parent))
-    tmp = Path(tmp_name)
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            handle.write(text)
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.replace(str(tmp), str(file))
-    except Exception:
-        try:
-            tmp.unlink()
-        except OSError:
-            pass
-        raise
-    return file
+    """Compatibility facade over the shared atomic storage port."""
+    from .storage import atomic_write_text
+    return atomic_write_text(path, text)
 
 
 def save_queue(path, items: List[Dict[str, Any]]) -> Path:
-    return _atomic_write_text(path, json.dumps(items, ensure_ascii=False, indent=1))
+    from .queue_store import QueueStore
+    return QueueStore(path).save(items)
 
 
 def _lock_path(data_dir) -> Path:
     return Path(data_dir) / "state" / "engagement-cycle.lock"
 
 
-def _merge_inbox_rows(queue_path, fresh) -> Dict[str, Any]:
+def _merge_inbox_rows(queue_path, fresh, *, data_dir=None, now=None) -> Dict[str, Any]:
     path = Path(queue_path)
     existing = load_queue(path)
     merged = [dict(row) for row in existing]
     known = {_candidate_key(row) for row in merged}
+    terminal_skipped = 0
+    terminal_ids = set()
+    if data_dir is not None:
+        from . import inbox_tracking
+        terminal_ids = inbox_tracking.terminal_identities(data_dir)
     for raw in fresh:
         row = _normalize(raw)
+        if data_dir is not None and inbox_tracking.identity(row) in terminal_ids:
+            terminal_skipped += 1
+            continue
         key = _candidate_key(row)
         if key in known:
             for old in merged:
@@ -715,9 +803,13 @@ def _merge_inbox_rows(queue_path, fresh) -> Dict[str, Any]:
         row.setdefault("id", stable_id(row))
         merged.append(row)
     save_queue(path, merged)
+    if data_dir is not None:
+        from . import inbox_tracking
+        inbox_tracking.observe(data_dir, merged, now=now)
     return {"ok": True, "count": len(fresh), "items": fresh,
             "queue_path": str(path), "queue_size": len(merged),
-            "next": "为每条补 text（没有真实依据就留空丢弃），再跑 cycle plan"}
+            "terminal_skipped": terminal_skipped,
+            "next": "用 cycle inbox-update 补 text 或署名忽略，再跑 cycle plan"}
 
 
 def _inbox_identity(row: Dict[str, Any]) -> Tuple[Any, ...]:
@@ -728,7 +820,7 @@ def _inbox_identity(row: Dict[str, Any]) -> Tuple[Any, ...]:
     return _candidate_key(normalized)
 
 
-def _fill_inbox_rows(queue_path, drafts) -> Dict[str, Any]:
+def _fill_inbox_rows(queue_path, drafts, *, data_dir=None, now=None) -> Dict[str, Any]:
     if isinstance(drafts, dict):
         drafts = drafts.get("items") or []
     if not isinstance(drafts, list):
@@ -749,6 +841,9 @@ def _fill_inbox_rows(queue_path, drafts) -> Dict[str, Any]:
                 break
     if written:
         save_queue(path, existing)
+        if data_dir is not None:
+            from . import inbox_tracking
+            inbox_tracking.observe(data_dir, existing, now=now)
     return {"written": written, "queue_size": len(existing)}
 
 
@@ -768,7 +863,104 @@ def merge_inbox(data_dir, fresh, *, queue_path=None) -> Dict[str, Any]:
         return {"ok": False, "reason": "wave_lock_unavailable", "error": str(exc)}
     try:
         path = Path(queue_path) if queue_path else data_dir / "state" / "engagement-queue.json"
-        return _merge_inbox_rows(path, fresh)
+        return _merge_inbox_rows(path, fresh, data_dir=data_dir)
+    finally:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+        handle.close()
+
+
+def update_inbox(data_dir, updates, *, queue_path=None, by: str = "", now=None) -> Dict[str, Any]:
+    """Fill or dismiss existing blank inbox rows under the wave lock; never sends."""
+    data_dir = Path(data_dir)
+    now = now or _now()
+    if not str(by or "").strip():
+        raise ValueError("入站补写/忽略必须署名（--by）")
+    if isinstance(updates, dict):
+        updates = updates.get("items") or []
+    if not isinstance(updates, list):
+        raise ValueError("入站更新必须是 JSON 数组或包含 items 数组的对象")
+    lock_file = _lock_path(data_dir)
+    try:
+        lock_file.parent.mkdir(parents=True, exist_ok=True)
+        handle = lock_file.open("a+")
+        try:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            handle.close()
+            return {"ok": False, "reason": "wave_already_running"}
+    except OSError as exc:
+        return {"ok": False, "reason": "wave_lock_unavailable", "error": str(exc)}
+    try:
+        path = Path(queue_path) if queue_path else data_dir / "state" / "engagement-queue.json"
+        existing = load_queue(path)
+        policy = load_policy(data_dir)
+        written_rows = []
+        dismissed_rows = []
+        rejected = []
+        for index, raw in enumerate(updates):
+            if not isinstance(raw, dict):
+                rejected.append({"index": index, "reason": "row_not_object"})
+                continue
+            target = str(raw.get("target") or raw.get("thread_ref") or "").strip()
+            supplied_id = str(raw.get("id") or raw.get("queue_item_id") or "").strip()
+            matches = []
+            for old in existing:
+                if str(old.get("source") or "") != "inbox" or str(old.get("text") or "").strip():
+                    continue
+                if supplied_id and str(old.get("id") or "") == supplied_id:
+                    matches.append(old)
+                    continue
+                old_target = str(old.get("target") or old.get("thread_ref") or "")
+                if target and target not in (old_target, str(old.get("thread_ref") or "")):
+                    continue
+                if raw.get("channel") and str(raw.get("channel")).lower() != str(old.get("channel") or ""):
+                    continue
+                if raw.get("action") and str(raw.get("action")).lower() != str(old.get("action") or "reply"):
+                    continue
+                if target:
+                    matches.append(old)
+            if len(matches) != 1:
+                rejected.append({"index": index, "target": target,
+                                 "reason": "not_blank_inbox" if len(matches) == 0 else "ambiguous_inbox"})
+                continue
+            old = matches[0]
+            text = str(raw.get("text") or "").strip()
+            has_dismiss = "not_replied_reason" in raw
+            dismiss_reason = str(raw.get("not_replied_reason") or "").strip()
+            if text and has_dismiss:
+                rejected.append({"index": index, "target": target, "reason": "ambiguous_update"})
+                continue
+            if has_dismiss and not dismiss_reason:
+                rejected.append({"index": index, "target": target, "reason": "dismiss_reason_required"})
+                continue
+            if not text and not has_dismiss:
+                rejected.append({"index": index, "target": target, "reason": "update_required"})
+                continue
+            if has_dismiss:
+                dismissed_rows.append((old, dismiss_reason))
+                continue
+            candidate = dict(old, text=text)
+            reason = content_rules.check_row(candidate, policy)
+            if reason:
+                rejected.append({"index": index, "target": target, "reason": reason})
+                continue
+            old["text"] = text
+            written_rows.append(old)
+        if written_rows or dismissed_rows:
+            dismissed_ids = {id(old) for old, _ in dismissed_rows}
+            remaining = [old for old in existing if id(old) not in dismissed_ids]
+            save_queue(path, remaining)
+            from . import inbox_tracking
+            for old in written_rows:
+                inbox_tracking.mark_updated(data_dir, old, "drafted", by=by, now=now)
+            for old, reason in dismissed_rows:
+                inbox_tracking.mark_updated(data_dir, old, "dismissed", by=by,
+                                            reason=reason, now=now)
+            existing = remaining
+        return {"ok": True, "written": len(written_rows),
+                "dismissed": len(dismissed_rows), "rejected": rejected,
+                "queue_path": str(path), "queue_size": len(existing),
+                "by": by, "sent": 0}
     finally:
         fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
         handle.close()
@@ -817,14 +1009,10 @@ def enqueue(data_dir, drafts, *, queue_path=None, now=None) -> Dict[str, Any]:
             elif row["action"] == "reply" and not row["target"]:
                 reason = "target_required"
             elif row["channel"] == "discord" and (
-                    (row["action"] == "reply" and not (
-                        row["target"].partition(":")[0].isdigit() and
-                        row["target"].partition(":")[1] and
-                        row["target"].partition(":")[2].isdigit())) or
-                    (row["action"] != "reply" and not row["target"].isdigit())):
+                    (row["action"] == "reply" and not re.fullmatch(r"\d+:\d+", row["target"]))
+                    or (row["action"] != "reply" and not row["target"].isdigit())):
                 reason = "target_invalid"
-            elif row["channel"] == "discord" and allowed_dc and \
-                    row["target"].partition(":")[0] not in allowed_dc:
+            elif row["channel"] == "discord" and allowed_dc and row["target"] not in allowed_dc:
                 reason = "channel_not_allowed"
             else:
                 reason = content_rules.check_row(row, policy)
@@ -855,6 +1043,8 @@ def enqueue(data_dir, drafts, *, queue_path=None, now=None) -> Dict[str, Any]:
             added.append(row)
         if added or filled:
             save_queue(path, existing)
+            from . import inbox_tracking
+            inbox_tracking.observe(data_dir, added + filled, now=now)
         return {"ok": True, "added": len(added), "filled": len(filled),
                 "duplicates": duplicates, "rejected": rejected,
                 "queue_path": str(path), "queue_size": len(existing),
@@ -979,6 +1169,7 @@ def _run(data_dir, *, go: bool = False, queue_path=None, max_actions: int = 0,
     from .action_runner import run_action
     from .browser_attach import BridgeError
     from .browser_write import ActionBlocked, StopChannel
+    from . import inbox_tracking
 
     data_dir = Path(data_dir)
     policy = load_policy(data_dir)
@@ -990,7 +1181,16 @@ def _run(data_dir, *, go: bool = False, queue_path=None, max_actions: int = 0,
     night = night_key(start)
     wave = wave_id or now.strftime("%H%M")
     campaign = "night-%s-w%s" % (night, wave)
+    from .runtime import RunContext
+    context = RunContext.create(data_dir, campaign, wave, now=now,
+                                metadata={"bridge_session": used_session})
     queue_file = queue_path or (data_dir / "state" / "engagement-queue.json")
+    if go and bool((policy.get("business") or {}).get("require_baseline", False)):
+        from . import business_observations
+        if not business_observations.has_baseline(data_dir, night):
+            return {"ok": False, "reason": "business_baseline_missing",
+                    "night": night, "wave": wave, "campaign": campaign,
+                    "next": "先用 cycle observe --phase baseline --apply 导入带证据的基线"}
     inbox_config = policy.get("inbox") or {}
     inbox_enabled = (bool(inbox_config.get("auto_collect", False))
                      if auto_inbox is None else bool(auto_inbox)) and go
@@ -1000,7 +1200,7 @@ def _run(data_dir, *, go: bool = False, queue_path=None, max_actions: int = 0,
                                      "errors": {}, "coverage": {}}
     if inbox_enabled:
         report = collect_inbox_report(data_dir, session=used_session, log=log)
-        merged = _merge_inbox_rows(queue_file, report["items"])
+        merged = _merge_inbox_rows(queue_file, report["items"], data_dir=data_dir, now=now)
         dms = report.get("dm") or []
         pending_dms = [row for row in dms if row.get("pending_reply", True)]
         inbox_summary.update({"collected": len(report["items"]),
@@ -1021,7 +1221,8 @@ def _run(data_dir, *, go: bool = False, queue_path=None, max_actions: int = 0,
         pending_inbox = [raw for raw in load_queue(queue_file)
                          if str(raw.get("source") or "") == "inbox"
                          and not str(raw.get("text") or "").strip()]
-        filled = _fill_inbox_rows(queue_file, inbox_writer(pending_inbox))
+        filled = _fill_inbox_rows(queue_file, inbox_writer(pending_inbox),
+                                  data_dir=data_dir, now=now)
         inbox_summary["written"] = filled["written"]
         inbox_summary["queue_size"] = filled["queue_size"]
     queue = load_queue(queue_file)
@@ -1055,6 +1256,18 @@ def _run(data_dir, *, go: bool = False, queue_path=None, max_actions: int = 0,
 
     unusable = {name for name, stopped in blocked.items() if stopped}
     unusable.update(preflight_skipped)
+    manifest_summary: Dict[str, Any] = {}
+    if go:
+        from . import run_manifest
+        try:
+            manifest_summary = run_manifest.write_manifest(
+                data_dir, source_dir=Path(__file__).resolve().parents[1],
+                queue_path=queue_file, policy=policy, night=night, wave=wave,
+                campaign=campaign, session=used_session, preflight=preflight_summary, now=now,
+                attempt_id=context.attempt_id)
+        except (OSError, ValueError) as exc:
+            return {"ok": False, "reason": "manifest_error", "error": str(exc),
+                    "night": night, "wave": wave, "campaign": campaign}
     ledger = Ledger(data_dir / "ledger.jsonl")
     eligible = [row for row in queue
                 if _queue_key(_normalize(row)) not in stale_keys
@@ -1074,6 +1287,7 @@ def _run(data_dir, *, go: bool = False, queue_path=None, max_actions: int = 0,
     prepared["skipped"].extend(platform_skipped)
     summary: Dict[str, Any] = {
         "ok": True, "wave": wave, "campaign": campaign, "night": night,
+        "run_context": context.correlation(),
         "dry": not go, "bridge_session": used_session,
         "planned": len(prepared["scheduled"]),
         "skipped": prepared["skipped"], "results": [], "stopped": {},
@@ -1084,7 +1298,9 @@ def _run(data_dir, *, go: bool = False, queue_path=None, max_actions: int = 0,
                    "age_hours": _age_hours(row, now=now)} for row in stale],
         "usage": prepared["usage"], "supply": prepared["supply"],
         "content": prepared["content"], "content_text": prepared["content_text"],
+        "content_gate": prepared["content_gate"], "safety": prepared["safety"],
         "inbox": inbox_summary, "preflight": preflight_summary,
+        "manifest": manifest_summary,
         "preflight_skipped": preflight_skipped,
         "preflight_skipped_rows": sum(
             1 for row in queue
@@ -1093,6 +1309,9 @@ def _run(data_dir, *, go: bool = False, queue_path=None, max_actions: int = 0,
         "stop_recovery": {},
         "started_at": now.isoformat(timespec="seconds"),
     }
+    if go and prepared["content_gate"]["blocked"]:
+        summary["ok"] = False
+        summary["reason"] = "content_gate_blocked"
     if not go:
         summary["scheduled"] = [{"channel": row["channel"], "action": row["action"],
                                  "target": row["target"], "delay_sec": row["delay_sec"],
@@ -1107,11 +1326,13 @@ def _run(data_dir, *, go: bool = False, queue_path=None, max_actions: int = 0,
     deadline = began + max(0, int(budget_sec))
     budget_exhausted = False
     remaining = [dict(raw) for raw in queue]
+    queue_dirty = False
     pruned = 0
     if stale_keys:
         kept = [raw for raw in remaining if _queue_key(_normalize(raw)) not in stale_keys]
         pruned = len(remaining) - len(kept)
         remaining = kept
+        queue_dirty = True
         try:
             save_queue(queue_file, remaining)
         except OSError as exc:
@@ -1119,11 +1340,18 @@ def _run(data_dir, *, go: bool = False, queue_path=None, max_actions: int = 0,
     summary["pruned_stale"] = pruned
 
     def _consume(row: Dict[str, Any]) -> None:
+        nonlocal remaining
+        nonlocal queue_dirty
+        queue_dirty = True
+        from .queue_store import QueueStore
+        try:
+            remaining = QueueStore(queue_file).consume(remaining, row,
+                                                       action_id=str(row.get("id") or ""))
+            return
+        except Exception as exc:
+            log("[queue] 出队事件写入失败，尝试兼容快照回写：%s" % exc)
         key = _queue_key(_normalize(row))
-        for idx, raw in enumerate(remaining):
-            if _queue_key(_normalize(raw)) == key:
-                remaining.pop(idx)
-                break
+        remaining = [raw for raw in remaining if _queue_key(_normalize(raw)) != key]
         try:
             save_queue(queue_file, remaining)
         except OSError as exc:
@@ -1133,6 +1361,9 @@ def _run(data_dir, *, go: bool = False, queue_path=None, max_actions: int = 0,
         deferred_rows.append({"channel": row["channel"], "action": row["action"],
                               "target": row["target"], "actor": row["actor"],
                               "reason": reason})
+        if str(row.get("source") or "") == "inbox":
+            inbox_tracking.mark_updated(data_dir, row, "drafted", by="cycle",
+                                        reason=reason)
 
     pending = [dict(row) for row in prepared["scheduled"]]
     probes_left = {name: probe_actions for name in half_open}
@@ -1147,6 +1378,7 @@ def _run(data_dir, *, go: bool = False, queue_path=None, max_actions: int = 0,
                 probes_left[item["channel"]] -= 1
             kept.append(item)
         pending = kept
+    inbox_tracking.mark_planned(data_dir, pending, wave=wave, now=now)
     observed_durations = duration_stats(data_dir)
     previous = usage(ledger, policy, now=now)
     last_channel: Dict[str, float] = {}
@@ -1214,6 +1446,7 @@ def _run(data_dir, *, go: bool = False, queue_path=None, max_actions: int = 0,
                     text=row["text"], target=row["target"], go=True, campaign=campaign,
                     actor=row["actor"], log=log, transport="browser-attach",
                     operator="cycle:%s" % wave, run_id=campaign,
+                    attempt_id=context.attempt_id,
                     queue_item_id=str(row.get("id") or ""))
                 state = got.get("result") or ("skipped" if got.get("skipped") else "unknown")
                 ledger_state = got.get("ledger_result") or (
@@ -1237,7 +1470,13 @@ def _run(data_dir, *, go: bool = False, queue_path=None, max_actions: int = 0,
                                            "ok": bool(got.get("ok")),
                                            "ref": got.get("ref") or "",
                                            "queue_item_id": str(row.get("id") or ""),
+                                           "run_id": context.run_id, "attempt_id": context.attempt_id,
+                                           "action_id": str(row.get("id") or ""),
                                            "candidate_key": candidate})
+                if str(row.get("source") or "") == "inbox":
+                    inbox_tracking.mark_result(
+                        data_dir, row, ledger_state or state, ref=str(got.get("ref") or ""),
+                        wave=wave, reason=error_text or str(got.get("reason") or ""))
                 if row["channel"] in half_open:
                     if ledger_state == "committed":
                         clear_stopped(data_dir, night, row["channel"])
@@ -1324,6 +1563,13 @@ def _run(data_dir, *, go: bool = False, queue_path=None, max_actions: int = 0,
     summary["budget_exhausted"] = budget_exhausted
     summary["deferred"] = deferred_rows
     summary["deferred_channels"] = sorted(deferred_channels)
+    try:
+        if queue_dirty:
+            save_queue(queue_file, remaining)
+        summary["queue_compacted"] = queue_dirty
+    except (OSError, ValueError, RuntimeError) as exc:
+        summary["queue_compacted"] = False
+        summary["queue_compaction_error"] = str(exc)
     summary["consumed"] = len(queue) - summary["pruned_stale"] - len(remaining)
     summary["queue_left"] = len(remaining)
     summary["elapsed_sec"] = int(time.monotonic() - began)
@@ -1334,11 +1580,16 @@ def _run(data_dir, *, go: bool = False, queue_path=None, max_actions: int = 0,
 
 
 def quota_snapshot(data_dir, *, now: Optional[_dt.datetime] = None) -> Dict[str, Any]:
-    """只读展示：今夜与近一小时已用额度、各渠道剩余。"""
+    """只读展示：今夜与近一小时已用额度、各渠道剩余。
+
+    quota.enforce=false 时上限与剩余一律输出 null，只留已用计数，
+    避免报表继续用配额口径解释业务结果。
+    """
     data_dir = Path(data_dir)
     policy = load_policy(data_dir)
     now = now or _now()
     used = usage(Ledger(data_dir / "ledger.jsonl"), policy, now=now)
+    enforced = quota_enforced(policy)
     rows = {}
     throttle = Throttle(data_dir / "state")
     budget = budget_rows(policy, used=used, throttle=throttle)
@@ -1356,15 +1607,16 @@ def quota_snapshot(data_dir, *, now: Optional[_dt.datetime] = None) -> Dict[str,
             day_left = b.get("day_left")
             rows[key] = {
                 "night_used": night_used,
-                "night_cap": night,
-                "night_left": max(0, night - night_used),
+                "night_cap": night if enforced else None,
+                "night_left": max(0, night - night_used) if enforced else None,
                 "effective_night_cap": b.get("effective_per_night", night),
-                "effective_night_left": b.get("night_left",
-                                               max(0, night - night_used)),
+                "effective_night_left": (b.get("night_left",
+                                               max(0, night - night_used))
+                                         if enforced else None),
                 "capped_by_daily_budget": bool(b.get("capped_by_daily_budget")),
                 "hour_used": used["hour"].get(key, 0),
-                "hour_cap": hour,
-                "hour_left": max(0, hour - used["hour"].get(key, 0)),
+                "hour_cap": hour if enforced else None,
+                "hour_left": max(0, hour - used["hour"].get(key, 0)) if enforced else None,
                 "day_used": day_used,
                 "day_cap": day_cap,
                 "day_left": day_left,
@@ -1373,7 +1625,9 @@ def quota_snapshot(data_dir, *, now: Optional[_dt.datetime] = None) -> Dict[str,
     return {"now": now.isoformat(timespec="seconds"),
             "in_window": night_start(now, policy) is not None,
             "hour_mode": hour_mode(policy),
-            "night_start": used["night_start"], "quotas": rows, "budget": budget}
+            "enforced": enforced,
+            "night_start": used["night_start"], "quotas": rows, "budget": budget,
+            "safety": safety_rows(policy, used=used)}
 
 
 def collect_inbox_report(data_dir, *, lookback_hours: Optional[int] = None,

@@ -219,6 +219,21 @@ def summarize(rows: Iterable[Dict[str, Any]], policy: Optional[Dict[str, Any]] =
     }
 
 
+def gate_failures(summary: Dict[str, Any], policy: Optional[Dict[str, Any]] = None) -> List[str]:
+    """Return enabled wave-level content gates that failed; empty means allowed."""
+    section = (policy or {}).get("content_rules") or {}
+    enforce = section.get("enforce", False)
+    gates = {
+        "reply_artifact": "reply_artifact_floor_met",
+        "x_publish_artifact": "x_publish_artifact_floor_met",
+        "focus": "focus_floor_met",
+    }
+    selected = set(gates) if enforce is True else {
+        key for key in gates if isinstance(enforce, dict) and enforce.get(key) is True
+    }
+    return sorted(key for key in selected if not summary.get(gates[key], False))
+
+
 def render(summary: Dict[str, Any]) -> str:
     """一行式人读摘要，供 CLI 与波次日志使用。"""
     if not summary.get("actions"):

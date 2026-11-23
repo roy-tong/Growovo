@@ -14,10 +14,9 @@
   discord  publish / reply（仅 transport=browser-attach）
   email    仅队列（action_runner 拒绝单条发信）
 
-transport=browser-attach 是 GitHub reply、Discord publish/reply 的独立授权路线；
-X 的持续 browser-attach 写由平台许可门拒绝。允许的动作跳过通用 CDP 身份与
-plan/routine 预检，由 browser_write 强制 owner-attested、页面身份、
-pause/DNC/quota/readback，并保留统一回执、任务结果与操作日志。
+transport=browser-attach 是 X publish/reply、GitHub reply、Discord publish/reply 的
+独立授权路线：跳过通用 CDP 身份与 plan/routine 预检，由 browser_write 强制
+owner-attested、页面身份、pause/DNC/quota/readback；统一回执、任务结果与操作日志。
 """
 import os
 from datetime import datetime, timezone
@@ -70,7 +69,6 @@ def precheck(channel, action, data_dir, campaign, go, allow_unverified, target=N
     if not go:
         return
     if routine and channel != "x":
-        # X has a transport-specific official-API/user-visible-CDP gate in its adapter.
         from .platform_compliance import policy_row
         permission = policy_row(channel)
         if not permission.get("autonomous_write"):
@@ -466,11 +464,11 @@ def run_action(**kwargs):
     already happened must not be reported as failed because a local JSONL write
     failed, so the error is logged and the ledger record is returned unchanged.
 
-    Operations-log context (operator / queue_item_id / run_id) is consumed here
+    Operations-log context (operator / queue_item_id / run_id / attempt_id) is consumed here
     and never reaches the channel dispatch.
     """
     ops_context = {key: kwargs.pop(key, None)
-                   for key in ("operator", "queue_item_id", "run_id")}
+                   for key in ("operator", "queue_item_id", "run_id", "attempt_id")}
     started_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
     record = _dispatch_action(**kwargs)
     finished_at = datetime.now(timezone.utc).isoformat(timespec="seconds")

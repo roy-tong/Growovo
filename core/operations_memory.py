@@ -11,8 +11,9 @@ from datetime import datetime, timezone
 
 RESULTS = {"committed", "indeterminate", "failed", "rejected", "dry-run",
            "no-dm", "bounced", "suppressed", "resolved_committed",
-           "resolved_not_sent"}
-RISK_RESULTS = {"indeterminate", "failed", "rejected", "no-dm", "bounced", "suppressed"}
+           "resolved_not_sent", "target_rejected", "unavailable_or_unrenderable"}
+RISK_RESULTS = {"indeterminate", "failed", "rejected", "no-dm", "bounced", "suppressed",
+                "target_rejected", "unavailable_or_unrenderable"}
 
 
 def summarize(records, *, campaign=None, channel=None, minimum_confirmed=3):
@@ -50,6 +51,8 @@ def summarize(records, *, campaign=None, channel=None, minimum_confirmed=3):
             blockers.append("gate or suppression rejection exists")
         if counted.get("failed"):
             blockers.append("execution failures require investigation")
+        if counted.get("target_rejected") or counted.get("unavailable_or_unrenderable"):
+            blockers.append("target-level failures require isolation and review")
         if confirmed < minimum_confirmed:
             blockers.append("insufficient confirmed successful operations")
         patterns.append({

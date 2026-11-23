@@ -74,11 +74,17 @@ def read_post_metrics(url: str, *, cdp_url: Optional[str] = None,
                       log=print, evidence_dir=None) -> Dict[str, Any]:
     """打开自己的帖子页读公开指标。只读；失败返回 note。"""
     from . import cdp
+    from .grow_targets import _wait_for_timeline
     browser, page = cdp.connect(cdp_url)
     try:
         if not cdp.safe_goto(page, url, log=log):
             return {"url": url, "note": "页面打不开"}
-        page.wait_for_timeout(3500)
+        _wait_for_timeline(page, 3500)
+        # Give the engagement labels a moment to paint after the article exists.
+        try:
+            page.wait_for_timeout(500)
+        except Exception:  # noqa: BLE001
+            pass
         # Only the requested status: the page also contains its parent and other replies.
         status_id = str(url).rstrip("/").split("/")[-1].split("?")[0]
         article = None
@@ -134,12 +140,12 @@ def resolve_post_url(target_url: str, body: str, handle: str, *,
                      cdp_url: Optional[str] = None, log=print) -> Optional[str]:
     """回复发出后，回目标帖找自己那条回复的 URL；找不到返回 None（不猜）。"""
     from . import cdp
-    from .grow_targets import _extract_article
+    from .grow_targets import _extract_article, _wait_for_timeline
     browser, page = cdp.connect(cdp_url)
     try:
         if not cdp.safe_goto(page, target_url, log=log):
             return None
-        page.wait_for_timeout(4000)
+        _wait_for_timeline(page, 4000)
         try:
             page.mouse.wheel(0, 2500)
             page.wait_for_timeout(1500)
