@@ -9,6 +9,7 @@ OVO family boundary: Prove Anything is the family-level result-proof protocol ca
 - Zero-network check first: `python3 mkt.py demo` (about one second, no accounts), then `python3 mkt.py grow platforms` to see which channels are fully automated this phase.
 - Read-only proof export: `mkt --workspace DATA proof export RUN_ID --out NEW_DIR --by NAME`; no external action, private source fields excluded, P0/P2/P4 kept separate with no causal credit.
 - Platform boundary: all scripted non-API X browser writes are refused, including one-off `--go` and standing browser sessions. X remains read-only with dry runs, drafts and manual handoff; automated writing requires a separately connected, compliant official API.
+- [Review outreach and private feedback writeback](https://github.com/roy-tong/Growovo/blob/main/docs/review-outreach.md): same-day evidence, named-person mapping, cross-track cooldown, native unapproved queues; no autonomous sending or repository writes
 - [Result loop (grow v2)](https://github.com/roy-tong/Growovo/blob/main/docs/grow-%E9%97%AD%E7%8E%AF.md) · [Platform matrix](https://github.com/roy-tong/Growovo/blob/main/docs/platform-automation-matrix.md)
 - [Feature status](https://github.com/roy-tong/Growovo/blob/main/docs/feature-status.md): what works, what is gated, what is deferred
 - [Launch autopsy 2026-11-05](https://github.com/roy-tong/Growovo/blob/main/docs/launch-autopsy-20261105.md): a real launch experiment run without the ledger — its numbers and the gaps it exposed; read before trusting any growth tool

@@ -27,6 +27,7 @@
   mkt gtm design "…"      GTM 设计：对象×目标×机制×渠道 + 结果契约（只设计，不执行）
   mkt gtm handoff <json>  设计 → 候选岗位编排 + 目标契约映射（可选 --product）
   mkt optimize              优化建议（需人工决定，不自动改预算或重放）
+  mkt review-ops …         求评/暖回访：当日证据、人员资格、冷却、未批准队列与私有反馈投影
   mkt schedule …            持久化排期：add/list/tick/status/resume
   mkt outcome …             效果归因：事件/计数台账 + 漏斗（口径非因果）
   mkt grow events|layers|journey|qualify|goal-exit
@@ -52,9 +53,11 @@
   python3 mkt.py linkedin message --url <profile> --note-file note.txt
 """
 import argparse
+import hashlib
 import json
 import os
 import sys
+from datetime import datetime
 from pathlib import Path
 
 BASE = Path(__file__).resolve().parent
@@ -5560,6 +5563,134 @@ def cmd_action(args):
     return 3 if rec.get("result") == "indeterminate" else 1
 
 
+def _review_now(value=""):
+    if not value:
+        return datetime.now().astimezone()
+    got = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    return got if got.tzinfo else got.replace(tzinfo=datetime.now().astimezone().tzinfo)
+
+
+def _review_candidates(path):
+    payload = json.loads(Path(path).read_text(encoding="utf-8"))
+    rows = payload.get("candidates") if isinstance(payload, dict) else payload
+    if not isinstance(rows, list):
+        raise ValueError("求评候选文件必须是 JSON 数组，或含 candidates 数组")
+    return rows
+
+
+def _review_contacts(data_dir, legacy_root):
+    from core import review_outreach
+    rows = review_outreach.load_legacy_history(legacy_root)
+    for row in _ledger().all():
+        if row.get("result") != "committed":
+            continue
+        rows.append({"target": row.get("target") or "", "sent_at": row.get("ts") or "",
+                     "campaign": row.get("campaign") or "", "company": ""})
+    return rows
+
+
+def _review_check(data_dir, *, candidates_path, legacy_root, out_dir, campaign, now):
+    from core import review_outreach
+    from core.gates import load_suppressions
+    out = Path(out_dir)
+    if out.exists() and any(out.iterdir()):
+        raise ValueError("求评输出目录必须为空；不得覆盖已批准队列")
+    out.mkdir(parents=True, exist_ok=True)
+    candidates = _review_candidates(candidates_path)
+    suppressions = set(load_suppressions(data_dir))
+    suppressions.update(review_outreach.load_legacy_suppressions(legacy_root))
+    contacts = _review_contacts(data_dir, legacy_root)
+    email_candidates = [row for row in candidates
+                        if str((row.get("person") or {}).get("channel") or "email") == "email"]
+    github_candidates = [row for row in candidates
+                         if str((row.get("person") or {}).get("channel") or "") == "github"]
+    rejected = []
+    for row in candidates:
+        channel = str((row.get("person") or {}).get("channel") or "email")
+        if channel not in ("email", "github"):
+            rejected.append({"target": str((row.get("person") or {}).get("target") or ""),
+                             "issues": ["channel_unsupported"]})
+    email = review_outreach.build_email_queue(
+        email_candidates, campaign=campaign, now=now,
+        contacts=contacts, suppressions=suppressions)
+    github_campaign = campaign + "_github"
+    github = review_outreach.build_github_queue(
+        github_candidates, campaign=github_campaign, now=now,
+        contacts=contacts, suppressions=suppressions)
+    rejected.extend(email["rejected"])
+    rejected.extend(github["rejected"])
+    hashes = {}
+    for name, built in ((campaign, email), (github_campaign, github)):
+        queue = built.get("queue")
+        if not queue:
+            continue
+        queue_text = json.dumps(queue, ensure_ascii=False, indent=2) + "\n"
+        (out / (name + ".json")).write_text(queue_text, encoding="utf-8")
+        hashes[name] = hashlib.sha256(queue_text.encode("utf-8")).hexdigest()
+    report = {
+        "schema": "growovo.review-outreach-run/1",
+        "campaign": campaign,
+        "checked_at": now.isoformat(timespec="seconds"),
+        "accepted": sum(len((built.get("queue") or {}).get("items") or [])
+                        for built in (email, github)),
+        "rejected": rejected,
+        "queue_sha256": hashes.get(campaign, ""),
+        "queue_sha256_by_campaign": hashes,
+        "human_approval_required": True,
+        "external_action": "none",
+    }
+    (out / "report.json").write_text(
+        json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    return report
+
+
+def cmd_review_ops(args):
+    from core import review_outreach
+    act = args.review_action
+    if act == "feedback":
+        result = review_outreach.sync_feedback(DATA)
+        print(json.dumps({"written": len(result["written"]),
+                          "unchanged": len(result["unchanged"]),
+                          "skipped": len(result["skipped"]),
+                          "external_action": "none"}, ensure_ascii=False, indent=1))
+        return 0
+    now = _review_now(getattr(args, "now", ""))
+    if act == "check":
+        report = _review_check(
+            DATA, candidates_path=args.file, legacy_root=args.legacy_root,
+            out_dir=args.out, campaign=args.campaign, now=now)
+        print(json.dumps({"accepted": report["accepted"],
+                          "rejected": len(report["rejected"]),
+                          "out": str(Path(args.out)),
+                          "human_approval_required": True,
+                          "external_action": "none"}, ensure_ascii=False, indent=1))
+        return 0
+
+    config_path = Path(args.config).resolve()
+    config = json.loads(config_path.read_text(encoding="utf-8"))
+
+    def config_path_value(key, default):
+        value = Path(config.get(key) or default)
+        return value if value.is_absolute() else (config_path.parent / value).resolve()
+
+    data_dir = config_path_value("workspace", "data")
+    candidates = config_path_value("candidates", "candidates.json")
+    legacy_root = config_path_value("legacy_root", "legacy")
+    out_root = config_path_value("out_root", "runs")
+    campaign = str(config.get("campaign") or "expert_review_v2")
+    out = out_root / ("run-" + now.strftime("%Y%m%dT%H%M%S%z"))
+    report = _review_check(
+        data_dir, candidates_path=candidates, legacy_root=legacy_root,
+        out_dir=out, campaign=campaign, now=now)
+    feedback = review_outreach.sync_feedback(data_dir, now=now)
+    print(json.dumps({"accepted": report["accepted"], "rejected": len(report["rejected"]),
+                      "feedback_written": len(feedback["written"]),
+                      "feedback_skipped": len(feedback["skipped"]),
+                      "out": str(out), "human_approval_required": True,
+                      "external_action": "none"}, ensure_ascii=False, indent=1))
+    return 0
+
+
 def cmd_proof(args):
     from core import proof_export
     try:
@@ -5718,6 +5849,20 @@ def build_parser():
     a.add_argument("--by", required=True, help="具名证明复核人")
     a.add_argument("--classification", choices=["private", "synthetic", "public-redacted"], default="private")
     a.set_defaults(fn=cmd_proof)
+
+    sp = sub.add_parser("review-ops", help="求评/暖回访：证据资格、未批准队列与私有反馈投影")
+    review_sub = sp.add_subparsers(dest="review_action", required=True)
+    a = review_sub.add_parser("check", help="检查候选并写新目录；不执行外部动作")
+    a.add_argument("file", help="候选 JSON 数组")
+    a.add_argument("--legacy-root", required=True, help="旧 sent_log/suppress 所在目录")
+    a.add_argument("--out", required=True, help="新的空输出目录")
+    a.add_argument("--campaign", default="expert_review_v2")
+    a.add_argument("--now", default="", help="测试/复核用 ISO 时间；默认当前时间")
+    a = review_sub.add_parser("feedback", help="从已人工确认回复生成私有反馈草稿")
+    a = review_sub.add_parser("run", help="按配置生成一轮资格报告与反馈；不发送")
+    a.add_argument("config", help="运行配置 JSON")
+    a.add_argument("--now", default="", help="测试/复核用 ISO 时间；默认当前时间")
+    sp.set_defaults(fn=cmd_review_ops)
 
     sp = sub.add_parser("collect", help="本地 collector：链接跳转/事件 webhook/CSV 导入")
     sp.add_argument("action", choices=["serve", "event", "import"])

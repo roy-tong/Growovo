@@ -1,5 +1,7 @@
 # Growovo: implementation status
 
+**Unreleased, 2026-11-23 · evidence-qualified review outreach.** `mkt review-ops` joins named-person/account mapping, same-day public-hook checks, cross-campaign recipient cooldown, company spacing, expert-review content gates and anti-template checks to native unapproved email/GitHub queues. Named-human-confirmed replies project to idempotent mode-0600 private feedback drafts with `repository_write=not_performed`. The commands do not send, approve, supply credentials, comment or push. Eleven focused tests cover the admission and CLI boundaries; the combined suite passed 2153 tests with no real account sends.
+
 **Release update, 2026-11-23 · [v0.18.1](../CHANGELOG.md).** All scripted non-API X browser writes fail closed, including one-off user-visible CDP and standing owner-attested sessions. Operator authorization and observed identity never substitute for platform permission. X read-only collection, dry runs, drafts and human handoff remain; automated writes require a separately connected, compliant official API. Public task pages now connect synthetic receipts to qualified replies, product use, buyer-owned next steps and second-use evidence without claiming external adoption.
 
 Earlier baseline reviewed 2026-11-18. **Baseline on that date: v0.15.0 (delivery golden chain, platform strategy layer and grow v2).** Available means local implementation and local tests, not production validation on every platform or proof of business outcomes.
