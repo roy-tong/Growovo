@@ -1,10 +1,14 @@
 # Changelog
 
-## Unreleased — 2026-11-23
+## 0.18.1 — 2026-11-23
 
 ### Security
 
-- X is no longer eligible for scripted non-API browser writes. Both standing owner-attested `browser-attach` and one-off `user_visible_cdp --go` return `platform_permission_required`, even with a complete operator file, observed identity and available quota; all four write actions are refused before the X vendor. `cycle` excludes X before dispatch, and the browser-attach adapter refuses before its engine, quota reservation or committed ledger append. X read-only collection, dry runs, drafts and human operation directly in X remain; automated writing requires a separately connected, compliant official API. GitHub/Discord owner-attested behavior is unchanged. The offline suite and five-check demo must pass without any real X write.
+- X is no longer eligible for scripted non-API browser writes. Both standing owner-attested `browser-attach` and one-off `user_visible_cdp --go` return `platform_permission_required`, even with a complete operator file, observed identity and available quota; all four write actions are refused before the X vendor. `cycle` excludes X before dispatch, and the browser-attach adapter refuses before its engine, quota reservation or committed ledger append. X read-only collection, dry runs, drafts and human operation directly in X remain; automated writing requires a separately connected, compliant official API. GitHub/Discord owner-attested behavior is unchanged. The offline suite and five-check demo pass without any real X write.
+
+### Changed
+
+- The controlled-run pages now separate execution, qualified conversations, independently observed product use and second-batch evidence. A sanitized task-result Issue Form and Discord links provide a public feedback path without private recipients, content or credentials. Chinese/English landing pages, FAQ, JSON-LD and `llms.txt` use the same X platform boundary as the execution gates.
 
 ## 0.18.0 — 2026-11-22
 
