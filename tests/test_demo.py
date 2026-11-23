@@ -59,6 +59,24 @@ class TestDemo(unittest.TestCase):
         self.assertEqual(len(committed), 1)
         self.assertEqual(committed[0]["transport"], "demo-memory")
 
+    def test_demo_exports_proof_from_operations_log(self):
+        rc, out = self._run()
+        self.assertEqual(rc, 0)
+        data = self.base / "data" / "demo"
+        operations = [json.loads(line) for line in
+                      (data / "operations.jsonl").read_text(encoding="utf-8").splitlines()]
+        self.assertEqual(4, len(operations))
+        self.assertEqual(EXPECTED_RESULTS,
+                         {row["queue_item_id"]: row["result"] for row in operations})
+        self.assertTrue((data / "proof-bundle" / "proof.json").is_file())
+        trace = [json.loads(line) for line in
+                 (data / "proof-bundle" / "trace.jsonl").read_text(encoding="utf-8").splitlines()]
+        for step in trace:
+            if "external_id" in step:
+                self.assertIsInstance(step["external_id"], str)
+                self.assertTrue(step["external_id"])
+        self.assertIn("proof_status=FAIL", out)
+
     def test_daily_card_has_committed_and_honest_three_layers(self):
         rc, out = self._run()
         self.assertEqual(rc, 0)

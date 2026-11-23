@@ -150,14 +150,17 @@ def export_proof(data_dir: str | Path, run_id: str, out_dir: str | Path, *, by: 
             evidence_id = "operation-" + _safe_id(operation_id)
             result = str(row.get("result") or "indeterminate")
             receipt = row.get("receipt") or {}
-            steps.append({
+            step = {
                 "step_id": operation_id, "action": "%s.%s" % (row.get("channel"), row.get("action")),
                 "started_at": str(row.get("started_at") or generated_at),
                 "ended_at": str(row.get("finished_at") or generated_at),
                 "status": _trace_status(result), "tool": "growovo.operations/2",
                 "output_ref": "operations.jsonl#%s" % operation_id,
-                "external_id": None if public else (str(receipt.get("id") or "") or None),
-            })
+            }
+            external_id = None if public else (str(receipt.get("id") or "") or None)
+            if external_id is not None:
+                step["external_id"] = external_id
+            steps.append(step)
             entries.append(_evidence(evidence_id, "operations.jsonl#%s" % operation_id,
                                      _hash_value(row), str(row.get("finished_at") or generated_at)))
             if result == "committed":

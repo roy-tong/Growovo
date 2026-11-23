@@ -36,6 +36,14 @@ class CommandRegistryTests(unittest.TestCase):
         self.assertEqual(0, args.fn(args))
         self.assertEqual("business", seen["args"].name)
 
+    def test_runtime_registration_uses_shared_command_registry(self):
+        parser = argparse.ArgumentParser()
+        sub = parser.add_subparsers(dest="command", required=True)
+        with mock.patch("core.command_registry.CommandRegistry.attach", autospec=True) as attach:
+            cli_runtime.register(sub, runtime_handler=lambda args: 0,
+                                 outreach_handler=lambda args: 0)
+        self.assertTrue(attach.called)
+
     def test_modern_runtime_projection_command(self):
         with tempfile.TemporaryDirectory() as tmp:
             data = Path(tmp)
@@ -47,6 +55,12 @@ class CommandRegistryTests(unittest.TestCase):
             got = json.loads(output.getvalue())
             self.assertEqual("business", got["name"])
             self.assertEqual("not_included", got["body"]["status"])
+
+    def test_validation_command_is_registered_as_read_only(self):
+        parser = mkt.build_parser()
+        args = parser.parse_args(["validation", "run", "--file", "validation.json"])
+        self.assertEqual("run", args.action)
+        self.assertEqual("validation.json", args.file)
 
     def test_legacy_cycle_and_modern_commands_coexist(self):
         parser = mkt.build_parser()

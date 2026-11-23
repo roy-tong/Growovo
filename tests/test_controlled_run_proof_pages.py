@@ -11,7 +11,7 @@ class ControlledRunProofPagesTest(unittest.TestCase):
             self.assertTrue(page.is_file(), relative)
             text = page.read_text(encoding="utf-8")
             for token in ("mkt demo", "human_approved=false", "dry-run", "demo-memory",
-                          "UNKNOWN", "Synthetic", "no real"):
+                          "UNKNOWN", "Synthetic", "no real", "proof-bundle", "proof_status=FAIL"):
                 self.assertIn(token, text)
             self.assertNotIn("<script>", text)
             self.assertNotIn("javascript:", text)

@@ -5,6 +5,8 @@ import datetime as dt
 import json
 from pathlib import Path
 
+from .command_registry import CommandRegistry, CommandSpec
+
 
 def _emit(payload):
     print(json.dumps(payload, ensure_ascii=False, indent=1))
@@ -53,8 +55,14 @@ def cmd_outreach(data_dir, args, loader):
     return 0 if got.get("ok") else 2
 
 
-def register(subparsers, *, runtime_handler, outreach_handler):
-    parser = subparsers.add_parser("runtime", help="现代运行上下文与可重建投影入口")
+def cmd_validation(data_dir, args):
+    from .validation_orchestrator import run
+    got = run(args.file)
+    _emit(got)
+    return 0 if got["contract_validation"]["status"] == "PASS" else 2
+
+
+def _configure_runtime(parser):
     sub = parser.add_subparsers(dest="action", required=True)
     project = sub.add_parser("project")
     project.add_argument("name", choices=["wave", "inbox", "receipts", "readiness", "koc", "business"])
@@ -64,10 +72,30 @@ def register(subparsers, *, runtime_handler, outreach_handler):
     context.add_argument("--campaign", required=True)
     context.add_argument("--wave", required=True)
     context.add_argument("--now", default="")
-    parser.set_defaults(fn=runtime_handler)
-    outreach = subparsers.add_parser("outreach", help="B2B/warm/求评草稿合同与反馈贡献闭环；不直接发送")
-    outreach.add_argument("action", choices=["prepare", "feedback"])
-    outreach.add_argument("--file", required=True)
-    outreach.add_argument("--today", default="")
-    outreach.add_argument("--apply", action="store_true")
-    outreach.set_defaults(fn=outreach_handler)
+
+
+def _configure_outreach(parser):
+    parser.add_argument("action", choices=["prepare", "feedback"])
+    parser.add_argument("--file", required=True)
+    parser.add_argument("--today", default="")
+    parser.add_argument("--apply", action="store_true")
+
+
+def _configure_validation(parser):
+    parser.add_argument("action", choices=["run"])
+    parser.add_argument("--file", required=True)
+
+
+def register(subparsers, *, runtime_handler, outreach_handler, validation_handler=None):
+    registry = CommandRegistry()
+    registry.register(CommandSpec(
+        name="runtime", module="", attribute="", configure=_configure_runtime,
+        _handler=runtime_handler))
+    registry.register(CommandSpec(
+        name="outreach", module="", attribute="", configure=_configure_outreach,
+        _handler=outreach_handler))
+    if validation_handler is not None:
+        registry.register(CommandSpec(
+            name="validation", module="", attribute="", configure=_configure_validation,
+            _handler=validation_handler))
+    registry.attach(subparsers)

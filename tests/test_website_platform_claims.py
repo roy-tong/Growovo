@@ -64,6 +64,14 @@ class WebsitePlatformClaimsTest(unittest.TestCase):
                 with self.subTest(page=name, sentence=sentence):
                     self.assertIn(sentence, text)
 
+    def test_readmes_do_not_label_forbidden_x_writes_as_proven(self):
+        for name in ("README.md", "README.en.md"):
+            text = (ROOT / name).read_text(encoding="utf-8")
+            with self.subTest(readme=name):
+                self.assertNotIn("X 全动作", text)
+                self.assertNotIn("All X actions", text)
+                self.assertIn("DISABLED", text)
+
     def test_stale_x_automation_promises_are_rejected(self):
         stale_claims = {
             "index.html": (
