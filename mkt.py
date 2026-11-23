@@ -3381,10 +3381,12 @@ def cmd_policy(args):
 def cmd_cycle(args):
     """夜间互动循环：通知优先 → 实时选路 → 额度/间隔 → 逐条写。
 
-    本命令逐条经过 action_runner，并显式选择 browser-attach 传输；不走通用
-    CDP 身份或 plan/routine 预检，授权由 data/policies/owner-attested-*.json
-    的 owner_attested_session 独立承担。run 默认 dry-run，--go 才执行；暂停、
-    DNC、页面身份、日预算、回读、账本、任务结果和统一操作日志全部保留。
+    本命令允许的写动作逐条经过 action_runner，并显式选择 browser-attach 传输；
+    X 在计划阶段以 platform_permission_required 排除，保留只读采集但不发送。
+    GitHub/Discord 不走通用 CDP 身份或 plan/routine 预检，授权由
+    data/policies/owner-attested-*.json 的 owner_attested_session 独立承担。
+    run 默认 dry-run，--go 才执行；暂停、DNC、页面身份、日预算、回读、账本、
+    任务结果和统一操作日志全部保留。
     """
     import datetime as _dt
     from core import engagement_cycle as cycle
@@ -5956,7 +5958,7 @@ def build_parser():
     cysub.add_parser("smoke", help="离线自检窗口、间隔与空队列计划")
     a = cysub.add_parser("quota", help="今夜与近一小时已用额度")
     a.add_argument("--now", default="", help="模拟当前时间，ISO 格式")
-    cysub.add_parser("pending-auth", help="三平台 owner-attested 授权窗口（只读）")
+    cysub.add_parser("pending-auth", help="GitHub/Discord owner-attested 授权窗口（只读）；X browser-attach 写不可用")
     a = cysub.add_parser("attach", help="列出现有标签页并读三平台身份（只读，不新建标签页）")
     a.add_argument("--session", default="", help="WebBridge 会话名；默认 ovo-night-run")
     a = cysub.add_parser("inbox", help="只读收集通知回复并合并进队列（不发送）")

@@ -1,18 +1,14 @@
 #!/usr/bin/env python3
-"""平台执行许可 —— 官方 API 与浏览器（CDP / browser-attach）并列可选。
+"""平台执行许可 —— 按平台规则分别开放官方 API 与浏览器能力。
 
-官方 API 不是唯一路线：平台没有开放写 API、或采购 API 周期太长时，自有账号
-的浏览器可见操作可以继续跑，只是要按该平台的风控要点降频、拆批、顺延或转人工
-（见 docs/risk/automation-compliance.md 与 docs/platform-automation-matrix.md）。
+官方 API 优先；平台未开放写 API 不等于脚本化浏览器写自动获得许可。
 ``policy_row`` 给每个平台写明「无人值守自主写」是否放行，以及被拦时下一步怎么走；
 它只影响能否承诺全自动，不关闭人工辅助计划。
 
-X 官方自动化规则对非 API 自动化、未经请求自动回复与批量动作有明确限制：
-routine/autonomous 的 X 非 API 写拒绝，official_api 授权也不能挪给 CDP 使用。
-操作者当次明确发起的非 routine ``--go`` publish/reply 可先观测当前账号
-（cdp_observed），再通过既有人审／adhoc、暂停、DNC、配额、幂等、防重发与回执门禁
-执行；它不形成常驻扩权，不覆盖 message/engage，也不构成平台认可或账号安全保证。
-dry-run 与只读动作不受影响。
+X 官方自动化规则禁止非 API 网页脚本写，并对自动回复与批量动作另有限制。
+所有经 Growovo vendor 的 X CDP/browser-attach 真实写都拒绝，official_api 授权
+也不能挪给浏览器传输。只读、dry-run、草稿与人工在 X 页面操作不受影响；
+常驻 owner-attested 路线同样不能解锁 X。
 """
 from __future__ import annotations
 
@@ -155,55 +151,24 @@ def require_autonomous_write(platform: str, action: str, data_dir, *,
         actual_transport=actual_transport)
 
 
-USER_VISIBLE_CDP_ACTIONS = frozenset({"publish", "reply"})
-
-
 def require_user_visible_cdp(platform: str, action: str, data_dir, *,
                              go: bool, actual_transport: str,
                              identity: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
-    """Permit one explicitly requested browser action with observed identity.
+    """Reject scripted non-API X writes, including one-off operator requests.
 
-    This is not standing/autonomous authorization. The caller reaches this mode
-    only from a non-routine ``--go`` invocation; plan/adhoc approval, pause,
-    suppression, quota, idempotency and receipt gates still run afterwards.
-    DM/engage stay outside this route because recipient consent and bulk-action
-    limits cannot be inferred from a logged-in browser.
+    The function name remains for caller compatibility. Human operation happens
+    directly in X, outside this vendor automation path. Dry runs and reads stay
+    outside this gate; a compliant official API uses ``require_autonomous_write``.
     """
     platform = _text(platform).lower()
     action = _text(action).lower()
     if not go or action not in WRITE_ACTIONS or platform != "x":
         return None
-    if actual_transport != "cdp":
-        raise ComplianceError(
-            "transport_mismatch",
-            "用户当次确认的浏览器路线只接受 cdp，实际传输是 %r。" % actual_transport)
-    if action not in USER_VISIBLE_CDP_ACTIONS:
-        raise ComplianceError(
-            "action_out_of_scope",
-            "用户当次确认的 CDP 路线只支持 publish/reply；%s 仍需人工操作或官方 API 授权。"
-            % action)
-    if not isinstance(identity, dict) or identity.get("enforced") is not True:
-        raise ComplianceError(
-            "identity_observation_required",
-            "CDP 实跑前必须观测当前浏览器账号；请用 observe_identity 的常驻策略，"
-            "但不要求预先绑定某个账号。")
-    if identity.get("mode") != "cdp_observed":
-        raise ComplianceError(
-            "identity_mode_mismatch",
-            "用户当次确认的 CDP 路线要求 identity_mode=cdp_observed，不能用自报账号替代。")
-    for field in ("observed_platform_identity", "handle", "identity_proof_ref",
-                  "browser_context", "observed_at"):
-        if not _text(identity.get(field)):
-            raise ComplianceError(
-                "identity_observation_incomplete",
-                "当前账号观测缺少 %s；拒绝在账号不明时执行浏览器写操作。" % field)
-    return {
-        "route": "user_visible_cdp", "transport": "cdp",
-        "authorization": "single_non_routine_go_plus_existing_approval",
-        "observed_platform_identity": identity["observed_platform_identity"],
-        "handle": identity["handle"], "identity_proof_ref": identity["identity_proof_ref"],
-        "external_action_not_yet_executed": True,
-    }
+    raise ComplianceError(
+        "platform_permission_required",
+        "X 的非 API 网页脚本写不被平台许可；单次 --go、操作者授权和账号观测"
+        "都不能替代平台许可。请使用符合 X 规则的官方 API，或在 X 页面人工操作。"
+        "Growovo 在未接 API 时只提供只读、草稿与人工处理。")
 
 
 def owner_attested_path(data_dir, platform: str) -> Path:
@@ -211,7 +176,6 @@ def owner_attested_path(data_dir, platform: str) -> Path:
 
 
 OWNER_ATTESTED_ACTIONS = {
-    "x": frozenset({"publish", "reply"}),
     "github": frozenset({"reply"}),
     "discord": frozenset({"publish", "reply"}),
 }
@@ -247,6 +211,12 @@ def require_owner_attested_browser_write(platform: str, action: str, data_dir, *
         raise ComplianceError(
             "transport_mismatch",
             "owner-attested 路线只接受 browser-attach，实际传输是 %r。" % actual_transport)
+    if platform == "x":
+        raise ComplianceError(
+            "platform_permission_required",
+            "X 的持续 browser-attach 写不属于平台许可的自动化路径；操作者授权、"
+            "账号观测与配额都不能替代平台许可。请使用符合 X 规则的官方 API，"
+            "或不接 API 时保留只读与人工处理。")
     allowed = OWNER_ATTESTED_ACTIONS.get(platform)
     if not allowed:
         raise ComplianceError("platform_out_of_scope", "%s 不在 owner-attested 平台白名单内。" % platform)
@@ -322,15 +292,14 @@ def policy_row(platform: str) -> Dict[str, Any]:
     if platform == "x":
         return {
             "autonomous_write": False,
-            "user_visible_cdp_write": True,
-            "user_visible_cdp_actions": sorted(USER_VISIBLE_CDP_ACTIONS),
-            "owner_attested_browser_write": True,
+            "user_visible_cdp_write": False,
+            "user_visible_cdp_actions": [],
+            "owner_attested_browser_write": False,
             "code": "non_api_write_forbidden",
-            "reason": ("无人值守非 API 自动写不放行；单次非 routine --go 的 publish/reply "
-                       "可在观测当前账号并通过既有审批、配额、防重发与回执门禁后走 CDP；"
-                       "操作者自担风险的 browser-attach 常驻授权见 owner-attested 文件"),
+            "reason": ("无人值守非 API 自动写不放行；X 不走 owner-attested browser-attach，"
+                       "操作者授权不能替代平台许可"),
             "next": ("要无人值守：接 X 官方 API 并写入 platform-authorization.json；"
-                     "不接 API：走人工辅助或当次 --go，原创日≤3 条、回复间隔≥10 分钟。"),
+                     "不接 API：保留只读、草稿与人工处理。"),
             "source": "docs/risk/automation-compliance.md#§二",
         }
     if platform == "email":

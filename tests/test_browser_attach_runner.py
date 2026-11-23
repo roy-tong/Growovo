@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""browser-attach 统一执行入口与回执测试；全部替身，不连接浏览器、不发送。"""
+"""browser-attach 统一执行入口与回执测试；全部替身，不连接浏览器、不发送。
+
+适配器与回执用例可模拟 browser_write 或授权门，以隔离日志和回执映射；
+这些测试不证明相应平台允许写。真实平台边界由平台门禁与队列拒绝用例覆盖。
+"""
 import io
 import json
 import sys
@@ -130,9 +134,9 @@ class BrowserAttachQueueTest(unittest.TestCase):
         self.data = Path(self.tmp.name)
         self.queue_path = self.data / "c-queue.json"
         self.queue_path.write_text(json.dumps({
-            "campaign": "c-queue", "channel": "x", "action": "publish",
+            "campaign": "c-queue", "channel": "discord", "action": "publish",
             "transport": "browser-attach",
-            "items": [{"id": "i1", "target": "", "body": "hello", "actor": "alice"}],
+            "items": [{"id": "i1", "target": "1573250833871536161", "body": "hello", "actor": "alice"}],
         }, ensure_ascii=False), encoding="utf-8")
 
     def test_queue_inherits_transport_and_skips_generic_prechecks(self):
@@ -161,11 +165,11 @@ class BrowserAttachQueueTest(unittest.TestCase):
 
     def _write_two_item_queue(self):
         self.queue_path.write_text(json.dumps({
-            "campaign": "c-queue", "channel": "x", "action": "publish",
+            "campaign": "c-queue", "channel": "discord", "action": "publish",
             "transport": "browser-attach",
             "items": [
-                {"id": "i1", "target": "", "body": "hello", "actor": "alice"},
-                {"id": "i2", "target": "", "body": "again", "actor": "alice"},
+                {"id": "i1", "target": "1573250833871536161", "body": "hello", "actor": "alice"},
+                {"id": "i2", "target": "1573251023500476427", "body": "again", "actor": "alice"},
             ],
         }, ensure_ascii=False), encoding="utf-8")
 
@@ -183,7 +187,7 @@ class BrowserAttachQueueTest(unittest.TestCase):
 
     def test_platform_risk_signal_blocks_channel_and_defers_rest(self):
         self._write_two_item_queue()
-        stop = browser_write.StopChannel("x", "challenge page")
+        stop = browser_write.StopChannel("discord", "challenge page")
         with mock.patch("core.queue_runner.run_action", side_effect=stop):
             rows = run_queue(self.queue_path, data_dir=self.data, go=True,
                              log=lambda *_: None)
@@ -202,6 +206,17 @@ class BrowserAttachQueueTest(unittest.TestCase):
         self.assertIn("suppressed", rows[0]["detail"])
         self.assertTrue(rows[0]["next"])
         self.assertEqual(run.call_count, 2)
+
+    def test_x_queue_is_refused_before_transport(self):
+        self.queue_path.write_text(json.dumps({
+            "campaign": "x-denied", "channel": "x", "action": "publish",
+            "transport": "browser-attach",
+            "items": [{"id": "i1", "target": "", "body": "synthetic"}],
+        }), encoding="utf-8")
+        with mock.patch("core.queue_runner.run_action") as run:
+            with self.assertRaises(QueueRunError):
+                run_queue(self.queue_path, data_dir=self.data, go=True, log=lambda *_: None)
+        run.assert_not_called()
 
     def test_queue_lint_rejects_unknown_transport(self):
         queue = {"campaign": "c", "channel": "x", "action": "publish",

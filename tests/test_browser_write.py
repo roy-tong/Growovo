@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
-"""browser-attach 单条写：X 可见性门禁在任何身份与授权检查之前生效。
+"""browser-attach 单条写的传输机制与平台拒绝边界。
 
 后台标签页先尝试 CDP 焦点模拟（不激活标签页）；模拟不开才拒绝。
-X 发送成功时优先用页面回报的 status id 绑定回执，不依赖 profile 时间线。
-全部用例替换浏览器与授权调用，不连接浏览器、不发帖、不读登录态。
+传输机制用例可替换授权门来隔离回读、回执与异常行为，不代表平台许可；
+XPlatformPermissionTest 使用真实平台门禁，证明 X 不得触达写引擎或 committed 账本。
+全部用例使用模拟浏览器，不连接真实账号、不发帖、不读登录态。
 """
+import datetime as dt
 import tempfile
 import unittest
 from pathlib import Path
@@ -14,6 +16,41 @@ from unittest import mock
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from core import browser_write
+
+
+class XPlatformPermissionTest(unittest.TestCase):
+    def test_owner_attestation_cannot_reach_engine_or_committed_ledger(self):
+        fake = mock.Mock()
+        fake.ensure_tab.return_value = 11
+        fake.probe_visibility.return_value = "visible"
+        fake.observe_identity.return_value = {
+            "enforced": True, "mode": "cdp_observed",
+            "observed_platform_identity": "x:1", "handle": "owner",
+            "identity_proof_ref": "offline:identity", "browser_context": "offline:test",
+            "observed_at": "2026-11-23T00:00:00+00:00",
+        }
+        now = dt.datetime.now().astimezone()
+        auth = {
+            "route": "owner_attested_session", "approved_by": "test",
+            "approved_at": now.isoformat(), "window_start": now.isoformat(),
+            "window_end": (now + dt.timedelta(hours=1)).isoformat(),
+            "scopes": ["x:publish"], "stop_conditions": ["captcha"],
+        }
+        with tempfile.TemporaryDirectory() as tmp, \
+                mock.patch.object(browser_write, "BrowserAttach", return_value=fake), \
+                mock.patch("core.platform_compliance.load_owner_attested", return_value=auth), \
+                mock.patch.object(browser_write.x_engine, "original",
+                                  return_value={"ok": True, "status": {"id": "1"}}) as engine, \
+                mock.patch("core.throttle.Throttle.reserve") as quota:
+            with self.assertRaises(browser_write.ActionBlocked) as ctx:
+                browser_write.execute("x", "publish", Path(tmp), text="synthetic only",
+                                      go=True, log=lambda *_: None)
+            rows = browser_write._ledger(tmp).all()
+
+        self.assertEqual(ctx.exception.code, "platform_permission_required")
+        engine.assert_not_called()
+        quota.assert_not_called()
+        self.assertEqual(rows, [])
 
 
 class HiddenXTabTest(unittest.TestCase):
