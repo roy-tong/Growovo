@@ -16,7 +16,7 @@
 | Low-marketing CTA | Demo/booking, signup, discount, free-trial and similar sales CTAs are rejected. The first request stays a low-cost expert judgment or warm follow-up |
 | Small batch with capacity | At most three accepted items per channel per wave. This is a capacity ceiling, not a quota to fill; under-qualified supply stays unsent |
 
-Legacy `sent_log.txt` and `suppress.txt` are read as additional history and suppression sources. Growovo's own committed ledger and DNC/contact suppressions are also included. Legacy sender scripts are not called.
+Legacy `sent_log.txt`, `suppress.txt` and `recovery_manifest.csv` are read as additional history and suppression sources. Incident-manifest recipients are suppressed just like explicit DNC entries. Growovo's own committed ledger and DNC/contact suppressions are also included. Legacy sender scripts are not called.
 
 ## Prepare a batch
 

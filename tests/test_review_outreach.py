@@ -228,6 +228,16 @@ class ReviewOutreachTest(unittest.TestCase):
         self.assertTrue(all(row["target"] == "ada@example.com" for row in rows))
         self.assertTrue(all(row["campaign"] == "expert_review_v1" for row in rows))
 
+    def test_legacy_suppression_includes_incident_manifest(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "suppress.txt").write_text("suppressed@example.com\n", encoding="utf-8")
+            (root / "recovery_manifest.csv").write_text(
+                "recipient,segment\nincident@example.com,legacy\n", encoding="utf-8")
+            suppressions = self.review.load_legacy_suppressions(root)
+        self.assertIn("suppressed@example.com", suppressions)
+        self.assertIn("incident@example.com", suppressions)
+
     def test_feedback_projection_requires_named_review_and_never_writes_repository(self):
         with tempfile.TemporaryDirectory() as tmp:
             data = Path(tmp)

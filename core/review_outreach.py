@@ -6,6 +6,7 @@ files. External writes stay in the normal approved Growovo execution paths.
 from __future__ import annotations
 
 import copy
+import csv
 import hashlib
 import json
 import os
@@ -286,7 +287,16 @@ def load_legacy_history(root) -> List[Dict[str, str]]:
 
 
 def load_legacy_suppressions(root) -> set:
-    return load_suppress(Path(root) / "suppress.txt")
+    base = Path(root)
+    suppressions = set(load_suppress(base / "suppress.txt"))
+    manifest = base / "recovery_manifest.csv"
+    if manifest.is_file():
+        for row in csv.DictReader(manifest.read_text(
+                encoding="utf-8", errors="replace").splitlines()):
+            target = _text(row.get("recipient"))
+            if target:
+                suppressions.add(target)
+    return suppressions
 
 
 def _atomic_private_write(path: Path, text: str) -> None:
