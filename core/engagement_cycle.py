@@ -1056,12 +1056,22 @@ def _run(data_dir, *, go: bool = False, queue_path=None, max_actions: int = 0,
     unusable = {name for name, stopped in blocked.items() if stopped}
     unusable.update(preflight_skipped)
     ledger = Ledger(data_dir / "ledger.jsonl")
-    prepared = plan([row for row in queue
-                     if _queue_key(_normalize(row)) not in stale_keys
-                     and str(row.get("channel") or row.get("platform") or "") not in unusable],
+    eligible = [row for row in queue
+                if _queue_key(_normalize(row)) not in stale_keys
+                and str(row.get("channel") or row.get("platform") or "") not in unusable]
+    platform_skipped = []
+    for raw in list(eligible):
+        row = _normalize(raw)
+        if row["channel"] == "x":
+            eligible.remove(raw)
+            platform_skipped.append({
+                "channel": row["channel"], "action": row["action"],
+                "target": row["target"], "reason": "platform_permission_required"})
+    prepared = plan(eligible,
                     policy, ledger=ledger, now=now, budget_sec=budget_sec,
                     max_actions=max_actions, campaign=campaign,
                     throttle=Throttle(data_dir / "state"), data_dir=data_dir)
+    prepared["skipped"].extend(platform_skipped)
     summary: Dict[str, Any] = {
         "ok": True, "wave": wave, "campaign": campaign, "night": night,
         "dry": not go, "bridge_session": used_session,

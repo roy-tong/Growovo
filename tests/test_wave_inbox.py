@@ -40,11 +40,11 @@ class AutoInboxTest(unittest.TestCase):
                 "coverage": inbox_replies.capabilities()}
 
     def test_real_wave_collects_before_planning_and_sends_ready_inbox_first(self):
-        incoming = row("x", "reply", "https://x.com/a/status/1",
+        incoming = row("github", "reply", "a/b#1",
                        text="specific answer", actor="a", source="inbox")
         incoming["their_text"] = "a concrete question"
-        self.queue.write_text(json.dumps([row("x", "publish", text="regular")]),
-                              encoding="utf-8")
+        self.queue.write_text(json.dumps([row("discord", "publish", "1573250833871536161",
+                                              text="regular")]), encoding="utf-8")
         calls = []
         fake = {"ok": True, "result": "success", "ledger_result": "committed"}
 
@@ -60,7 +60,7 @@ class AutoInboxTest(unittest.TestCase):
             got = cycle.run(self.data, go=True, queue_path=self.queue,
                             wave_id="2205", log=lambda *_: None)
         collect.assert_called_once()
-        self.assertEqual(calls[0]["target"], "https://x.com/a/status/1")
+        self.assertEqual(calls[0]["target"], "a/b#1")
         self.assertEqual(got["inbox"]["collected"], 1)
         self.assertEqual(got["inbox"]["pending_text"], 0)
         self.assertEqual(got["committed"], 2)
@@ -68,8 +68,8 @@ class AutoInboxTest(unittest.TestCase):
     def test_new_unwritten_inbox_is_recorded_but_never_auto_sent(self):
         incoming = row("github", "reply", "a/b#1", text="", actor="a", source="inbox")
         incoming["their_text"] = "a concrete question"
-        self.queue.write_text(json.dumps([row("x", "publish", text="regular")]),
-                              encoding="utf-8")
+        self.queue.write_text(json.dumps([row("discord", "publish", "1573250833871536161",
+                                              text="regular")]), encoding="utf-8")
         fake = {"ok": True, "result": "success", "ledger_result": "committed"}
         with mock.patch.object(cycle, "_now", return_value=NOW), \
                 mock.patch.object(cycle, "collect_inbox_report",
@@ -78,18 +78,18 @@ class AutoInboxTest(unittest.TestCase):
             got = cycle.run(self.data, go=True, queue_path=self.queue,
                             wave_id="2205", log=lambda *_: None)
         self.assertEqual(execute.call_count, 1)
-        self.assertEqual(execute.call_args.kwargs["channel"], "x")
+        self.assertEqual(execute.call_args.kwargs["channel"], "discord")
         self.assertEqual(got["inbox"]["pending_text"], 1)
         left = json.loads(self.queue.read_text(encoding="utf-8"))
         self.assertEqual(len(left), 1)
         self.assertEqual(left[0]["their_text"], "a concrete question")
 
     def test_inbox_writer_can_fill_only_collected_rows_before_planning(self):
-        incoming = row("x", "reply", "https://x.com/a/status/1",
+        incoming = row("github", "reply", "a/b#1",
                        text="", actor="a", source="inbox")
         incoming["their_text"] = "question"
-        self.queue.write_text(json.dumps([row("x", "publish", text="regular")]),
-                              encoding="utf-8")
+        self.queue.write_text(json.dumps([row("discord", "publish", "1573250833871536161",
+                                              text="regular")]), encoding="utf-8")
         seen = []
 
         def writer(pending):
@@ -107,8 +107,7 @@ class AutoInboxTest(unittest.TestCase):
         self.assertEqual(len(seen), 1)
         self.assertEqual(got["inbox"]["written"], 1)
         self.assertEqual(got["inbox"]["pending_text"], 0)
-        self.assertEqual(execute.call_args_list[0].kwargs["target"],
-                         "https://x.com/a/status/1")
+        self.assertEqual(execute.call_args_list[0].kwargs["target"], "a/b#1")
 
     def test_dry_run_does_not_collect_or_merge(self):
         before = [row("x", "publish", text="regular")]
@@ -339,7 +338,7 @@ class GonePostTest(unittest.TestCase):
 
     def test_gone_post_leaves_queue_instead_of_retrying_every_wave(self):
         self.queue.write_text(json.dumps([
-            row("x", "reply", "https://x.com/a/status/1", text="answer", actor="a")]),
+            row("github", "reply", "a/b#1", text="answer", actor="a")]),
             encoding="utf-8")
         fake = {"ok": False, "result": "failed", "ledger_result": "failed",
                 "engine": {"err": "post gone"}}

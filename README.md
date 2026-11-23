@@ -2,8 +2,8 @@
   <img src="docs/assets/logo.png" width="400" alt="Growovo">
 </p>
 
-<p align="center"><strong>在自己的 X 和邮件账号上运行一次受控推广</strong><br>
-<em>Run a supervised X or email campaign on your own account</em></p>
+<p align="center"><strong>在自己的邮件账号运行受控推广；X 未接官方 API 前只做只读研究、草稿与人工交接</strong><br>
+<em>Run authorized email campaigns; keep X read-only until an official API is connected</em></p>
 
 <p align="center"><strong>简体中文</strong> · <a href="README.en.md">English</a></p>
 
@@ -28,7 +28,7 @@ mkt --workspace ./data proof export RUN_ID --out ./proof-bundle --by "proof-revi
 
 它只承诺三件可核验的事：**执行量**（账本 committed 逐条可查）、**真实读数**（每天落粉丝与曝光，截图留证、带证据级别）、**闭环责任**（完成率驱动调量建议、供给缺口提前报警、异常停车待人工裁决）。不承诺平台算法给多少曝光，也不把未验证渠道包装成全自动。
 
-**无人值守全自动只承诺 Email，其他渠道照常编计划。** 第一期只有 **Email** 可承诺无人值守自主执行（写通道已实现）；**X** 写通道技术已跑通（PROVEN），但平台许可禁止非 API 自主写入，编成人工辅助任务，或接官方 API 并授权；GitHub、Reddit、Hacker News、LinkedIn、Discord 同样编成人工辅助任务，首跑人工确认解锁。官方 API 与浏览器会话（CDP）并列可选：拿不到 API 不关闭业务；遇到平台风控只停当前渠道并提示降频、拆批或顺延。小红书、知乎等人工渠道只出作业单，不计入自动发布量。见[平台自动执行矩阵](docs/platform-automation-matrix.md)。
+**无人值守全自动只承诺 Email，其他渠道照常编计划。** 第一期只有 **Email** 可承诺无人值守自主执行（写通道已实现）。**X** 的平台规则禁止非 API 网页脚本写，因此 Growovo 拒绝所有 X CDP/browser-attach 真实写，包括单次 `--go` 与常驻 owner-attested；操作者授权、身份观测和本地配额都不能解锁。X 只保留只读、dry-run、草稿与人工交接，自动写需另行接入符合规则的官方 API。GitHub、Reddit、Hacker News、LinkedIn、Discord 按各自平台规则与验证状态编成人工辅助或受限任务，首跑人工确认解锁。拿不到 API 不自动获得浏览器权限；遇到平台风控只停当前渠道并提示降频、拆批或顺延。小红书、知乎等人工渠道只出作业单，不计入自动发布量。见[平台自动执行矩阵](docs/platform-automation-matrix.md)。
 
 **从这里开始。** 准备产品事实包、常驻动作授权和邮件 SMTP 凭据；选 X 人工辅助时再准备已登录的本机 Codex CLI 和浏览器 CDP 会话。之后每天看结果、决定继续还是优化。配置步骤见[自动运营说明](docs/grow-autonomous-operations.md)。
 
@@ -48,7 +48,7 @@ python3 mkt.py grow agent g1          # 已有任务可用此命令启用 Codex 
 python3 mkt.py grow produce g1 --max-items 3
 ```
 
-> 想用 X？`--channels x` 会编译成人工辅助计划：内容、排期和账本照常，发送由你确认执行。X 自主写入不合规，Growovo 不会在无人看管时替你发。
+> 想用 X？`--channels x` 只编只读研究、草稿和人工交接计划。Growovo 不运行 X 非 API 网页写脚本；人在 X 页面自行发送，或另行接入符合规则的官方 API。
 
 **CDP 账号观测（v0.14+ 新增）：** 用户提供已登录的调试浏览器，Growovo 不预绑定账号；`mkt policy enable --observe-account` 后，每次动作读取当前浏览器实际账号并写入账本。`mkt account observe` 只读探测，`mkt account log` 查看操作日志。详见 [CDP 账号观测](docs/cdp-observed-account.md)。
 
