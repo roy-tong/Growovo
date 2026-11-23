@@ -4,13 +4,13 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "growovo"
-version = "0.17.1"
-description = "Run authorized X and email campaigns with draft checks, execution receipts and human review of uncertain sends."
+version = "0.18.1"
+description = "Run small authorized GTM tasks and separate send receipts from qualified replies, product use and unknown outcomes."
 readme = "README.md"
 requires-python = ">=3.9"
 license = "MIT"
 authors = [{ name = "Roy Tong" }]
-keywords = ["gtm", "growth", "marketing-automation", "mcp", "one-person-company", "agent"]
+keywords = ["gtm", "growth", "email-automation", "mcp", "evidence", "agent", "human-in-the-loop"]
 classifiers = [
   "Development Status :: 3 - Alpha",
   "Environment :: Console",

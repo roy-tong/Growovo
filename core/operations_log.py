@@ -61,7 +61,7 @@ CONTENT_BEARING_WRITE_ACTIONS = frozenset({"publish", "reply", "message"})
 OPERATION_RESULTS = frozenset({
     "committed", "indeterminate", "failed", "dry-run", "skipped",
     "no-dm", "bounced", "suppressed", "rejected",
-    "target_rejected", "unavailable_or_unrenderable",
+    "target_rejected", "unavailable_or_unrenderable", "deferred", "blocked",
 })
 READBACK_RESULTS = frozenset({"verified", "mismatched", "unknown", "indeterminate"})
 

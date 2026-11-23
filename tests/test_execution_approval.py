@@ -47,6 +47,16 @@ class ExecutionApprovalTests(unittest.TestCase):
         with self.assertRaises(approval.ApprovalError):
             approval.approve_plan(self.data, "c1", by="roy")
 
+    def test_queue_gate_failure_cannot_be_approved(self):
+        queue_path = Path(self.result["queue"])
+        queue = json.loads(queue_path.read_text())
+        queue["items"][0]["body"] = "[TODO]"
+        queue_path.write_text(json.dumps(queue))
+        with self.assertRaisesRegex(approval.ApprovalError, "队列"):
+            approval.approve_plan(self.data, "c1", by="roy")
+        plan = json.loads(Path(self.result["plan"]).read_text())
+        self.assertFalse(plan["review"]["human_approved"])
+
     def test_revoke_blocks_execution(self):
         plan, _, _ = approval.approve_plan(self.data, "c1", by="roy")
         plan, _ = approval.revoke_plan(self.data, "c1", by="roy")

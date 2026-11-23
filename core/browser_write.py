@@ -250,6 +250,15 @@ def execute(channel: str, action: str, data_dir, *, text: str, target: Optional[
     except ThrottleError as exc:
         raise ActionBlocked("quota_exhausted", str(exc)) from exc
 
+    from . import action_claims
+    claim_key = action_claims.stable_key(channel, action, target, text, identity["handle"])
+    try:
+        action_claims.claim(data_dir, key=claim_key)
+    except action_claims.DuplicateAction as exc:
+        return {"ok": False, "channel": channel, "action": action, "target": target,
+                "ref": ref, "result": exc.state, "ledger_result": exc.state,
+                "reason": "action_claim_exists", "claim_key": claim_key}
+
     result: Dict[str, Any] = {"ok": False, "channel": channel, "action": action,
                               "target": target, "ref": ref, "identity": identity,
                               "identity_handle": identity["handle"],
@@ -332,6 +341,14 @@ def execute(channel: str, action: str, data_dir, *, text: str, target: Optional[
                 if result["ok"] and server_id.isdigit():
                     # serverId 是回读到的消息 snowflake；没有完整证据时不编造 permalink。
                     result["receipt"] = {"id": server_id}
+        if channel == "discord" and result["ok"]:
+            actual_author = str(out.get("author") or "").strip().lstrip("@").casefold()
+            expected_author = str(identity["handle"] or "").strip().lstrip("@").casefold()
+            if not actual_author or actual_author != expected_author:
+                result["ok"] = False
+                result.pop("receipt", None)
+                result["error"] = ("readback_identity_mismatch" if actual_author
+                                   else "readback_identity_missing")
         if channel == "x" and result["ok"] and written.isdigit():
             # readback 目前只证明前缀命中；ID/permalink 可落证，但不伪称全文哈希一致。
             result["receipt"] = {
@@ -381,6 +398,7 @@ def execute(channel: str, action: str, data_dir, *, text: str, target: Optional[
             if bump["distinct"] >= CHANNEL_STOP_DISTINCT:
                 raise StopChannel(channel, "窗口内 %d 个不同目标连续 422，判定平台拒绝整批写"
                                   % bump["distinct"])
+            action_claims.finish(data_dir, key=claim_key, result="failed")
             return result
         ledger.append(channel=channel, transport="browser-attach", action=action,
                       campaign=campaign, target=str(target or "-"), result="rejected",
@@ -414,6 +432,8 @@ def execute(channel: str, action: str, data_dir, *, text: str, target: Optional[
                   identity_handle=identity["handle"], actor=actor,
                   detail=str(detail)[:1200], content_key=content_key,
                   mode="owner_attested_session")
+    action_claims.finish(data_dir, key=claim_key, result=state)
+    result["claim_key"] = claim_key
     result["ledger_result"] = state
     result["result"] = "success" if state == "committed" else state
     log("[%s/%s] %s%s" % (channel, action, state,

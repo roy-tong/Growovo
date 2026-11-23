@@ -68,6 +68,17 @@ def precheck(channel, action, data_dir, campaign, go, allow_unverified, target=N
         raise ActionError("全局暂停中（mkt pause --off 恢复）——写操作拒跑")
     if not go:
         return
+    if routine and channel != "x":
+        from .platform_compliance import policy_row
+        permission = policy_row(channel)
+        if not permission.get("autonomous_write"):
+            raise ActionError(
+                f"平台许可不允许 {channel}/{action} 进入 routine 自主执行："
+                f"{permission.get('reason') or '未声明自主写许可'}；"
+                f"{permission.get('next') or '改用人工辅助'}")
+    action_status = (reg[channel].get("action_status") or {}).get(action)
+    if action_status == "UNVERIFIED" and not allow_unverified:
+        raise ActionError(f"{channel}/{action} 为 UNVERIFIED，拒绝实跑（人工首跑校准后加 allow_unverified=true）")
     if reg[channel].get("status") == "UNVERIFIED" and not allow_unverified:
         raise ActionError(f"{channel} 渠道为 UNVERIFIED，拒绝实跑（人工首跑校准后加 allow_unverified=true）")
     try:

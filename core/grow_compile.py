@@ -210,16 +210,18 @@ def compile_run(*, run_id: str, facts: Dict[str, Any], goal_id: str,
         weights: Dict[str, float] = {}
         primary_share = 0.85
         for i, act in enumerate(primary_actions):
-            weights[act] = weights.get(act, 0.0) + primary_share / len(primary_actions)
+            key = f"{primary_channel}:{act}"
+            weights[key] = weights.get(key, 0.0) + primary_share / len(primary_actions)
         secondary_share = 1.0 - primary_share
-        secondary_actions = [a for c in secondary_channels for a in actions_map[c]]
-        for act in secondary_actions:
-            weights[act] = weights.get(act, 0.0) + secondary_share / len(secondary_actions)
+        secondary_actions = [(c, a) for c in secondary_channels for a in actions_map[c]]
+        for ch, act in secondary_actions:
+            key = f"{ch}:{act}"
+            weights[key] = weights.get(key, 0.0) + secondary_share / len(secondary_actions)
     else:
-        weights = {a: (0.8 if i == 0 else 0.2 / max(1, len(primary_actions) - 1))
+        weights = {f"{primary_channel}:{a}": (0.8 if i == 0 else 0.2 / max(1, len(primary_actions) - 1))
                    for i, a in enumerate(primary_actions)}
         if len(primary_actions) == 1:
-            weights = {primary_actions[0]: 1.0}
+            weights = {f"{primary_channel}:{primary_actions[0]}": 1.0}
     daily = split_week(actions_per_week, started, weights)
     total_supply = int(actions_per_week)
     brief_counts: Dict[str, int] = {}
@@ -228,7 +230,7 @@ def compile_run(*, run_id: str, facts: Dict[str, Any], goal_id: str,
             brief_counts[act] = brief_counts.get(act, 0) + int(n)
 
     tactic = "x-reply-guy" if primary_channel == "x" and "reply" in primary_actions else ""
-    briefs = [_supply_brief(primary_channel, act, brief_counts.get(act, 0), audience, tactic)
+    briefs = [_supply_brief(primary_channel, act, brief_counts.get(f"{primary_channel}:{act}", 0), audience, tactic)
               for act in primary_actions]
     for ch in channel_list:
         if ch == primary_channel:

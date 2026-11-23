@@ -114,6 +114,14 @@ class MinimumFieldTests(unittest.TestCase):
             operations_log.OperationsLog(self.dir).append(
                 _full_entry(account={}))
 
+    def test_new_terminal_states_are_recorded_not_dropped(self):
+        for index, result in enumerate(("target_rejected", "unavailable_or_unrenderable",
+                                        "deferred", "blocked")):
+            with self.subTest(result=result):
+                entry = operations_log.OperationsLog(self.dir).append(_full_entry(
+                    operation_id="op-state-%d" % index, result=result))
+                self.assertEqual(result, entry["result"])
+
     def test_error_block_shape(self):
         entry = operations_log.OperationsLog(self.dir).append(_full_entry(
             result="failed",

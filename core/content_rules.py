@@ -166,9 +166,10 @@ def check_row(row: Dict[str, Any], policy: Optional[Dict[str, Any]] = None) -> s
             return "x_link_in_body"
 
     if action == "reply" and cfg["reply"].get("require_context"):
-        source = str(row.get("source") or "")
+        if row.get("context_incomplete"):
+            return "reply_context_incomplete"
         has_context = any(str(row.get(name) or "").strip() for name in REPLY_CONTEXT_FIELDS)
-        if source == "inbox" and not has_context and not row.get("context_incomplete"):
+        if not has_context:
             return "reply_context_missing"
     return ""
 

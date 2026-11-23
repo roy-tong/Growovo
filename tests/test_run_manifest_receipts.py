@@ -69,8 +69,8 @@ class ManifestTests(unittest.TestCase):
         self.assertNotEqual(before, after)
 
     def test_real_wave_writes_manifest_and_returns_its_path(self):
-        row = {"channel": "x", "action": "publish", "target": "", "text": "hello",
-               "source": "queue", "actor": ""}
+        row = {"channel": "github", "action": "reply", "target": "owner/repo#1", "text": "hello",
+               "source": "queue", "actor": "", "context": "peer context"}
         cycle.save_queue(self.queue, [row])
         now = dt.datetime(2026, 11, 23, 22, 5, tzinfo=TZ)
         fake = {"ok": True, "result": "committed", "ledger_result": "committed", "ref": "op-1"}

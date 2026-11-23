@@ -3673,6 +3673,18 @@ def cmd_supply(args):
 
 
 @_business_command
+def cmd_review_ops(args):
+    from core import legacy_commands
+    return legacy_commands.review_ops(DATA, args)
+
+
+@_business_command
+def cmd_proof(args):
+    from core import legacy_commands
+    return legacy_commands.proof(DATA, args)
+
+
+@_business_command
 def cmd_runtime(args):
     from core import cli_runtime
     return cli_runtime.cmd_runtime(DATA, args)
@@ -4368,8 +4380,8 @@ def cmd_network(args):
 
 
 def cmd_demo(args):
-    from core.demo import run_demo
-    return run_demo(BASE)
+    from core import legacy_commands
+    return legacy_commands.demo(BASE, DATA)
 
 
 def cmd_work_demo(args):
@@ -5780,6 +5792,29 @@ def build_parser():
     sp.add_argument("--session", default="", help="browser-attach：WebBridge 会话名；默认读 cycle 策略")
     sp.add_argument("--actor", default="", help="browser-attach：外部对象标识，用于每对象额度")
     sp.set_defaults(fn=cmd_action)
+
+    sp = sub.add_parser("proof", help="Prove Anything：只读导出可复核增长证明包")
+    proof_sub = sp.add_subparsers(dest="proof_action", required=True)
+    a = proof_sub.add_parser("export", help="导出一个 run/campaign；不执行外部动作")
+    a.add_argument("run_id")
+    a.add_argument("--out", required=True, help="新目录；拒绝覆盖")
+    a.add_argument("--by", required=True, help="具名证明复核人")
+    a.add_argument("--classification", choices=["private", "synthetic", "public-redacted"], default="private")
+    a.set_defaults(fn=cmd_proof)
+
+    sp = sub.add_parser("review-ops", help="求评/暖回访：证据资格、未批准队列与私有反馈投影")
+    review_sub = sp.add_subparsers(dest="review_action", required=True)
+    a = review_sub.add_parser("check", help="检查候选并写新目录；不执行外部动作")
+    a.add_argument("file", help="候选 JSON 数组")
+    a.add_argument("--legacy-root", required=True, help="旧 sent_log/suppress 所在目录")
+    a.add_argument("--out", required=True, help="新的空输出目录")
+    a.add_argument("--campaign", default="expert_review_v2")
+    a.add_argument("--now", default="", help="测试/复核用 ISO 时间；默认当前时间")
+    a = review_sub.add_parser("feedback", help="从已人工确认回复生成私有反馈草稿")
+    a = review_sub.add_parser("run", help="按配置生成一轮资格报告与反馈；不发送")
+    a.add_argument("config", help="运行配置 JSON")
+    a.add_argument("--now", default="", help="测试/复核用 ISO 时间；默认当前时间")
+    sp.set_defaults(fn=cmd_review_ops)
 
     sp = sub.add_parser("collect", help="本地 collector：链接跳转/事件 webhook/CSV 导入")
     sp.add_argument("action", choices=["serve", "event", "import"])

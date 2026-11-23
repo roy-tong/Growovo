@@ -42,7 +42,8 @@ DEFAULT_POLICY = {
             "reply": {"min_gap_sec": 90, "per_hour": 20, "per_night": 180},
         },
         "github": {"reply": {"min_gap_sec": 20, "per_hour": 15, "per_night": 135}},
-        "discord": {"publish": {"min_gap_sec": 25, "per_hour": 6, "per_night": 54}},
+        "discord": {"publish": {"min_gap_sec": 25, "per_hour": 9, "per_night": 108},
+                    "reply": {"min_gap_sec": 25, "per_hour": 6, "per_night": 60}},
     },
     "interleave": {"priority": ["x", "github", "discord"], "min_gap_sec": 15,
                    "max_actions_per_wave": 51},
@@ -52,7 +53,7 @@ DEFAULT_POLICY = {
     "quota": {"hour_mode": "rolling"},
     "supply": {
         "wave_targets": {"x/publish": 10, "x/reply": 20,
-                         "github/reply": 15, "discord/publish": 6},
+                         "github/reply": 15, "discord/publish": 9},
         "prefetch": {"enabled": False, "lookahead_waves": 2,
                      "sources": ["github", "content"], "max_queries": 3,
                      "per_query": 10, "gap_sec": 15, "days": 14},
@@ -1007,7 +1008,9 @@ def enqueue(data_dir, drafts, *, queue_path=None, now=None) -> Dict[str, Any]:
                 reason = "text_empty"
             elif row["action"] == "reply" and not row["target"]:
                 reason = "target_required"
-            elif row["channel"] == "discord" and not row["target"].isdigit():
+            elif row["channel"] == "discord" and (
+                    (row["action"] == "reply" and not re.fullmatch(r"\d+:\d+", row["target"]))
+                    or (row["action"] != "reply" and not row["target"].isdigit())):
                 reason = "target_invalid"
             elif row["channel"] == "discord" and allowed_dc and row["target"] not in allowed_dc:
                 reason = "channel_not_allowed"
@@ -1084,6 +1087,14 @@ def stop_state(data_dir, night: str, channel: str, *, now: Optional[_dt.datetime
     record = stop_record(data_dir, night, channel)
     if record is None:
         return "closed"
+    if record.get("requires_human_resolution"):
+        ref = str(record.get("unresolved_ref") or "")
+        if not ref:
+            return "open"
+        rows = Ledger(Path(data_dir) / "ledger.jsonl").results()
+        original = next((row for row in rows if row.get("ref") == ref), None)
+        if original is None or original.get("result") == "indeterminate":
+            return "open"
     at = _parse(record.get("at"))
     if at is None:
         return "open"
@@ -1103,12 +1114,16 @@ def clear_stopped(data_dir, night: str, channel: str) -> bool:
         return False
 
 
-def mark_stopped(data_dir, night: str, channel: str, reason: str) -> Path:
+def mark_stopped(data_dir, night: str, channel: str, reason: str,
+                 requires_human_resolution: bool = False, unresolved_ref: str = "") -> Path:
     path = stop_path(data_dir, night, channel)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps({"channel": channel, "night": night, "reason": reason,
-                                "at": _now().isoformat(timespec="seconds")},
-                               ensure_ascii=False), encoding="utf-8")
+    payload = {"channel": channel, "night": night, "reason": reason,
+               "at": _now().isoformat(timespec="seconds")}
+    if requires_human_resolution:
+        payload["requires_human_resolution"] = True
+        payload["unresolved_ref"] = unresolved_ref
+    path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
     return path
 
 
@@ -1254,12 +1269,22 @@ def _run(data_dir, *, go: bool = False, queue_path=None, max_actions: int = 0,
             return {"ok": False, "reason": "manifest_error", "error": str(exc),
                     "night": night, "wave": wave, "campaign": campaign}
     ledger = Ledger(data_dir / "ledger.jsonl")
-    prepared = plan([row for row in queue
-                     if _queue_key(_normalize(row)) not in stale_keys
-                     and str(row.get("channel") or row.get("platform") or "") not in unusable],
+    eligible = [row for row in queue
+                if _queue_key(_normalize(row)) not in stale_keys
+                and str(row.get("channel") or row.get("platform") or "") not in unusable]
+    platform_skipped = []
+    for raw in list(eligible):
+        row = _normalize(raw)
+        if row["channel"] == "x":
+            eligible.remove(raw)
+            platform_skipped.append({
+                "channel": row["channel"], "action": row["action"],
+                "target": row["target"], "reason": "platform_permission_required"})
+    prepared = plan(eligible,
                     policy, ledger=ledger, now=now, budget_sec=budget_sec,
                     max_actions=max_actions, campaign=campaign,
                     throttle=Throttle(data_dir / "state"), data_dir=data_dir)
+    prepared["skipped"].extend(platform_skipped)
     summary: Dict[str, Any] = {
         "ok": True, "wave": wave, "campaign": campaign, "night": night,
         "run_context": context.correlation(),
@@ -1470,6 +1495,14 @@ def _run(data_dir, *, go: bool = False, queue_path=None, max_actions: int = 0,
                 elif ledger_state in ("committed", "indeterminate", "skipped",
                                       "target_rejected", "unavailable_or_unrenderable"):
                     _consume(row)
+                if ledger_state == "indeterminate":
+                    ref = str(got.get("ref") or "")
+                    mark_stopped(data_dir, night, row["channel"],
+                                 "indeterminate", requires_human_resolution=True,
+                                 unresolved_ref=ref)
+                    deferred_channels[row["channel"]] = "indeterminate_pending_review"
+                    summary["stopped"][row["channel"]] = "indeterminate_pending_review"
+                    log("[%s] 结果未知：本渠道停批，人工裁决前不再发送" % row["channel"])
             except StopChannel as exc:
                 mark_stopped(data_dir, night, row["channel"], exc.reason)
                 dropped.add(row["channel"])

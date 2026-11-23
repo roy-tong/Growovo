@@ -370,7 +370,7 @@ RISK: Dict[str, Dict[str, Any]] = {
             {"id": "browser_plugin", "level": "block",
              "signal": "浏览器插件式自动化（当前封号最高频触发源）",
              "threshold": "0 使用",
-             "action": "不安装、不运行；无人值守网页端写入已被 require_user_visible_cdp 禁止",
+             "action": "不安装、不运行；所有 X 非 API 网页脚本写均被平台许可门禁止",
              "source": "linkedin-2026-limits", "grade": "lead"},
             {"id": "invite_burst", "level": "throttle",
              "signal": "连接请求超过日/周配额",

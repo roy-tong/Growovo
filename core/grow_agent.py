@@ -190,7 +190,8 @@ def produce(run, data_dir, *, on=None, writer=None, discover=None, max_items=3):
                 break
             day_week = grow_schedule.split_week(quota.get("actions_per_week", 0),
                 grow_schedule.week_start_of(fill_day, data["started"]), quota.get("action_weights"))
-            quota_day = day_week.get(fill_day, {}).get(action, 0)
+            quota_day = day_week.get(fill_day, {}).get(f"{channel}:{action}",
+                    day_week.get(fill_day, {}).get(action, 0))
             done_day = count_done if fill_day == on else 0
             gap = max(0, quota_day - done_day - inventory.get((channel, action, fill_day), 0))
             for i in range(min(gap, budget - result["attempts"])):

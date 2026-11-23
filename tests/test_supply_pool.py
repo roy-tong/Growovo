@@ -7,6 +7,7 @@ import datetime as dt
 import json
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 import sys
 
@@ -60,6 +61,18 @@ class NormalizeTest(unittest.TestCase):
                                      "target": "https://reddit.com/r/x/comments/1/a/",
                                      "context": "hello"}, now=NOW)
         self.assertEqual("reddit", row["channel"])
+
+
+class MarkLockTest(unittest.TestCase):
+    def test_mark_uses_the_same_lock_as_merge(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            supply_pool.merge(tmp, [{"channel": "x", "action": "reply",
+                                     "target": "https://x.com/a/status/1",
+                                     "context": "question"}], now=NOW)
+            with mock.patch.object(supply_pool, "_locked", return_value=None):
+                got = supply_pool.mark(tmp, "x:a/1", "used", now=NOW)
+            self.assertEqual({"ok": False, "reason": "pool_lock_busy"},
+                             {key: got[key] for key in ("ok", "reason")})
 
 
 class CandidateKeyTest(unittest.TestCase):

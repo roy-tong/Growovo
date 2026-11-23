@@ -7,7 +7,7 @@
 import json
 import random
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 try:  # POSIX 锁；Windows 没有 fcntl 时退化为单进程检查（仍比无检查安全）。
@@ -98,24 +98,6 @@ class Throttle:
     def __init__(self, state_dir, day_boundary=None):
         self.state_dir = Path(state_dir)
         self.day_boundary = day_boundary or DAY_BOUNDARY
-        self.enforce_caps = self._load_enforce()
-
-    def _load_enforce(self):
-        """读 `../policies/engagement-cycle.json` 的 quota.enforce。
-
-        Owner 2026-11-22：配额上限不再拦截业务。读不到策略或解析失败时
-        保持 True（旧行为），保证测试与未知目录不会意外放开平台限额。
-        进程内不热加载：开关在下一波新建 Throttle 时生效。
-        """
-        policy_file = self.state_dir.parent / "policies" / "engagement-cycle.json"
-        try:
-            data = json.loads(policy_file.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            return True
-        value = (data.get("quota") or {}).get("enforce", True)
-        if isinstance(value, str):
-            return value.strip().lower() not in ("false", "0", "no", "off")
-        return bool(value)
 
     def policy(self, channel, action):
         return INTERVALS.get((channel, action), FALLBACK)
@@ -219,29 +201,45 @@ class Throttle:
                 fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
             fh.close()
 
+    def _legacy_local_used(self, channel, action):
+        if self.day_boundary == "local":
+            return 0
+        now = _now()
+        utc_start = datetime.combine(now.date(), datetime.min.time(), tzinfo=timezone.utc)
+        local_start = utc_start.astimezone().date()
+        local_end = (utc_start + timedelta(days=1) - timedelta(microseconds=1)).astimezone().date()
+        key = f"{channel}/{action}"
+        total = 0
+        day = local_start
+        while day <= local_end:
+            state = self._read_state(self.state_dir / f"mkt-daily-{day.isoformat()}.json")
+            try:
+                total += max(0, int(state.get(key, 0) or 0))
+            except (TypeError, ValueError):
+                pass
+            day += timedelta(days=1)
+        return total
+
     def daily_used(self, channel, action):
         state = self._read_state()
         try:
-            return int(state.get(f"{channel}/{action}", 0))
+            current = int(state.get(f"{channel}/{action}", 0))
         except (TypeError, ValueError):
-            return 0
+            current = 0
+        return current + self._legacy_local_used(channel, action)
 
     def daily_allows(self, channel, action, n=1):
-        if not self.enforce_caps:
-            return True
         _, _, _, daily_cap = self.policy(channel, action)
         if daily_cap is None:
             return True
         return self.daily_used(channel, action) + n <= daily_cap
 
     def remaining(self, channel, action):
-        """只读：今天还剩多少条额度；无日上限或配额不拦截时返回 None。
+        """只读：今天还剩多少条额度；无日上限返回 None。
 
         计划阶段用它判断"排得下、但发到一半就撞日上限"，避免把当天注定
         发不出的动作排进波次。
         """
-        if not self.enforce_caps:
-            return None
         _, _, _, daily_cap = self.policy(channel, action)
         if daily_cap is None:
             return None
@@ -252,25 +250,15 @@ class Throttle:
 
         预留在发送动作之前完成，因此并发队列也不会同时越过日上限。若后续
         发送异常，额度保持已占用（保守：未知发送不能被当成没发）。
-        quota.enforce=false 时不再因上限拒绝，但仍累计用量供审计。
         """
         _, _, _, daily_cap = self.policy(channel, action)
-        if not self.enforce_caps:
-            daily_cap = None
         if daily_cap is None:
-            key = f"{channel}/{action}"
-            with self._locked():
-                f = self._state_file()
-                state = self._read_state(f)
-                state[key] = int(state.get(key, 0) or 0) + n
-                f.write_text(json.dumps(state, ensure_ascii=False, indent=1),
-                             encoding="utf-8")
-                return state[key]
+            return self.daily_used(channel, action)
         key = f"{channel}/{action}"
         with self._locked():
             f = self._state_file()
             state = self._read_state(f)
-            used = int(state.get(key, 0) or 0)
+            used = self.daily_used(channel, action)
             if used + n > daily_cap:
                 raise ThrottleError(
                     f"{channel}/{action} 日预算已用 {used}/{daily_cap}，"

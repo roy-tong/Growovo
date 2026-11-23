@@ -18,6 +18,7 @@ import inspect
 import re
 from datetime import datetime
 from pathlib import Path
+from . import action_claims
 
 
 def _norm(s):
@@ -126,10 +127,17 @@ class WritePipeline:
                 except Exception as exc:
                     rec.update(result="rejected", detail=f"日预算门禁: {exc}")
                     return self._finish(rec)
+            claim = action_claims.claim(
+                self.ledger.path.parent,
+                key=action_claims.stable_key(channel, action, target, expect, self.account))
+            rec["claim_key"] = claim["key"]
             send_started = True
             send(item)                       # Exceptions may occur after acceptance.
             ok = confirm(item)
             rec.update(result="committed" if ok else "indeterminate")
+        except action_claims.DuplicateAction as exc:
+            rec.update(result=exc.state,
+                       detail="动作已存在持久认领；本次未发送，先核对原回执")
         except Exception as exc:
             rec.update(result="indeterminate" if send_started else "failed",
                        detail=str(exc)[:300])
@@ -143,6 +151,9 @@ class WritePipeline:
         # Preserve the legacy ledger shape unless the new, distinct mode was
         # actually used.  Routine authorization must remain auditable and must
         # never be rewritten as plan/adhoc.
+        if rec.get("claim_key"):
+            action_claims.finish(self.ledger.path.parent, key=rec["claim_key"],
+                                 result=rec.get("result", "indeterminate"))
         extra = ({"approval": "routine-policy"}
                  if rec.get("approval") == "routine-policy" else {})
         self.ledger.append(

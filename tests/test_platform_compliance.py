@@ -116,34 +116,28 @@ class AdapterGateTests(unittest.TestCase):
             "observed_at": "2026-11-18T12:00:00+00:00",
         }
 
-    def test_user_visible_cdp_requires_complete_observed_identity(self):
+    def test_scripted_cdp_write_is_refused_regardless_of_identity_or_action(self):
         with tempfile.TemporaryDirectory() as tmp:
-            with self.assertRaises(platform_compliance.ComplianceError) as ctx:
-                platform_compliance.require_user_visible_cdp(
-                    "x", "reply", tmp, go=True, actual_transport="cdp", identity=None)
-            self.assertEqual("identity_observation_required", ctx.exception.code)
-
-    def test_user_visible_cdp_does_not_extend_to_message_or_engage(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            for action in ("message", "engage"):
+            for action in ("publish", "reply", "message", "engage"):
                 with self.subTest(action=action):
                     with self.assertRaises(platform_compliance.ComplianceError) as ctx:
                         platform_compliance.require_user_visible_cdp(
                             "x", action, tmp, go=True, actual_transport="cdp",
                             identity=self.observed_identity())
-                    self.assertEqual("action_out_of_scope", ctx.exception.code)
+                    self.assertEqual("platform_permission_required", ctx.exception.code)
 
-    def test_user_visible_cdp_reaches_vendor_only_after_observed_identity(self):
+    def test_observed_identity_cannot_make_scripted_cdp_reach_vendor(self):
         with tempfile.TemporaryDirectory() as tmp:
-            proc = mock.Mock(returncode=0)
-            with mock.patch.object(adapter.subprocess, "run", return_value=proc) as runner:
-                adapter.run("reply", ["--tweet-url", "https://x.com/a/status/1",
-                                      "--text", "single user-approved reply"],
-                            go=True, adhoc=True, campaign="c", data_dir=tmp,
-                            identity=self.observed_identity(),
-                            execution_mode="user_visible_cdp",
-                            log=lambda *_a, **_k: None)
-        self.assertTrue(runner.called, "单次用户确认且账号已观测时，CDP 路径应可执行")
+            with mock.patch.object(adapter.subprocess, "run") as runner:
+                with self.assertRaises(SystemExit) as ctx:
+                    adapter.run("reply", ["--tweet-url", "https://x.com/a/status/1",
+                                          "--text", "synthetic only"],
+                                go=True, adhoc=True, campaign="c", data_dir=tmp,
+                                identity=self.observed_identity(),
+                                execution_mode="user_visible_cdp",
+                                log=lambda *_a, **_k: None)
+        self.assertIn("platform_permission_required", str(ctx.exception))
+        self.assertFalse(runner.called, "平台规则拒绝时不得启动 X vendor")
 
     def test_dry_run_still_reaches_vendor(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -163,6 +157,17 @@ class PolicyMetadataTests(unittest.TestCase):
         self.assertFalse(row["policy"]["autonomous_write"])
         self.assertEqual("non_api_write_forbidden", row["policy"]["code"])
         self.assertTrue(platform_caps.classify("email")["policy"]["autonomous_write"])
+
+    def test_matrix_disables_x_scripted_browser_writes(self):
+        row = platform_compliance.policy_row("x")
+        self.assertFalse(row["owner_attested_browser_write"])
+        self.assertFalse(row["user_visible_cdp_write"])
+        self.assertEqual(row["user_visible_cdp_actions"], [])
+
+    def test_discord_reply_has_independent_unverified_maturity(self):
+        from channels import REGISTRY
+        self.assertEqual("PROVEN", REGISTRY["discord"]["status"])
+        self.assertEqual("UNVERIFIED", REGISTRY["discord"]["action_status"]["reply"])
 
     def test_x_gate_in_strategy_is_error_level(self):
         gates = [g for g in platform_strategy.gates("x", scope="execution")

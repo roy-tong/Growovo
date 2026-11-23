@@ -41,7 +41,7 @@ def policy():
 
 def reply(target, text="answer", actor="a"):
     return {"channel": "x", "action": "reply", "target": target,
-            "text": text, "actor": actor, "source": "queue", "queued_at": NOW.isoformat()}
+            "text": text, "actor": actor, "source": "queue", "context": "peer context", "queued_at": NOW.isoformat()}
 
 
 class SupplyReadinessTests(unittest.TestCase):

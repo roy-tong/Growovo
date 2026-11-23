@@ -2,24 +2,36 @@
 
 ## Unreleased
 
+### Added
+
+- `mkt review-ops` adds evidence-qualified expert-review and warm-follow-up preparation. Named-person/account mapping, same-day hook checks, cross-campaign cooldown, company spacing, specific review artifacts and anti-template rules feed native unapproved email/GitHub queues. Business goals record reader value, observable outcomes and non-goals; high-marketing CTAs are refused. Capacity is three deep-research items per channel per wave with no quota padding. Confirmed replies project to idempotent private feedback drafts; no sender, credential, approval bypass, repository write or external action is added.
+
+## 0.18.1 — 2026-11-23
+
+### Security
+
+- X is no longer eligible for scripted non-API browser writes. Both standing owner-attested `browser-attach` and one-off `user_visible_cdp --go` return `platform_permission_required`, even with a complete operator file, observed identity and available quota; all four write actions are refused before the X vendor. `cycle` excludes X before dispatch, and the browser-attach adapter refuses before its engine, quota reservation or committed ledger append. X read-only collection, dry runs, drafts and human operation directly in X remain; automated writing requires a separately connected, compliant official API. GitHub/Discord owner-attested behavior is unchanged. The offline suite and five-check demo pass without any real X write.
+
+### Changed
+
+- The controlled-run pages now separate execution, qualified conversations, independently observed product use and second-batch evidence. A sanitized task-result Issue Form and Discord links provide a public feedback path without private recipients, content or credentials. Chinese/English landing pages, FAQ, JSON-LD and `llms.txt` use the same X platform boundary as the execution gates.
+
+## 0.18.0 — 2026-11-22
+
+### Added
+
+- **Installed demo workspaces stay outside the package.** `mkt demo` writes to `./data/demo` after wheel installation and honors an explicit `--workspace`; source-checkout behavior is unchanged. The approved queue contains only the three executable fixtures; the placeholder sample stays outside approval and demonstrates rejection separately.
+
+- **Plan approval now rechecks every bound queue** through `lint_queue` and the shared read-only content/target gate before writing an approval. Invalid or placeholder-bearing content is rejected before a plan can be approved; the existing plan+queue+account+workspace fingerprint remains unchanged.
+
+- **`mkt --workspace DATA proof export RUN --out NEW_DIR --by NAME`** creates a read-only Prove Anything bundle without external actions. Private targets, bodies, accounts, subjects and authorization documents are excluded. Execution receipts, independent readback and external events map separately to P0/P2/P4; unknown states remain INDETERMINATE and no causal credit is assigned.
+
 Quota limits now slow work down instead of closing it. Approval, dry-run, pause,
 DNC/suppression, identity binding, ledger dedupe, readback and unknown-result
 protections are unchanged.
 
 ### Changed
 
-- **CDP navigation stops paying for a stuck page twice**: `core/cdp.py:safe_goto`
-  now uses a 20 s single-navigation ceiling (`MKT_GOTO_TIMEOUT_MS` overrides)
-  and retries only recoverable interruptions (`ERR_ABORTED`, connection-level
-  errors). A navigation timeout (including `net::ERR_TIMED_OUT`) returns `False`
-  immediately instead of burning two more identical timeouts, so a stuck `goto`
-  that used to cost about 144 s now costs 20 s. Only connection interruptions
-  may retry, at most twice.
-- **X search and post reads wait for results, not for the clock**:
-  `core/grow_targets.py` and `core/grow_learning.py` replace fixed 3–6 s
-  post-navigation sleeps with a wait for the first tweet article; an empty
-  result still waits out the same ceiling. Metric reads keep a 0.5 s settle so
-  engagement labels can paint.
 - **Over-limit email and queue batches are sliced, not refused**:
   `channels/email_smtp.py` and `core/queue_runner.py` send the part that fits
   the per-run cap and the remaining daily budget, then return the rest as

@@ -226,15 +226,22 @@ class RoutineExecutionTests(RoutineTestCase):
         with self.assertRaises(ActionError):
             precheck("x", "reply", self.data, "routine-campaign", True, False,
                      routine=False)
+        authorize(self.data, by="operator", actions=["email:message"])
         self.assertEqual(
             "routine-policy",
-            precheck("x", "reply", self.data, "routine-campaign", True, False,
+            precheck("email", "message", self.data, "routine-campaign", True, False,
                      routine=True))
 
     def test_unverified_gate_is_not_downgraded(self):
         authorize(self.data, by="operator", actions=["github:reply"])
         with self.assertRaisesRegex(ActionError, "UNVERIFIED"):
             precheck("github", "reply", self.data, "routine-campaign", True, False,
+                     routine=True)
+
+    def test_platform_permission_is_enforced_in_shared_routine_precheck(self):
+        authorize(self.data, by="operator", actions=["hn:reply"])
+        with self.assertRaisesRegex(ActionError, "平台许可"):
+            precheck("hn", "reply", self.data, "routine-campaign", True, True,
                      routine=True)
 
     def test_pipeline_marks_routine_policy_in_result_and_ledger(self):

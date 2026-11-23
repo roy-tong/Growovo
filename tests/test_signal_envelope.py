@@ -45,7 +45,11 @@ PLAN = {
     "review": {"human_approved": False},
 }
 
-QUEUE = {"items": [{"ref": "acct-a"}]}
+QUEUE = {
+    "campaign": "q", "channel": "email", "action": "message",
+    "items": [{"id": "a1", "target": "owner@example.com",
+               "body": "这是一条可完整审阅的合成邮件，不执行真实发送。"}],
+}
 
 
 def _sha_bytes(path):

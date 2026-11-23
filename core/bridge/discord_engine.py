@@ -96,12 +96,18 @@ BASELINE = r"""(() => {
 
 SENT = r"""(() => {
   const cid = %s;
+  const clean = s => String(s || '').replace(/\s+/g, ' ').trim();
   const rows = Array.from(document.querySelectorAll('li[id^="chat-messages-"]'));
   const mine = rows.filter(li => li.id.indexOf('chat-messages-' + cid + '-') === 0);
   const last = mine[mine.length - 1];
-  const txt = last ? (last.innerText || '').replace(/\s+/g, ' ') : '';
+  const content = last && (last.querySelector('div[id^="message-content-"]') || last);
+  const author = last && last.querySelector('[class*="username"], [class*="author"]');
+  const replyLink = last && last.querySelector('a[href*="/channels/"]');
+  const replyTo = last && (last.getAttribute('data-reply-to') ||
+    (replyLink ? String(replyLink.getAttribute('href') || '').split('/').pop() : ''));
   return {mine: mine.length, lastId: last ? last.id.split('-').pop() : null,
-          lastHead: txt.slice(0, 70)};
+          lastText: clean(content ? content.textContent : ''),
+          author: clean(author ? author.textContent : ''), replyTo: replyTo || null};
 })()"""
 
 
@@ -121,6 +127,19 @@ def _new_row(base, got):
     if int(g.get("mine") or 0) > int(b.get("mine") or 0):
         return True
     return bool(b.get("lastId") and g.get("lastId") and g["lastId"] != b["lastId"])
+def _valid_readback(base, got, text, *, reply_to="", author=""):
+    got = got or {}
+    if not _new_row(base, got) or not got.get("lastId"):
+        return False
+    if _norm(got.get("lastText")) != _norm(text):
+        return False
+    if author and _norm(got.get("author")).lstrip("@").casefold() != _norm(author).lstrip("@").casefold():
+        return False
+    if not _norm(got.get("author")):
+        return False
+    if reply_to and str(got.get("replyTo") or "") != str(reply_to):
+        return False
+    return True
 
 
 ENTER = r"""(() => {
@@ -239,8 +258,10 @@ REPLY_STATE = r"""(() => {
     .filter(e => e.getBoundingClientRect().height > 0);
   const text = bars.map(e => (e.innerText || '').replace(/\s+/g, ' ').trim())
     .filter(Boolean).join(' | ');
+  const links = bars.map(e => e.querySelector('a[href*="/channels/"]')).filter(Boolean);
+  const href = links.length ? String(links[0].getAttribute('href') || '') : '';
   return {ok: bars.length > 0 && text.length > 0, bars: bars.length,
-          text: text.slice(0, 160)};
+          text: text.slice(0, 160), replyTo: href ? href.split('/').pop() : null};
 })()"""
 
 ESC = r"""(() => {
@@ -329,8 +350,12 @@ def _submit(tab, channel, text, dry, out):
         # Re-reading after the round trip proves the message survived it.
         time.sleep(1.2)
         again = wb.ev(tab, SENT % json.dumps(channel)).get("value") or {}
-        out["confirmed"] = _new_row(base, again)
+        out["confirmed"] = _valid_readback(
+            base, again, text, reply_to=str(out.get("replyTo") or ""))
         out["serverId"] = again.get("lastId")
+        out["author"] = again.get("author")
+        out["content"] = again.get("lastText")
+        out["actualReplyTo"] = again.get("replyTo")
         out["readback"] = dict(got, confirmed=out["confirmed"], lastIdAfter=again.get("lastId"))
         out["ok"] = bool(out["confirmed"])
     if not out["ok"]:
@@ -405,14 +430,14 @@ def reply(tab, channel, message_id, text, dry=False):
             break
         time.sleep(0.1)
     out["replyState"] = state
-    if not state.get("ok"):
-        # No reply bar means the composer is a plain channel post: do not type.
+    if not state.get("ok") or state.get("replyTo") != mid:
+        # No/mismatched reply bar means the composer is not bound to this target.
         wb.ev(tab, ESC)
-        out.update(ok=False, err="reply_context_missing")
+        out.update(ok=False, err="reply_context_mismatch" if state.get("ok") else "reply_context_missing")
         return out
 
-    _submit(tab, cid, text, dry, out)
     out["replyTo"] = mid
+    _submit(tab, cid, text, dry, out)
     out["ms"] = round((time.time() - t0) * 1000)
     return out
 

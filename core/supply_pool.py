@@ -343,16 +343,25 @@ def mark(data_dir, key: str, status: str, *, why: str = "",
     if status not in STATUSES:
         raise PoolError("未知状态：%r" % status)
     now = now or _now()
-    payload = load(data_dir)
-    item = payload["items"].get(str(key))
-    if item is None:
-        raise PoolError("池子里没有这个 key：%s" % key)
-    item["status"] = status
-    item["status_at"] = _iso(now)
-    if why:
-        item["status_why"] = str(why)
-    save(data_dir, payload)
-    return {"ok": True, "key": key, "status": status, "item": item}
+    handle = _locked(data_dir)
+    if handle is None:
+        return {"ok": False, "reason": "pool_lock_busy"}
+    try:
+        payload = load(data_dir)
+        item = payload["items"].get(str(key))
+        if item is None:
+            raise PoolError("池子里没有这个 key：%s" % key)
+        item["status"] = status
+        item["status_at"] = _iso(now)
+        if why:
+            item["status_why"] = str(why)
+        save(data_dir, payload)
+        return {"ok": True, "key": key, "status": status, "item": item}
+    finally:
+        import fcntl
+
+        fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+        handle.close()
 
 
 def prune(data_dir, *, days: int = 21, now: Optional[_dt.datetime] = None) -> Dict[str, Any]:

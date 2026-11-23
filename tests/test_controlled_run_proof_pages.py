@@ -1,5 +1,4 @@
 from pathlib import Path
-import re
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -14,13 +13,14 @@ class ControlledRunProofPagesTest(unittest.TestCase):
             for token in ("mkt demo", "human_approved=false", "dry-run", "demo-memory",
                           "UNKNOWN", "Synthetic", "no real"):
                 self.assertIn(token, text)
-            self.assertIsNone(re.search(
-                r'<script(?![^>]*type="application/ld\+json")', text, re.I))
+            self.assertNotIn("<script>", text)
+            self.assertNotIn("javascript:", text)
+            self.assertEqual(1, text.count('<script type="application/ld+json">'))
 
     def test_homepages_link_family_story_and_controlled_run(self):
         for relative in ("index.html", "en.html"):
             text = (ROOT / "website" / relative).read_text(encoding="utf-8")
-            self.assertIn("OVO · PROVE ANYTHING", text)
+            self.assertIn("Generate Anything. Prove What Matters.", text)
             self.assertIn("examples/controlled-run", text)
 
 

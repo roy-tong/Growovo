@@ -69,6 +69,19 @@ class ContentRuleTest(unittest.TestCase):
         self.assertEqual(len(got["scheduled"]), 1)
         self.assertEqual(got["skipped"], [])
 
+    def test_non_inbox_reply_without_context_is_rejected(self):
+        bad = row("x", "reply", "https://x.com/a/status/1", actor="a", source="queue")
+        got = self.plan([bad])
+        self.assertEqual(got["scheduled"], [])
+        self.assertEqual([s["reason"] for s in got["skipped"]], ["reply_context_missing"])
+
+    def test_incomplete_context_is_not_accepted_as_context(self):
+        bad = row("x", "reply", "https://x.com/a/status/1", actor="a", source="inbox",
+                  their_text="only a fragment", context_incomplete=True)
+        got = self.plan([bad])
+        self.assertEqual(got["scheduled"], [])
+        self.assertEqual([s["reason"] for s in got["skipped"]], ["reply_context_incomplete"])
+
     def test_focus_replies_are_ordered_first(self):
         other = row("x", "reply", "https://x.com/b/status/2", actor="b", source="inbox",
                     their_text="hi")
@@ -95,7 +108,8 @@ class ContentRuleTest(unittest.TestCase):
 
     def test_link_in_first_self_reply_is_not_a_publish_row(self):
         reply = row("x", "reply", "https://x.com/me/status/9",
-                    text="details: https://github.com/roy-tong/Verovo")
+                    text="details: https://github.com/roy-tong/Verovo",
+                    their_text="original post")
         self.assertEqual(content_rules.check_row(reply, self.policy), "")
         self.assertEqual(len(content_rules.artifact_links(reply["text"])), 1)
 

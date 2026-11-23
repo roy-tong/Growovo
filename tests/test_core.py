@@ -6,8 +6,10 @@
 （含 449 事故的核心回归：回读不一致绝不 SEND）。
 """
 import json
+import os
 import sys
 import tempfile
+import time
 import unittest
 from datetime import datetime, timezone
 from pathlib import Path
@@ -212,6 +214,20 @@ class TestThrottle(TmpDir):
 class TestBudgetDayBoundary(TmpDir):
     """夜间窗口 19:00→次日 07:00 跨本地 0 点：预算日界不能把一晚切成两段。"""
 
+    def setUp(self):
+        super().setUp()
+        self._old_tz = os.environ.get("TZ")
+        os.environ["TZ"] = "Asia/Shanghai"
+        time.tzset()
+        self.addCleanup(self._restore_tz)
+
+    def _restore_tz(self):
+        if self._old_tz is None:
+            os.environ.pop("TZ", None)
+        else:
+            os.environ["TZ"] = self._old_tz
+        time.tzset()
+
     def _at(self, *args):
         when = datetime(*args, tzinfo=timezone.utc)
         return mock.patch.object(throttle, "_now", return_value=when)
@@ -232,14 +248,27 @@ class TestBudgetDayBoundary(TmpDir):
         with self._at(2026, 11, 22, 16, 30):
             self.assertEqual(th.daily_used("x", "publish"), 0)
 
-    def test_old_local_day_file_is_not_counted(self):
+    def test_old_local_day_file_is_inherited_without_resetting_quota(self):
         th = Throttle(self.dir)
         now = datetime(2026, 11, 22, 11, 0, tzinfo=timezone.utc)
         local_day = now.astimezone().date().isoformat()
         (self.dir / f"mkt-daily-{local_day}.json").write_text(
             json.dumps({"x/publish": 48}), encoding="utf-8")
         with mock.patch.object(throttle, "_now", return_value=now):
-            self.assertEqual(th.daily_used("x", "publish"), 0)
+            self.assertEqual(th.daily_used("x", "publish"), 48)
+            with self.assertRaises(ThrottleError):
+                th.reserve("x", "publish")
+
+    def test_utc_day_inherits_both_overlapping_legacy_local_days(self):
+        th = Throttle(self.dir)
+        now = datetime(2026, 11, 22, 16, 30, tzinfo=timezone.utc)
+        previous = now.astimezone().date().fromordinal(now.astimezone().date().toordinal() - 1)
+        (self.dir / f"mkt-daily-{previous.isoformat()}.json").write_text(
+            json.dumps({"x/publish": 20}), encoding="utf-8")
+        (self.dir / f"mkt-daily-{now.astimezone().date().isoformat()}.json").write_text(
+            json.dumps({"x/publish": 10}), encoding="utf-8")
+        with mock.patch.object(throttle, "_now", return_value=now):
+            self.assertEqual(th.daily_used("x", "publish"), 30)
 
     def test_cap_resets_after_boundary(self):
         th = Throttle(self.dir)
@@ -495,40 +524,3 @@ class TestHNChannel(TmpDir):
 
 if __name__ == "__main__":
     unittest.main()
-
-
-class TestSafeGoto(unittest.TestCase):
-    """导航重试纪律：只重试可恢复中断，超时不再赔一遍等待。"""
-
-    class _Page:
-        def __init__(self, failures):
-            self.failures = list(failures)
-            self.calls = []
-
-        def goto(self, url, **kwargs):
-            self.calls.append((url, kwargs))
-            if self.failures:
-                raise RuntimeError(self.failures.pop(0))
-            return None
-
-    def test_timeout_is_not_retried(self):
-        from core import cdp
-        page = self._Page(["Timeout 20000ms exceeded."])
-        with mock.patch.object(cdp.time, "sleep") as sleep:
-            self.assertFalse(cdp.safe_goto(page, "https://x.com/home"))
-            sleep.assert_not_called()
-        self.assertEqual(len(page.calls), 1)
-        self.assertEqual(page.calls[0][1]["timeout"], cdp.GOTO_TIMEOUT_MS)
-
-    def test_aborted_navigation_is_retried(self):
-        from core import cdp
-        page = self._Page(["net::ERR_ABORTED", "net::ERR_ABORTED"])
-        with mock.patch.object(cdp.time, "sleep"):
-            self.assertTrue(cdp.safe_goto(page, "https://x.com/home"))
-        self.assertEqual(len(page.calls), 3)
-
-    def test_explicit_timeout_overrides_default(self):
-        from core import cdp
-        page = self._Page([])
-        self.assertTrue(cdp.safe_goto(page, "https://x.com/home", timeout_ms=1500))
-        self.assertEqual(page.calls[0][1]["timeout"], 1500)

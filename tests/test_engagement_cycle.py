@@ -42,7 +42,7 @@ def row(channel, action, target="", text="t", actor="", source="queue", ts=None,
         result="committed", transport="browser-attach"):
     out = {"channel": channel, "action": action, "target": target, "text": text,
            "actor": actor, "source": source, "result": result, "transport": transport}
-    if source == "inbox":
+    if action == "reply":
         out.setdefault("their_text", "peer context")
     if ts:
         out["ts"] = ts
@@ -127,15 +127,6 @@ class PlanTest(unittest.TestCase):
             row("x", "publish", actor="owner", ts="2026-11-20T22:02:00+08:00"),
         ])
         got = self.plan([row("x", "publish", actor="owner")])
-        self.assertEqual(got["skipped"], [])
-        self.assertEqual(len(got["scheduled"]), 1)
-
-    def test_inbox_reply_ignores_actor_cap(self):
-        write_rows(self.data / "ledger.jsonl", [
-            row("github", "reply", "a/b#1", actor="sam", ts="2026-11-20T22:01:00+08:00"),
-            row("github", "reply", "a/b#2", actor="sam", ts="2026-11-20T22:02:00+08:00"),
-        ])
-        got = self.plan([row("github", "reply", "a/b#3", actor="sam", source="inbox")])
         self.assertEqual(got["skipped"], [])
         self.assertEqual(len(got["scheduled"]), 1)
 
@@ -293,7 +284,6 @@ class PlanTest(unittest.TestCase):
         policy = json.loads(json.dumps(cycle.DEFAULT_POLICY))
         policy["channels"]["discord_allowed_ids"] = channels
         policy["platforms"]["discord"]["publish"]["per_hour"] = 9
-        policy["supply"]["wave_targets"]["discord/publish"] = 9
         rows = [row("discord", "publish", channel, text="%s-%d" % (channel[-4:], i))
                 for channel in channels for i in range(4)]
         got = self.plan(rows, policy=policy)
@@ -335,6 +325,14 @@ class PlanTest(unittest.TestCase):
         self.assertTrue(saved[0]["id"].startswith("q:"))
         self.assertEqual(len(saved), 1)
 
+    def test_enqueue_accepts_discord_reply_target_and_checks_its_channel(self):
+        queue_file = self.data / "state" / "discord-reply.json"
+        good = row("discord", "reply", "111:222", text="answer")
+        good["their_text"] = "question"
+        got = cycle.enqueue(self.data, [good], queue_path=queue_file, now=self.now)
+        self.assertEqual(got["added"], 1, got)
+        self.assertEqual(got["rejected"], [])
+
     def test_legacy_rows_without_id_get_one_on_load(self):
         queue_file = self.data / "legacy.json"
         queue_file.write_text(json.dumps([row("x", "reply")], ensure_ascii=False),
@@ -355,7 +353,7 @@ class PlanTest(unittest.TestCase):
         self.assertEqual(cycle.load_queue(queue_file)[0]["id"], before)
 
 
-        queue_file.write_text(json.dumps([row("x", "publish")], ensure_ascii=False),
+        queue_file.write_text(json.dumps([row("discord", "publish", "1573250833871536161")], ensure_ascii=False),
                               encoding="utf-8")
         with mock.patch.object(cycle, "_now", return_value=self.now):
             got = cycle.run(self.data, go=False, queue_path=queue_file, wave_id="2205",
@@ -366,7 +364,7 @@ class PlanTest(unittest.TestCase):
 
 
 class DeferredChannelTest(unittest.TestCase):
-    """X 标签页不可见时整渠道推迟：不发送、不占额度、不出队。"""
+    """标签页不可见时整渠道推迟：不发送、不占额度、不出队。"""
 
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -375,17 +373,17 @@ class DeferredChannelTest(unittest.TestCase):
         self.queue_file = self.data / "state" / "engagement-queue.json"
         self.queue_file.parent.mkdir(parents=True, exist_ok=True)
         self.queue_file.write_text(json.dumps([
-            row("x", "reply", "https://x.com/a/status/1", actor="a"),
+            row("github", "reply", "roy-tong/Growovo#1", actor="a"),
             row("discord", "publish", "1573250833871536161"),
-            row("x", "publish", text="hello"),
+            row("github", "reply", "roy-tong/Growovo#2", actor="b"),
         ], ensure_ascii=False), encoding="utf-8")
 
     def fake_execute(self, channel, action, data_dir, **_kwargs):
-        if channel == "x":
+        if channel == "github":
             raise browser_write.ActionBlocked("tab_hidden", "后台标签页")
         return {"ok": True, "result": "success", "ledger_result": "committed", "ref": "r1"}
 
-    def test_hidden_x_defers_channel_and_keeps_queue(self):
+    def test_hidden_tab_defers_channel_and_keeps_queue(self):
         with mock.patch.object(cycle, "_now",
                                return_value=at("2026-11-20T22:05:00+08:00")), \
                 mock.patch.object(cycle.time, "sleep"), \
@@ -395,12 +393,12 @@ class DeferredChannelTest(unittest.TestCase):
                             wave_id="2205", log=lambda *_: None)
 
         self.assertEqual(got["committed"], 1)
-        self.assertEqual(got["deferred_channels"], ["x"])
-        self.assertEqual([d["channel"] for d in got["deferred"]], ["x", "x"])
+        self.assertEqual(got["deferred_channels"], ["github"])
+        self.assertEqual([d["channel"] for d in got["deferred"]], ["github", "github"])
         self.assertEqual(got["consumed"], 1)
         self.assertEqual(got["queue_left"], 2)
         left = json.loads(self.queue_file.read_text(encoding="utf-8"))
-        self.assertEqual([item["channel"] for item in left], ["x", "x"])
+        self.assertEqual([item["channel"] for item in left], ["github", "github"])
 
 
 class MissingTabTest(unittest.TestCase):
@@ -413,9 +411,9 @@ class MissingTabTest(unittest.TestCase):
         self.queue_file = self.data / "state" / "engagement-queue.json"
         self.queue_file.parent.mkdir(parents=True, exist_ok=True)
         self.queue_file.write_text(json.dumps([
-            row("x", "publish", text="hello"),
+            row("github", "reply", "roy-tong/Growovo#1", text="hello"),
             row("discord", "publish", "1573250833871536161"),
-            row("x", "publish", text="second"),
+            row("github", "reply", "roy-tong/Growovo#2", text="second"),
         ], ensure_ascii=False), encoding="utf-8")
 
     def fake_execute(self, channel, action, data_dir, **_kwargs):
@@ -464,7 +462,7 @@ class StaleQueueTest(unittest.TestCase):
         self.queue_file.parent.mkdir(parents=True, exist_ok=True)
         self.stale = row("discord", "publish", "1573250833871536161", text="yesterday")
         self.stale["campaign"] = "night-20261119"
-        self.fresh = row("x", "publish", text="tonight")
+        self.fresh = row("github", "reply", "roy-tong/Growovo#1", text="tonight")
         self.fresh["queued_at"] = "2026-11-20T21:30:00+08:00"
         self.queue_file.write_text(json.dumps([self.stale, self.fresh], ensure_ascii=False),
                                    encoding="utf-8")
@@ -506,7 +504,7 @@ class WaveReliabilityTest(unittest.TestCase):
         self.addCleanup(self.tmp.cleanup)
         self.data = Path(self.tmp.name)
         self.queue_file = self.data / "state" / "engagement-queue.json"
-        cycle.save_queue(self.queue_file, [row("x", "publish", text="hello")])
+        cycle.save_queue(self.queue_file, [row("discord", "publish", "1573250833871536161", text="hello")])
         self.now = at("2026-11-20T22:05:00+08:00")
 
     def test_second_real_wave_exits_without_touching_queue(self):
@@ -538,7 +536,8 @@ class WaveReliabilityTest(unittest.TestCase):
         blank["their_text"] = "question"
         cycle.save_queue(self.queue_file, [blank])
         drafts = [
-            row("x", "reply", "https://x.com/a/status/1", text="answer", actor="a"),
+            dict(row("x", "reply", "https://x.com/a/status/1", text="answer", actor="a"),
+                 their_text="question"),
             row("x", "publish", text="original"),
             row("x", "reply", "https://x.com/a/status/1", text="changed", actor="a"),
         ]
@@ -583,11 +582,13 @@ class WaveReliabilityTest(unittest.TestCase):
 
     def test_run_marks_pool_row_used_after_commit(self):
         merged = supply_pool.merge(
-            self.data, [{"channel": "x", "action": "publish", "target": "",
-                         "key": "content:x:publish:test1",
+            self.data, [{"channel": "discord", "action": "publish",
+                         "target": "1573250833871536161",
+                         "key": "content:discord:publish:test1",
                          "text": "pooled", "source": "test"}], source="test")
         key = merged["added_keys"][0]
-        pooled = row("x", "publish", text="pooled", source="supply")
+        pooled = row("discord", "publish", "1573250833871536161",
+                     text="pooled", source="supply")
         pooled["supply_key"] = key
         cycle.save_queue(self.queue_file, [pooled])
         fake = {"ok": True, "result": "success", "ledger_result": "committed",
@@ -601,7 +602,7 @@ class WaveReliabilityTest(unittest.TestCase):
         self.assertEqual(supply_pool.load(self.data)["items"][key]["status"], "used")
 
     def test_result_rows_carry_queue_item_id(self):
-        queued = row("x", "publish", text="hello")
+        queued = row("discord", "publish", "1573250833871536161", text="hello")
         queued["id"] = "q:test123"
         cycle.save_queue(self.queue_file, [queued])
         fake = {"ok": True, "result": "success", "ledger_result": "committed",
@@ -630,11 +631,11 @@ class WaveReliabilityTest(unittest.TestCase):
         policy_file.write_text(json.dumps(
             {"wave_preflight": {"enabled": True}}), encoding="utf-8")
         cycle.save_queue(self.queue_file, [
-            row("x", "publish", text="hello"),
+            row("github", "reply", "roy-tong/Growovo#1", text="hello"),
             row("discord", "publish", "1573251023500476427", text="dc"),
         ])
         checked = {"ok": False, "channels": {
-            "x": {"site": "x", "ok": True, "handle": "me"},
+            "github": {"site": "github", "ok": True, "handle": "me"},
             "discord": {"site": "discord", "ok": False, "reason": "login_required"},
         }}
         fake = {"ok": True, "result": "success", "ledger_result": "committed",
@@ -652,7 +653,7 @@ class WaveReliabilityTest(unittest.TestCase):
         self.assertEqual(got["committed"], 1)
         self.assertEqual(got["queue_left"], 1)
         self.assertEqual(execute.call_count, 1)
-        self.assertEqual(execute.call_args.kwargs["channel"], "x")
+        self.assertEqual(execute.call_args.kwargs["channel"], "github")
 
 
 class InboxConcurrencyTest(unittest.TestCase):
@@ -718,18 +719,6 @@ class QuotaTest(unittest.TestCase):
         self.assertTrue(row["capped_by_daily_budget"])
         self.assertEqual(row["day_cap"], 48)
 
-    def test_quota_off_reports_no_night_left_and_keeps_configured_target(self):
-        policy = json.loads(json.dumps(cycle.DEFAULT_POLICY))
-        policy["quota"] = {"enforce": False}
-        policy["platforms"]["x"]["publish"]["per_night"] = 48
-        budget = cycle.budget_rows(
-            policy, used={"night": {"x/publish": 50}}, throttle=None)
-        row = budget["x/publish"]
-
-        self.assertEqual(row["effective_per_night"], 48)
-        self.assertIsNone(row["night_left"])
-        self.assertEqual(row["night_used"], 50)
-
 
 class OwnerAttestedGateTest(unittest.TestCase):
     def setUp(self):
@@ -745,18 +734,19 @@ class OwnerAttestedGateTest(unittest.TestCase):
 
     def write_auth(self, **overrides):
         now = dt.datetime.now().astimezone()
+        platform = overrides.pop("platform", "x")
         payload = {
             "route": "owner_attested_session",
             "approved_by": "test",
             "approved_at": now.isoformat(timespec="seconds"),
             "window_start": (now - dt.timedelta(hours=1)).isoformat(timespec="seconds"),
             "window_end": (now + dt.timedelta(hours=1)).isoformat(timespec="seconds"),
-            "scopes": ["x:publish", "x:reply"],
+            "scopes": ["%s:publish" % platform, "%s:reply" % platform],
             "stop_conditions": ["captcha"],
             "revoked": False,
         }
         payload.update(overrides)
-        path = platform_compliance.owner_attested_path(self.data, "x")
+        path = platform_compliance.owner_attested_path(self.data, platform)
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
 
@@ -765,48 +755,49 @@ class OwnerAttestedGateTest(unittest.TestCase):
                       identity=self.identity)
         params.update(kwargs)
         return platform_compliance.require_owner_attested_browser_write(
-            params.pop("platform", "x"), params.pop("action", "publish"),
+            params.pop("platform", "x"), params.pop("action", "reply"),
             self.data, **params)
 
     def test_missing_authorization_fails_closed(self):
         with self.assertRaises(platform_compliance.ComplianceError) as ctx:
-            self.check()
+            self.check(platform="github")
         self.assertEqual(ctx.exception.code, "authorization_missing")
 
-    def test_authorized_write_is_not_platform_permission(self):
+    def test_x_owner_attestation_never_authorizes_browser_write(self):
         self.write_auth()
-        got = self.check()
-        self.assertEqual(got["route"], "owner_attested_session")
-        self.assertFalse(got["platform_permission"])
+        with self.assertRaises(platform_compliance.ComplianceError) as ctx:
+            self.check()
+        self.assertEqual(ctx.exception.code, "platform_permission_required")
 
     def test_scope_and_transport_are_enforced(self):
-        self.write_auth(scopes=["x:publish"])
+        self.write_auth(platform="github", scopes=["github:publish"])
         with self.assertRaises(platform_compliance.ComplianceError) as ctx:
-            self.check(action="reply")
+            self.check(platform="github", action="reply")
         self.assertEqual(ctx.exception.code, "authorization_scope_missing")
         with self.assertRaises(platform_compliance.ComplianceError) as ctx:
-            self.check(actual_transport="cdp")
+            self.check(platform="github", actual_transport="cdp")
         self.assertEqual(ctx.exception.code, "transport_mismatch")
 
     def test_revoked_and_closed_window_reject(self):
-        self.write_auth(revoked=True)
+        self.write_auth(platform="github", revoked=True)
         with self.assertRaises(platform_compliance.ComplianceError) as ctx:
-            self.check()
+            self.check(platform="github")
         self.assertEqual(ctx.exception.code, "authorization_revoked")
         past = dt.datetime.now().astimezone() - dt.timedelta(days=2)
-        self.write_auth(window_start=(past - dt.timedelta(hours=1)).isoformat(),
+        self.write_auth(platform="github",
+                        window_start=(past - dt.timedelta(hours=1)).isoformat(),
                         window_end=(past + dt.timedelta(hours=1)).isoformat())
         with self.assertRaises(platform_compliance.ComplianceError) as ctx:
-            self.check()
+            self.check(platform="github")
         self.assertEqual(ctx.exception.code, "authorization_window_closed")
 
     def test_identity_observation_is_mandatory(self):
-        self.write_auth()
+        self.write_auth(platform="github")
         with self.assertRaises(platform_compliance.ComplianceError) as ctx:
-            self.check(identity=None)
+            self.check(platform="github", identity=None)
         self.assertEqual(ctx.exception.code, "identity_observation_required")
         with self.assertRaises(platform_compliance.ComplianceError) as ctx:
-            self.check(identity=dict(self.identity, mode="self_reported"))
+            self.check(platform="github", identity=dict(self.identity, mode="self_reported"))
         self.assertEqual(ctx.exception.code, "identity_mode_mismatch")
 
     def test_autonomous_write_gate_still_rejects_browser_transport(self):
@@ -815,6 +806,30 @@ class OwnerAttestedGateTest(unittest.TestCase):
             platform_compliance.require_autonomous_write(
                 "x", "publish", self.data, go=True, actual_transport="browser-attach")
         self.assertEqual(ctx.exception.code, "non_api_write_forbidden")
+
+
+class CyclePlatformPermissionTest(unittest.TestCase):
+    def test_real_wave_skips_x_before_action_runner(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            data = Path(tmp)
+            queue_file = data / "queue.json"
+            cycle.save_queue(queue_file, [
+                row("x", "publish", text="synthetic x"),
+                row("discord", "publish", "1573250833871536161", text="synthetic discord"),
+            ])
+            with mock.patch.object(cycle, "_now", return_value=at("2026-11-20T22:05:00+08:00")), \
+                    mock.patch.object(cycle.time, "sleep"), \
+                    mock.patch("core.action_runner.run_action", return_value={
+                        "ok": True, "result": "success", "ledger_result": "committed"
+                    }) as execute:
+                got = cycle.run(data, go=True, queue_path=queue_file,
+                                wave_id="2205", log=lambda *_: None)
+
+        self.assertEqual([call.kwargs["channel"] for call in execute.call_args_list],
+                         ["discord"])
+        self.assertEqual(got["committed"], 1)
+        self.assertEqual([r["reason"] for r in got["skipped"] if r["channel"] == "x"],
+                         ["platform_permission_required"])
 
 
 class BridgeSessionTest(unittest.TestCase):
@@ -864,17 +879,17 @@ class StopRecoveryTest(unittest.TestCase):
         self.data = Path(self.tmp.name)
         self.queue_file = self.data / "state" / "engagement-queue.json"
         cycle.save_queue(self.queue_file, [
-            row("x", "publish", text="first"),
-            row("x", "publish", text="second"),
+            row("github", "reply", "roy-tong/Growovo#1", text="first"),
+            row("github", "reply", "roy-tong/Growovo#2", text="second"),
             row("discord", "publish", "1573250833871536161", text="hello"),
         ])
         self.now = at("2026-11-20T22:05:00+08:00")
         self.night = "2026-11-20"
 
     def write_stop(self, stamp):
-        path = cycle.stop_path(self.data, self.night, "x")
+        path = cycle.stop_path(self.data, self.night, "github")
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps({"channel": "x", "night": self.night,
+        path.write_text(json.dumps({"channel": "github", "night": self.night,
                                     "reason": "窗口内 3 个不同目标连续 422",
                                     "at": stamp}, ensure_ascii=False), encoding="utf-8")
         return path
@@ -890,49 +905,49 @@ class StopRecoveryTest(unittest.TestCase):
         return {"ok": True, "result": "success", "ledger_result": "committed", "ref": "r1"}
 
     def test_no_stop_file_is_closed(self):
-        self.assertEqual(cycle.stop_state(self.data, self.night, "x", now=self.now), "closed")
+        self.assertEqual(cycle.stop_state(self.data, self.night, "github", now=self.now), "closed")
 
     def test_fresh_stop_is_open_and_channel_is_skipped(self):
         self.write_stop("2026-11-20T21:50:00+08:00")
         got = self.run_wave(self.ok)
 
-        self.assertEqual(got["stop_states"]["x"], "open")
+        self.assertEqual(got["stop_states"]["github"], "open")
         self.assertEqual(got["half_open"], [])
-        self.assertEqual(got["committed"], 1)          # 只剩 Discord
+        self.assertEqual(got["committed"], 1)
         self.assertEqual([d["channel"] for d in got["deferred"]], [])
 
     def test_expired_stop_allows_one_probe_and_clears_on_success(self):
         path = self.write_stop("2026-11-20T21:20:00+08:00")
         got = self.run_wave(self.ok)
 
-        self.assertEqual(got["half_open"], ["x"])
-        self.assertEqual(got["stop_recovery"], {"x": "probe_ok"})
+        self.assertEqual(got["half_open"], ["github"])
+        self.assertEqual(got["stop_recovery"], {"github": "probe_ok"})
         self.assertFalse(path.exists())
-        self.assertEqual(got["committed"], 2)          # 1 条 X 试探 + Discord
+        self.assertEqual(got["committed"], 2)
         self.assertEqual([d["reason"] for d in got["deferred"]], ["stop_probe_pending"])
         self.assertEqual(got["queue_left"], 1)
 
     def test_failed_probe_restamps_the_stop(self):
         def blocked(channel, action, data_dir, **_kwargs):
-            if channel == "x":
-                raise browser_write.StopChannel("x", "页面出现 '422'")
+            if channel == "github":
+                raise browser_write.StopChannel("github", "页面出现 '422'")
             return self.ok(channel, action, data_dir)
 
         path = self.write_stop("2026-11-20T21:20:00+08:00")
         got = self.run_wave(blocked)
 
-        self.assertEqual(got["stop_recovery"], {"x": "probe_failed"})
+        self.assertEqual(got["stop_recovery"], {"github": "probe_failed"})
         self.assertTrue(path.exists())
         record = json.loads(path.read_text(encoding="utf-8"))
         self.assertEqual(record["at"], self.now.isoformat(timespec="seconds"))
-        self.assertEqual(cycle.stop_state(self.data, self.night, "x", now=self.now), "open")
+        self.assertEqual(cycle.stop_state(self.data, self.night, "github", now=self.now), "open")
         self.assertEqual(got["committed"], 1)
 
     def test_stop_without_timestamp_stays_open(self):
         self.write_stop("")
         got = self.run_wave(self.ok)
 
-        self.assertEqual(got["stop_states"]["x"], "open")
+        self.assertEqual(got["stop_states"]["github"], "open")
         self.assertEqual(got["half_open"], [])
 
     def test_all_channels_open_reports_states(self):
@@ -946,6 +961,41 @@ class StopRecoveryTest(unittest.TestCase):
         self.assertFalse(got["ok"])
         self.assertEqual(got["reason"], "all_channels_stopped")
         self.assertEqual(got["stop_states"], {"x": "open", "github": "open", "discord": "open"})
+
+
+class IndeterminateStopTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.data = Path(self.tmp.name)
+        self.queue_file = self.data / "state" / "engagement-queue.json"
+        cycle.save_queue(self.queue_file, [
+            row("discord", "publish", "1573250833871536161", text="first"),
+            row("discord", "publish", "1573250833871536161", text="must-not-send"),
+        ])
+        self.now = at("2026-11-20T22:05:00+08:00")
+
+    def test_unknown_result_defers_rest_and_blocks_next_wave(self):
+        def execute(channel, action, data_dir, **_kwargs):
+            return {"ok": False, "result": "indeterminate", "ledger_result": "indeterminate",
+                    "ref": "unknown-1"}
+        with mock.patch.object(cycle, "_now", return_value=self.now), \
+                mock.patch.object(cycle.time, "sleep"), \
+                mock.patch("core.action_runner.run_action", side_effect=execute) as run_action:
+            got = cycle.run(self.data, go=True, queue_path=self.queue_file,
+                            wave_id="2205", log=lambda *_: None)
+            self.assertEqual(1, run_action.call_count)
+            self.assertEqual(got["deferred_channels"], ["discord"])
+            self.assertEqual(got["queue_left"], 1)
+            self.assertEqual(got["stopped"]["discord"], "indeterminate_pending_review")
+            record = cycle.stop_record(self.data, "2026-11-20", "discord")
+            self.assertTrue(record["requires_human_resolution"])
+            self.assertEqual("unknown-1", record["unresolved_ref"])
+            next_wave = cycle.run(self.data, go=True, queue_path=self.queue_file,
+                                  wave_id="2206", log=lambda *_: None)
+            self.assertEqual(1, run_action.call_count)
+            self.assertEqual("open", next_wave["stop_states"]["discord"], next_wave)
+            self.assertEqual(0, next_wave["planned"])
 
 
 class BlockedResultTest(unittest.TestCase):
