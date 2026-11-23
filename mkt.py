@@ -3697,6 +3697,12 @@ def cmd_outreach(args):
 
 
 @_business_command
+def cmd_validation(args):
+    from core import cli_runtime
+    return cli_runtime.cmd_validation(DATA, args)
+
+
+@_business_command
 def cmd_orchestrate(args):
     from core import orchestration
     product = _load_structured(args.product)
@@ -6170,7 +6176,8 @@ def build_parser():
     sp.set_defaults(fn=cmd_supply)
 
     from core.cli_runtime import register as register_runtime_commands
-    register_runtime_commands(sub, runtime_handler=cmd_runtime, outreach_handler=cmd_outreach)
+    register_runtime_commands(sub, runtime_handler=cmd_runtime, outreach_handler=cmd_outreach,
+                              validation_handler=cmd_validation)
 
     sp = sub.add_parser("orchestrate", help="按产品/目标/任务选择最小岗位组合、交付物与表达方式")
     sp.add_argument("--product", required=True, help="产品事实 JSON；也接受含 product 的事实包")

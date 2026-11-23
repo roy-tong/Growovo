@@ -26,9 +26,9 @@ python3 mkt.py demo    # no network or accounts: approval, offline receipt, thre
 mkt --workspace ./data proof export RUN_ID --out ./proof-bundle --by "proof-reviewer"
 ```
 
-Export is read-only and performs no external action. Targets, bodies, accounts, subjects and authorization documents are not copied. Committed supports P0 only; complete independent readback supports P2; external events stay separate at P4 with no causal credit.
+Export is read-only and performs no external action. Targets, bodies, accounts, subjects and authorization documents are not copied. Committed supports P0 only; complete independent readback supports P2; external events stay separate at P4 with no causal credit. `mkt demo` also writes `data/demo/proof-bundle`; its `proof_status=FAIL` comes from the intentionally failed d-003 check, not an export error.
 
-It commits to exactly three verifiable things: **execution volume** (every committed action is in the ledger), **honest readings** (daily follower and impression snapshots, screenshot-backed and labelled by evidence grade), and **closed-loop responsibility** (completion drives volume changes, supply gaps alert three days early, failures stop the loop for human adjudication). It does not promise platform reach, and it does not dress unverified channels up as full automation.
+It commits to exactly three verifiable things: **execution volume** (every committed action is in the ledger), **honest readings** (graded `owner_declared / observed / independently_verified`; manual entry never upgrades itself, and pairs bind subject, metric definition and time order), and **closed-loop responsibility** (completion drives volume changes, supply gaps alert three days early, failures stop the loop for human adjudication). It does not promise platform reach, and it does not dress unverified channels up as full automation.
 
 **Unattended automation is committed for Email only; every other channel still gets a plan.** Phase one commits to unattended execution on **Email**. X's rules forbid non-API website scripting, so Growovo rejects every real X CDP/browser-attach write, including one-off `--go` and standing owner-attested sessions. Operator authorization, observed identity and local quotas cannot unlock them. X remains read-only with dry runs, drafts and manual handoff; automated writing requires a separately connected, compliant official API. GitHub, Reddit, Hacker News, LinkedIn and Discord compile as human-assisted or restricted tasks according to their own rules and verification status. Missing API access never grants browser permission by itself; a platform risk signal stops only that channel and returns lower-frequency, split-batch or defer guidance. Manual channels such as Xiaohongshu and Zhihu get work orders only and are excluded from automated volume. See the [platform automation matrix](docs/platform-automation-matrix.md).
 
@@ -129,7 +129,8 @@ python3 mkt.py check              # verify the CDP session and X/Gmail login sta
 | `mkt experiment obs --id X --from-outcomes` | Experiment observations aggregated automatically from the event ledger (no more manual copying) | — |
 | `python3 mkt.py pause --on 'reason' / --off` | **Global pause switch** (all write operations refuse to run, and the pause is logged) | — |
 | `python3 mkt.py contacts add/find/dnc/mark/import` | Contact store operations (idempotent dedup / DNC hiding / er-batch import) | — |
-| `mkt x publish/reply/message/engage/search/inbox …` | All X actions (vendor x-ops-automation) | **PROVEN** |
+| `mkt x search/inbox …` | X read-only search and inbox (historically verified on a real account) | **PROVEN (read-only)** |
+| `mkt x publish/reply/message/engage …` | X non-API browser writes: all refused in this release; dry-run, drafts and manual handoff only | **DISABLED** |
 | `mkt email message --queue data/queues/w1.json [--go]` | SMTP send queue | **PORTED** |
 | `mkt email inbox` / `mkt email bounces` | CDP read-only Gmail scan / bounce handling | **PORTED** (pattern PROVEN) |
 | `mkt reddit search --query "…"` | Read-only search | **UNVERIFIED** |
@@ -174,7 +175,7 @@ python3 mkt.py check              # verify the CDP session and X/Gmail login sta
 | `mkt billing --actions N --outcomes M` | **Pricing experiments**: action/outcome plus explicit subscription/hybrid candidates and acceptance logs; accepted quote is not payment | — |
 | `python3 mkt.py schedule …` | Persisted waves: add / tick / status / resume | — |
 
-Level meanings: PROVEN = verified on a real account; PORTED = the pattern is verified, this wrapper has not been run end-to-end; UNVERIFIED = selectors untested in practice — the first run must be supervised (first-run checklist in channel doc 03 §5).
+Level meanings: PROVEN = verified on a real account; PORTED = the pattern is verified, this wrapper has not been run end-to-end; UNVERIFIED = selectors untested in practice — the first run must be supervised (first-run checklist in channel doc 03 §5); DISABLED = forbidden in this release, and historical verification does not authorize execution.
 
 ## Planning layer: plans are data, human review is the gate (product doc 05 §2)
 

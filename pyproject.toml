@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "growovo"
-version = "0.19.0"
+version = "0.20.0"
 description = "Run small authorized GTM tasks and separate send receipts from qualified replies, product use and unknown outcomes."
 readme = "README.md"
 requires-python = ">=3.9"

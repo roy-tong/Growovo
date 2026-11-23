@@ -127,6 +127,14 @@ def _write_success_run(data, on, results):
     return run
 
 
+def _record_operation(data, rec, item, *, go):
+    from . import operations_log
+    return operations_log.record_action(
+        data, rec, channel="email", action="message", target=item["target"],
+        text=item["body"], campaign=CAMPAIGN, go=go, operator="growovo:demo",
+        queue_item_id=item["id"], run_id=RUN_ID)
+
+
 def run_demo(base, *, data_dir=None):
     """base = 仓库根；显式 data_dir 只用于已选择的独立 demo 沙盒。"""
     base = Path(base)
@@ -206,6 +214,7 @@ def run_demo(base, *, data_dir=None):
                        expect=success["body"], compose=compose, fill=fill,
                        readback=readback, send=send_offline, confirm=confirm,
                        dry_run=False)
+    _record_operation(data, rec, success, go=True)
     if rec["result"] != "committed" or sent != [SUCCESS_ID]:
         print(f"[FAIL] 成功路径未提交: {rec.get('result')} / sent={sent}"
               f" / detail={rec.get('detail', '')}")
@@ -236,6 +245,7 @@ def run_demo(base, *, data_dir=None):
                            expect=it["body"], compose=compose, fill=fill,
                            readback=readback, send=send_blocked, confirm=confirm,
                            dry_run=True)
+        _record_operation(data, rec, it, go=False)
         if rec["result"] != EXPECTED_RESULTS[it["id"]]:
             print(f"[FAIL] {it['id']} 终态 {rec['result']} 偏离预期 "
                   f"{EXPECTED_RESULTS[it['id']]}")
@@ -281,6 +291,12 @@ def run_demo(base, *, data_dir=None):
         return 1
     print(f"\n[自检] 日结果卡校验 PASS — 账本 {total} 条终态、日卡 1 条 committed、"
           "L1 有记录、L2/L3 为 UNKNOWN（不是 0）")
+
+    from . import proof_export
+    proof = proof_export.export_proof(
+        data, RUN_ID, data / "proof-bundle", by="demo-human", classification="synthetic")
+    print(f"[Proof] {proof['out']} — proof_status={proof['proof_status']}"
+          "（包含 d-003 有意失败；不代表外部业务失败或成功）")
 
     print("\n下一步（真实使用）：写 data/plans/<plan_id>.json → lint → 人审 → "
           "mkt email message --queue data/queues/<campaign>.json（默认 dry-run，--go 才实跑）")

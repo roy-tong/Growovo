@@ -1,6 +1,22 @@
 # Changelog
 
-## Unreleased
+## 0.20.0 — 2026-11-23
+
+### Changed
+
+- Business observations now distinguish `owner_declared`, `observed` and `independently_verified`. Hash-bound evidence, subject identity, metric definitions, pair identity and legal time order are required for corresponding grades and deltas; late baselines invalidate the old pair.
+- `runtime` and `outreach` register through the shared `CommandRegistry`. The offline demo writes four OperationsLog rows and `data/demo/proof-bundle`, with the intentional d-003 failure preserved as `proof_status=FAIL`.
+- Chinese and English public pages split X read-only verification from DISABLED non-API writes and document the three observation grades and demo proof path.
+
+### Fixed
+
+- Proof traces omit `external_id` when no platform receipt exists instead of writing a contract-invalid null value. Mixed naive/timezone-aware timestamps now validate without crashing the shared acceptance layer.
+- Independent verification now requires an independent control domain, authority and verified result. Comparisons expose deterministic IDs and superseded history, and MCP joins the existing X negative-write matrix.
+- `mkt validation run` adds read-only real-user validation orchestration with evidence-gated states, second-batch proof, core adoption metrics and separate contract/business/time semantics.
+
+### Verification
+
+- 2257 offline tests pass, including observation pairing, independent verification, shared CLI registration, demo proof export, validation orchestration and public-claim regressions. The common Proof validator returns the expected business FAIL with no structural errors.
 
 ## 0.19.0 — 2026-11-23
 

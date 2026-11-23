@@ -69,3 +69,9 @@ An accepted candidate or committed send is not a business result. Track separate
 - `artifact`: an external PR, fixture contribution or actual integration.
 
 No reply and unknown remain distinct. Do not increase batch size to compensate for missing material feedback.
+
+## Real-user validation orchestration
+
+`mkt validation run --file validation.json` is a read-only projection over validation tasks, schedules, plans, OperationsLog, review feedback and contribution history. It performs no external action and never approves a plan or sends a message.
+
+States advance only from evidence: `needs_input / draft / eligible / approved / dry_run / sent / replied / material / second_batch / accepted`. A second batch needs an independent committed run or explicit proof. Final acceptance additionally requires a recorded disposition, first-value seconds, human minutes and zero major errors. `contract_validation`, `business_verdict` and `time_semantics` stay separate; naive timestamps make the result uncertain rather than accepted.

@@ -150,6 +150,24 @@ class AdapterGateTests(unittest.TestCase):
         argv = runner.call_args.args[0]
         self.assertIn("--dry-run", argv)
 
+    def test_mcp_x_write_is_refused_before_vendor(self):
+        import mcp_server
+        request = {"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+                   "params": {"name": "mkt_action", "arguments": {
+                       "channel": "x", "action": "reply",
+                       "target": "https://x.com/a/status/1", "text": "synthetic only",
+                       "go": True}}}
+        with tempfile.TemporaryDirectory() as tmp, \
+                mock.patch.object(mcp_server, "DATA", Path(tmp)), \
+                mock.patch("core.action_runner.gate_account_identity",
+                           return_value=self.observed_identity()), \
+                mock.patch("core.action_runner.precheck", return_value="plan"), \
+                mock.patch.object(adapter.subprocess, "run") as runner:
+            response = mcp_server.handle(request)
+        text = response["result"]["content"][0]["text"]
+        self.assertIn("平台", text)
+        self.assertFalse(runner.called, "MCP 被平台规则拒绝时不得启动 X vendor")
+
 
 class PolicyMetadataTests(unittest.TestCase):
     def test_matrix_marks_x_autonomous_write_as_forbidden(self):

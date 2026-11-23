@@ -26,9 +26,9 @@ python3 mkt.py demo    # 零网络零账号：人审、离线回执、三次拦�
 mkt --workspace ./data proof export RUN_ID --out ./proof-bundle --by "proof-reviewer"
 ```
 
-导出只读账本与事件，不执行外部动作；目标、正文、账号、主体和授权原文不复制。committed 只支持 P0，完整独立回读才支持 P2，外部事件单独进入 P4 且不获得因果功劳。
+导出只读账本与事件，不执行外部动作；目标、正文、账号、主体和授权原文不复制。committed 只支持 P0，完整独立回读才支持 P2，外部事件单独进入 P4 且不获得因果功劳。`mkt demo` 也会生成 `data/demo/proof-bundle`；其中 `proof_status=FAIL` 来自有意演示的 d-003 失败检查，不是导出异常。
 
-它只承诺三件可核验的事：**执行量**（账本 committed 逐条可查）、**真实读数**（每天落粉丝与曝光，截图留证、带证据级别）、**闭环责任**（完成率驱动调量建议、供给缺口提前报警、异常停车待人工裁决）。不承诺平台算法给多少曝光，也不把未验证渠道包装成全自动。
+它只承诺三件可核验的事：**执行量**（账本 committed 逐条可查）、**真实读数**（按 `owner_declared / observed / independently_verified` 分级；手工录入不自动升级，配对绑定对象、口径与时序）、**闭环责任**（完成率驱动调量建议、供给缺口提前报警、异常停车待人工裁决）。不承诺平台算法给多少曝光，也不把未验证渠道包装成全自动。
 
 **无人值守全自动只承诺 Email，其他渠道照常编计划。** 第一期只有 **Email** 可承诺无人值守自主执行（写通道已实现）。**X** 的平台规则禁止非 API 网页脚本写，因此 Growovo 拒绝所有 X CDP/browser-attach 真实写，包括单次 `--go` 与常驻 owner-attested；操作者授权、身份观测和本地配额都不能解锁。X 只保留只读、dry-run、草稿与人工交接，自动写需另行接入符合规则的官方 API。GitHub、Reddit、Hacker News、LinkedIn、Discord 按各自平台规则与验证状态编成人工辅助或受限任务，首跑人工确认解锁。拿不到 API 不自动获得浏览器权限；遇到平台风控只停当前渠道并提示降频、拆批或顺延。小红书、知乎等人工渠道只出作业单，不计入自动发布量。见[平台自动执行矩阵](docs/platform-automation-matrix.md)。
 
@@ -171,7 +171,8 @@ python3 mkt.py check              # 确认 CDP 会话与 X/Gmail 登录态
 | `mkt progress daily/weekly` | **进度**：日报问「今天有什么该动没动」，周报问「这周比上周好还是差」；没有动作就写停摆，不编数字 | — |
 | `mkt retro scan/analyze/report` | **复盘引擎**：扫本地日志→带出处的事实→渠道账→业务结论。比率只从人工钉定的 `--facts` 算，机器不替你选口径；每条结论必须带数字、出处、因果机制和可执行动作，缺一项拒绝出报告 | — |
 | `mkt billing --actions N --outcomes M` | **报价实验**：保留按动作/按结果，也支持显式订阅/混合实验与接受度记录；接受报价不等于付款 | — |
-| `mkt x publish/reply/message/engage/search/inbox …` | X 全动作（vendor x-ops-automation） | **PROVEN** |
+| `mkt x search/inbox …` | X 只读检索与收件箱（历史真实账号验证） | **PROVEN（仅只读）** |
+| `mkt x publish/reply/message/engage …` | X 非 API 网页写：当前版本全部拒绝；只保留 dry-run、草稿与人工交接 | **DISABLED** |
 | `mkt email message --queue data/queues/w1.json [--go]` | SMTP 发信队列 | **PORTED** |
 | `mkt email inbox` / `mkt email bounces` | CDP 只读扫 Gmail / 退信 | **PORTED**（模式 PROVEN） |
 | `mkt reddit search --query "…"` | 只读搜索 | **UNVERIFIED** |
@@ -194,7 +195,7 @@ python3 mkt.py check              # 确认 CDP 会话与 X/Gmail 登录态
 | `python3 mkt.py gtm diagnose --facts <json>` | **GTM 诊断**：产品事实包→平台优先级+冷启动+放量判据（每条推荐挂证据标签；schema 见 core/gtm.py；风控口径见 docs/risk/） | — |
 | `python3 mkt.py schedule …` | 持久化排期：add / tick / status / resume | — |
 
-等级含义：PROVEN=真实账号跑通；PORTED=模式已验证、本封装未整跑；UNVERIFIED=选择器未实测，首跑必须人工盯跑（首跑清单见 03 渠道文档 §5）。
+等级含义：PROVEN=真实账号跑通；PORTED=模式已验证、本封装未整跑；UNVERIFIED=选择器未实测，首跑必须人工盯跑（首跑清单见 03 渠道文档 §5）；DISABLED=当前版本禁止执行，历史验证不构成放行依据。
 
 ## 规划层：计划是数据，人审是闸门（05 产品方案 §2）
 
