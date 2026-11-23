@@ -37,6 +37,17 @@ class OperationsMemoryTests(unittest.TestCase):
         self.assertEqual(result["patterns"][0]["channel"], "github")
         self.assertEqual(summarize(recs, campaign="none")["patterns"], [])
 
+    def test_target_level_failures_block_reuse_review(self):
+        recs = [{"channel": "github", "action": "reply", "result": "committed"}
+                for _ in range(3)]
+        for state in ("target_rejected", "unavailable_or_unrenderable"):
+            with self.subTest(state=state):
+                item = summarize(recs + [{"channel": "github", "action": "reply",
+                                          "result": state}])["patterns"][0]
+                self.assertEqual(1, item["risk_receipts"])
+                self.assertFalse(item["candidate_for_review"])
+                self.assertTrue(any("target" in reason for reason in item["review_blockers"]))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>一次受控执行，三次安全拦截 | Growovo</title>
+<meta name="description" content="Growovo 合成离线样例：一条 demo-memory 模拟交付，以及 dry-run、占位符拒绝和回读失败三种拦截结果。无需网络或真实账号。">
+<link rel="canonical" href="https://roy-tong.github.io/Growovo/examples/controlled-run.html">
+<link rel="alternate" hreflang="zh-CN" href="https://roy-tong.github.io/Growovo/examples/controlled-run.html">
+<link rel="alternate" hreflang="en" href="https://roy-tong.github.io/Growovo/examples/controlled-run.en.html">
+<meta property="og:type" content="article">
+<meta property="og:title" content="一次受控执行，三次安全拦截 | Growovo">
+<meta property="og:description" content="一条模拟交付和三种拦截结果；committed 不表示曝光、回复、激活或成交。">
+<meta property="og:url" content="https://roy-tong.github.io/Growovo/examples/controlled-run.html">
+<script type="application/ld+json">
+{"@context":"https://schema.org","@type":"TechArticle","headline":"一次受控执行，三次安全拦截","description":"Growovo 合成离线受控执行样例。","url":"https://roy-tong.github.io/Growovo/examples/controlled-run.html","author":{"@type":"Person","name":"Roy Tong"},"isAccessibleForFree":true}
+</script>
+<style>
+body{max-width:860px;margin:40px auto;padding:0 20px;font:16px/1.7 system-ui,sans-serif;color:#19231f}
+table{border-collapse:collapse;width:100%}
+th,td{text-align:left;padding:10px;border-bottom:1px solid #ccd5d1;vertical-align:top}
+pre{padding:16px;background:#101816;color:#eef7f3;overflow:auto}
+.note{padding:14px;border-left:4px solid #8b6b23;background:#faf6e9}
+a{color:#0d6b3f}
+</style>
+</head>
+<body>
+<main>
+<p>OVO · PROVE ANYTHING / Synthetic · offline · no real account or network actions</p>
+<h1>一次模拟交付，三种安全拦截</h1>
+<p>Growovo 把授权、执行回执和业务读数分开：发送成功不冒充增长发生。</p>
+<p><a href="controlled-run.template.json" download>下载任务模板</a> · <a href="../index.html#demo">查看首页完整说明</a> · <a href="controlled-run.en.html">English</a></p>
+<h2>四步受控执行</h2>
+<table>
+<tr><th>阶段</th><th>实际行为</th><th>状态</th></tr>
+<tr><td>计划检查</td><td>schema、受众、能力矩阵与日预算</td><td>PASS</td></tr>
+<tr><td>人工批准</td><td>初始 <code>human_approved=false</code>，拒绝执行；署名批准后才进入沙盒</td><td>BLOCKED → APPROVED</td></tr>
+<tr><td>离线执行</td><td><code>demo-memory</code> 内进程传输；一条 committed，dry-run/rejected/failed 各一条</td><td>OBSERVED</td></tr>
+<tr><td>回读与结果</td><td>账本与日卡同源；互动和业务结果没有记录时保持 UNKNOWN</td><td>L2/L3 UNKNOWN</td></tr>
+</table>
+<h2>本地重放</h2>
+<pre>pipx install growovo
+mkt demo</pre>
+<p>或从源码运行：</p>
+<pre>python3 mkt.py demo
+python3 -m unittest tests.test_demo -v</pre>
+<p class="note">Synthetic / 合成离线演示，no real sends。committed 只表示沙盒动作完成，不表示曝光、回复、激活或成交。真实外发需要独立授权与平台门禁。</p>
+<p><a href="../index.html">← 返回 Growovo</a></p>
+</main>
+</body>
+</html>

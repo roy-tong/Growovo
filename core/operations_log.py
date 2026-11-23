@@ -61,6 +61,7 @@ CONTENT_BEARING_WRITE_ACTIONS = frozenset({"publish", "reply", "message"})
 OPERATION_RESULTS = frozenset({
     "committed", "indeterminate", "failed", "dry-run", "skipped",
     "no-dm", "bounced", "suppressed", "rejected",
+    "target_rejected", "unavailable_or_unrenderable",
 })
 READBACK_RESULTS = frozenset({"verified", "mismatched", "unknown", "indeterminate"})
 
@@ -362,12 +363,15 @@ _RESULT_ERRORS = {
     "failed": ("action_failed", "mkt grow incident <run> --list；修复后重试"),
     "indeterminate": ("indeterminate", "人工核对平台后台后 mkt ledger resolve"),
     "rejected": ("rejected_by_gate", "按账本 detail 中的下一步处理"),
+    "target_rejected": ("target_rejected", "隔离该目标，不自动重试；检查目标与平台原始拒绝原因"),
+    "unavailable_or_unrenderable": (
+        "target_unavailable", "隔离该目标，不自动重试；人工确认目标是否存在或能否渲染"),
 }
 
 
 def record_action(data_dir, record: Dict[str, Any], *, channel=None, action=None,
                   target=None, text=None, campaign=None, go=False, routine=False,
-                  operator="", queue_item_id=None, run_id=None,
+                  operator="", queue_item_id=None, run_id=None, attempt_id=None,
                   started_at=None, finished_at=None) -> Dict[str, Any]:
     """把一条动作回执（账本行）扩写成完整操作日志记录并落盘。
 
@@ -415,6 +419,7 @@ def record_action(data_dir, record: Dict[str, Any], *, channel=None, action=None
         "operation_id": _optional_text(record.get("ref"))
         or ("op-%s-%s" % (channel or "ch", uuid.uuid4().hex[:12])),
         "run_id": _optional_text(run_id),
+        "attempt_id": _optional_text(attempt_id),
         "campaign": _optional_text(campaign),
         "queue_item_id": _optional_text(
             queue_item_id if queue_item_id is not None else record.get("queue_item_id")),

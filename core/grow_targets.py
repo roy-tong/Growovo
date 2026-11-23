@@ -153,6 +153,14 @@ def _extract_article(article) -> Optional[Dict[str, Any]]:
             "engagement": parse_engagement(labels)}
 
 
+def _wait_for_timeline(page, budget_ms: int = 6000) -> None:
+    """等到时间线出现第一条推文就继续；零结果仍按同一上限等满。"""
+    try:
+        page.wait_for_selector('article[data-testid="tweet"]', timeout=budget_ms)
+    except Exception:  # noqa: BLE001 空结果不是错误，交给后面的提取
+        pass
+
+
 def discover(queries: List[str], *, limit: int = 10, max_age_hours: float = 48,
              min_likes: int = 0, min_replies: int = 0,
              exclude_handles: Iterable[str] = (), exclude_urls: Iterable[str] = (),
@@ -169,8 +177,8 @@ def discover(queries: List[str], *, limit: int = 10, max_age_hours: float = 48,
         for query in queries:
             encoded = query.replace(" ", "%20").replace('"', "%22")
             page.goto(f"https://x.com/search?q={encoded}&src=typed_query&f=live",
-                      wait_until="domcontentloaded", timeout=45000)
-            page.wait_for_timeout(6000)
+                      wait_until="domcontentloaded", timeout=cdp.GOTO_TIMEOUT_MS)
+            _wait_for_timeline(page)
             for page_index in range(max(1, int(pages))):
                 if page_index:
                     page.mouse.wheel(0, 4000)
@@ -237,7 +245,7 @@ def read_tweet_text(url: str, *, cdp_url: Optional[str] = None,
     try:
         if not cdp.safe_goto(page, url, log=log):
             return ""
-        page.wait_for_timeout(3000)
+        _wait_for_timeline(page, 3000)
         try:
             article = page.locator("article").first
             return " ".join(article.locator('[data-testid="tweetText"]')

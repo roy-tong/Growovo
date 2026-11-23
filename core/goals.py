@@ -117,7 +117,7 @@ GOALS: List[Dict[str, Any]] = [
         definition="一个主账号的关注者数；买粉、互关、抽奖涨粉不计。",
         product_types=["devtool", "oss", "saas", "consumer-app", "product"],
         requires_platforms=["x"],
-        affinity={"x": 3, "reddit": 2, "hackernews": 1, "linkedin": 1},
+        affinity={"x": 3, "reddit": 2, "hackernews": 1, "linkedin": 1, "discord": 1},
         target_kind="delta",
         default_target=200,
         proves="有人愿意持续看到你",
@@ -191,7 +191,7 @@ GOALS: List[Dict[str, Any]] = [
         unit="人",
         definition="完成注册并走到产品内第一个价值点的独立用户；只注册不算。",
         product_types=["saas", "devtool", "consumer-app", "product"],
-        affinity={"product-hunt": 2, "hackernews": 2, "x": 2, "reddit": 1},
+        affinity={"product-hunt": 2, "hackernews": 2, "x": 2, "reddit": 1, "discord": 1},
         target_kind="count",
         default_target=20,
         proves="有人走到产品内第一个价值点",
@@ -209,7 +209,7 @@ GOALS: List[Dict[str, Any]] = [
         unit="个",
         definition="对方有触发事件、能拿到数据、现有办法有成本、愿意聊——四条至少中三条。",
         product_types=["b2b-saas", "service", "devtool", "saas"],
-        affinity={"linkedin": 3, "reddit": 3, "email": 2, "github": 2, "hackernews": 1},
+        affinity={"linkedin": 3, "reddit": 3, "email": 2, "github": 2, "hackernews": 1, "discord": 1},
         target_kind="count",
         default_target=3,
         proves="有人愿意花时间谈这个问题",
@@ -469,8 +469,6 @@ def _assign_roles(ranked: List[Dict[str, Any]],
         raise GoalError("至少选一个平台")
     if len(ids) != len(set(ids)):
         raise GoalError("平台不能重复选")
-    if len(ids) > MAX_PLATFORMS:
-        raise GoalError(f"最多选 {MAX_PLATFORMS} 个平台（1 主 + 1 集中发布 + {MAX_SUPPORT} 辅助）")
     unknown = [i for i in ids if i not in PLATFORM_BY_ID]
     if unknown:
         raise GoalError(f"没有这个平台：{', '.join(unknown)}")
@@ -481,15 +479,30 @@ def _assign_roles(ranked: List[Dict[str, Any]],
             f"可选：{', '.join(r['id'] for r in ranked)}")
     launches = [i for i in ids if i in gtm.LAUNCH_PLATFORMS]
     non_launch = [i for i in ids if i not in gtm.LAUNCH_PLATFORMS]
+    warnings: List[str] = []
+    if len(ids) > MAX_PLATFORMS:
+        warnings.append(
+            f"本轮选了 {len(ids)} 个平台，超过建议的 {MAX_PLATFORMS} 个：单渠道配额会被摊薄。"
+            "人力不够时先保住主渠道和一个承接渠道，其余渠道顺延到下一轮，不必删计划")
     if len(launches) > 1:
-        raise GoalError("一次只能选一个集中发布渠道——集中发布不是渠道")
+        warnings.append(
+            "一次集中发布只放一个渠道效果最好；本轮把 "
+            f"{'、'.join(by_id[i]['name'] for i in launches[1:])} 作为辅助渠道，"
+            "发布节奏错开，别同一天打两个")
     if not non_launch:
-        raise GoalError("集中发布不能单独作为主渠道；至少加一个可重复触达的平台")
+        # 只有集中发布渠道也能成计划：给它主渠道位，同时提示一次性曝光、
+        # 需要承接渠道，而不是直接拒绝。
+        primary = launches[0]
+        warnings.append(
+            f"{by_id[primary]['name']} 是集中发布渠道，只带来一次性曝光；"
+            "建议再加一个可重复触达的平台（reddit/x/github/linkedin/discord）承接反馈")
+        return {"primary": by_id[primary], "launch": None, "support": [],
+                "warnings": warnings}
     primary = non_launch[0]
     launch = launches[0] if launches else None
-    support = [i for i in non_launch[1:]]
+    support = [i for i in non_launch[1:]] + launches[1:]
     return {"primary": by_id[primary], "launch": by_id[launch] if launch else None,
-            "support": [by_id[i] for i in support]}
+            "support": [by_id[i] for i in support], "warnings": warnings}
 
 
 def _merge_pair_ranked(primary_rank: List[Dict[str, Any]],
@@ -537,8 +550,6 @@ def _assign_roles_pair(merged: List[Dict[str, Any]], platform_ids: List[str],
         raise GoalError("至少选一个平台")
     if len(ids) != len(set(ids)):
         raise GoalError("平台不能重复选")
-    if len(ids) > MAX_PLATFORMS:
-        raise GoalError(f"最多选 {MAX_PLATFORMS} 个平台（1 主 + 1 集中发布 + {MAX_SUPPORT} 辅助）")
     unknown = [i for i in ids if i not in PLATFORM_BY_ID]
     if unknown:
         raise GoalError(f"没有这个平台：{', '.join(unknown)}")
@@ -549,18 +560,34 @@ def _assign_roles_pair(merged: List[Dict[str, Any]], platform_ids: List[str],
             f"可选：{', '.join(r['id'] for r in merged)}")
     launches = [i for i in ids if i in gtm.LAUNCH_PLATFORMS]
     non_launch = [i for i in ids if i not in gtm.LAUNCH_PLATFORMS]
+    warnings: List[str] = []
+    if len(ids) > MAX_PLATFORMS:
+        warnings.append(
+            f"本轮选了 {len(ids)} 个平台，超过建议的 {MAX_PLATFORMS} 个：单渠道配额会被摊薄。"
+            "人力不够时先保住主渠道和一个承接渠道，其余渠道顺延到下一轮，不必删计划")
     if len(launches) > 1:
-        raise GoalError("一次只能选一个集中发布渠道——集中发布不是渠道")
+        warnings.append(
+            "一次集中发布只放一个渠道效果最好；本轮把 "
+            f"{'、'.join(by_id[i]['name'] for i in launches[1:])} 作为辅助渠道，"
+            "发布节奏错开，别同一天打两个")
     if not non_launch:
-        raise GoalError("集中发布不能单独作为主渠道；至少加一个可重复触达的平台")
+        primary = launches[0]
+        if primary_spec["id"] not in by_id[primary].get("serves", []):
+            raise GoalError(f"主渠道 {by_id[primary]['name']} 只服务辅目标，不服务主目标；"
+                            "换一个主渠道，或把主目标/辅目标对调")
+        warnings.append(
+            f"{by_id[primary]['name']} 是集中发布渠道，只带来一次性曝光；"
+            "建议再加一个可重复触达的平台（reddit/x/github/linkedin/discord）承接反馈")
+        return {"primary": by_id[primary], "launch": None, "support": [],
+                "warnings": warnings}
     primary = non_launch[0]
     if primary_spec["id"] not in by_id[primary].get("serves", []):
         raise GoalError(f"主渠道 {by_id[primary]['name']} 只服务辅目标，不服务主目标；"
                         "换一个主渠道，或把主目标/辅目标对调")
     launch = launches[0] if launches else None
-    support = [i for i in non_launch[1:]]
+    support = [i for i in non_launch[1:]] + launches[1:]
     return {"primary": by_id[primary], "launch": by_id[launch] if launch else None,
-            "support": [by_id[i] for i in support]}
+            "support": [by_id[i] for i in support], "warnings": warnings}
 
 
 def _contract(spec: Dict[str, Any], facts: Dict[str, Any],
@@ -903,6 +930,7 @@ def build_plan(facts: Dict[str, Any], goal_id: str,
                  "cash": 0, "budget_minutes": budget,
                  "over_budget": bool(budget and full_minutes > int(budget))},
         "deprioritized": _deprioritized(spec, facts, secondary_spec),
+        "warnings": list(roles.get("warnings") or []),
         "boundary": boundary,
     }
 

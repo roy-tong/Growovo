@@ -55,6 +55,12 @@ class NormalizeTest(unittest.TestCase):
                                    "target": "https://x.com/a/status/1",
                                    "context": "y", "status": "queued"}, now=NOW)
 
+    def test_reddit_candidate_accepted_for_manual_import(self):
+        row = supply_pool.normalize({"channel": "reddit", "action": "reply",
+                                     "target": "https://reddit.com/r/x/comments/1/a/",
+                                     "context": "hello"}, now=NOW)
+        self.assertEqual("reddit", row["channel"])
+
 
 class CandidateKeyTest(unittest.TestCase):
     def test_github_url(self):
@@ -436,3 +442,28 @@ class WavePlanTest(unittest.TestCase):
         supply_pool.mark(self.data, used_key, "used")
         second = supply_pool.wave_plan(self.data, self.policy, wave=1, now=NOW)
         self.assertNotIn(used_key, [r["key"] for r in second["items"]["x/reply"]])
+
+    def test_touched_reply_target_is_excluded_with_ledger(self):
+        self._seed()
+        ledger_file = self.data / "ledger.jsonl"
+        touched = "https://x.com/a/status/0"
+        with ledger_file.open("w", encoding="utf-8") as handle:
+            handle.write(json.dumps({"channel": "x", "action": "reply",
+                                     "target": touched, "result": "committed"}) + "\n")
+        got = supply_pool.wave_plan(self.data, self.policy, wave=1, now=NOW,
+                                    ledger=Ledger(ledger_file))
+        self.assertNotIn(touched,
+                         [r["target"] for r in got["items"]["x/reply"]])
+
+    def test_same_repo_touched_in_ledger_is_excluded_across_waves(self):
+        self._seed()
+        ledger_file = self.data / "ledger.jsonl"
+        with ledger_file.open("w", encoding="utf-8") as handle:
+            handle.write(json.dumps({
+                "channel": "github", "action": "reply",
+                "target": "https://github.com/acme/tool/issues/1",
+                "result": "committed"}) + "\n")
+        got = supply_pool.wave_plan(self.data, self.policy, wave=1, now=NOW,
+                                    ledger=Ledger(ledger_file))
+        targets = [r["target"] for r in got["items"]["github/reply"]]
+        self.assertNotIn("https://github.com/acme/tool/issues/9", targets)

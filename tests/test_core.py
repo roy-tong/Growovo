@@ -9,7 +9,9 @@ import json
 import sys
 import tempfile
 import unittest
+from datetime import datetime, timezone
 from pathlib import Path
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -18,6 +20,7 @@ from core.gates import (Gate, GateError, check_content, check_target,
                         load_contact_suppressions, load_suppress, load_suppressions)
 from core.ledger import Ledger, LedgerCorruptError
 from core.pipeline import WritePipeline, standard_pipeline
+from core import throttle
 from core.throttle import Throttle, ThrottleError
 
 
@@ -187,6 +190,67 @@ class TestThrottle(TmpDir):
         self.assertEqual(th.daily_used("reddit", "publish"), 3)
         self.assertFalse(th.daily_allows("reddit", "publish", 1))   # 日 ≤3 帖
         self.assertTrue(th.daily_allows("x", "search", 999))         # 只读无上限
+
+    def test_slice_batches_keeps_business_running(self):
+        th = Throttle(self.dir)
+        self.assertEqual(th.slice_batches("email", "message", 120),
+                         [range(0, 50), range(50, 100), range(100, 120)])
+        self.assertEqual(th.slice_batches("x", "search", 999), [range(0, 999)])
+        self.assertEqual(th.slice_batches("hn", "publish", 1), [range(0, 1)])
+
+    def test_advice_gives_split_and_reset_hint(self):
+        th = Throttle(self.dir)
+        th.daily_charge("email", "message", 20)
+        hint = th.advice("email", "message", 120)
+        self.assertIn("拆成 3 批", hint)
+        self.assertIn("今日剩余 80 条", hint)
+        self.assertIn("UTC 0 点", hint)
+        self.assertIn("风控", hint)
+        self.assertIn("45-90s", th.advice("x", "publish", 3))
+
+
+class TestBudgetDayBoundary(TmpDir):
+    """夜间窗口 19:00→次日 07:00 跨本地 0 点：预算日界不能把一晚切成两段。"""
+
+    def _at(self, *args):
+        when = datetime(*args, tzinfo=timezone.utc)
+        return mock.patch.object(throttle, "_now", return_value=when)
+
+    def test_night_window_stays_in_one_budget_day(self):
+        th = Throttle(self.dir)
+        with self._at(2026, 11, 22, 15, 30):        # 北京 23:30
+            th.daily_charge("x", "publish")
+            self.assertEqual(th.daily_used("x", "publish"), 1)
+        with self._at(2026, 11, 22, 16, 30):        # 北京次日 00:30
+            th.daily_charge("x", "publish")
+            self.assertEqual(th.daily_used("x", "publish"), 2)
+
+    def test_local_boundary_still_splits_at_midnight(self):
+        th = Throttle(self.dir, day_boundary="local")
+        with self._at(2026, 11, 22, 15, 30):
+            th.daily_charge("x", "publish")
+        with self._at(2026, 11, 22, 16, 30):
+            self.assertEqual(th.daily_used("x", "publish"), 0)
+
+    def test_old_local_day_file_is_not_counted(self):
+        th = Throttle(self.dir)
+        now = datetime(2026, 11, 22, 11, 0, tzinfo=timezone.utc)
+        local_day = now.astimezone().date().isoformat()
+        (self.dir / f"mkt-daily-{local_day}.json").write_text(
+            json.dumps({"x/publish": 48}), encoding="utf-8")
+        with mock.patch.object(throttle, "_now", return_value=now):
+            self.assertEqual(th.daily_used("x", "publish"), 0)
+
+    def test_cap_resets_after_boundary(self):
+        th = Throttle(self.dir)
+        with self._at(2026, 11, 22, 15, 30):
+            for _ in range(48):
+                th.reserve("x", "publish")
+            with self.assertRaises(ThrottleError):
+                th.reserve("x", "publish")
+        with self._at(2026, 11, 23, 1, 0):              # 北京次日 09:00，已过 UTC 0 点
+            self.assertEqual(th.daily_used("x", "publish"), 0)
+            self.assertEqual(th.reserve("x", "publish"), 1)
 
 
 def make_pipeline(tmpdir, readback_text=None):
@@ -431,3 +495,40 @@ class TestHNChannel(TmpDir):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestSafeGoto(unittest.TestCase):
+    """导航重试纪律：只重试可恢复中断，超时不再赔一遍等待。"""
+
+    class _Page:
+        def __init__(self, failures):
+            self.failures = list(failures)
+            self.calls = []
+
+        def goto(self, url, **kwargs):
+            self.calls.append((url, kwargs))
+            if self.failures:
+                raise RuntimeError(self.failures.pop(0))
+            return None
+
+    def test_timeout_is_not_retried(self):
+        from core import cdp
+        page = self._Page(["Timeout 20000ms exceeded."])
+        with mock.patch.object(cdp.time, "sleep") as sleep:
+            self.assertFalse(cdp.safe_goto(page, "https://x.com/home"))
+            sleep.assert_not_called()
+        self.assertEqual(len(page.calls), 1)
+        self.assertEqual(page.calls[0][1]["timeout"], cdp.GOTO_TIMEOUT_MS)
+
+    def test_aborted_navigation_is_retried(self):
+        from core import cdp
+        page = self._Page(["net::ERR_ABORTED", "net::ERR_ABORTED"])
+        with mock.patch.object(cdp.time, "sleep"):
+            self.assertTrue(cdp.safe_goto(page, "https://x.com/home"))
+        self.assertEqual(len(page.calls), 3)
+
+    def test_explicit_timeout_overrides_default(self):
+        from core import cdp
+        page = self._Page([])
+        self.assertTrue(cdp.safe_goto(page, "https://x.com/home", timeout_ms=1500))
+        self.assertEqual(page.calls[0][1]["timeout"], 1500)

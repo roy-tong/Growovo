@@ -3413,6 +3413,41 @@ def cmd_cycle(args):
     if args.action == "quota":
         return _emit(cycle.quota_snapshot(DATA, now=_when()))
 
+    if args.action == "report":
+        from core import cycle_report
+        got = cycle_report.build_report(
+            DATA, night=str(getattr(args, "night", "") or ""),
+            scheduled_only=bool(getattr(args, "scheduled_only", False)))
+        _emit(got)
+        return 0 if got.get("status") == "complete" else 2
+
+    if args.action == "receipts":
+        from core import receipt_audit
+        got = receipt_audit.audit(
+            DATA, night=str(args.night or ""),
+            scheduled_only=bool(getattr(args, "scheduled_only", False)),
+            live=bool(getattr(args, "live", False)))
+        _emit(got)
+        return 0 if got.get("ok") else 2
+
+    if args.action == "observe":
+        from core import business_observations
+        got = business_observations.import_observation(
+            DATA, _load_structured(args.file), night=str(args.night or ""),
+            phase=str(args.phase or ""), by=str(args.by or ""), apply=bool(args.apply))
+        _emit(got)
+        return 0
+
+    if args.action in ("jobs-tick", "jobs-status"):
+        from core import cycle_scheduler
+        if args.action == "jobs-tick":
+            got = cycle_scheduler.tick(DATA, args.file, now=_when(), go=bool(args.go),
+                                       max_jobs=int(args.max_jobs or 1))
+        else:
+            got = cycle_scheduler.status(DATA, args.file, now=_when())
+        _emit(got)
+        return 0 if got.get("ok") else 2
+
     if args.action == "pending-auth":
         from core import browser_write
         return _emit(browser_write.pending_authorization(DATA))
@@ -3449,6 +3484,19 @@ def cmd_cycle(args):
         _emit(got)
         return 0 if got.get("ok") else 2
 
+    if args.action == "inbox-update":
+        got = cycle.update_inbox(DATA, _load_structured(args.file), queue_path=_queue_path(),
+                                 by=str(args.by or ""))
+        _emit(got)
+        return 0 if got.get("ok") and not got.get("rejected") else 2
+
+    if args.action == "inbox-status":
+        from core import inbox_tracking
+        got = inbox_tracking.status_report(
+            DATA, _queue_path(), stale_minutes=int(getattr(args, "stale_minutes", 60) or 60))
+        _emit(got)
+        return 0 if got.get("ok") else 2
+
     if args.action == "enqueue":
         got = cycle.enqueue(DATA, _load_structured(args.file), queue_path=_queue_path(),
                             now=_when())
@@ -3457,13 +3505,15 @@ def cmd_cycle(args):
 
     if args.action == "plan":
         from core.ledger import Ledger
+        from core.throttle import Throttle
         policy = cycle.load_policy(DATA)
         path = _queue_path()
         got = cycle.plan(cycle.load_queue(path), policy,
                          ledger=Ledger(DATA / "ledger.jsonl"), now=_when(),
                          budget_sec=int(getattr(args, "budget_sec", 3000) or 3000),
                          max_actions=int(getattr(args, "max_actions", 0) or 0),
-                         campaign=str(getattr(args, "campaign", "") or ""))
+                         campaign=str(getattr(args, "campaign", "") or ""),
+                         throttle=Throttle(DATA / "state"), data_dir=DATA)
         got["queue_path"] = str(path)
         _emit(got)
         return 0
@@ -3519,9 +3569,46 @@ def cmd_supply(args):
         return got or None
 
     if args.action == "stats":
-        got = supply_pool.stats(DATA, _policy(), nights=int(args.nights or 3))
+        from core import engagement_cycle as cycle
+        policy = _policy()
+        caps = {key: row["effective_per_night"]
+                for key, row in cycle.budget_rows(policy, used={"night": {}}).items()
+                if row.get("effective_per_night") is not None}
+        got = supply_pool.stats(DATA, policy, nights=int(args.nights or 3), per_night=caps)
         _emit(got)
         return 0
+
+    if args.action == "readiness":
+        from core import engagement_cycle as cycle
+        from core import supply_readiness
+        now = cycle._now()
+        if str(getattr(args, "now", "") or ""):
+            import datetime as _dt
+            now = _dt.datetime.fromisoformat(str(args.now).replace("Z", "+00:00"))
+        got = supply_readiness.assess(DATA, cycle.load_policy(DATA), now=now,
+                                      waves=int(getattr(args, "waves", 3) or 3))
+        _emit(got)
+        return 0
+
+    if args.action == "koc-audit":
+        from core import koc_qualification
+        _emit(koc_qualification.report(DATA))
+        return 0
+
+    if args.action == "koc-recompute":
+        from core import koc_qualification
+        got = koc_qualification.recompute(DATA, apply=bool(args.apply), by=str(args.by or ""))
+        _emit(got)
+        return 0 if got.get("ok") else 2
+
+    if args.action == "koc-qualify":
+        from core import koc_qualification
+        got = koc_qualification.qualify(
+            DATA, args.handle, status=args.status, by=str(args.by or ""),
+            evidence=args.evidence or [], account_type=args.account_type,
+            contact_handle=str(args.contact_handle or ""), note=str(args.note or ""))
+        _emit(got)
+        return 0 if got.get("ok") else 2
 
     if args.action == "pick":
         rows = supply_pool.pick(
@@ -3536,9 +3623,11 @@ def cmd_supply(args):
         return 0
 
     if args.action == "wave":
+        from core.ledger import Ledger
         got = supply_pool.wave_plan(
             DATA, _policy(), wave=int(getattr(args, "wave_no", 1) or 1),
-            out_path=Path(args.out) if getattr(args, "out", "") else None)
+            out_path=Path(args.out) if getattr(args, "out", "") else None,
+            ledger=Ledger(DATA / "ledger.jsonl"))
         _emit(got)
         return 0
 
@@ -3581,6 +3670,18 @@ def cmd_supply(args):
         return 0 if got.get("ok") else 2
 
     raise ValueError("未知 supply 动作：%s" % args.action)
+
+
+@_business_command
+def cmd_runtime(args):
+    from core import cli_runtime
+    return cli_runtime.cmd_runtime(DATA, args)
+
+
+@_business_command
+def cmd_outreach(args):
+    from core import cli_runtime
+    return cli_runtime.cmd_outreach(DATA, args, _load_structured)
 
 
 @_business_command
@@ -4635,9 +4736,32 @@ def cmd_next(args):
 
 
 def cmd_experiment(args):
+    from core import experiment_hypothesis as hyp
     from core import experiments
-    if args.action in ("start", "obs", "conclude", "stop") and not args.id:
+    if args.action in ("start", "obs", "conclude", "stop", "card-check", "card-show") \
+            and not args.id:
         raise SystemExit(f"experiment {args.action} 需要 --id")
+    if args.action == "card-new":
+        if not args.card:
+            raise SystemExit("experiment card-new 需要 --card 假设卡 JSON 文件")
+        card = json.loads(Path(args.card).read_text(encoding="utf-8"))
+        exp = hyp.create_from_card(DATA, card)
+        print(json.dumps({"exp_id": exp["exp_id"], "status": exp["status"],
+                          "hypothesis_card": exp["hypothesis_card"],
+                          "hypothesis_card_sha256": exp["hypothesis_card_sha256"]},
+                         ensure_ascii=False, indent=1))
+        return 0
+    if args.action == "card-check":
+        out = hyp.check_card(DATA, args.id)
+        print(json.dumps(out, ensure_ascii=False, indent=1))
+        return 0 if out["ok"] else 2
+    if args.action == "card-show":
+        card = hyp.load_card(DATA, args.id)
+        if card is None:
+            raise SystemExit(f"experiment {args.id} 没有假设卡")
+        doc = hyp.next_change_hint(card, args.result) if args.result else card
+        print(json.dumps(doc, ensure_ascii=False, indent=1))
+        return 0
     if args.action == "new":
         if not (args.id and args.hypothesis and args.metric and args.rule
                 and args.start and args.end):
@@ -5896,6 +6020,28 @@ def build_parser():
     cysub.add_parser("smoke", help="离线自检窗口、间隔与空队列计划")
     a = cysub.add_parser("quota", help="今夜与近一小时已用额度")
     a.add_argument("--now", default="", help="模拟当前时间，ISO 格式")
+    a = cysub.add_parser("report", help="按持久化波次确定性汇总目标、排程、回执与缺口（只读）")
+    a.add_argument("--night", default="", help="夜间起始日 YYYY-MM-DD；不填报最新有波次的一夜")
+    a.add_argument("--scheduled-only", action="store_true",
+                   help="只汇总定时波次；补发等辅助波次单独计数，不混入定时任务完成率")
+    a = cysub.add_parser("receipts", help="按 wave 与账本独立核对回执；只读，不裁决、不重试")
+    a.add_argument("--night", required=True, help="夜间起始日 YYYY-MM-DD")
+    a.add_argument("--scheduled-only", action="store_true", help="只核对定时波次")
+    a.add_argument("--live", action="store_true", help="调用支持的平台只读接口；不支持时明确 unknown")
+    a = cysub.add_parser("observe", help="导入带证据的业务基线/终点观察；默认 dry-run，--apply 才追加")
+    a.add_argument("--file", required=True, help="observed_at + metrics + source.evidence JSON")
+    a.add_argument("--night", required=True)
+    a.add_argument("--phase", required=True, choices=["baseline", "final"])
+    a.add_argument("--by", required=True)
+    a.add_argument("--apply", action="store_true")
+    a = cysub.add_parser("jobs-tick", help="执行持久作业配置中的到期作业；默认 dry-run")
+    a.add_argument("--file", required=True, help="作业配置 JSON")
+    a.add_argument("--now", default="", help="模拟 tick 时间，ISO 格式")
+    a.add_argument("--go", action="store_true", help="执行到期作业；wave 仍须自身安全门通过")
+    a.add_argument("--max-jobs", type=int, default=1)
+    a = cysub.add_parser("jobs-status", help="查看持久作业与依赖状态（只读）")
+    a.add_argument("--file", required=True, help="作业配置 JSON")
+    a.add_argument("--now", default="", help="模拟状态时间，ISO 格式")
     cysub.add_parser("pending-auth", help="三平台 owner-attested 授权窗口（只读）")
     a = cysub.add_parser("attach", help="列出现有标签页并读三平台身份（只读，不新建标签页）")
     a.add_argument("--session", default="", help="WebBridge 会话名；默认 ovo-night-run")
@@ -5903,6 +6049,13 @@ def build_parser():
     a.add_argument("--lookback-hours", type=int, default=0, help="回看小时数；不填用策略值")
     a.add_argument("--queue", default="", help="队列文件；默认 data/state/engagement-queue.json")
     a.add_argument("--session", default="", help="WebBridge 会话名；不填用策略值")
+    a = cysub.add_parser("inbox-update", help="给已有空白入站行补正文，或带原因署名忽略（不发送）")
+    a.add_argument("--file", required=True, help="JSON/JSONL：target/id + text 或 not_replied_reason")
+    a.add_argument("--queue", default="")
+    a.add_argument("--by", required=True, help="补写或忽略的操作者署名")
+    a = cysub.add_parser("inbox-status", help="逐条查看入站草稿、排程、回执、忽略与对账状态（只读）")
+    a.add_argument("--queue", default="")
+    a.add_argument("--stale-minutes", type=int, default=60, help="待处理超过多少分钟算超龄")
     a = cysub.add_parser("enqueue", help="校验、去重并合并已准备草稿（只写本地队列）")
     a.add_argument("--file", required=True, help="JSON 数组、JSONL 或含 items 数组的 JSON")
     a.add_argument("--queue", default="")
@@ -5936,6 +6089,9 @@ def build_parser():
     susub = sp.add_subparsers(dest="action", required=True)
     a = susub.add_parser("stats", help="按渠道看可用候选、每夜需求与缺口")
     a.add_argument("--nights", type=int, default=3, help="按几晚容量计算；默认 3")
+    a = susub.add_parser("readiness", help="分开投影候选、成稿与当波 eligible 供给（只读、不发送）")
+    a.add_argument("--waves", type=int, default=3, help="投影未来几波；默认 3")
+    a.add_argument("--now", default="", help="评估起点；窗口外自动取下一夜间窗口")
     a = susub.add_parser("mine", help="挖掘候选并入储备（不写队列、不发送）")
     a.add_argument("--channel", required=True, choices=["github", "x", "content"])
     a.add_argument("--query", action="append", default=[], help="覆盖默认查询，可重复")
@@ -5957,6 +6113,18 @@ def build_parser():
     a.add_argument("--why", default="")
     a = susub.add_parser("koc", help="查看 KOC 账号登记")
     a.add_argument("--limit", type=int, default=0, help="只列前 N 个；0 列全部")
+    susub.add_parser("koc-audit", help="分开统计注册、补全、人工资格、互动、回应和分层漂移（只读）")
+    a = susub.add_parser("koc-recompute", help="按粉丝数重算启发式分层；默认预览，--apply 才写")
+    a.add_argument("--apply", action="store_true")
+    a.add_argument("--by", default="", help="--apply 时必填的署名")
+    a = susub.add_parser("koc-qualify", help="人工写入 KOC 资格与证据；不触达、不发送")
+    a.add_argument("--handle", required=True)
+    a.add_argument("--status", required=True, choices=["qualified", "needs_review", "excluded"])
+    a.add_argument("--by", required=True)
+    a.add_argument("--evidence", action="append", default=[], help="资格证据，可重复")
+    a.add_argument("--account-type", required=True, choices=["person", "company"])
+    a.add_argument("--contact-handle", default="", help="公司账号的具体联系人")
+    a.add_argument("--note", default="")
     a = susub.add_parser("wave", help="按每波额度生成某一波的工作清单（不写正文、不改状态）")
     a.add_argument("--wave", dest="wave_no", type=int, default=1, help="波次序号，仅作标记")
     a.add_argument("--out", default="", help="清单路径；默认 data/state/wave-supply.json")
@@ -5965,6 +6133,9 @@ def build_parser():
     for _sub in susub.choices.values():
         _sub.add_argument("--json", action="store_true", help="兼容参数：输出本就是 JSON")
     sp.set_defaults(fn=cmd_supply)
+
+    from core.cli_runtime import register as register_runtime_commands
+    register_runtime_commands(sub, runtime_handler=cmd_runtime, outreach_handler=cmd_outreach)
 
     sp = sub.add_parser("orchestrate", help="按产品/目标/任务选择最小岗位组合、交付物与表达方式")
     sp.add_argument("--product", required=True, help="产品事实 JSON；也接受含 product 的事实包")
@@ -6330,7 +6501,8 @@ def build_parser():
     a.add_argument("file", help="回复文件路径（CSV/JSONL/JSON）")
     a.add_argument("--account", required=True, help="接收回复的账号 id")
     a.add_argument("--channel", default="email",
-                   choices=["email", "x", "linkedin", "reddit", "github"])
+                   choices=["email", "x", "linkedin", "reddit", "github",
+                            "discord", "hn"])
     a.add_argument("--by", required=True, help="导入人署名")
     a.add_argument("--authorization", required=True,
                    help="授权引用（工单/邮件/批次）")
@@ -7151,8 +7323,11 @@ def build_parser():
     sp.set_defaults(fn=cmd_hn)
 
     sp = sub.add_parser("experiment", help="实验引擎：预注册→观察→人判（机器不判因果）")
-    sp.add_argument("action", choices=["new", "start", "obs", "list", "conclude", "stop"])
+    sp.add_argument("action",
+                    choices=["new", "start", "obs", "list", "conclude", "stop",
+                             "card-new", "card-check", "card-show"])
     sp.add_argument("--id", help="实验 id（小写/数字/连字符）")
+    sp.add_argument("--card", help="card-new：假设卡 JSON 文件（支持/证伪指标、替代解释、下一轮改哪层）")
     sp.add_argument("--hypothesis"); sp.add_argument("--metric")
     sp.add_argument("--rule", help="预注册判定规则（启动前必填）")
     sp.add_argument("--start"); sp.add_argument("--end")

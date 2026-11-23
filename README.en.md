@@ -1,313 +1,79 @@
-<p align="center">
-  <img src="docs/assets/logo.png" width="400" alt="Growovo">
-</p>
-
-<p align="center"><strong>Run a supervised X or email campaign on your own account</strong><br>
-<em>在自己的 X 和邮件账号上运行一次受控推广</em></p>
-
+<p align="center"><img src="docs/assets/logo.png" width="400" alt="Growovo"></p>
 <p align="center"><a href="README.md">简体中文</a> · <strong>English</strong></p>
 
-Give Growovo the product facts, audience and actions you authorize. It checks drafts, queues approved work and records receipts. An uncertain email send stops the batch for review. Track replies, activation and sales from their own records.
+# Growovo
 
-It commits to exactly three verifiable things: **execution volume** (every committed action is in the ledger), **honest readings** (daily follower and impression snapshots, screenshot-backed and labelled by evidence grade), and **closed-loop responsibility** (completion drives volume changes, supply gaps alert three days early, failures stop the loop for human adjudication). It does not promise platform reach, and it does not dress unverified channels up as full automation.
+**You set the goal. Growovo carries out the work.**
 
-**Full automation starts with platforms that may actually be automated.** Phase one commits to unattended execution on **Email** only. The **X** write path is technically proven (PROVEN), but X's rules forbid non-API autonomous writes, so X plans compile as human-assisted tasks, or you connect the official API with authorization. GitHub, Reddit, Hacker News and LinkedIn are gated behind a supervised first run. Manual channels such as Xiaohongshu and Zhihu get work orders only and are excluded from automated volume. See the [platform automation matrix](docs/platform-automation-matrix.md).
+From product facts and objectives to content, channel execution, follow-up and result readback, Growovo delivers the whole business workflow. You set the direction; Growovo turns every step into completed work.
 
-**Start here.** Prepare product facts, standing action authorization and SMTP credentials for email; for human-assisted X, also prepare an authenticated local Codex CLI and a browser CDP session. Read results daily and decide whether to continue or optimize. See [autonomous operations](docs/grow-autonomous-operations.md).
-
-```bash
-git clone https://github.com/roy-tong/Growovo.git && cd Growovo
-python3 mkt.py demo                    # zero network, zero accounts
-python3 mkt.py grow platforms          # what phase one can run autonomously
-python3 mkt.py policy enable --actions email:message --by "$USER"
-python3 mkt.py grow launch g1 --facts facts.json \
-  --goal commercial.conversations --channels email
-python3 mkt.py grow arm g1             # enable live execution after checking strategy and authorization
-python3 mkt.py grow daemon g1          # foreground service; Ctrl-C stops it
-# macOS background: grow install g1 --load; verify fresh heartbeat with grow doctor g1
-python3 mkt.py grow daily g1           # one screen a day: volume/readings/supply/guardrails
-```
-
-> Want X? `--channels x` compiles a human-assisted plan: content, schedule and ledger keep working; you confirm each send. Autonomous X writes are not permitted, so Growovo will not post unattended.
-
-**See the receipts first:** [Launch autopsy: 73 tweets in 11 hours, 0 new stars](docs/launch-autopsy-20261105.md) — a real launch experiment we ran without the ledger (throwaway scripts instead), the numbers it produced, and the ledger gap it exposed in our own process.
-
-<details>
-<summary>What's new (v0.8 – v0.13): Work OS, orchestration, design layer, execution integrity</summary>
-
-**New in v0.8 — GTM Work OS:** validated registries for 18 capability domains, 40 role families and 32 templates, plus immutable context, objectives, WorkOrders, evidence-gated SOPs, deliverable acceptance, receiver handoffs and deterministic KPI measurement. `work-action` only materialises accepted work into the existing plan/queue path; it adds no send bypass. One developer SOP is executable end to end today; registry coverage does not mean all 40 professional automations are complete. See the [implementation notes](docs/gtm-os/05-implementation.md).
-
-**New in v0.9 — task-specific orchestration and standing routine authorization:** `mkt orchestrate` selects only the roles required by the product, goal and task, then chooses the content structure and expression for each deliverable. Routine posts, replies, DMs and email can execute directly under an existing workspace `routine-policy`; payments, contracts and discounts remain human-only. Dry-run, pause, DNC, quota, read-back and unknown-result protections remain intact. See [orchestration and routine authorization](docs/gtm-os/06-orchestration-and-routine.md).
-
-**New in v0.10 — GTM design layer:** `mkt gtm design` decomposes a growth task into object × objective × motion × channel, filters candidates with real constraints (authorized channels, assets, budget, region, data sources) and emits an outcome contract with an explicit verification level. Agents may propose motions with reasons; rules only check compatibility and boundaries, and rejected candidates keep their reasons. Without a data source, platform receipts are not business outcomes — plays, stars, pre-orders and sign-ups are not success by default. See [object × objective × motion × channel](docs/gtm-os/07-object-motion-design.md).
-
-**New in v0.11 — execution integrity merged, design layer corrected:** the P0 integration branch is now part of the release: MCP can no longer raise unverified channel permissions, unknown external results require human adjudication, ledger appends are atomic and fail loud, and damaged DNC suppression data stops sending. The design layer fixes Agent proposals overriding user objectives, partial proposals causing false `blocked`, single-motion selection, mixed `ready` semantics and optimistic verification. Handoff now emits an execution plan bound to the selected recipe and a design fingerprint.
-
-</details>
+[Website](https://roy-tong.github.io/Growovo/) · [Controlled-run example](https://roy-tong.github.io/Growovo/examples/controlled-run.en.html) · [Operations guide](docs/grow-autonomous-operations.md) · [Platform matrix](docs/platform-automation-matrix.md)
 
 [![tests](https://github.com/roy-tong/Growovo/actions/workflows/tests.yml/badge.svg)](https://github.com/roy-tong/Growovo/actions/workflows/tests.yml)
+[![PyPI](https://img.shields.io/pypi/v/growovo)](https://pypi.org/project/growovo/)
+[![License](https://img.shields.io/badge/License-MIT-blue)](LICENSE)
 
-**Try one result now:** `python3 mkt.py demo` runs plan validation, approval, one successful delivery, three blocked runs, and a daily result card locally. `python3 mkt.py work-demo` adds the full WorkOrder → SOP → deliverable acceptance → handoff → KPI → approved plan/queue flow, with no accounts, network, queue execution or sends. Verification levels for live platform commands are in the table below. See [feature status & trade-offs](docs/feature-status.md).
+## From content sent to business execution delivered
 
-> Why not write your own script, or use a general automation platform? [How Growovo compares](docs/compare.md) says where it loses and where it wins, and maps every claim to a file you can check.
+Publishing is only one step. Growovo connects objectives, content, channels, replies and readback so users receive a complete delivery and the next move:
+- **Find the right people.** Start from the product and a vertical scene to discover audiences more likely to care.
+- **Say something worth answering.** Create contextual content for each audience and channel instead of copying one message everywhere.
+- **Keep the work moving.** Content, plans, execution and readback advance in one workflow.
+- **Turn responses into next steps.** Replies, activation and sales return to the growth goal so you can decide what to continue or change.
 
-- **Askovo** handles business research and validation, supplying the rationale for tasks.
-- **Growovo** executes authorized operations tasks and records the results.
-- **Verovo** links costs to business outcomes and computes per-task economics.
+## A growth team’s workflow for a one-person product
 
-Each can be used independently. The `mkt.py` and `growovo-gtm` identifiers are kept for compatibility; GTM is the first application scenario.
+| Job | What Growovo helps you do |
+|---|---|
+| Positioning | Turn product facts into audiences, goals and channel strategy |
+| Content | Draft and review posts, replies and outreach |
+| Execution | Move work through Email, X, GitHub, Reddit, Hacker News, LinkedIn and Discord workflows |
+| Follow-up | Bring pending replies and the next action to the front of the day |
+| Learning | Build the next strategy from receipts and business events |
 
-## Compliance and discipline (read this first)
+Email can run automatically, while X and community channels join your daily operating workflow. See the [platform automation matrix](docs/platform-automation-matrix.md) for the way each channel works.
 
-- Only for accounts **you own or are explicitly authorized to operate**; never touch unauthorized accounts. Ownership, scope, and human takeover are audited.
-- **The engine manages no accounts**: an account is the browser's logged-in session — after the approval gate, a real write automatically probes the target site's login state in the debugging Chrome and proceeds when present; when missing it reports the gap explicitly (ledger records rejected, never a fake send). No cookies or tokens are ever stored.
-- The CDP channel is zero-credential: no passwords, tokens, or cookies are ever stored; SMTP credentials come only from environment variables
-- **All write operations default to dry-run; `--go` runs for real** — real runs require a **human-approved plan**, or explicit `--routine` with a workspace policy matching the account/channel/action. Without authorization the default is refusal; only the manual CLI path `--adhoc` explicitly allows an unplanned run (ledger `adhoc=true`; MCP exposes no policy management)
-- Daily budgets are atomically reserved before sends; `indeterminate` (unknown outcome) can never be auto-resent — a human must run `ledger resolve`; DNC/bounced identities in contacts merge with `suppress.txt` into a single suppression source
-- Fail and stop (no retry bombardment); a read-back mismatch never sends (codified after the 449 empty-body incident)
-- Human pacing: randomized intervals + per-run hard cap + daily budget (see the table in core/throttle.py)
-- No mass blasting: per-recipient personalized content is a precondition; leftover placeholders are rejected outright by the gates
-- No adversarial techniques: no CAPTCHA bypassing, no fingerprint spoofing, no proxy use to evade platform controls. Proxies are only for documented legitimate network needs with matching account authorization, never for higher quotas or ban evasion.
+## Run a growth example
 
-## Install and quickstart
+```bash
+pipx install growovo
+mkt demo
+mkt grow platforms
+```
 
-**Get a result first, install later.** After cloning, nothing is required — no dependencies, no account:
+Or from source:
 
 ```bash
 git clone https://github.com/roy-tong/Growovo.git && cd Growovo
-python3 mkt.py demo               # zero network, zero accounts; under a second through 5 steps: lint → review → delivery → three blocked runs → ledger + daily card
+python3 mkt.py demo
 ```
 
-For real channels (X / Gmail / GitHub writes), install the runtime and initialise a workspace:
+The offline synthetic example produces content checks, execution receipts and a daily result card. [Open the controlled-run proof](https://roy-tong.github.io/Growovo/examples/controlled-run.en.html) to see how one batch moves from start to result.
+
+## From one launch to a daily practice
 
 ```bash
-pip install -r requirements.txt   # playwright only; CDP drives system Chrome, no browser download
-python3 mkt.py init               # create directories + report credential gaps + print next steps
-python3 mkt.py doctor             # environment check (--selftest runs all offline unit tests)
-./launch.command                  # double-click works too: first run copies the login profile, starts CDP on 9222
-python3 mkt.py check              # verify the CDP session and X/Gmail login state
+python3 mkt.py init
+python3 mkt.py grow launch g1 --facts facts.json \
+  --goal commercial.conversations --channels email
+python3 mkt.py grow daily g1
+python3 mkt.py grow review g1 --days 7
 ```
 
-## Command matrix and verification levels
+Start with one small batch, then connect content production, channel execution, replies and review into your own operating rhythm. CLI, MCP and Agent Skill share the same execution logic.
 
-| Command | What it does | Level |
-|---|---|---|
-| `python3 mkt.py status` | Global ledger aggregation | — |
-| `python3 mkt.py check` | CDP session check (X/Gmail/Reddit/LinkedIn) | — |
-| `python3 mkt.py demo` | Zero-network zero-account demo (plan lint → human-review gate → successful delivery → three blocked runs → ledger + daily card; sandbox rebuilt each run) | — |
-| `python3 mkt.py doctor [--selftest]` | Environment check: core imports / data contracts / credentials / CDP / pause state | — |
-| `python3 mkt.py report [--hours 24] [--format md]` | One-page operations report (anomalies / paused state / suppression list) | — |
-| `python3 mkt.py init` | Workspace bootstrap: create directories / report credential gaps / next steps (`--workspace` or `MKT_HOME` isolates multiple products) | — |
-| `python3 mkt.py next` | State machine: what to do now, and why | — |
-| `mkt plan new/lint/show/list/approve/revoke` | **Plans and approval**: scaffolding, validation, signed approval events (signature + plan fingerprint + expiry) | — |
-| `mkt queue lint <file>` / `mkt queue build` | **Edit-time gates**: placeholders/duplicates/length blocked when the queue is written; template + CSV generate per-recipient queues | — |
-| `mkt campaign show/report/next` | **Campaign view**: plan/review/queue preflight/ledger/events/experiments/next step → one Markdown page | — |
-| `mkt review <campaign>` | Human-review preview: every queue item through the gates + existing evidence + approve & run commands | — |
-| `mkt ledger resolve <ref> --result … --by … --note …` | **Human adjudication of indeterminates** (append-only override; the original ledger line is never modified) | — |
-| `mkt link create/list` | **Tracking links**: generate links with utm_campaign and persist them for event attribution | — |
-| `mkt outcome import <csv>` / `mkt outcome sync` | **Outcome accounting**: idempotent CSV import + ledger aggregation into count snapshots | — |
-| `mkt queue run <file> [--go]` | **All-channel queue execution** (email/hn/github/reddit/linkedin/x-reply), each item through the same pipeline | — |
-| `mkt action <channel> <action> …` | Single write action (same gates/approval/ledger as queues); x message/engage pass through to the vendor | — |
-| `mkt collect serve/event/import` | **Local collector**: `/t/<link>` click attribution, `/events` webhook, Plausible/PostHog CSV | — |
-| `mkt experiment obs --id X --from-outcomes` | Experiment observations aggregated automatically from the event ledger (no more manual copying) | — |
-| `python3 mkt.py pause --on 'reason' / --off` | **Global pause switch** (all write operations refuse to run, and the pause is logged) | — |
-| `python3 mkt.py contacts add/find/dnc/mark/import` | Contact store operations (idempotent dedup / DNC hiding / er-batch import) | — |
-| `mkt x publish/reply/message/engage/search/inbox …` | All X actions (vendor x-ops-automation) | **PROVEN** |
-| `mkt email message --queue data/queues/w1.json [--go]` | SMTP send queue | **PORTED** |
-| `mkt email inbox` / `mkt email bounces` | CDP read-only Gmail scan / bounce handling | **PORTED** (pattern PROVEN) |
-| `mkt reddit search --query "…"` | Read-only search | **UNVERIFIED** |
-| `mkt reddit reply --url <post> --text "…" [--go]` | Comment (read-back verification pipeline) | **UNVERIFIED** |
-| `mkt reddit publish --sub <sub> --title … --body-file … [--go]` | Post (≤3/day) | **UNVERIFIED** |
-| `mkt linkedin search --keywords "…"` | Read-only people search | **UNVERIFIED** |
-| `mkt linkedin message --url <profile> --note-file … [--go]` | Semi-auto connection request (terminal confirmation) | **UNVERIFIED** |
-| `mkt github audit --repo owner/repo` | **Repo health audit** (basics/community health/releases/contributor concentration/AI-readiness/Scorecard) | **PROVEN** |
-| `mkt github inbox --repo owner/repo` | open issues/PR list + zero-reply flags (48h first-response patrol) | **PROVEN** |
-| `mkt github search --query "…"` | Repo search (audience/competitor discovery) | **PROVEN** |
-| `mkt github reply --repo o/r --number N --text "…" [--go]` | issue/PR comment (first write path on the api channel; requires `MKT_GITHUB_TOKEN`) | **UNVERIFIED** |
-| `mkt playbook github-inbox --repo o/r --drafts drafts.json` | Inbox triage → candidate replies → standard queue (does not send; still requires approval/dry-run) | **PORTED** |
-| `mkt hn search --query "…"` | HN discussion/audience discovery (Algolia public API, anonymous read-only) | **PROVEN** (read-only) |
-| `mkt hn publish --title "Show HN: …" --url … [--go]` | Submit form submission (CDP; ≤1/day, title ≤80 chars; Show HN only for your own projects) | **UNVERIFIED** |
-| `mkt hn reply --item item:N --text "…" [--go]` | Item comment (first use = the author's first comment on a Show HN, within 1h of submitting) | **UNVERIFIED** |
-| `python3 mkt.py memory …` | Read-only operations memory from verified receipts (see the last section) | — |
-| `python3 mkt.py workflow …` | Reusable recipes: learn / approve / replay (dry-run by default) / runs / reconcile | — |
-| `python3 mkt.py scorecard` | Receipt and outcome scorecard (read-only) | — |
-| `python3 mkt.py optimize` | Optimization proposals (requires_human, never auto-applied) | — |
-| `mkt gtm design` | **GTM design**: object × objective × motion × channel with constraint checks, outcome contract, unknowns and verification level | Local design only; no execution |
-| `mkt gtm handoff` | **Design handoff**: objective-contract mapping + candidate Workstream via orchestrate | Candidate orchestration, not release approval |
-| `mkt orchestrate` | **Task-specific orchestration**: minimum roles, deliverables, handoffs, required content and audience/channel expression | Local candidate plan |
-| `mkt policy` + `--routine` | **Standing routine authorization**: direct routine touches within account/action scope; 30-day default expiry (`--days 0` opt-in permanent); payments excluded; other gates retained | Default: email:message only; local; no live-send validation |
-| `mkt capability` / `mkt template` | **GTM registries**: 18 domains, 40 role families and 32 templates with cross-reference lint | Local |
-| `mkt context` / `objective` / `work` / `sop` | **Business work**: immutable context, objectives, WorkOrders and evidence-gated SOP runs | One full SOP; remaining roles are registry summaries |
-| `mkt deliverable` / `handoff` / `metric` | **Acceptance and results**: template QA, named-receiver handoffs and deterministic KPI measurement | Local; not enterprise IdP or general BI |
-| `mkt work-action materialize` / `mkt work-demo` | Accepted deliverable → existing plan/queue; full zero-network Work OS demo without sends | Local |
-| `mkt goal list/plan/select` | **Goal selection**: 9 goals across awareness / adoption / commercial; applicability by product type, stage and owned accounts; platform roles capped at 1 primary + 1 launch + 2 support; the selection contract feeds strategy and cadence | — |
-| `python3 mkt.py gtm diagnose --facts <json>` | **GTM diagnosis**: product facts pack → platform priorities + cold-start checklist + scale gates (every recommendation carries an evidence label; schema in core/gtm.py; risk notes in docs/risk/) | — |
-| `mkt signal-interpret --candidates <json>` | **Read-only Signal Interpretation**: validate host-supplied source, subject, problem vs technical discussion, alternatives, contact eligibility and commercial evidence; tool seeking/self-declared intent never auto-upgrades | — |
-| `mkt opportunity --facts <json> --signals <json>` | **Opportunity Discovery**: qualified `semantic_candidates` proceed to product fit; legacy raw signals remain `unverified_signal`; complaints and self-declared intent are not observed purchase intent | — |
-| `mkt artifact lint/render --file <json>` | **Value Artifacts**: validate/render tutorials, examples, reproducible tests, templates, comparisons and real cases with direct value, reproduction steps and boundaries | — |
-| `mkt value-chain run --file <json>` | **Value delivery chain**: research→solution→authorized local reproduction→asset→authorized delivery→user readback; real exit code/output, no unauthorized command execution and no platform sending | — |
-| `mkt journey --events <json> --campaign C --since D1 --until D2 [--identity-map <json>]` | **User journeys**: real-time ordering, identity aliases, first vs repeated activation and multi-touch disclosure; historical campaigns and last events never fill progress or causation | — |
-| `mkt evaluate compare/evolution/external` | **Capability, competition and evolution evaluation**: same-condition comparisons, external unseen-case contract and regression history without a composite winner score | — |
-| `mkt playbook-model compose --platform P --motion M --vertical V` | **Platform × Motion × Vertical** playbooks without duplicating a workflow per platform and industry | — |
-| `mkt account add/list/check/warm/eligible/takeover` | **Authorized account assets**: ownership/authorization evidence, lifecycle, health, cooldown and human takeover; no login or sends | — |
-| `mkt network bind/list/export` | **Proxy references**: only environment-variable names bound to accounts; no credential reading, higher quotas, or ban evasion | — |
-| `mkt intent start/log/show/verdict` | **Intent learning experiments**: configurable windows and optional targets; sample/safety observations, not pass/dead channel verdicts | — |
-| `mkt exp show/coverage/stale/assess` | **Experience eligibility**: formal strategy needs rights basis, confirmer/time/record and traceable review covering source domains; internal self-report is experiment-only and legacy booleans do not inherit eligibility | — |
-| `mkt result` / `mkt revise` | **Result and revision**: one campaign/subject/time_window projection for real OutcomeLedger events and dynamic value events; no automatic channel verdicts | — |
-| `mkt billing --actions N --outcomes M` | **Pricing experiments**: action/outcome plus explicit subscription/hybrid candidates and acceptance logs; accepted quote is not payment | — |
-| `python3 mkt.py schedule …` | Persisted waves: add / tick / status / resume | — |
+## Why we built Growovo
 
-Level meanings: PROVEN = verified on a real account; PORTED = the pattern is verified, this wrapper has not been run end-to-end; UNVERIFIED = selectors untested in practice — the first run must be supervised (first-run checklist in channel doc 03 §5).
+We once sent 73 tweets in one night and gained 0 new stars. The most useful lesson was not the zero. It was the product judgment behind it: send volume is not growth. Teams need a connected way to move from audience and content to replies and results.
 
-## Planning layer: plans are data, human review is the gate (product doc 05 §2)
+[Read the launch autopsy](docs/launch-autopsy-20261105.md) · [Compare tools](docs/compare.md) · [Feature status](docs/feature-status.md)
 
-```bash
-# 1. Generate a plan scaffold (or hand-write one per data/schemas.md)
-mkt plan new --id askovo-p0 --goal 'get 20 activations' --beachhead 'independent UX researchers' \
-  --hypothesis 'evidence grading is the buying motive' --channel email --wave-action message --size 10
+## Keep exploring
 
-# 2. Validate (schema / capability matrix / size ≤ core daily budget / preregistered criteria)
-mkt plan lint --id askovo-p0
+- [Operations configuration](docs/grow-autonomous-operations.md)
+- [GTM design](docs/gtm-os/07-object-motion-design.md)
+- [MCP and Agent Skill](skills/growovo-gtm/SKILL.md)
+- [Case library](docs/cases/README.en.md)
+- [Contributing](CONTRIBUTING.md) · [llms.txt](llms.txt) · [AGENTS.md](AGENTS.md)
 
-# 3. Human review: must be signed; writes an approval event + plan fingerprint
-#    (modifying the plan after approval is caught by the fingerprint and the run is refused)
-mkt plan approve askovo-p0 --by roy --days 7
-
-# 4. Queue: built from template + targets CSV, or hand-written then gate-checked with lint
-mkt queue build --campaign askovo-p0-w1 --channel email --wave-action message \
-  --template assets/outreach.md --targets data/targets.csv
-mkt queue lint data/queues/askovo-p0-w1.json
-
-# 5. Human-review preview → dry run → real run
-mkt review askovo-p0-w1
-mkt email message --queue data/queues/askovo-p0-w1.json          # dry-run
-mkt email message --queue data/queues/askovo-p0-w1.json --go     # requires approval
-
-# 6. Accounting and retrospective
-mkt link create --campaign askovo-p0-w1 --channel hn --url https://example.com
-mkt outcome import data/events.csv --campaign askovo-p0-w1
-mkt outcome sync --campaign askovo-p0-w1
-mkt campaign report askovo-p0-w1
-```
-
-The plan fingerprint is the canonicalized sha256 of the plan content (excluding the review block); legacy plans carrying only `human_approved=true` still pass as legacy — all new approvals carry a fingerprint and an expiry.
-
-Caps are a core property: a plan whose size exceeds the `core/throttle.py` daily budget is rejected by lint.
-
-## MCP server (mcp_server.py, stdio, zero dependencies)
-
-```json
-{"mkt": {"command": "python3", "args": ["/absolute/path/Growovo/mcp_server.py"]}}
-```
-
-10 tools, read and write across all channels:
-
-- Read: `mkt_status` / `mkt_channels` / `mkt_plan_lint` / `mkt_search` (x/reddit/linkedin/hn/github) / `mkt_ledger_query` / `mkt_campaign` / `mkt_inbox` (hn/github/email/x) / `mkt_audit` (github)
-- Write: `mkt_run_queue` (all-channel queue, dry-run by default) / `mkt_action` (single action, same gates/approval/ledger)
-
-Real runs of write operations always require a human-approved plan; UNVERIFIED channels need `allow_unverified=true` (manual first-run calibration); adhoc is CLI-manual-path only and never exposed over MCP. The MCP process also reads `MKT_HOME`, so it can use a different workspace than the CLI.
-
-## Skills (skills/)
-
-- `skills/growovo-gtm/SKILL.md`: the **GTM operations protocol** — the entry point is a growth goal (signup/activation/revenue), not a single channel action. It decomposes work via four engines (positioning → assets → distribution → outcomes) into seven steps: goal → plan → audience → review → execute → retrospect. Install into `~/.agents/skills/` to make it triggerable in hosts such as ZCode (content collaboration via warm-email-outreach / expert-review-outreach / b2b-account-mapping).
-- `skills/github-project-ops/`: the **GitHub project operations protocol** (open and closed source alike) — positioning diagnosis (four quadrants + seven stages) → repo audit checklist → growth playbook → closed-source playbook library; includes the standalone audit script `scripts/repo_audit.py` (zero-dependency distribution). Relationship to the CLI: the skill is protocol and judgment; `mkt github *` is data collection and execution.
-
-## Cases (docs/cases/)
-
-The first wave of cases comes from the ovo family itself; every case separates "platform actions" from "business outcomes" and never rewrites status for marketing:
-
-- [Askovo](docs/cases/askovo.en.md): first dogfood client (P0, in progress) — define/build/run done in 275 operator minutes / 5 human minutes, D14 gate 2026-11-14
-- [Verovo](docs/cases/verovo.en.md): the precedent case — one full GTM cycle mapped from price paid to defaults; every Growovo rule has a receipt
-- [Growovo](docs/cases/growovo.en.md): bootstrap — rename, bilingual README, dogfood loop; every self-operations action through its own pipeline
-
-## Transport layer (core/transports.py)
-
-ACTIVE×4: `api` (OAuth, Reddit phase 2) | `browser-cdp` (PROVEN) | `os-input` (macOS keyboard/mouse/AX simulation, UNVERIFIED, transports/os_input.py) | `protocol` (SMTP/IMAP, PROVEN).
-RESERVE×6 (transport reserve): `webdriver` | `rss-public` (read-only) | `esp-api` (transactional email) | `mobile-appium` | `integration` (platform-native) | `semi-auto-ui` (human-confirmation fallback).
-Each channel × action declares a preferred transport plus a fallback chain; **fallbacks are for "the road is blocked", not for "evading risk control"** — the response to risk-control signals is slower pacing or `mkt pause`, never switching masks. Risk thresholds and account limits live in project doc 06 (verified against official sources; code budgets always sit below official caps — see throttle.INTERVALS/OFFICIAL_LIMITS).
-
-## Environment variables
-
-| Variable | Purpose |
-|---|---|
-| `MKT_CDP_URL` | CDP endpoint (default http://127.0.0.1:9222) |
-| `MKT_EMAIL_USER` / `MKT_EMAIL_APP_PASSWORD` | Gmail SMTP (App Password, never stored) |
-| `MKT_LINKEDIN_AUTO=1` | Unlock fully automatic LinkedIn (not recommended; default is semi-auto with terminal confirmation) |
-| `MKT_GITHUB_TOKEN` | GitHub PAT (only needed for write `reply`; read primitives work anonymously, 60 req/h) |
-
-## The data trio (`data/`, gitignored)
-
-- `queues/<campaign>.json` queues; `ledger.jsonl` the global ledger; `contacts.jsonl` the contact store
-- `suppress.txt` suppression list (one target per line); `shots/` evidence; `state/` daily-budget state
-- schemas in `data/schemas.md`
-
-## Repository layout
-
-```
-core/      ledger (with human adjudication overrides) · gates (incl. DNC merge) · throttle atomic daily budgets · pipeline write-path transactions · evidence · cdp session · transports registry · planlint plan validation · approval execution fingerprints (plan+queue+account+workspace) · queue edit-time gates · campaign view/review preview/next step · followups scoped ledgers · intent configurable learning experiments · logscan local evidence scanning · retro channel accounting · narrative business claims · platforms single registry (37) · voice profiles (37) · experience typed eligibility (129 raw records, not auto-eligible) · strategy and cadence · execute strategy→plan/queue/manual · result scoped three-layer projection · revise candidate parameter diffs · progress daily/weekly · signal_interpretation · opportunity discovery · value_artifact · value_delivery chain · journey timing/identity/multi-touch · playbook_model Platform×Motion×Vertical · accounts authorized identity lifecycle · network proxy references · billing pricing experiments · links tracking links · outcome_io CSV import & ledger aggregation · collector local webhook/redirect · action_runner single actions · queue_runner all-channel queues · playbooks GitHub Inbox triage/draft queues · workflows recipe learning/approval/replay · locators locator ladder · scorecard · optimization proposals · scheduler persisted waves · workspace multi-product isolation · experiments optional learning experiments · attribution events/funnels/attribution · demo zero-account demo · doctor environment check
-channels/  x/(vendor+adapter) · email_smtp · email_cdp · reddit · linkedin · github (first api-channel release) · hn (CDP write + Algolia read)
-transports/  os_input (macOS keyboard/mouse/AX simulation, UNVERIFIED)
-skills/    growovo-gtm (GTM operations protocol) · github-project-ops (GitHub project operations protocol + audit script)
-tests/     offline unit tests (599, incl. the 449 incident regression, all-channel human-review gates/adhoc passthrough, approval fingerprints & expiry, atomic budget reservation, DNC/indeterminate blocking, queue edit-time gates, idempotent CSV import, ledger adjudication overrides, collector redirect/event auth, clean MCP stdout, semantic adversarial cases, real local reproduction/delivery chains, journey timing/identity/multi-touch, traceable experience review, the demo loop and doctor tiers): python3 -m unittest discover -s tests
-mcp_server.py  MCP shell (stdio JSON-RPC, zero dependencies)
-```
-
-The X channel vendors in x-ops-automation (upstream github: roy-tong/x-ops-automation);
-**verified code is never rewritten** (see `channels/x/vendor/PROVENANCE.md`); re-sync when upstream fixes selectors.
-
-## License
-
-MIT (see [LICENSE](LICENSE)). `channels/x/vendor/` is vendored from the same author's repo x-ops-automation (MIT).
-
-## Reusable workflows: learn once, replay carefully
-
-The same class of task should not need a fresh model exploration of the page every time. `workflow` freezes steps, a locator ladder and readback conditions into a fingerprint-approved recipe; `--go` requires that approval, and every run is journalled step by step:
-
-```bash
-python3 mkt.py workflow learn hn-reply --trace trace.json      # one observed run → draft (never auto-approved)
-python3 mkt.py workflow approve hn-reply --by "operator" --days 30
-python3 mkt.py workflow replay hn-reply --var item=123 --var text="…"          # dry-run: resolve locators only
-python3 mkt.py workflow replay hn-reply --cdp-url http://127.0.0.1:9222 … --go  # execute
-python3 mkt.py workflow runs
-python3 mkt.py workflow reconcile --run <id> --outcome not_sent --note "checked the platform" --by "operator"
-```
-
-When the page changes, recovery walks `css → placeholder → label → role → text`; visual recovery needs an operator-supplied provider and otherwise stops as `visual_unavailable` instead of guessing a click target. Writes keep the standard gates: `action` steps call `action_runner`, `commit` clicks check pause and the daily budget and write the ledger. See [workflows](docs/workflows.md).
-
-## Scorecard, schedule and optimization proposals
-
-Execution needs visible results and a way to stop. `scorecard` keeps ledger receipts and business events separate: committed rate, unknown rate, failures and evidence coverage. Sending is not conversion.
-
-```bash
-python3 mkt.py scorecard --campaign my-campaign
-python3 mkt.py optimize --campaign my-campaign          # human decisions only, never auto-applied
-python3 mkt.py schedule add --id daily --queue data/queues/q1.json --interval 1440
-python3 mkt.py schedule tick                            # called by cron/launchd or a human
-python3 mkt.py schedule resume --id daily --note "unknown receipts checked"
-```
-
-- A schedule runs at most one due wave per tick; global pause, unknown results and failed queues stop it as `needs_review`;
-- an interrupted `running` wave is never retried automatically;
-- `optimize` comparisons are descriptive: a higher committed rate is not channel effectiveness, and every proposal is `requires_human: true`.
-
-## Operations memory: learn from verified platform receipts
-
-Inspect recurring channel/action patterns without exposing contact details or automatically replaying any past action:
-
-```bash
-python3 mkt.py memory --campaign my-campaign
-python3 mkt.py memory --channel github --output data/operations-memory.json
-```
-
-The summary reports confirmed platform operations, unknown/failing receipts, and **human-review candidates**. It intentionally excludes targets and message bodies. A successful platform action is **not** evidence of customer activation, and a pattern is never permission to replay: new runs still require fresh authorization, current platform-policy checks, and the standard execution gates. This is the read-only input to workflow learning: it shows patterns and risks, while an approved `mkt workflow` recipe performs the replay. See [feature status](docs/feature-status.md).
-
-## Contributing
-
-- Read [CONTRIBUTING.md](CONTRIBUTING.md) first: it lists the **invariants a change must not break** (approval, dry-run, pause, budget, suppression, read-back, no auto-retry of unknown results) and the AI-contribution policy.
-- Security issues go through the private channel in [SECURITY.md](SECURITY.md) — not a public issue.
-- First response target is 48 hours for issues and PRs; capability boundaries and verification levels live in [docs/feature-status.md](docs/feature-status.md).
-- Cases (including failures and dead ends) are in [docs/cases/](docs/cases/README.en.md); states are not rewritten.
-
-### Local Codex content production
-
-New v2 runs enable Codex drafting and independent editorial review by default. Enable it for existing runs with `python3 mkt.py grow agent <id>`. `grow produce <id>` stages content without sending; `grow daemon <id>` executes within existing authorization, daily quotas and time windows. Targets pass vertical KOC and semantic relevance review; failures leave an explicit supply gap. Users decide whether to continue or optimize from daily results. See [autonomous operations and limitations](docs/grow-autonomous-operations.md).
+Growovo is MIT open source. Run your first result with `mkt demo`, then make it your growth workflow.

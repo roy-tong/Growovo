@@ -27,6 +27,54 @@ QUEUE_ACTIONS = {"publish", "reply", "message"}
 DUPLICATE_MARKERS = ("防重发", "已成功发过")
 SUPPRESSION_MARKERS = ("抑制名单", "不重试名单")
 
+# browser-attach 的单条拒绝里，有些只影响当前目标或正文（换一条就继续），
+# 有些说明整条渠道此刻跑不了（暂停/额度/标签页/授权/桥接），要整渠道顺延。
+ITEM_LEVEL_BLOCKS = {"suppressed", "target_invalid", "text_empty", "target_required"}
+
+
+def _followup_record(channel, action, campaign, item, result, detail, next_step):
+    return {
+        "channel": channel,
+        "action": action,
+        "ref": item.get("id", ""),
+        "target": item.get("target") or item.get("url") or "",
+        "campaign": campaign,
+        "result": result,
+        "detail": detail,
+        "next": next_step,
+    }
+
+
+def _browser_recovery(exc):
+    """把 browser-attach 异常折成 (当前条结果, 说明, 下一步)；不猜发送结果。"""
+    from .browser_attach import BridgeError
+    from .browser_write import StopChannel
+
+    if isinstance(exc, StopChannel):
+        return ("blocked",
+                "平台风控信号，渠道停手：%s" % getattr(exc, "reason", exc),
+                "平台风控提示：停该渠道，不改身份、不换代理、不重试本条；人工检查页面后隔天再跑，"
+                "并把频率降到平台建议的节奏（降频、拆批、顺延）")
+    if isinstance(exc, BridgeError):
+        return ("deferred",
+                "桥接/浏览器不可用：%s" % exc,
+                "确认浏览器已打开、目标标签页可见、桥接在线；恢复后重跑未完成条目")
+    code = str(getattr(exc, "code", "") or "")
+    if code == "paused":
+        return ("deferred", "全局暂停中：%s" % exc,
+                "确认要继续后执行 mkt pause --off，再重跑未完成条目")
+    if code == "quota_exhausted":
+        return ("deferred", "渠道额度已用完：%s" % exc,
+                "等额度窗口重置后重跑；或降低每日配额、把剩余条目拆到明后天")
+    if code == "tab_hidden":
+        return ("deferred", "标签页不可见：%s" % exc,
+                "把该平台标签页切到前台（或解锁屏幕）后重跑；本条未发送、不占额度")
+    if code == "unsupported":
+        return ("deferred", "动作不在 browser-attach 白名单：%s" % exc,
+                "检查队列动作；改用支持的动作或走 vendor/API 通道")
+    return ("deferred", "传输门禁未通过：%s" % exc,
+            "按提示补齐授权/身份校验后重跑；不要换号或换身份绕行")
+
 
 class QueueRunError(RuntimeError):
     pass
@@ -161,6 +209,7 @@ def run_queue(queue_path, *, data_dir=None, go=False, allow_unverified=False,
             except ActionError as exc:
                 raise QueueRunError(f"账号身份门禁拒绝整队执行：{exc}") from exc
 
+    deferred_records = []
     if transport != "browser-attach":
         routine_kwargs = {}
         if identity_evidence:
@@ -172,14 +221,54 @@ def run_queue(queue_path, *, data_dir=None, go=False, allow_unverified=False,
         else:
             precheck(channel, action, data, campaign, go, allow_unverified)
         throttle = Throttle(data / "state")
-        if go and not throttle.daily_allows(channel, action, len(items)):
-            raise QueueRunError(f"日预算不足：{channel}/{action} 今日已用 "
-                                f"{throttle.daily_used(channel, action)}，本次 {len(items)} 条")
+        # 限额不再整队拒跑：超出单次上限或当日剩余额度的部分切成 deferred，
+        # 能跑的照常跑；平台风控的节奏建议随 deferred 一起返回。
+        requested = len(items)
+        if go:
+            run_cap = throttle.run_cap(channel, action)
+            remaining = throttle.remaining(channel, action)
+            limit = requested
+            if run_cap is not None:
+                limit = min(limit, run_cap)
+            if remaining is not None:
+                limit = min(limit, remaining)
+            limit = max(0, limit)
+            if limit < requested:
+                hint = throttle.advice(channel, action, requested)
+                reasons = []
+                if run_cap is not None and requested > run_cap:
+                    reasons.append("单次上限 %d" % run_cap)
+                if remaining is not None and requested > remaining:
+                    reasons.append("今日剩余 %d" % remaining)
+                detail = "限额切片（%s）" % "、".join(reasons) if reasons else "限额切片"
+                log("限额切片：%s/%s 本次 %d 条，先跑 %d 条，其余 %d 条记 deferred。%s"
+                    % (channel, action, requested, limit, requested - limit, hint))
+                for item in items[limit:]:
+                    deferred_records.append({
+                        "channel": channel,
+                        "action": action,
+                        "ref": item.get("id", ""),
+                        "target": item.get("target") or item.get("url") or "",
+                        "campaign": campaign,
+                        "result": "deferred",
+                        "detail": detail,
+                        "next": hint,
+                    })
+                items = items[:limit]
 
     results = []
+    channel_stop = None
     for idx, item in enumerate(items):
         target = item.get("target") or item.get("url") or ""
         text = item_text(item)
+        if channel_stop is not None:
+            # 渠道级问题（风控信号/暂停/额度/标签页/桥接）只停这条渠道：
+            # 剩余条目记 deferred 留待重跑，不丢队列、不把业务判死。
+            results.append(_followup_record(
+                channel, action, campaign, item, "deferred",
+                "渠道已停：%s" % channel_stop[1], channel_stop[2]))
+            log(f"[{idx + 1}/{len(items)}] {item.get('id', '')} {target}: deferred（渠道已停）")
+            continue
         action_kwargs = {
             "channel": channel, "action": action, "data_dir": data,
             "campaign": campaign, "go": go,
@@ -207,7 +296,28 @@ def run_queue(queue_path, *, data_dir=None, go=False, allow_unverified=False,
         except SystemExit as exc:
             raise QueueRunError(f"执行器中止：{exc}") from exc
         except browser_errors as exc:
-            raise QueueRunError("browser-attach 拒跑：%s" % exc) from exc
+            code = str(getattr(exc, "code", "") or "")
+            if code in ITEM_LEVEL_BLOCKS:
+                # 只影响本条（目标/正文/抑制名单），换一条就继续。
+                next_step = {
+                    "suppressed": "该目标在抑制名单/不重试名单，别再触达；换目标或人工确认后移出名单",
+                    "target_invalid": "按平台要求改目标格式后重跑本条；其余条目继续",
+                    "text_empty": "补正文后重跑本条；其余条目继续",
+                    "target_required": "补目标后重跑本条；其余条目继续",
+                }[code]
+                results.append(_followup_record(
+                    channel, action, campaign, item, "rejected",
+                    str(exc), next_step))
+                log(f"[{idx + 1}/{len(items)}] {item.get('id', '')} {target}: "
+                    f"rejected（{code}，继续下一条）")
+                continue
+            outcome, detail, next_step = _browser_recovery(exc)
+            channel_stop = (outcome, detail, next_step)
+            results.append(_followup_record(
+                channel, action, campaign, item, outcome, detail, next_step))
+            log(f"channel stopped: {detail}")
+            log(f"[{idx + 1}/{len(items)}] {item.get('id', '')} {target}: {outcome}")
+            continue
         rec = dict(rec)
         rec.setdefault("campaign", campaign)
         rec.setdefault("channel", channel)
@@ -238,4 +348,4 @@ def run_queue(queue_path, *, data_dir=None, go=False, allow_unverified=False,
                 continue
             log("Queue paused: inspect the last result before resuming.")
             break
-    return results
+    return results + deferred_records

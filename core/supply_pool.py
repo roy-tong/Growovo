@@ -28,7 +28,10 @@ KOC_NAME = "koc-registry.json"
 LOCK_NAME = "supply-pool.lock"
 VERSION = 1
 STATUSES = ("new", "used", "rejected", "expired")
-CHANNELS = ("x", "github", "discord")
+# 池子只负责存证据；哪些渠道真正消费由波次目标（wave_targets）决定。
+# 挖矿适配器目前只产 x/github/content，但 reddit/linkedin/hn 的候选也可
+# 手工导入，不在池子层把渠道判死；email 不属于互动对象池。
+CHANNELS = ("x", "github", "discord", "reddit", "linkedin", "hn")
 ACTIONS = ("reply", "publish")
 # 账本里出现这些终态的目标不再进池：已发过、可能已发过、明确不该再触达。
 TOUCHED_RESULTS = ("committed", "indeterminate", "suppressed", "no-dm", "bounced")
@@ -314,14 +317,21 @@ def _age_hours(published_ts: float, now: _dt.datetime) -> Optional[float]:
 
 
 def pick(data_dir, channel: str, action: str, n: int, *, min_score: int = 0,
-         exclude: Iterable[str] = ()) -> List[Dict[str, Any]]:
-    """按分数降序、发布时间降序取 N 条；只读，不改状态。"""
+         exclude: Iterable[str] = (),
+         blocked: Iterable[Tuple[str, str]] = ()) -> List[Dict[str, Any]]:
+    """按分数降序、发布时间降序取 N 条；只读，不改状态。
+
+    blocked 是已触达/已隔离的 (channel, target) 集合：同一个目标不再进候选，
+    避免"池子里还是 new、队列里又出现同一目标"。
+    """
     payload = load(data_dir)
     skip = set(exclude)
+    hit = set(blocked)
     rows = [row for row in payload["items"].values()
             if row.get("channel") == channel and row.get("action") == action
             and row.get("status") == "new" and int(row.get("score") or 0) >= min_score
-            and row.get("key") not in skip]
+            and row.get("key") not in skip
+            and (str(row.get("channel") or ""), str(row.get("target") or "")) not in hit]
     rows.sort(key=lambda row: (-int(row.get("score") or 0),
                                -float(row.get("published_ts") or 0)))
     return rows[:max(0, int(n))]
@@ -369,13 +379,19 @@ def _split_target(key: str) -> Tuple[str, str]:
 
 
 def stats(data_dir, policy: Dict[str, Any], *, nights: int = 3,
-          now: Optional[_dt.datetime] = None) -> Dict[str, Any]:
-    """每渠道储备深度：available / need_per_night，缺口如实报。"""
+          now: Optional[_dt.datetime] = None,
+          per_night: Optional[Dict[str, int]] = None) -> Dict[str, Any]:
+    """每渠道储备深度：available / need_per_night，缺口如实报。
+
+    per_night 是各渠道的整夜可达上限（来自预算层，已扣平台日额度）。
+    传入时按它压减需求：储备目标不应大于当晚真正发得出的量。
+    """
     now = now or _now()
     payload = load(data_dir)
     window = (policy or {}).get("window") or {}
     waves = int(window.get("waves_per_night") or 9)
     targets = ((policy or {}).get("supply") or {}).get("wave_targets") or {}
+    caps = dict(per_night or {})
     counts: Dict[Tuple[str, str], Dict[str, int]] = {}
     for item in payload["items"].values():
         pair = (str(item.get("channel") or ""), str(item.get("action") or ""))
@@ -388,7 +404,9 @@ def stats(data_dir, policy: Dict[str, Any], *, nights: int = 3,
     total_available = 0
     for key, per_wave in targets.items():
         channel, action = _split_target(key)
-        need_night = int(per_wave) * waves
+        configured_night = int(per_wave) * waves
+        cap = caps.get(key)
+        need_night = min(configured_night, int(cap)) if cap is not None else configured_night
         need_total = need_night * max(1, int(nights))
         bucket = counts.get((channel, action)) or {"new": 0, "used": 0,
                                                    "rejected": 0, "expired": 0}
@@ -398,6 +416,8 @@ def stats(data_dir, policy: Dict[str, Any], *, nights: int = 3,
         rows.append({
             "channel": channel, "action": action,
             "need_per_wave": int(per_wave), "need_per_night": need_night,
+            "configured_per_night": configured_night,
+            "capped_by_daily_budget": cap is not None and need_night < configured_night,
             "need_total": need_total, "available": available,
             "depth_nights": round(available / need_night, 2) if need_night else 0.0,
             "shortfall": max(0, need_total - available),
@@ -570,12 +590,16 @@ def _repo_of(target: str) -> str:
 
 def wave_plan(data_dir, policy: Dict[str, Any], *, wave: int = 1,
               now: Optional[_dt.datetime] = None,
-              out_path: Optional[Path] = None) -> Dict[str, Any]:
+              out_path: Optional[Path] = None,
+              ledger=None) -> Dict[str, Any]:
     """按策略的每波额度，从储备里取一批候选，写成某一波的工作清单。
 
     只取 status=new；同一波内 GitHub 每个仓库最多 1 条（自设质量纪律），
     Discord 轮换频道、同一波内不重复同一个频道。不写正文、不改状态：
     正文由写手在波次前补，缺依据就丢弃。清单是只读快照，重复生成即可覆盖。
+
+    传 ledger 时额外排除已触达/已隔离目标；GitHub 同仓库不跨波重复，
+    避免昨晚"去重后只剩 6 个新目标"这类空转。
     """
     now = now or _now()
     platforms = (policy or {}).get("platforms") or {}
@@ -583,6 +607,13 @@ def wave_plan(data_dir, policy: Dict[str, Any], *, wave: int = 1,
     counts: Dict[str, int] = {}
     shortfall: Dict[str, int] = {}
     used_targets: Dict[str, set] = {}
+    touched = _touched(ledger)
+    if ledger is not None:
+        for channel in platforms:
+            for target in ledger.no_retry(channel):
+                touched.add((str(channel), str(target)))
+    used_repos = {_repo_of(target) for channel, target in touched
+                  if channel == "github"} - {""}
 
     for channel, actions in platforms.items():
         for action, spec in (actions or {}).items():
@@ -592,7 +623,7 @@ def wave_plan(data_dir, policy: Dict[str, Any], *, wave: int = 1,
             if need <= 0:
                 continue
             label = "%s/%s" % (channel, action)
-            pool = pick(data_dir, channel, action, need * 4)
+            pool = pick(data_dir, channel, action, need * 4, blocked=touched)
             chosen: List[Dict[str, Any]] = []
             seen = used_targets.setdefault(label, set())
             for row in pool:
@@ -604,7 +635,7 @@ def wave_plan(data_dir, policy: Dict[str, Any], *, wave: int = 1,
                         continue
                     if channel == "github":
                         repo = _repo_of(target)
-                        if repo and repo in seen:
+                        if repo and (repo in seen or repo in used_repos):
                             continue
                     key = _repo_of(target) if channel == "github" else target
                 elif channel == "discord":

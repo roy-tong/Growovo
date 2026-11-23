@@ -76,13 +76,14 @@ def classify(channel: str) -> Dict[str, object]:
         reason = "内核没有这个平台，按人工处理，不假装支持"
     technical_tier = tier
     policy = _policy(key)
-    autonomous = bool(policy.get("autonomous_write", True))
+    autonomous = policy.get("autonomous_write") is True
     if tier == AUTO and not autonomous:
         # The technical path works, but the platform forbids autonomous use;
         # keeping tier=AUTO would promise automation the runtime must refuse.
         tier = GATED
         reason = (f"{status} 写通道技术可用，但平台许可禁止自主执行"
-                  f"（{policy.get('code')}）：只出人工辅助任务，或接官方 API 并授权")
+                  f"（{policy.get('code')}）：只出人工辅助任务；"
+                  f"按 policy.next 降频、拆批或接官方 API")
     return {
         "channel": key,
         "platform": raw or key,

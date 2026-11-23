@@ -1,5 +1,47 @@
 # Changelog
 
+## Unreleased
+
+Quota limits now slow work down instead of closing it. Approval, dry-run, pause,
+DNC/suppression, identity binding, ledger dedupe, readback and unknown-result
+protections are unchanged.
+
+### Changed
+
+- **CDP navigation stops paying for a stuck page twice**: `core/cdp.py:safe_goto`
+  now uses a 20 s single-navigation ceiling (`MKT_GOTO_TIMEOUT_MS` overrides)
+  and retries only recoverable interruptions (`ERR_ABORTED`, connection-level
+  errors). A navigation timeout (including `net::ERR_TIMED_OUT`) returns `False`
+  immediately instead of burning two more identical timeouts, so a stuck `goto`
+  that used to cost about 144 s now costs 20 s. Only connection interruptions
+  may retry, at most twice.
+- **X search and post reads wait for results, not for the clock**:
+  `core/grow_targets.py` and `core/grow_learning.py` replace fixed 3–6 s
+  post-navigation sleeps with a wait for the first tweet article; an empty
+  result still waits out the same ceiling. Metric reads keep a 0.5 s settle so
+  engagement labels can paint.
+- **Over-limit email and queue batches are sliced, not refused**:
+  `channels/email_smtp.py` and `core/queue_runner.py` send the part that fits
+  the per-run cap and the remaining daily budget, then return the rest as
+  `result: "deferred"` rows carrying a `next` hint. A dry run is never sliced,
+  so a preview without `--go` still shows the whole batch. Approval, pause,
+  DNC/suppression, identity, readback and unknown-result refusals still stop
+  the batch.
+- **`core/throttle.py` exposes the limits as advice**: `run_cap`,
+  `slice_batches` and `advice` report the per-run cap, how many batches with the
+  configured pause the requested size would take, and how many rows move to the
+  next budget day (UTC midnight, 08:00 Beijing time) or to another channel.
+  `check_run` keeps its existing raise-on-over-limit contract for callers that
+  want a hard refusal.
+- **Single-action quota refusals name the next step**: `channels/linkedin.py`
+  and `channels/x/adapter.py` say whether to resume next budget day or use
+  email instead, and warn that topping up the same day raises platform risk.
+
+### Added
+
+- `tests/test_core.py` pins the slicing boundaries (120 rows at a cap of 50 →
+  50/50/20), the unlimited case and the advice text.
+
 ## 0.17.1 — 2026-11-21
 
 Fixes the 0.17.0 wheel, which omitted `core/bridge` and made

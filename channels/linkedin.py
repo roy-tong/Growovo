@@ -64,7 +64,10 @@ def message(profile_url, note, *, go=False, adhoc=False, campaign=None, ledger=N
     ledger = ledger or Ledger(data / "ledger.jsonl")
     throttle = Throttle(data / "state")
     if go and not throttle.daily_allows("linkedin", "message"):
-        raise SystemExit("LinkedIn 日上限（≤10 连接）已到")
+        raise SystemExit(
+            "LinkedIn 今日连接额度已用完（≤10 条/日），本条未发送；"
+            "明天预算日重置后再跑，或改用 email 联系同一对象。"
+            "当天补量连发会提高平台风控风险，保持每天 10 条以内的节奏更稳。")
     pipe = standard_pipeline(data, ledger, adhoc=adhoc)
     ev = Evidence(data / "shots" / (campaign or "adhoc"))
     auto = os.environ.get("MKT_LINKEDIN_AUTO", "") == "1" and go

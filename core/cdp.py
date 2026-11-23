@@ -8,6 +8,11 @@ import os
 import time
 
 CDP_URL = os.environ.get("MKT_CDP_URL", "http://127.0.0.1:9222")
+GOTO_TIMEOUT_MS = int(os.environ.get("MKT_GOTO_TIMEOUT_MS", "20000"))
+# 这些是导航被中断（上一次跳转未完成、连接抖动），重试有意义；
+# 导航超时（Playwright 自身或 net::ERR_TIMED_OUT）说明页面/线路卡住了，
+# 重试只会再赔一遍同样的等待，直接返回 False 交给调用方决定。
+_RETRYABLE_NAV = ("ERR_ABORTED", "ERR_CONNECTION", "ERR_NETWORK_CHANGED")
 _PLAYWRIGHT = None
 
 
@@ -62,15 +67,21 @@ def _reuse_page(ctx):
     return ctx.new_page()
 
 
-def safe_goto(page, url, attempts=3, log=None):
-    """goto 带重试（X 偶发 ERR_ABORTED 的通用对策；间隔 3s，不做轰炸式重试）。"""
+def safe_goto(page, url, attempts=3, log=None, timeout_ms=None):
+    """goto 带重试：只重试可恢复的中断；导航超时直接返回 False，不再重试。"""
+    budget = GOTO_TIMEOUT_MS if timeout_ms is None else int(timeout_ms)
     for attempt in range(1, attempts + 1):
         try:
-            page.goto(url, wait_until="domcontentloaded", timeout=45000)
+            page.goto(url, wait_until="domcontentloaded", timeout=budget)
             return True
         except Exception as exc:
+            message = str(exc)
+            retryable = any(marker in message for marker in _RETRYABLE_NAV)
             if log:
-                log(f"goto 失败({attempt}/{attempts}): {str(exc)[:120]}", "WARN")
+                label = "，不重试" if not retryable else ""
+                log(f"goto 失败({attempt}/{attempts}{label}): {message[:120]}", "WARN")
+            if not retryable or attempt >= attempts:
+                return False
             time.sleep(3)
     return False
 

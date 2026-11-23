@@ -52,5 +52,98 @@ class NewRowTest(unittest.TestCase):
         self.assertFalse(discord_engine._new_row({"mine": 0}, {"mine": 0, "gone": True}))
 
 
+class _Clock:
+    """假时钟：sleep 推进时间，避免 3s/2s 轮询在测试里真的等待。"""
+
+    def __init__(self, start=1_000_000.0):
+        self.now = float(start)
+
+    def time(self):
+        return self.now
+
+    def sleep(self, seconds):
+        self.now += max(0.0, float(seconds))
+
+
+def _reply(handlers, *, mid="222", text="answer"):
+    clock = _Clock()
+
+    def ev(_tab, script):
+        for marker, value in handlers:
+            if marker in script:
+                return {"value": value() if callable(value) else value}
+        raise AssertionError("unexpected script: %s" % script[:120])
+
+    ev_mock = mock.Mock(side_effect=ev)
+    call_mock = mock.Mock()
+    with mock.patch.object(discord_engine.wb, "ev", ev_mock), \
+            mock.patch.object(discord_engine.wb, "call", call_mock), \
+            mock.patch.object(discord_engine, "time", clock):
+        out = discord_engine.reply(11, "111", mid, text)
+    return out, ev_mock, call_mock
+
+
+def _handlers(**overrides):
+    values = {
+        "guildsnav___": {"ok": True, "already": True},
+        "emptyHint": {"ready": True},
+        "mounted: rows.length": {"ok": True, "id": "chat-messages-111-222"},
+        "scrollHeight": {"ok": True},
+        "contextmenu": {"ok": True},
+        "items.slice": {"items": ["回复", "编辑"]},
+        "reply_item_missing": {"ok": True, "label": "回复"},
+        "replyBar": {"ok": True, "bars": 1, "text": "Dana: hi"},
+        "Escape": 1,
+        "key: 'Enter'": {"ok": True, "prevented": True},
+        "execCommand('selectAll')": {"ok": True, "focused": True},
+        "len: (el.innerText": {"len": len("answer")},
+        "lastHead": {"mine": 3, "lastId": "9001", "lastHead": "answer"},
+        "mine: mine.length, lastId": {"mine": 2, "lastId": "111"},
+    }
+    values.update(overrides)
+    return list(values.items())
+
+
+class ReplyTest(unittest.TestCase):
+    """原生回复：找不到目标行/菜单项/回复条时都必须停手，不输入正文。"""
+
+    def test_unmounted_target_does_not_type(self):
+        out, ev_mock, call_mock = _reply(_handlers(**{
+            "mounted: rows.length": {"ok": False, "mounted": 2}}))
+        self.assertFalse(out["ok"])
+        self.assertEqual(out["err"], "target_message_not_mounted")
+        call_mock.assert_not_called()
+        self.assertTrue(any("scrollHeight" in c.args[1] for c in ev_mock.call_args_list))
+
+    def test_missing_reply_menu_item_does_not_type(self):
+        out, _ev, call_mock = _reply(_handlers(**{
+            "items.slice": {"items": ["编辑", "删除"]},
+            "reply_item_missing": {"ok": False, "err": "reply_item_missing"}}))
+        self.assertFalse(out["ok"])
+        self.assertEqual(out["err"], "reply_item_missing")
+        call_mock.assert_not_called()
+
+    def test_missing_reply_bar_escapes_without_typing(self):
+        out, ev_mock, call_mock = _reply(_handlers(**{
+            "replyBar": {"ok": False, "bars": 0}}))
+        self.assertFalse(out["ok"])
+        self.assertEqual(out["err"], "reply_context_missing")
+        call_mock.assert_not_called()
+        self.assertTrue(any("Escape" in c.args[1] for c in ev_mock.call_args_list))
+
+    def test_happy_path_types_and_binds_reply_to(self):
+        out, _ev, call_mock = _reply(_handlers())
+        self.assertTrue(out["ok"])
+        self.assertTrue(out["confirmed"])
+        self.assertEqual(out["replyTo"], "222")
+        self.assertEqual(out["message_id"], "222")
+        self.assertEqual(out["serverId"], "9001")
+        self.assertEqual(out["pick"]["label"], "回复")
+        call_mock.assert_called_once()
+        self.assertEqual(call_mock.call_args.kwargs["method"], "Input.insertText")
+        self.assertEqual(call_mock.call_args.kwargs["params"]["text"], "answer")
+
+
+
 if __name__ == "__main__":
     unittest.main()

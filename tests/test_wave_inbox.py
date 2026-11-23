@@ -39,6 +39,7 @@ class AutoInboxTest(unittest.TestCase):
     def test_real_wave_collects_before_planning_and_sends_ready_inbox_first(self):
         incoming = row("x", "reply", "https://x.com/a/status/1",
                        text="specific answer", actor="a", source="inbox")
+        incoming["their_text"] = "a concrete question"
         self.queue.write_text(json.dumps([row("x", "publish", text="regular")]),
                               encoding="utf-8")
         calls = []
@@ -129,16 +130,36 @@ class AutoInboxTest(unittest.TestCase):
         self.assertFalse(got["inbox"]["auto_collect"])
 
 
+    def test_received_private_messages_are_reported_but_not_queued(self):
+        dm = {"platform": "x", "action": "message",
+              "thread_ref": "https://x.com/i/chat/111-222",
+              "target": "https://x.com/i/chat/111-222", "author": "Dana",
+              "their_text": "about your reply",
+              "capability": "direct_message_collect_only", "sendable": False}
+        self.queue.write_text(json.dumps([]), encoding="utf-8")
+        report = self.collect_report([])
+        report["dm"] = [dm]
+        with mock.patch.object(cycle, "_now", return_value=NOW), \
+                mock.patch.object(cycle, "collect_inbox_report", return_value=report):
+            got = cycle.run(self.data, go=True, queue_path=self.queue,
+                            wave_id="2205", log=lambda *_: None)
+        self.assertEqual(got["inbox"]["dm_count"], 1)
+        self.assertEqual(got["inbox"]["dm_pending"][0]["thread_ref"],
+                         "https://x.com/i/chat/111-222")
+        self.assertEqual(json.loads(self.queue.read_text(encoding="utf-8")), [])
+
+
 class CoverageTest(unittest.TestCase):
-    def test_coverage_does_not_claim_private_messages_or_discord_native_reply(self):
+    def test_coverage_reports_discord_reply_unverified_and_private_messages_collect_only(self):
         got = inbox_replies.capabilities()
         self.assertTrue(got["x"]["native_reply"])
-        self.assertFalse(got["x"]["direct_message"])
+        self.assertEqual(got["x"]["direct_message"], "collect_only")
         self.assertTrue(got["github"]["issue_comment"])
         self.assertEqual(got["github"]["direct_message"], "not_applicable")
         self.assertTrue(got["discord"]["channel_post_mention"])
-        self.assertFalse(got["discord"]["native_reply"])
-        self.assertFalse(got["discord"]["direct_message"])
+        self.assertTrue(got["discord"]["native_reply"])
+        self.assertFalse(got["discord"]["native_reply_verified"])
+        self.assertEqual(got["discord"]["direct_message"], "collect_only")
 
 
 class GithubContextTest(unittest.TestCase):
@@ -201,6 +222,29 @@ class GithubContextTest(unittest.TestCase):
                 mock.patch.object(inbox_replies, "_now", return_value=NOW):
             self.assertEqual(inbox_replies.collect_github(""), [])
 
+    def test_string_repository_and_user_do_not_crash_collection(self):
+        notification = {
+            "reason": "mention", "updated_at": "2026-11-21T13:00:00Z",
+            "repository": "oops",
+            "subject": {"title": "Ping", "url": "https://api.github.com/repos/a/b/issues/7",
+                        "latest_comment_url":
+                            "https://api.github.com/repos/a/b/issues/comments/99"},
+        }
+
+        def api(args, stdin=None):
+            if "notifications?all=false&per_page=50" in args:
+                return {"ok": True, "out": json.dumps([notification])}
+            return {"ok": True, "out": json.dumps({
+                "body": "context", "user": "oops",
+                "html_url": "https://github.com/a/b/issues/7#issuecomment-99"})}
+
+        with mock.patch.object(inbox_replies.gh_post, "run", side_effect=api), \
+                mock.patch.object(inbox_replies, "_now", return_value=NOW):
+            got = inbox_replies.collect_github("")
+        self.assertEqual(len(got), 1)
+        self.assertEqual(got[0]["author"], "")
+        self.assertEqual(got[0]["target"], "a/b#7")
+
 
 class XScrollCollectTest(unittest.TestCase):
     def test_collect_x_scrolls_and_merges_unique_statuses(self):
@@ -230,6 +274,54 @@ class XScrollCollectTest(unittest.TestCase):
                          ["https://x.com/a/status/1", "https://x.com/b/status/2"])
         self.assertEqual(state["scrolls"], 3)
         self.assertEqual(len(got), len({r["target"] for r in got}))
+
+
+class XDirectMessageTest(unittest.TestCase):
+    def test_conversation_list_is_collected_but_never_sendable(self):
+        payload = {"ready": True, "requests": "私信请求 2",
+                   "items": [
+                       {"href": "/i/chat/111-222", "author": "Dana",
+                        "text": "about your reply", "received_at": "2026-11-21T13:00:00Z"},
+                       {"href": "/i/chat/111-222", "author": "Dana", "text": "duplicate"},
+                       {"href": "/i/chat/requests", "author": "stranger", "text": "ignore"},
+                       {"href": "/i/chat/333-444", "author": "Me", "text": "你: thanks"},
+                   ]}
+        attach = mock.Mock()
+        attach.ensure_tab.return_value = 7
+        attach.eval.return_value = payload
+        with mock.patch.object(inbox_replies.wb, "nav") as nav, \
+                mock.patch.object(inbox_replies.wb.time, "sleep"):
+            got = inbox_replies.collect_x_dms(attach, log=lambda *_: None)
+        self.assertEqual(len(got), 2)
+        self.assertEqual(got[0]["thread_ref"], "https://x.com/i/chat/111-222")
+        self.assertEqual(got[0]["action"], "message")
+        self.assertEqual(got[0]["capability"], "direct_message_collect_only")
+        self.assertFalse(got[0]["sendable"])
+        self.assertTrue(got[0]["pending_reply"])
+        self.assertEqual(got[0]["their_text"], "about your reply")
+        self.assertEqual(got[1]["thread_ref"], "https://x.com/i/chat/333-444")
+        self.assertFalse(got[1]["pending_reply"])
+        self.assertTrue(got[1]["last_from_me"])
+        self.assertEqual(got[1]["their_text"], "")
+        self.assertEqual([call.args[1] for call in nav.call_args_list],
+                         ["https://x.com/i/chat",
+                          "https://x.com/notifications/mentions"])
+
+    def test_dm_failure_is_reported_separately_and_does_not_block_replies(self):
+        attach = mock.Mock()
+        attach.observe_identity.return_value = {"handle": "roy"}
+        attach.ensure_tab.return_value = 7
+        with mock.patch.object(inbox_replies, "collect_x", return_value=[]), \
+                mock.patch.object(inbox_replies, "collect_github", return_value=[]), \
+                mock.patch.object(inbox_replies, "collect_discord", return_value=[]), \
+                mock.patch.object(inbox_replies, "collect_x_dms",
+                                  side_effect=RuntimeError("shadow dom gone")):
+            report = inbox_replies.collect_detailed(".", attach=attach,
+                                                    log=lambda *_: None)
+        self.assertEqual(report["items"],
+                         {"x": [], "github": [], "discord": [], "dm": []})
+        self.assertIn("x_dm", report["errors"])
+        self.assertNotIn("x", report["errors"])
 
 
 class GonePostTest(unittest.TestCase):

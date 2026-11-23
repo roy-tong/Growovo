@@ -1420,6 +1420,7 @@ WRITE = {
     "reddit": ("reddit", "reply"),
     "hackernews": ("hn", "reply"),
     "linkedin": ("linkedin", "message"),
+    "discord": ("discord", "publish"),
 }
 
 

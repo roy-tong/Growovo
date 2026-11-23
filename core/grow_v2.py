@@ -352,7 +352,7 @@ class GrowRunV2:
         if f"{channel}:{action}" not in data.get("actions", []):
             raise GrowError(f"{channel}:{action} 不在本 run 的动作范围内")
         if channel not in (data.get("channels") or []):
-            raise GrowError(f"{channel} 不在本 run 的自动执行渠道 {data.get('channels')}")
+            raise GrowError(f"{channel} 不在本 run 的渠道（自动执行或人工辅助） {data.get('channels')}")
         if not items:
             raise GrowError("stage 需要至少一条内容（--from 文件为空）")
         day = str(scheduled_for or _today())

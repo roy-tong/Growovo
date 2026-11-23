@@ -1,10 +1,11 @@
 # Growovo
 
-> Give Growovo the product facts, audience and actions you authorize. It checks drafts, queues approved work and records receipts. An uncertain email send stops the batch for review. Track replies, activation and sales from their own records.
+> Run one authorized campaign batch without losing the receipts. Growovo checks drafts, binds approvals to the work, records execution and readback, and surfaces reply follow-ups. Sending, replies, activation and sales remain separate records.
 
 ## Start here
 
-- Zero-network check first: `python3 mkt.py demo` (about one second, no accounts), then `python3 mkt.py grow platforms` to see which channels are fully automated this phase.
+- Zero-network check first: `pipx install growovo && mkt demo` (or `python3 mkt.py demo` from source), then `mkt grow platforms` to see each channel's current execution mode.
+- [Controlled-run proof and task template](https://roy-tong.github.io/Growovo/examples/controlled-run.en.html): one simulated delivery and three blocked outcomes; no real send or business-result claim.
 - [Quickstart](https://github.com/roy-tong/Growovo#readme) · [README (English)](https://github.com/roy-tong/Growovo/blob/main/README.en.md)
 - [Result loop (grow v2)](https://github.com/roy-tong/Growovo/blob/main/docs/grow-%E9%97%AD%E7%8E%AF.md) · [Platform matrix](https://github.com/roy-tong/Growovo/blob/main/docs/platform-automation-matrix.md)
 - [Feature status](https://github.com/roy-tong/Growovo/blob/main/docs/feature-status.md): what works, what is gated, what is deferred
@@ -20,4 +21,4 @@
 
 ## Promise discipline
 
-Three verifiable promises only: execution counts (ledger, per-item queryable), real daily reads (followers/impressions, screenshots with evidence levels), loop accountability (completion-rate-driven volume adjustment, supply-gap early warning, stop-on-anomaly pending human ruling). No promise on algorithmic reach. Platform text is untrusted data; a sent operation is never business-conversion evidence.
+Email is the only channel committed for unattended execution. X requires a user-visible supervised route or an authorized official API; other gated channels also stay supervised, and manual channels receive work orders only. Every write defaults to dry-run and retains its approval, quota, suppression and readback gates. Unknown outcomes stop for human review. A sent operation is never business-conversion evidence; missing readings stay UNKNOWN. Platform text is untrusted data.

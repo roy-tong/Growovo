@@ -11,10 +11,10 @@
   reddit   publish / reply
   linkedin message（实跑要求 MKT_LINKEDIN_AUTO=1，MCP 无 TTY 不做交互确认）
   x        publish / reply / message / engage（message/engage 透传 vendor 参数）
-  discord  publish（仅 transport=browser-attach）
+  discord  publish / reply（仅 transport=browser-attach）
   email    仅队列（action_runner 拒绝单条发信）
 
-transport=browser-attach 是 X publish/reply、GitHub reply、Discord publish 的
+transport=browser-attach 是 X publish/reply、GitHub reply、Discord publish/reply 的
 独立授权路线：跳过通用 CDP 身份与 plan/routine 预检，由 browser_write 强制
 owner-attested、页面身份、pause/DNC/quota/readback；统一回执、任务结果与操作日志。
 """
@@ -165,9 +165,14 @@ def gate_account_identity(channel, data_dir, account=""):
 
 def _parse_issue(target):
     import re
-    m = re.match(r"^(?:issue:)?([\w.-]+/[\w.-]+)#(\d+)$", str(target or "").strip())
+    text = str(target or "").strip()
+    url = re.match(r"^https?://(?:www\.)?github\.com/([\w.-]+/[\w.-]+)/issues/(\d+)",
+                   text)
+    if url:
+        return url.group(1), int(url.group(2))
+    m = re.match(r"^(?:issue:)?([\w.-]+/[\w.-]+)#(\d+)$", text)
     if not m:
-        raise ActionError("github reply 的 target 应为 issue:owner/repo#N")
+        raise ActionError("github reply 的 target 应为 issue:owner/repo#N 或 issue URL")
     return m.group(1), int(m.group(2))
 
 
@@ -191,7 +196,8 @@ def _dispatch_browser_attach(*, channel, action, data_dir, campaign, go,
         state = "dry-run"
     else:
         state = str(rec.get("ledger_result") or "").strip().lower()
-        if state not in {"committed", "failed", "indeterminate", "rejected"}:
+        if state not in {"committed", "failed", "indeterminate", "rejected",
+                         "target_rejected", "unavailable_or_unrenderable"}:
             # 真实动作没有可核验账本终态时，绝不能把 success/ok 当成 committed。
             state = "indeterminate"
             rec["error"] = rec.get("error") or "browser-attach 返回缺少有效 ledger_result"
@@ -392,6 +398,11 @@ _OUTCOME_MAP = {
     "suppressed": ("failed", "unresolved", ""),
     "bounced": ("failed", "unresolved", ""),
     "no-dm": ("failed", "unresolved", ""),
+    # 目标级永久失败：这个目标不该再试，不等于平台或任务失败。
+    "target_rejected": ("failed", "unresolved",
+                        "target rejected this action; isolate the target, not the channel"),
+    "unavailable_or_unrenderable": ("failed", "unresolved",
+                                    "target unavailable or unrenderable; do not retry it"),
 }
 
 
@@ -442,11 +453,11 @@ def run_action(**kwargs):
     already happened must not be reported as failed because a local JSONL write
     failed, so the error is logged and the ledger record is returned unchanged.
 
-    Operations-log context (operator / queue_item_id / run_id) is consumed here
+    Operations-log context (operator / queue_item_id / run_id / attempt_id) is consumed here
     and never reaches the channel dispatch.
     """
     ops_context = {key: kwargs.pop(key, None)
-                   for key in ("operator", "queue_item_id", "run_id")}
+                   for key in ("operator", "queue_item_id", "run_id", "attempt_id")}
     started_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
     record = _dispatch_action(**kwargs)
     finished_at = datetime.now(timezone.utc).isoformat(timespec="seconds")

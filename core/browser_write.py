@@ -18,7 +18,7 @@ from typing import Any, Dict, Optional
 from .browser_attach import BridgeError, BrowserAttach
 from .bridge import discord_engine, gh_post, x_engine
 from .gates import load_suppressions
-from .ledger import Ledger
+from .ledger import Ledger, TARGET_BLOCKED
 from .platform_compliance import (
     ComplianceError, load_owner_attested, require_owner_attested_browser_write,
 )
@@ -30,6 +30,16 @@ STOP_WORDS = {
     "github": ("403", "429", "abuse", "rate limit", "422"),
     "discord": ("captcha", "rate limit", "429", "verification", "slowmode"),
 }
+
+# TARGET_BLOCKED（目标级永久失败）定义在 ledger：记进账本后由 ledger.no_retry
+# 与计划阶段统一拦截，避免同一目标反复重试。
+TARGET_FAIL_WORDS = {
+    "x": ("article not rendered", "not rendered", "post gone", "post unavailable",
+          "this post is unavailable", "tweet unavailable"),
+}
+# 渠道级退避条件：窗口内不同目标连续失败到该数量，才判定平台在拒绝整批写。
+CHANNEL_STOP_DISTINCT = 3
+FAIL_WINDOW_SEC = 900
 
 
 class ActionBlocked(RuntimeError):
@@ -95,17 +105,41 @@ def _fail_state(data_dir, channel: str) -> Path:
     return Path(data_dir) / "state" / ("fail-%s.json" % channel)
 
 
-def _bump_fail(data_dir, channel: str) -> int:
+def _bump_fail(data_dir, channel: str, target: str = "") -> Dict[str, int]:
+    """记一次渠道内失败，返回窗口内的失败总量与不同目标数。
+
+    只按总次数计数会把"同一目标反复失败"误判成平台在拒绝整批写，
+    所以额外记录目标集合：只有窗口内多个不同目标都失败，才允许停渠道。
+    """
     path = _fail_state(data_dir, channel)
-    count = 0
+    now = _dt.datetime.now().timestamp()
+    data: Dict[str, Any] = {}
     try:
-        count = int(json.loads(path.read_text(encoding="utf-8")).get("count") or 0)
+        loaded = json.loads(path.read_text(encoding="utf-8"))
+        if isinstance(loaded, dict):
+            data = loaded
     except Exception:
+        data = {}
+    try:
+        count = int(data.get("count") or 0)
+    except (TypeError, ValueError):
         count = 0
+    raw_targets = data.get("targets") if isinstance(data.get("targets"), dict) else {}
+    fresh: Dict[str, float] = {}
+    for key, stamp in raw_targets.items():
+        try:
+            if now - float(stamp) <= FAIL_WINDOW_SEC:
+                fresh[str(key)] = float(stamp)
+        except (TypeError, ValueError):
+            continue
+    if target:
+        fresh[str(target)] = now
     count += 1
+    distinct = len(fresh) if target else 0
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps({"count": count, "at": _now()}, ensure_ascii=False), encoding="utf-8")
-    return count
+    path.write_text(json.dumps({"count": count, "distinct": distinct, "targets": fresh,
+                                "at": _now()}, ensure_ascii=False), encoding="utf-8")
+    return {"count": count, "distinct": distinct}
 
 
 def _clear_fail(data_dir, channel: str) -> None:
@@ -143,7 +177,8 @@ def execute(channel: str, action: str, data_dir, *, text: str, target: Optional[
     action = str(action).lower()
     text = str(text or "").strip()
     if (channel, action) not in {
-            ("x", "reply"), ("x", "publish"), ("github", "reply"), ("discord", "publish")}:
+            ("x", "reply"), ("x", "publish"), ("github", "reply"),
+            ("discord", "publish"), ("discord", "reply")}:
         raise ActionBlocked("unsupported", "browser-attach 不支持 %s/%s" % (channel, action))
     if not text:
         raise ActionBlocked("text_empty", "正文为空，拒绝发送")
@@ -162,6 +197,11 @@ def execute(channel: str, action: str, data_dir, *, text: str, target: Optional[
     if action == "reply" and target and ledger.already(channel=channel, target=str(target),
                                                        ok=done_states):
         return {"ok": True, "skipped": True, "reason": "already_done", "target": target, "ref": ref}
+    if action == "reply" and target and ledger.already(channel=channel, target=str(target),
+                                                       ok=TARGET_BLOCKED):
+        # 目标级永久失败：换正文、换波次都不会成功，别再打同一个目标。
+        return {"ok": True, "skipped": True, "reason": "target_isolated",
+                "target": target, "ref": ref}
     if action == "publish":
         for row in ledger.results(channel=channel, action=action):
             if row.get("result") not in done_states:
@@ -169,11 +209,6 @@ def execute(channel: str, action: str, data_dir, *, text: str, target: Optional[
             if row.get("content_key") and row.get("content_key") == content_key:
                 return {"ok": True, "skipped": True, "reason": "already_done_content",
                         "target": target, "content_key": content_key, "ref": ref}
-        if channel == "discord" and campaign and target:
-            if ledger.already(channel=channel, target=str(target), campaign=campaign,
-                              ok=done_states):
-                return {"ok": True, "skipped": True, "reason": "already_done",
-                        "target": target, "ref": ref}
     if not go:
         return {"ok": True, "dry": True, "channel": channel, "action": action,
                 "target": target, "text_len": len(text), "ref": ref}
@@ -273,16 +308,30 @@ def execute(channel: str, action: str, data_dir, *, text: str, target: Optional[
                     result["receipt"] = {"url": str(check["url"])}
         else:
             channel_id = str(target or "")
-            if not channel_id.isdigit():
-                raise ActionBlocked("target_invalid", "Discord 目标必须是频道 ID：%r" % channel_id)
-            out = discord_engine.post(tab, channel_id, text)
-            result["engine"] = out
-            result["readback_ref"] = str(out.get("readback") or "")[:200]
-            result["ok"] = bool(out.get("ok"))
-            server_id = str(out.get("serverId") or "")
-            if result["ok"] and server_id.isdigit():
-                # serverId 是回读到的消息 snowflake；没有完整证据时不编造 permalink。
-                result["receipt"] = {"id": server_id}
+            if action == "reply":
+                cid, sep, mid = channel_id.partition(":")
+                if not (sep and cid.isdigit() and mid.isdigit()):
+                    raise ActionBlocked(
+                        "target_invalid",
+                        "Discord 回复目标必须是 channel_id:message_id：%r" % channel_id)
+                out = discord_engine.reply(tab, cid, mid, text)
+                result["engine"] = out
+                result["readback_ref"] = str(out.get("readback") or "")[:200]
+                result["ok"] = bool(out.get("ok"))
+                server_id = str(out.get("serverId") or "")
+                if result["ok"] and server_id.isdigit():
+                    result["receipt"] = {"id": server_id, "reply_to": mid}
+            else:
+                if not channel_id.isdigit():
+                    raise ActionBlocked("target_invalid", "Discord 目标必须是频道 ID：%r" % channel_id)
+                out = discord_engine.post(tab, channel_id, text)
+                result["engine"] = out
+                result["readback_ref"] = str(out.get("readback") or "")[:200]
+                result["ok"] = bool(out.get("ok"))
+                server_id = str(out.get("serverId") or "")
+                if result["ok"] and server_id.isdigit():
+                    # serverId 是回读到的消息 snowflake；没有完整证据时不编造 permalink。
+                    result["receipt"] = {"id": server_id}
         if channel == "x" and result["ok"] and written.isdigit():
             # readback 目前只证明前缀命中；ID/permalink 可落证，但不伪称全文哈希一致。
             result["receipt"] = {
@@ -315,26 +364,42 @@ def execute(channel: str, action: str, data_dir, *, text: str, target: Optional[
     if stop_word and not result["ok"]:
         detail = "页面出现风控关键词 %r" % stop_word
         if channel == "github" and stop_word == "422":
-            # 422 多为正文被拒（重复内容/触发过滤），连续两次才判定为平台风控
-            if _bump_fail(data_dir, channel) < 2:
-                result["error"] = result.get("error") or "GitHub 422 正文被拒（第 1 次，不停止渠道）"
-            else:
-                ledger.append(channel=channel, transport="browser-attach", action=action,
-                              campaign=campaign, target=str(target or "-"), result="rejected",
-                              ref=ref, detail=detail,
-                              identity_handle=identity["handle"], actor=actor)
-                raise StopChannel(channel, "连续两次 422，判定为平台拒绝")
-        else:
+            # 422 多为该条正文/目标被拒（重复内容、已关闭、触发过滤），属目标级失败：
+            # 隔离这个目标，不把整条 GitHub 渠道停掉。只有窗口内多个不同目标都 422，
+            # 才说明平台在拒绝整批写，此时才停渠道。
+            bump = _bump_fail(data_dir, channel, str(target or ""))
             ledger.append(channel=channel, transport="browser-attach", action=action,
-                          campaign=campaign, target=str(target or "-"), result="rejected",
+                          campaign=campaign, target=str(target or "-"), result="target_rejected",
                           ref=ref, detail=detail,
                           identity_handle=identity["handle"], actor=actor)
-            raise StopChannel(channel, "页面出现 %r" % stop_word)
+            result["ledger_result"] = "target_rejected"
+            result["result"] = "target_rejected"
+            result["target_isolated"] = True
+            result["error"] = ("本目标 GitHub 422（正文被拒或目标不可评论），当夜不再重试；"
+                               "窗口内不同目标失败 %d 个" % bump["distinct"])
+            log("[%s/%s] target_rejected %s" % (channel, action, result["error"]))
+            if bump["distinct"] >= CHANNEL_STOP_DISTINCT:
+                raise StopChannel(channel, "窗口内 %d 个不同目标连续 422，判定平台拒绝整批写"
+                                  % bump["distinct"])
+            return result
+        ledger.append(channel=channel, transport="browser-attach", action=action,
+                      campaign=campaign, target=str(target or "-"), result="rejected",
+                      ref=ref, detail=detail,
+                      identity_handle=identity["handle"], actor=actor)
+        raise StopChannel(channel, "页面出现 %r" % stop_word)
 
     engine = result.get("engine") or {}
+    render_lost = (not result["ok"] and channel in TARGET_FAIL_WORDS
+                   and any(word in engine_text.lower()
+                           for word in TARGET_FAIL_WORDS[channel]))
     if result["ok"]:
         state = "committed"
         _clear_fail(data_dir, channel)
+    elif render_lost:
+        # 目标本身打不开（推文已删/客户端渲染失败）：换正文也不会成功，当夜隔离。
+        state = "unavailable_or_unrenderable"
+        result["target_isolated"] = True
+        result["gone"] = True
     elif written or engine.get("ok") or _send_attempted(channel, engine):
         # 点击发送后回读失败不能证明未发送；消费队列并等待人工核查，绝不自动重试。
         state = "indeterminate"

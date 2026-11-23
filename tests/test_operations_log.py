@@ -122,6 +122,26 @@ class MinimumFieldTests(unittest.TestCase):
         self.assertEqual("vendor_exit_5", entry["error"]["code"])
         self.assertFalse(entry["error"]["retryable"])
 
+    def test_target_level_terminal_states_are_auditable_and_not_retryable(self):
+        expected = {
+            "target_rejected": "target_rejected",
+            "unavailable_or_unrenderable": "target_unavailable",
+        }
+        for state, code in expected.items():
+            with self.subTest(state=state):
+                entry = operations_log.record_action(
+                    self.dir,
+                    {"result": state, "ref": "op-" + state,
+                     "transport": "browser-attach"},
+                    channel="github", action="reply", target="owner/repo#1",
+                    text="reply body", campaign="night-test", go=True)
+                self.assertEqual(state, entry["result"])
+                self.assertEqual(code, entry["error"]["code"])
+                self.assertFalse(entry["error"]["retryable"])
+                self.assertIn("隔离", entry["error"]["recovery_ref"])
+                self.assertEqual(state,
+                                 operations_log.OperationsLog(self.dir).all()[-1]["result"])
+
 
 class AccountSwitchTests(unittest.TestCase):
     """账号切换自动记录；每条记录只携带自己的观测账号。"""

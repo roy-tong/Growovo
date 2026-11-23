@@ -253,9 +253,50 @@ def send_queue(queue_file, *, go=False, only=None, only_ids=None, campaign=None,
     if problems:
         raise SystemExit("附件检查未通过：\n" + "\n".join(problems))
 
-    throttle.check_run("email", "message", len(items))
-    if not throttle.daily_allows("email", "message", len(items)):
-        raise SystemExit("日预算已满（email/message），明天再跑或调 campaign 配额")
+    # 限额不再整批拒跑：超出单次上限或当日剩余额度的部分切成 deferred，
+    # 本批能发的照常发，业务不因预算门撞死；dry-run 不切片，保留完整预演。
+    requested = len(items)
+    deferred_records = []
+    if go:
+        run_cap = throttle.run_cap("email", "message")
+        remaining = throttle.remaining("email", "message")
+        limit = requested
+        if run_cap is not None:
+            limit = min(limit, run_cap)
+        if remaining is not None:
+            limit = min(limit, remaining)
+        limit = max(0, limit)
+        if limit < requested:
+            hint = throttle.advice("email", "message", requested)
+            reasons = []
+            if run_cap is not None and requested > run_cap:
+                reasons.append("单次上限 %d" % run_cap)
+            if remaining is not None and requested > remaining:
+                reasons.append("今日剩余 %d" % remaining)
+            detail = "限额切片（%s）" % "、".join(reasons) if reasons else "限额切片"
+            log("限额切片：本次 %d 条，先发 %d 条，其余 %d 条记 deferred。%s"
+                % (requested, limit, requested - limit, hint))
+            for it in items[limit:]:
+                deferred_records.append({
+                    "id": it.get("id", ""),
+                    "target": it.get("target") or it.get("to", ""),
+                    "channel": "email",
+                    "action": "message",
+                    "campaign": campaign,
+                    "transport": "smtp",
+                    "result": "deferred",
+                    "detail": detail,
+                    "next": hint,
+                })
+            items = items[:limit]
+    else:
+        run_cap = throttle.run_cap("email", "message")
+        remaining = throttle.remaining("email", "message")
+        if (run_cap is not None and requested > run_cap) \
+                or (remaining is not None and requested > remaining):
+            log("dry-run：本次 %d 条超出单次上限或今日剩余额度，实跑时只发可发部分、"
+                "其余记 deferred；dry-run 不阻断预演。%s"
+                % (requested, throttle.advice("email", "message", requested)))
 
     ch = SMTPChannel() if go else None
     gate = Gate(ledger, suppress=load_suppressions(data_dir))
@@ -434,7 +475,9 @@ def send_queue(queue_file, *, go=False, only=None, only_ids=None, campaign=None,
         "halted_at": (results[halted].get("id") if halted is not None else None),
         "halt_reason": halt_reason,
         "batch_block": str(block_path) if halt_reason else "",
-        "not_attempted": (len(items) - halted - 1) if halted is not None else 0,
+        "deferred": len(deferred_records),
+        "not_attempted": ((len(items) - halted - 1) if halted is not None else 0)
+        + len(deferred_records),
     })
     log(f"结果已写入 {out}")
-    return results
+    return results + deferred_records

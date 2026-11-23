@@ -43,8 +43,9 @@ REGISTRY = {
     "discord": {
         "status": "PROVEN",
         "note": "WebBridge browser-attach 接管操作者已登录的 Discord Web 标签页；"
-                "2026-11-20 夜间 6 频道实测；无官方 bot 授权路径，不做无人值守机器人",
-        "actions": {"publish", "inbox"},
+                "2026-11-20 夜间 6 频道实测；无官方 bot 授权路径，不做无人值守机器人；"
+                "reply 目标须 channel_id:message_id，回读 serverId 作回执",
+        "actions": {"publish", "reply", "inbox"},
         "transports": {"browser-attach"},
     },
     "hn": {

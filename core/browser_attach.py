@@ -183,27 +183,46 @@ class BrowserAttach:
                 return int(tab_id)
         return None
 
+    def _tab_alive(self, tab: int, site: str) -> bool:
+        """探活：页面真实地址仍属于该站点才算可用。
+
+        扩展的标签页列表可能保留已崩溃/已关闭标签的旧 URL（例如标题仍是
+        github.com、实际却是 chrome-error://）。只按列表 URL 排序会把这种
+        死页当成交付目标，后续身份观测必然失败，所以复用前先读真实地址。
+        """
+        try:
+            env = wb.call("evaluate", tabId=int(tab), code="location.href", _timeout=6)
+        except Exception:  # noqa: BLE001 - 探活失败按不可用处理
+            return False
+        if not env.get("ok"):
+            return False
+        href = str(((env.get("data") or {}).get("value")) or "")
+        return any(href.startswith(prefix) for prefix in SITES.get(site, ()))
+
     def attach_site(self, site: str, prefer_visible: bool = False) -> int:
         """接管该站点已有标签页；prefer_visible 时优先选前台可见标签页。
 
         X 时间线和发帖框只在可见标签页渲染；后台或锁屏时 visibilityState 为
         hidden，优先选可见页能把“有标签页但页面空”的情况区分开。
-        会话里没有时先尝试借用用户已打开的同站页，仍没有才报 tab_not_found。
+        只复用探活通过的标签；会话里没有存活页时先尝试借用用户已打开的同站
+        页，仍没有才报 tab_not_found。
         """
-        rows = self._site_tabs(site)
-        if not rows:
-            borrowed = self._borrow_site_tab(site)
-            if borrowed is not None:
-                rows = self._site_tabs(site)
-                if not rows:
-                    return borrowed
-        if not rows:
-            raise BridgeError("tab_not_found", "浏览器里没有已打开的 %s 标签页" % site)
-        if prefer_visible:
-            for row in rows:
-                if self.probe_visibility(int(row["tabId"])) == "visible":
-                    return int(row["tabId"])
-        return int(rows[0]["tabId"])
+        alive: List[int] = []
+        for row in self._site_tabs(site):
+            tab = int(row["tabId"])
+            if self._tab_alive(tab, site):
+                alive.append(tab)
+                if not prefer_visible:
+                    return tab
+        if alive:
+            for tab in alive:
+                if self.probe_visibility(tab) == "visible":
+                    return tab
+            return alive[0]
+        borrowed = self._borrow_site_tab(site)
+        if borrowed is not None:
+            return borrowed
+        raise BridgeError("tab_not_found", "浏览器里没有可用的 %s 标签页" % site)
 
     def ensure_tab(self, site: str, url: str, group_title: Optional[str] = None,
                    prefer_visible: bool = False, allow_new: bool = False) -> int:

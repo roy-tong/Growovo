@@ -37,6 +37,8 @@ def is_auto(channel: str) -> bool  # tier == AUTO 且 autonomous 为真
 
 判定规则（不得放宽）：
 
+- `GATED` 不等于拒绝：GATED 渠道照常编入人工辅助计划（内容、排期、账本正常，
+  发送需人确认）；平台风控只停当前渠道并给降频/拆批/顺延建议，不关闭业务。
 - `AUTO`：`channels.REGISTRY[ch].status in {"PROVEN","PORTED"}` 且存在写通道
   （`core/platforms.WRITE`）且 `queue_runner.QUEUE_ACTIONS` 支持该动作，
   **且 `platform_compliance.policy_row(ch)` 允许自主写入**。
@@ -205,11 +207,15 @@ def fingerprint(spec: dict) -> str
 
 - 调 `core.goals.select(facts, goal_id, platforms=..., target=..., window_days=...)`
   拿目标契约；调 `core.strategy.build(product, goal_plan=selection)` 拿主/辅渠道 why。
-- 渠道过滤：自动执行只用 `platform_caps.auto_channels()`；技术可用但平台许可禁止
-  自主的渠道（当前为 x）编为人工辅助计划（`strategy.execution` 分组、
-  `automation.execution.mode = human_assisted|mixed`），不抛错；既无写通道也不支持的
-  渠道抛 `CompileError`。
-- actions：x → `["reply"]`（若用户指定 publish 则并入）；email → `["message"]`。
+- 渠道过滤：无人值守自动执行只用 `platform_caps.auto_channels()`（当前为 email）；
+  技术可用但平台许可禁止自主的渠道（x/github/reddit/hackernews/linkedin/discord）
+  编为人工辅助计划（`strategy.execution` 分组、
+  `automation.execution.mode = human_assisted|mixed`），不抛错；既无写通道也不支持
+  人工辅助的未知渠道抛 `CompileError`。
+- actions：email → `["message"]`；x → `["reply"]`（若用户指定 publish 则并入）；
+  github/reddit/hackernews → `["reply"]`；linkedin → `["message"]`；
+  discord → `["publish"]`（指定 reply 时并入）。`channels` 同时接受平台 id 与
+  channel 名（`hackernews`/`hn` 归一）。
 - quota：周计划 = actions_per_week；`split_week` 生成 `quota.daily`（按 started 锚定）。
 - supply.briefs：每个 (channel, action) 一条 brief，`count_per_week` 为该动作周量。
 - measurement.readers：x → followers + impressions，handle 来自 facts.owned_assets 或 `--handle`。
@@ -226,7 +232,8 @@ def fingerprint(spec: dict) -> str
 def launch(cls, path, *, run_id, facts_path, goal_id, channels, target=None,
            window_days=None, actions_per_week=20, started=None, owner="",
            account="", handle="", data_dir, probe=None, skip_probe=False) -> dict
-# 预检：facts 存在/必填字段、channels 均在支持写通道集合（技术可用）、
+# 预检：facts 存在/必填字段、channels 与自动补货能力对账（无补货规则的渠道
+# 跳过并记 warning，仍编入人工辅助计划；全部渠道都不可用时才报错）、
 # minimal 授权（只查计划动作）、账号健康（可读时）、环境探针（probe 可注入；
 # skip_probe 跳过）。计划中若含非自主渠道（如 x），标为人工辅助并在 warnings 提示。
 # 编译 RunSpec → 落盘 → 返回 {"run":..., "summary":[...5 行...], "missing_policy":...}
@@ -249,7 +256,9 @@ def status(self, data_dir, *, on=None) -> dict   # 扩展：quota committed toda
 4. 日结果卡：写 `daily_cards` + 文件（不投递，投递在 CLI 层由 `--deliver` 控制）；
 5. 周窗口：出周卡 v2 → 文件 + 若 `deliver_to` 配置则 dry-run 投递；
 6. 调参：安全层（health<60 不加载）→ 供给层 → 效果层，全部记 adjustments；
-7. `needs_attention` 语义不变：只有 failed/indeterminate/其它 rejected 才停。
+7. `needs_attention` 语义不变：只有 failed/indeterminate/其它 rejected 才停；
+   单条目标级拒绝（suppressed / target_invalid / text_empty / target_required）
+   只拒绝当前条目并继续下一条，渠道级风控停手时剩余条目记 deferred 并给出降频建议。
 
 ## 8. `mkt.py` CLI（Lead）
 
