@@ -2,8 +2,8 @@
   <img src="docs/assets/logo.png" width="400" alt="Growovo">
 </p>
 
-<p align="center"><strong>Run a supervised X or email campaign on your own account</strong><br>
-<em>在自己的 X 和邮件账号上运行一次受控推广</em></p>
+<p align="center"><strong>Run authorized email campaigns; keep X read-only until an official API is connected</strong><br>
+<em>在自己的邮件账号运行受控推广；X 未接官方 API 前只做只读研究、草稿与人工交接</em></p>
 
 <p align="center"><a href="README.md">简体中文</a> · <strong>English</strong></p>
 
@@ -28,7 +28,7 @@ Export is read-only and performs no external action. Targets, bodies, accounts, 
 
 It commits to exactly three verifiable things: **execution volume** (every committed action is in the ledger), **honest readings** (daily follower and impression snapshots, screenshot-backed and labelled by evidence grade), and **closed-loop responsibility** (completion drives volume changes, supply gaps alert three days early, failures stop the loop for human adjudication). It does not promise platform reach, and it does not dress unverified channels up as full automation.
 
-**Unattended automation is committed for Email only; every other channel still gets a plan.** Phase one commits to unattended execution on **Email**. The **X** write path is technically proven (PROVEN), but X's rules forbid non-API autonomous writes, so X plans compile as human-assisted tasks, or you connect the official API with authorization. GitHub, Reddit, Hacker News, LinkedIn and Discord also compile as human-assisted tasks behind a supervised first run. Official APIs and browser-session (CDP) routes are equal options: missing API access does not close the business; a platform risk signal stops only that channel and returns lower-frequency, split-batch or defer guidance. Manual channels such as Xiaohongshu and Zhihu get work orders only and are excluded from automated volume. See the [platform automation matrix](docs/platform-automation-matrix.md).
+**Unattended automation is committed for Email only; every other channel still gets a plan.** Phase one commits to unattended execution on **Email**. X's rules forbid non-API website scripting, so Growovo rejects every real X CDP/browser-attach write, including one-off `--go` and standing owner-attested sessions. Operator authorization, observed identity and local quotas cannot unlock them. X remains read-only with dry runs, drafts and manual handoff; automated writing requires a separately connected, compliant official API. GitHub, Reddit, Hacker News, LinkedIn and Discord compile as human-assisted or restricted tasks according to their own rules and verification status. Missing API access never grants browser permission by itself; a platform risk signal stops only that channel and returns lower-frequency, split-batch or defer guidance. Manual channels such as Xiaohongshu and Zhihu get work orders only and are excluded from automated volume. See the [platform automation matrix](docs/platform-automation-matrix.md).
 
 **Start here.** Prepare product facts, standing action authorization and SMTP credentials for email; for human-assisted X, also prepare an authenticated local Codex CLI and a browser CDP session. Read results daily and decide whether to continue or optimize. See [autonomous operations](docs/grow-autonomous-operations.md).
 
@@ -43,7 +43,7 @@ python3 mkt.py grow daemon g1          # foreground service; Ctrl-C stops it
 python3 mkt.py grow daily g1           # one screen a day: volume/readings/supply/guardrails
 ```
 
-> Want X? `--channels x` compiles a human-assisted plan: content, schedule and ledger keep working; you confirm each send. Autonomous X writes are not permitted, so Growovo will not post unattended.
+> Want X? `--channels x` compiles read-only research, drafts and manual handoff. Growovo does not run non-API X website write scripts; a person posts directly in X, or you separately connect a compliant official API.
 
 **See the receipts first:** [Launch autopsy: 73 tweets in 11 hours, 0 new stars](docs/launch-autopsy-20261105.md) — a real launch experiment we ran without the ledger (throwaway scripts instead), the numbers it produced, and the ledger gap it exposed in our own process.
 

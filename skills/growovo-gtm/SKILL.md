@@ -83,7 +83,7 @@ python3 mkt.py work-action materialize --work-order-id <id> --step-id <step> \
 
 日常发帖、私信回复和邮件可以在工作区已有有效 `routine-policy` 时直接执行，不必逐次 plan 人审。
 
-账号可以用用户自己已登录的浏览器：`mkt policy enable --observe-account` 进入 `cdp_observed` 模式，不预绑定账号；执行前读取当前浏览器实际账号，写入账本 `identity`/`account`，`mkt account log` 可查。夜间循环用 `mkt cycle`，它复用用户已打开的标签页（`browser-attach`），读写找不到目标站点标签页都报 `tab_not_found`，默认绝不新开；身份按页面可见账号读取，目前已覆盖 X、Discord 和 GitHub。单动作与队列也可显式选择 `--transport browser-attach`，这条路线使用 owner-attested 独立授权，不与 routine 混用。
+账号可以用用户自己已登录的浏览器：`mkt policy enable --observe-account` 进入 `cdp_observed` 模式，不预绑定账号；执行前读取当前浏览器实际账号，写入账本 `identity`/`account`，`mkt account log` 可查。夜间循环用 `mkt cycle`，它复用用户已打开的标签页（`browser-attach`），读写找不到目标站点标签页都报 `tab_not_found`，默认绝不新开；身份按页面可见账号读取，目前已覆盖 X、Discord 和 GitHub。X 只保留只读、草稿与人工处理，常驻 browser-attach 写在计划和执行门两层拒绝；GitHub/Discord 单动作与队列可显式选择 `--transport browser-attach`，这条路线使用 owner-attested 独立授权，不与 routine 混用。
 
 ```bash
 # 授权管理只能由人通过 CLI 完成；agent 不自我创建/扩大授权

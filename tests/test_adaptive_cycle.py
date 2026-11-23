@@ -90,15 +90,15 @@ class ChooseNextTest(unittest.TestCase):
 
 
 class RuntimeCompactionTest(unittest.TestCase):
-    def test_missing_channel_does_not_leave_later_work_behind_fixed_x_wait(self):
+    def test_missing_channel_does_not_leave_later_work_behind_fixed_reply_wait(self):
         with tempfile.TemporaryDirectory() as tmp:
             data = Path(tmp)
             queue = data / "queue.json"
             rows = [
-                row("x", "publish", text="x1"),
+                row("github", "reply", "https://github.com/a/a/issues/1", actor="a1"),
                 row("github", "reply", "https://github.com/a/b/issues/1", actor="a"),
                 row("discord", "publish", "123", text="d1"),
-                row("x", "publish", text="x2"),
+                row("github", "reply", "https://github.com/c/c/issues/1", actor="c"),
                 row("github", "reply", "https://github.com/c/d/issues/2", actor="b"),
             ]
             queue.write_text(json.dumps(rows), encoding="utf-8")
@@ -116,8 +116,10 @@ class RuntimeCompactionTest(unittest.TestCase):
 
             attempted = [(r["channel"], r["target"]) for r in got["results"]]
             self.assertEqual(attempted, [
-                ("x", ""), ("github", "https://github.com/a/b/issues/1"),
-                ("github", "https://github.com/c/d/issues/2"), ("x", ""),
+                ("github", "https://github.com/a/a/issues/1"),
+                ("github", "https://github.com/a/b/issues/1"),
+                ("github", "https://github.com/c/c/issues/1"),
+                ("github", "https://github.com/c/d/issues/2"),
             ])
             self.assertEqual(got["deferred_channels"], ["discord"])
 
@@ -130,7 +132,8 @@ class CyclePrefetchIntegrationTest(unittest.TestCase):
             (data / "policies" / "engagement-cycle.json").write_text(json.dumps({
                 "supply": {"prefetch": {"enabled": True}}}), encoding="utf-8")
             queue = data / "queue.json"
-            queue.write_text(json.dumps([row("x", "publish")]), encoding="utf-8")
+            queue.write_text(json.dumps([row("discord", "publish", "1573250833871536161")]),
+                             encoding="utf-8")
             worker = mock.Mock()
             worker.start.return_value = {"ok": True, "status": "running"}
             worker.finish.return_value = {"ok": True, "status": "done"}

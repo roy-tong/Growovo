@@ -14,9 +14,10 @@
   discord  publish / reply（仅 transport=browser-attach）
   email    仅队列（action_runner 拒绝单条发信）
 
-transport=browser-attach 是 X publish/reply、GitHub reply、Discord publish/reply 的
-独立授权路线：跳过通用 CDP 身份与 plan/routine 预检，由 browser_write 强制
-owner-attested、页面身份、pause/DNC/quota/readback；统一回执、任务结果与操作日志。
+transport=browser-attach 是 GitHub reply、Discord publish/reply 的独立授权路线；
+X 的持续 browser-attach 写由平台许可门拒绝。允许的动作跳过通用 CDP 身份与
+plan/routine 预检，由 browser_write 强制 owner-attested、页面身份、
+pause/DNC/quota/readback，并保留统一回执、任务结果与操作日志。
 """
 import os
 from datetime import datetime, timezone
