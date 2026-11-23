@@ -38,6 +38,9 @@ class ReviewOutreachCliTest(unittest.TestCase):
             self.assertEqual(1, len(queue["items"]))
             report = json.loads((out / "report.json").read_text(encoding="utf-8"))
             self.assertTrue(report["human_approval_required"])
+            self.assertEqual({"review_material": 1}, report["business_goals"])
+            self.assertEqual(3, report["capacity_per_channel_per_wave"])
+            self.assertEqual("eligible_only_no_padding", report["quantity_policy"])
             self.assertNotIn("ada@example.com", run.stdout)
 
     def test_check_keeps_github_reviews_out_of_the_email_queue(self):

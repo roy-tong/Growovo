@@ -4,7 +4,7 @@
 
 ### Added
 
-- `mkt review-ops` adds evidence-qualified expert-review and warm-follow-up preparation. Named-person/account mapping, same-day hook checks, cross-campaign cooldown, company spacing, specific review artifacts and anti-template rules feed native unapproved email/GitHub queues. Confirmed replies project to idempotent private feedback drafts; no sender, credential, approval bypass, repository write or external action is added.
+- `mkt review-ops` adds evidence-qualified expert-review and warm-follow-up preparation. Named-person/account mapping, same-day hook checks, cross-campaign cooldown, company spacing, specific review artifacts and anti-template rules feed native unapproved email/GitHub queues. Business goals record reader value, observable outcomes and non-goals; high-marketing CTAs are refused. Capacity is three deep-research items per channel per wave with no quota padding. Confirmed replies project to idempotent private feedback drafts; no sender, credential, approval bypass, repository write or external action is added.
 
 ## 0.18.1 — 2026-11-23
 

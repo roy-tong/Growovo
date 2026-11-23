@@ -34,6 +34,12 @@ def valid_candidate():
         "feedback_examples": [
             "missing unknown state", "misleading level label", "counterexample fixture",
         ],
+        "business_goal": {
+            "objective": "review_material",
+            "reader_value": "A fixture that separates observed evidence from causal claims.",
+            "success_event": "One counterexample or field correction adopted in the repository.",
+            "non_goal": "A signup, demo or sales call.",
+        },
         "sender": {"name": "Roy Tong", "identity_url": "https://github.com/roy-tong"},
         "subject": "your availability distinction, one proof fixture later",
         "body": (
@@ -172,6 +178,44 @@ class ReviewOutreachTest(unittest.TestCase):
         self.assertEqual("issue:roy-tong/Verovo#11", report["queue"]["items"][0]["target"])
         self.assertTrue(report["human_approval_required"])
 
+    def test_business_goal_and_low_marketing_cta_are_admission_gates(self):
+        missing = valid_candidate()
+        del missing["business_goal"]
+        self.assertIn("business_goal_missing", self.evaluate(missing))
+
+        volume = valid_candidate()
+        volume["business_goal"]["objective"] = "lead_volume"
+        self.assertIn("business_goal_invalid", self.evaluate(volume))
+
+        pitch = valid_candidate()
+        pitch["body"] += " Book a demo and sign up today."
+        self.assertIn("marketing_cta", self.evaluate(pitch))
+
+        goal = valid_candidate()
+        report = self.review.build_email_queue(
+            [goal], campaign="expert_review_v2", now=NOW,
+            contacts=[], suppressions=set())
+        self.assertEqual("review_material",
+                         goal["business_goal"]["objective"])
+        self.assertEqual("review_material",
+                         report["queue"]["items"][0]["review"]["business_goal"]["objective"])
+        self.assertEqual(3, report["capacity_per_channel_per_wave"])
+
+    def test_fourth_candidate_in_same_channel_wave_is_rejected(self):
+        candidates = []
+        for index in range(4):
+            candidate = valid_candidate()
+            candidate["person"]["target"] = "person%d@example.com" % index
+            candidate["body"] = candidate["body"].replace(
+                "A small counterexample fixture would also help.",
+                "A small counterexample fixture would also help for case %d." % index)
+            candidates.append(candidate)
+        report = self.review.build_email_queue(
+            candidates, campaign="expert_review_v2", now=NOW,
+            contacts=[], suppressions=set())
+        self.assertEqual(3, len(report["queue"]["items"]))
+        self.assertEqual(["wave_channel_cap_3"], report["rejected"][0]["issues"])
+
     def test_legacy_history_is_normalized_for_cross_campaign_cooldown(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -183,6 +227,16 @@ class ReviewOutreachTest(unittest.TestCase):
         self.assertEqual(2, len(rows))
         self.assertTrue(all(row["target"] == "ada@example.com" for row in rows))
         self.assertTrue(all(row["campaign"] == "expert_review_v1" for row in rows))
+
+    def test_legacy_suppression_includes_incident_manifest(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "suppress.txt").write_text("suppressed@example.com\n", encoding="utf-8")
+            (root / "recovery_manifest.csv").write_text(
+                "recipient,segment\nincident@example.com,legacy\n", encoding="utf-8")
+            suppressions = self.review.load_legacy_suppressions(root)
+        self.assertIn("suppressed@example.com", suppressions)
+        self.assertIn("incident@example.com", suppressions)
 
     def test_feedback_projection_requires_named_review_and_never_writes_repository(self):
         with tempfile.TemporaryDirectory() as tmp:

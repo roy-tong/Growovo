@@ -12,13 +12,15 @@
 | Company spacing | Named people at the same company cannot be contacted within three days of each other. Three failed rotations cool the account |
 | Expert-review content | A specific file/directory, 2–3 concrete feedback examples, 60–130 words, 5–8 sentences, exactly one question and a transparent sender identity for email |
 | Voice and integrity | Placeholders, em/en dashes, generic openers, template phrases, bullet-list pitches and duplicate bodies are rejected |
-| Small batch | At most five accepted items per queue. A rejection is useful output, not a reason to relax the gate |
+| Business goal | Every candidate records a supported objective, reader value, an observable success event and a non-goal. Goals guide the artifact and measurement, not a sales pitch in the message |
+| Low-marketing CTA | Demo/booking, signup, discount, free-trial and similar sales CTAs are rejected. The first request stays a low-cost expert judgment or warm follow-up |
+| Small batch with capacity | At most three accepted items per channel per wave. This is a capacity ceiling, not a quota to fill; under-qualified supply stays unsent |
 
-Legacy `sent_log.txt` and `suppress.txt` are read as additional history and suppression sources. Growovo's own committed ledger and DNC/contact suppressions are also included. Legacy sender scripts are not called.
+Legacy `sent_log.txt`, `suppress.txt` and `recovery_manifest.csv` are read as additional history and suppression sources. Incident-manifest recipients are suppressed just like explicit DNC entries. Growovo's own committed ledger and DNC/contact suppressions are also included. Legacy sender scripts are not called.
 
 ## Prepare a batch
 
-Candidates are a JSON array using `schema=growovo.review-candidate/1`. Each item carries `mode`, `person`, `hook`, `artifact`, `feedback_examples`, `sender`, `subject` and `body`; see `tests/test_review_outreach.py` for a complete synthetic example.
+Candidates are a JSON array using `schema=growovo.review-candidate/1`. Each item carries `mode`, `person`, `hook`, `artifact`, `feedback_examples`, `business_goal`, `sender`, `subject` and `body`; see `tests/test_review_outreach.py` for a complete synthetic example. Supported objectives are `review_material`, `review_artifact`, `decision_disposition`, `qualified_conversation`, `product_replay` and `buyer_disposition`. Reports aggregate accepted objectives and pin `capacity_per_channel_per_wave=3` plus `quantity_policy=eligible_only_no_padding`.
 
 ```bash
 python3 mkt.py --workspace DATA review-ops check candidates.json \

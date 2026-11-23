@@ -5627,6 +5627,10 @@ def _review_check(data_dir, *, candidates_path, legacy_root, out_dir, campaign, 
         queue_text = json.dumps(queue, ensure_ascii=False, indent=2) + "\n"
         (out / (name + ".json")).write_text(queue_text, encoding="utf-8")
         hashes[name] = hashlib.sha256(queue_text.encode("utf-8")).hexdigest()
+    business_goals = {}
+    for built in (email, github):
+        for objective, count in (built.get("business_goals") or {}).items():
+            business_goals[objective] = business_goals.get(objective, 0) + count
     report = {
         "schema": "growovo.review-outreach-run/1",
         "campaign": campaign,
@@ -5636,6 +5640,9 @@ def _review_check(data_dir, *, candidates_path, legacy_root, out_dir, campaign, 
         "rejected": rejected,
         "queue_sha256": hashes.get(campaign, ""),
         "queue_sha256_by_campaign": hashes,
+        "business_goals": business_goals,
+        "capacity_per_channel_per_wave": review_outreach.CHANNEL_WAVE_CAPACITY,
+        "quantity_policy": "eligible_only_no_padding",
         "human_approval_required": True,
         "external_action": "none",
     }
@@ -5661,6 +5668,8 @@ def cmd_review_ops(args):
             out_dir=args.out, campaign=args.campaign, now=now)
         print(json.dumps({"accepted": report["accepted"],
                           "rejected": len(report["rejected"]),
+                          "business_goals": report["business_goals"],
+                          "capacity_per_channel_per_wave": report["capacity_per_channel_per_wave"],
                           "out": str(Path(args.out)),
                           "human_approval_required": True,
                           "external_action": "none"}, ensure_ascii=False, indent=1))
@@ -5684,6 +5693,8 @@ def cmd_review_ops(args):
         out_dir=out, campaign=campaign, now=now)
     feedback = review_outreach.sync_feedback(data_dir, now=now)
     print(json.dumps({"accepted": report["accepted"], "rejected": len(report["rejected"]),
+                      "business_goals": report["business_goals"],
+                      "capacity_per_channel_per_wave": report["capacity_per_channel_per_wave"],
                       "feedback_written": len(feedback["written"]),
                       "feedback_skipped": len(feedback["skipped"]),
                       "out": str(out), "human_approval_required": True,
