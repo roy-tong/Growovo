@@ -16,6 +16,8 @@ python3 mkt.py demo    # no network or accounts: approval, offline receipt, thre
 
 [Open the controlled-run example and task template](https://roy-tong.github.io/Growovo/examples/controlled-run.en.html) to see what the run does and does not establish. No dependency installation or account setup is needed.
 
+`mkt review-ops` prepares expert-review and warm-follow-up batches with same-day evidence, named-person checks, cross-track cooldown and content gates. It writes native unapproved email/GitHub queues and private feedback drafts only; it never sends, comments or pushes by itself. See [review outreach and feedback writeback](docs/review-outreach.md).
+
 **Community and updates:** [OVO Discord](https://discord.gg/UqrM8MCXb) · [X / @elliwoodtong](https://x.com/elliwoodtong).
 
 **OVO family boundary:** Prove Anything is the family-level result-proof protocol candidate; an agent saying “done” still needs independent review. Verified Capability Factory (VCF) is a gated research candidate, not a Growovo dependency. Growovo works independently and keeps send receipts, meaningful replies, activation and sales on separate evidence layers; the family protocol never collapses them into “growth proven.”

@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- `mkt review-ops` adds evidence-qualified expert-review and warm-follow-up preparation. Named-person/account mapping, same-day hook checks, cross-campaign cooldown, company spacing, specific review artifacts and anti-template rules feed native unapproved email/GitHub queues. Confirmed replies project to idempotent private feedback drafts; no sender, credential, approval bypass, repository write or external action is added.
+
 ## 0.18.1 — 2026-11-23
 
 ### Security
