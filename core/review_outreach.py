@@ -32,6 +32,16 @@ ANTI_TEMPLATE = (
     "冒昧打扰", "久仰大名", "期待您的回复",
 )
 REVIEW_RUN_PREFIXES = ("expert_review", "review_", "warm_")
+CHANNEL_WAVE_CAPACITY = 3
+BUSINESS_OBJECTIVES = frozenset({
+    "review_material", "review_artifact", "decision_disposition",
+    "qualified_conversation", "product_replay", "buyer_disposition",
+})
+MARKETING_CTA = (
+    "book a call", "schedule a call", "book a demo", "schedule a demo",
+    "sign up", "signup", "buy now", "limited offer", "discount", "free trial",
+    "预约演示", "欢迎注册", "免费试用", "优惠价", "立即购买",
+)
 
 
 def _text(value: Any) -> str:
@@ -124,6 +134,13 @@ def evaluate_candidate(candidate: Dict[str, Any], *, now: datetime,
     if len(matching_contacts) >= 2 and not _text(candidate.get("reentry_reason")):
         _add(issues, "recipient_reentry_requires_new_evidence")
 
+    business_goal = candidate.get("business_goal") or {}
+    if any(not _text(business_goal.get(key))
+           for key in ("objective", "reader_value", "success_event", "non_goal")):
+        _add(issues, "business_goal_missing")
+    elif business_goal.get("objective") not in BUSINESS_OBJECTIVES:
+        _add(issues, "business_goal_invalid")
+
     try:
         check_content(subject, label="subject ")
         check_content(body, label="body ")
@@ -132,6 +149,8 @@ def evaluate_candidate(candidate: Dict[str, Any], *, now: datetime,
     low = body.casefold()
     if any(phrase in low for phrase in ANTI_TEMPLATE) or "\u2013" in body:
         _add(issues, "anti_template")
+    if any(phrase in low for phrase in MARKETING_CTA):
+        _add(issues, "marketing_cta")
     if any(line.lstrip().startswith(("- ", "* ", "•")) for line in body.splitlines()):
         _add(issues, "email_bullet_list")
     first_name = _text(person.get("name")).split(" ", 1)[0]
@@ -182,6 +201,7 @@ def _build_queue(candidates: Sequence[Dict[str, Any]], *, channel: str,
     items: List[Dict[str, Any]] = []
     rejected: List[Dict[str, Any]] = []
     seen_bodies = set()
+    business_goals: Dict[str, int] = {}
     for candidate in candidates:
         target = _text((candidate.get("person") or {}).get("target"))
         issues = evaluate_candidate(
@@ -192,19 +212,22 @@ def _build_queue(candidates: Sequence[Dict[str, Any]], *, channel: str,
         body_hash = hashlib.sha256(_text(candidate.get("body")).encode("utf-8")).hexdigest()
         if body_hash in seen_bodies:
             _add(issues, "duplicate_body")
-        if len(items) >= 5:
-            _add(issues, "batch_cap_5")
+        if len(items) >= CHANNEL_WAVE_CAPACITY:
+            _add(issues, "wave_channel_cap_3")
         if issues:
             rejected.append({"target": target, "issues": issues})
             continue
         seen_bodies.add(body_hash)
+        objective = _text((candidate.get("business_goal") or {}).get("objective"))
+        business_goals[objective] = business_goals.get(objective, 0) + 1
         item = {
             "id": "%s-%03d" % (campaign, len(items) + 1),
             "target": target,
             "body": _text(candidate.get("body")),
             "review": {
                 key: copy.deepcopy(candidate.get(key)) for key in
-                ("mode", "person", "hook", "artifact", "feedback_examples", "sender")
+                ("mode", "person", "hook", "artifact", "feedback_examples", "sender",
+                 "business_goal")
             },
             "review_candidate_sha256": body_hash,
         }
@@ -217,11 +240,14 @@ def _build_queue(candidates: Sequence[Dict[str, Any]], *, channel: str,
         errors = lint_queue(queue)
         if errors:
             return {"queue": None, "rejected": rejected + [{"target": "queue", "issues": errors}],
-                    "human_approval_required": True, "external_action": "none"}
+                    "human_approval_required": True, "external_action": "none",
+                    "capacity_per_channel_per_wave": CHANNEL_WAVE_CAPACITY,
+                    "business_goals": business_goals}
     else:
         queue = None
     return {"queue": queue, "rejected": rejected, "human_approval_required": True,
-            "external_action": "none"}
+            "external_action": "none", "capacity_per_channel_per_wave": CHANNEL_WAVE_CAPACITY,
+            "business_goals": business_goals}
 
 
 def build_email_queue(candidates: Sequence[Dict[str, Any]], *, campaign: str,
