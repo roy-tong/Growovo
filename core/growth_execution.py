@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import datetime as dt
 import hashlib
 import json
 from pathlib import Path
@@ -7,10 +8,41 @@ from pathlib import Path
 from . import action_resolution, growth_assets, growth_experiments, growth_runtime, growth_service
 
 
-def _finish(data_dir, service_id, action_id, status, by, evidence):
+def _finish(data_dir, service_id, action_id, status, by, evidence, completion=None):
     growth_service.record_action(
-        data_dir, service_id, action_id, status, by=by, evidence=evidence)
+        data_dir, service_id, action_id, status, by=by, evidence=evidence,
+        completion=completion)
     return {"status": status, "action_id": action_id, "evidence": evidence}
+
+
+def _channel_completion(action, record):
+    """把渠道回执映射成完成类型；缺回读引用时只能算人工声明。"""
+    readback = str(record.get("evidence") or "").strip()
+    claim = str(record.get("claim_key") or "").strip()
+    sent_at = str(record.get("finished_at") or "").strip()
+    if readback and claim and sent_at:
+        return {"kind": "verified", "receipt": {
+            "action_id": action["id"],
+            "channel": action.get("channel"),
+            "sent_at": sent_at,
+            "idempotency_key": claim,
+            "readback": readback,
+        }}
+    return {"kind": "attested_manual",
+            "reason": "transport committed without a readback reference"}
+
+
+def _reconcile_completion(action, receipt_ref, observed_at=""):
+    """对账读回的唯一外部记录：回执身份即去重依据。"""
+    receipt_ref = str(receipt_ref or "").strip()
+    return {"kind": "verified", "receipt": {
+        "action_id": action.get("id"),
+        "channel": action.get("channel"),
+        "sent_at": observed_at or dt.datetime.now().astimezone().isoformat(timespec="seconds"),
+        "sent_at_basis": "readback_observed_at" if not observed_at else "readback_reported_at",
+        "idempotency_key": "readback:" + receipt_ref,
+        "readback": receipt_ref,
+    }}
 
 
 def _run_channel(data_dir, service, action, by, payload):
@@ -78,16 +110,18 @@ def _run_channel(data_dir, service, action, by, payload):
             action, {"code": result or "execution_failed",
                      "detail": str(record.get("detail") or record.get("error") or "")},
             route=route))
+    completion = None
     if result == "committed":
         status = "completed"
         public_status = "completed"
+        completion = _channel_completion(action, record)
     elif result == "indeterminate":
         status = "waiting_verification"
         public_status = "waiting_verification"
     else:
         status = "blocked"
         public_status = result or status
-    _finish(data_dir, service["id"], action["id"], status, by, record)
+    _finish(data_dir, service["id"], action["id"], status, by, record, completion=completion)
     return {"status": public_status, "action_id": action["id"], "record": record}
 
 
@@ -248,7 +282,10 @@ def reconcile(data_dir, service_id, action_id, by, payload=None):
             evidence = {"receipt": f"gmail://threads/{thread_id}/messages/{matches[0]['id']}",
                         "message_id": matches[0]["id"], "thread_id": thread_id,
                         "verification": "independent_sent_readback"}
-            _finish(data_dir, service_id, action_id, "completed", by, evidence)
+            completion = _reconcile_completion(
+                action, evidence["receipt"], observed_at=str(matches[0].get("date") or ""))
+            _finish(data_dir, service_id, action_id, "completed", by, evidence,
+                    completion=completion)
             return {"status": "completed", "action_id": action_id, "evidence": evidence}
         if len(matches) > 1:
             evidence = {"code": "multiple_matching_messages", "matches": len(matches)}
@@ -279,7 +316,11 @@ def reconcile(data_dir, service_id, action_id, by, payload=None):
     if len(matches) == 1 and matches[0].get(receipt_key):
         evidence = {"receipt": matches[0][receipt_key], "comment_id": matches[0].get("id"),
                     "verification": "independent_comment_readback"}
-        _finish(data_dir, service_id, action_id, "completed", by, evidence)
+        completion = _reconcile_completion(
+            action, evidence["receipt"],
+            observed_at=str(matches[0].get("created_at") or ""))
+        _finish(data_dir, service_id, action_id, "completed", by, evidence,
+                completion=completion)
         return {"status": "completed", "action_id": action_id, "evidence": evidence}
     if len(matches) > 1:
         evidence = {"code": "multiple_matching_comments", "matches": len(matches)}

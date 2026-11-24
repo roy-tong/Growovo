@@ -8,6 +8,7 @@ from pathlib import Path
 from . import action_resolution, growth_assets, growth_engagement, growth_execution, growth_experiments, growth_intake, growth_learning, growth_metrics, growth_opportunities, growth_service
 from . import execution_capabilities, github_app, github_events, growth_runtime
 from . import gmail_api, gmail_events, growth_worker, live_acceptance
+from . import growth_cycle, risk_policy
 from .growth_goals import compile_goal
 
 
@@ -89,6 +90,10 @@ def register(parser):
     item.add_argument("--note", default="")
     item.add_argument("--minutes", type=int, default=0)
     item.add_argument("--evidence", default="")
+    item.add_argument("--completion-kind", choices=["verified", "attested_manual"], default="",
+                      help="渠道动作标记 completed 时的完成类型；verified 需同时给 --receipt")
+    item.add_argument("--receipt", default="", help="verified 回执 JSON：action_id/channel/sent_at/idempotency_key/readback")
+    item.add_argument("--reason", default="", help="attested_manual 的人工完成原因")
     item.add_argument("--json", action="store_true")
     item = sub.add_parser("evaluate")
     item.add_argument("service_id")
@@ -176,6 +181,54 @@ def register(parser):
     item.add_argument("--repos", required=True)
     item.add_argument("--handle", required=True)
     item.add_argument("--by", required=True)
+
+    item = sub.add_parser("authorize", help="风险分层常驻授权")
+    asub = item.add_subparsers(dest="authorize_action", required=True)
+    a = asub.add_parser("grant")
+    a.add_argument("service_id")
+    a.add_argument("--class", dest="action_class", required=True, choices=list(risk_policy.CLASSES))
+    a.add_argument("--by", required=True)
+    a.add_argument("--quota", type=int, default=None)
+    a.add_argument("--days", type=int, default=None)
+    a.add_argument("--scope", default="{}")
+    a = asub.add_parser("revoke")
+    a.add_argument("service_id")
+    a.add_argument("--grant", required=True)
+    a.add_argument("--by", required=True)
+    a = asub.add_parser("list")
+    a.add_argument("service_id")
+
+    item = sub.add_parser("policy", help="解释某类动作为什么允许或拒绝")
+    psub = item.add_subparsers(dest="policy_action", required=True)
+    a = psub.add_parser("explain")
+    a.add_argument("service_id")
+    a.add_argument("--class", dest="action_class", required=True, choices=list(risk_policy.CLASSES))
+    a.add_argument("--scope", default="{}")
+
+    item = sub.add_parser("cycle", help="Observe → Decide → Act → Observe 循环")
+    csub = item.add_subparsers(dest="cycle_action", required=True)
+    a = csub.add_parser("request")
+    a.add_argument("service_id")
+    a.add_argument("--trigger", default="manual")
+    a.add_argument("--question", default="")
+    a.add_argument("--deadline-hours", type=int, default=24)
+    a.add_argument("--observations", default="")
+    a.add_argument("--actor", default="operator")
+    a.add_argument("--cycle-id", default="")
+    a = csub.add_parser("propose")
+    a.add_argument("service_id")
+    a.add_argument("--cycle", required=True)
+    a.add_argument("--file", required=True)
+    a = csub.add_parser("status")
+    a.add_argument("service_id")
+    a.add_argument("--cycle", required=True)
+    a = csub.add_parser("execute")
+    a.add_argument("service_id")
+    a.add_argument("--cycle", required=True)
+    a.add_argument("--by", required=True)
+    a = csub.add_parser("list")
+    a.add_argument("service_id")
+    a.add_argument("--limit", type=int, default=50)
 
 
 def _read(path):
@@ -277,9 +330,17 @@ def handle(args, data_dir):
             _emit(row or {"status": "no_ready_action"})
         elif args.growth_action == "transition":
             evidence = json.loads(args.evidence) if args.evidence else None
+            completion = None
+            if args.completion_kind:
+                completion = {"kind": args.completion_kind}
+                if args.receipt:
+                    completion["receipt"] = json.loads(args.receipt)
+                if args.reason:
+                    completion["reason"] = args.reason
             _emit(growth_service.record_action(
                 data_dir, args.service_id, args.action, args.status,
-                by=args.by, note=args.note, minutes=args.minutes, evidence=evidence))
+                by=args.by, note=args.note, minutes=args.minutes, evidence=evidence,
+                completion=completion))
         elif args.growth_action == "evaluate":
             _emit(growth_service.evaluate(
                 data_dir, args.service_id, _read(args.metrics), by=args.by))
@@ -356,6 +417,45 @@ def handle(args, data_dir):
             repos = [row.strip() for row in args.repos.split(",") if row.strip()]
             _emit(growth_metrics.observe_live(
                 data_dir, args.service_id, args.phase, repos, args.handle, by=args.by))
+        elif args.growth_action == "authorize":
+            if args.authorize_action == "grant":
+                _emit(risk_policy.grant(
+                    data_dir, args.service_id, action_class=args.action_class,
+                    granted_by=args.by, scope=json.loads(args.scope),
+                    quota=args.quota, days=args.days))
+            elif args.authorize_action == "revoke":
+                _emit(risk_policy.revoke(data_dir, args.service_id, args.grant, by=args.by))
+            elif args.authorize_action == "list":
+                _emit({"service_id": args.service_id,
+                       "grants": risk_policy.list_grants(data_dir, args.service_id)})
+            else:
+                raise ValueError("未知 authorize 动作")
+        elif args.growth_action == "policy":
+            _emit(risk_policy.explain(
+                data_dir, args.service_id, action_class=args.action_class,
+                scope=json.loads(args.scope)))
+        elif args.growth_action == "cycle":
+            if args.cycle_action == "request":
+                observations = _read(args.observations) if args.observations else None
+                _emit(growth_cycle.request(
+                    data_dir, args.service_id, trigger=args.trigger,
+                    observations=observations, question=args.question,
+                    deadline_hours=args.deadline_hours, actor=args.actor,
+                    cycle_id=args.cycle_id or None))
+            elif args.cycle_action == "propose":
+                _emit(growth_cycle.propose(
+                    data_dir, args.service_id, args.cycle, _read(args.file)))
+            elif args.cycle_action == "status":
+                _emit(growth_cycle.status(data_dir, args.service_id, args.cycle))
+            elif args.cycle_action == "execute":
+                _emit(growth_cycle.execute(
+                    data_dir, args.service_id, args.cycle, by=args.by))
+            elif args.cycle_action == "list":
+                _emit({"service_id": args.service_id,
+                       "cycles": growth_cycle.list_cycles(
+                           data_dir, args.service_id, limit=args.limit)})
+            else:
+                raise ValueError("未知 cycle 动作")
         else:
             raise ValueError(f"未知 growth 动作 {args.growth_action}")
         return 0

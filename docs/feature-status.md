@@ -1,5 +1,12 @@
 # Growovo: implementation status
 
+## R3 P0 hardening (2026-11-24)
+
+- A channel action can no longer be marked `completed` without a completion type. `verified` requires a receipt with `action_id`, `channel`, `sent_at`, `idempotency_key` and `readback`; `attested_manual` requires a named operator and a reason. `declared` completions are rejected. Metrics report `completed_verified` / `completed_attested` / `completed_declared`, and downstream actions are marked `dependency_quality: attested` when they rest on a manual attestation.
+- `growth evaluate` now carries provenance per metric (`owner_declared` < `observed` < `independently_verified`, plus window and definition hash). `primary_success` answers "did the number reach the target"; `primary_verified` answers "was it measured on the same basis". Bare numbers stay `owner_declared` and can never produce `primary_verified`.
+- Execution leases carry a monotonic fence kept in `execution_fence_counters`. The heartbeat marks its `LeaseState` lost when renewal is refused, and `run_action` re-checks the lease at entry and again right before dispatch. A lost lease returns `lease_lost` with `retryable: false` and the dispatch never happens.
+- **Verification:** 2476 offline tests pass, including the new `tests/test_execution_lease.py` (6 cases), completion-type, provenance, mixed-source and legacy-completion tests; `mkt demo` still passes.
+
 ## Final release review hardening (v0.21.0, 2026-11-24)
 
 - Capability records reject credential-shaped keys recursively, including `client_secret`, `api_key`, `password` and private-key paths; verification evidence remains a reference rather than a secret store.
@@ -16,7 +23,7 @@
 ## Native real-task case gate (2026-11-24)
 
 - `mkt case list|show|incidents|index|validate|replay|verify` delegates to the shared `ovo-acceptance` runtime. The default registry supplies the family workspace root, so commands also work from this repository. `OVO_ACCEPTANCE_HOME` overrides the shared runtime location and `OVO_CASE_REGISTRY` overrides the registry for isolated tests; `OVO_CASE_ROOT` explicitly overrides the evidence root.
-- `task_rerun` and `evidence_only` remain separate. External-write cases are evidence-only and never resend, pay or sign. The runtime and 24-case registry passed validation; all 24 cases passed, with no blocked cases. Seven scoped original-scenario journeys are registered. See `../../../ai输出/ovo-真实任务资产库/README.md` and `../../../ai输出/ovo-真实任务资产库/GOLDEN_JOURNEYS.md`.
+- `task_rerun` and `evidence_only` remain separate. External-write cases are evidence-only and never resend, pay or sign. The 2026-11-24 run recorded 24 passed / 0 failed / 0 blocked, split into 13 `task_rerun` and 11 `evidence_only`; the headline does not mean 24 tasks were re-run. Seven scoped original-scenario journeys are registered. See `../../../ai输出/ovo-真实任务资产库/README.md` and `../../../ai输出/ovo-真实任务资产库/GOLDEN_JOURNEYS.md`.
 
 ## Original-scenario delivery fixes (2026-11-24)
 

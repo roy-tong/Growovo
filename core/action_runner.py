@@ -244,7 +244,7 @@ def _dispatch_action_inner(*, channel, action, data_dir=None, campaign="", go=Fa
                            routine=False, account="", platform_user_id=None,
                            transport="", actor="", github_token=None,
                            thread_id=None, gmail_token=None, subject="", in_reply_to="",
-                           legacy_cdp=False):
+                           legacy_cdp=False, lease_guard=None):
     """执行单条写动作，返回账本记录 dict。"""
     data = Path(data_dir or resolve())
     channel = (channel or "").strip().lower()
@@ -258,6 +258,8 @@ def _dispatch_action_inner(*, channel, action, data_dir=None, campaign="", go=Fa
         raise ActionError("读动作请用 mkt search/inbox/audit，不走 run_action")
     if not go:
         log(f"[action] {channel}/{action} dry-run（加 --go 才实跑）")
+    if lease_guard is not None:
+        lease_guard.ensure()
     if transport == "browser-attach":
         if routine:
             raise ActionError("browser-attach 使用 owner-attested 独立授权，不与 routine policy 混用")
@@ -286,6 +288,10 @@ def _dispatch_action_inner(*, channel, action, data_dir=None, campaign="", go=Fa
     else:
         approval_mode = precheck(
             channel, action, data, campaign, go, allow_unverified, target=target)
+
+    # 预检可能耗时；真正写之前再确认一次租约仍属于本执行者。
+    if lease_guard is not None:
+        lease_guard.ensure()
 
     def _record(rec):
         if routine is True and approval_mode == "routine-policy" and isinstance(rec, dict):
@@ -507,6 +513,9 @@ def run_action(**kwargs):
     """
     ops_context = {key: kwargs.pop(key, None)
                    for key in ("operator", "queue_item_id", "run_id", "attempt_id")}
+    lease_guard = kwargs.pop("lease_guard", None)
+    if lease_guard is not None:
+        lease_guard.ensure()
     started_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
     record = _dispatch_action(**kwargs)
     finished_at = datetime.now(timezone.utc).isoformat(timespec="seconds")

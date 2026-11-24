@@ -3722,6 +3722,18 @@ def cmd_growth(args):
 
 
 @_business_command
+def cmd_geo(args):
+    from core import geo_cli
+    return geo_cli.handle(args, DATA)
+
+
+@_business_command
+def cmd_seo(args):
+    from core import seo_cli
+    return seo_cli.handle(args, DATA)
+
+
+@_business_command
 def cmd_orchestrate(args):
     from core import orchestration, work
     product = work.facts_document_from_file(args.product, name=getattr(args, "product_name", ""))
@@ -6380,6 +6392,10 @@ def build_parser():
     from core import growth_cli
     growth_cli.register(sp)
     sp.set_defaults(fn=cmd_growth)
+
+    from core import geo_cli, seo_cli
+    geo_cli.register(sub).set_defaults(fn=cmd_geo)
+    seo_cli.register(sub).set_defaults(fn=cmd_seo)
 
     sp = sub.add_parser("orchestrate", help="按产品/目标/任务选择最小岗位组合、交付物与表达方式")
     sp.add_argument("--product", required=True, help="产品事实 JSON；也接受含 product 的事实包")

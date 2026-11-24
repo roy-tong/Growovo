@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import threading
+import time
 import uuid
 from contextlib import contextmanager
 from pathlib import Path
@@ -21,6 +22,46 @@ class AccountBusy(RuntimeError):
         super().__init__(f"账号忙：{account}/{route} 正在执行另一个写动作，稍后重试")
         self.account = account
         self.route = route
+
+
+class LeaseLost(RuntimeError):
+    """租约已被他人取得或本进程已丢失；写动作必须停。"""
+    code = "lease_lost"
+
+    def __init__(self, account, route, detail=""):
+        self.account = account
+        self.route = route
+        self.detail = detail
+        super().__init__(f"执行租约已丢失：{account}/{route} {detail}".strip())
+
+
+class LeaseState:
+    """执行者持有的租约视图：fence 不匹配或心跳判定丢失后禁止继续写。"""
+
+    def __init__(self, data_dir, account, route, owner, fence):
+        self.data_dir = Path(data_dir)
+        self.account = account
+        self.route = route
+        self.owner = owner
+        self.fence = int(fence)
+        self.lost = False
+        self.reason = ""
+        self._lock = threading.Lock()
+
+    def mark_lost(self, reason=""):
+        with self._lock:
+            if not self.lost:
+                self.lost = True
+                self.reason = str(reason or "")
+
+    def ensure(self):
+        if self.lost:
+            raise LeaseLost(self.account, self.route, self.reason or "heartbeat_lost")
+        state = growth_runtime.execution_lane_state(self.data_dir, self.account, self.route)
+        if (not state or state["owner"] != self.owner or state["fence"] != self.fence):
+            self.mark_lost("lease_changed")
+            raise LeaseLost(self.account, self.route, "lease_changed")
+        return True
 
 
 def resolve_transport(kwargs):
@@ -46,17 +87,25 @@ def resolve_transport(kwargs):
     return kwargs
 
 
-def _start_heartbeat(data_dir, account, route, owner):
+def _start_heartbeat(data_dir, account, route, owner, state=None):
+    """续租线程。租约被抢占立即标记丢失；异常时等到租约自然过期再标丢失。"""
     stop = threading.Event()
+    last_ok = [time.monotonic()]
 
     def renew():
         while not stop.wait(LEASE_HEARTBEAT_SECONDS):
             try:
-                if not growth_runtime.try_acquire_execution_lane(
-                        data_dir, account, route, owner, lease_seconds=LEASE_SECONDS):
-                    return
+                renewed = growth_runtime.try_acquire_execution_lane(
+                    data_dir, account, route, owner, lease_seconds=LEASE_SECONDS)
             except Exception:
+                renewed = None
+            if renewed:
+                last_ok[0] = time.monotonic()
                 continue
+            if renewed is False or time.monotonic() - last_ok[0] >= LEASE_SECONDS:
+                if state is not None:
+                    state.mark_lost("lease_taken" if renewed is False else "renewal_failed")
+                return
 
     thread = threading.Thread(target=renew, daemon=True)
     thread.start()
@@ -77,9 +126,11 @@ def lease(data_dir, *, account="default", route="unknown"):
     if not growth_runtime.try_acquire_execution_lane(
             data_dir, account, route, owner, lease_seconds=LEASE_SECONDS):
         raise AccountBusy(account, route)
-    heartbeat = _start_heartbeat(data_dir, account, route, owner)
+    lane = growth_runtime.execution_lane_state(data_dir, account, route) or {}
+    state = LeaseState(data_dir, account, route, owner, lane.get("fence") or 0)
+    heartbeat = _start_heartbeat(data_dir, account, route, owner, state=state)
     try:
-        yield
+        yield state
     finally:
         _stop_heartbeat(heartbeat)
         growth_runtime.release_execution_lane(data_dir, account, route, owner)
@@ -98,9 +149,16 @@ def execute(**kwargs):
     if not acquired:
         return {"ok": False, "result": "account_busy", "retryable": True,
                 "account": account, "route": route}
-    heartbeat = _start_heartbeat(data_dir, account, route, owner)
+    lane = growth_runtime.execution_lane_state(data_dir, account, route) or {}
+    state = LeaseState(data_dir, account, route, owner, lane.get("fence") or 0)
+    heartbeat = _start_heartbeat(data_dir, account, route, owner, state=state)
     try:
-        return run_action(**kwargs)
+        return run_action(lease_guard=state, **kwargs)
+    except Exception as exc:
+        if getattr(exc, "code", "") == "lease_lost":
+            return {"ok": False, "result": "lease_lost", "retryable": False,
+                    "account": account, "route": route, "detail": str(exc)}
+        raise
     finally:
         _stop_heartbeat(heartbeat)
         growth_runtime.release_execution_lane(data_dir, account, route, owner)

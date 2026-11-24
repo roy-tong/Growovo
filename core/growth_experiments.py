@@ -27,6 +27,7 @@ def create(data_dir, service_id, spec):
         "schema": "growovo.growth-experiment/1",
         "id": _safe(spec["id"]),
         "service_id": _safe(service_id),
+        "kind": str(spec.get("kind") or "growth"),
         "hypothesis": spec["hypothesis"],
         "primary_metric": spec["primary_metric"],
         "target": spec["target"],
@@ -36,6 +37,8 @@ def create(data_dir, service_id, spec):
         "status": "active",
         "created_at": dt.datetime.now().astimezone().isoformat(timespec="seconds"),
     }
+    if "design" in spec:
+        experiment["design"] = copy.deepcopy(spec["design"])
     def mutate(current):
         if current:
             raise ValueError(f"实验已存在 {experiment['id']}")
