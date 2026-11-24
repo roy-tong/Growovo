@@ -7,6 +7,7 @@
 - GEO workspace: `mkt geo entity|questions|run|capture|score|report|facts` stores a canonical entity fact table, frozen question sets, tiered observations, Wilson intervals, explicit `not_run` rows and content-bound reports. `mkt seo audit` adds a read-only robots/sitemap/canonical/hreflang/JSON-LD/duplicate/doorway audit. Captures stay import-first: no login, CAPTCHA bypass or automatic consumer-AI querying.
 - Risk-tiered authorization: `growth authorize grant|revoke|list` and `growth policy explain` cover action class, scope, quota, expiry and revocation. Routine replies and outreach require grants; public statements and money/contract actions require named review and cannot be standing grants.
 - Observable growth cycle: `growth cycle request|propose|execute|status|list` records `growth.cycle-request/1` → `growth.cycle-proposal/1`, applies the risk policy to every proposal, refuses missing grants/quota/DNC/expired cycles, and routes accepted actions through the existing execution gateway. The worker reports due cycles but never captures or sends on its own.
+- GEO experiments and agent readiness: `mkt geo experiment create|report|status` requires a pre-registered baseline/intervention/control design and writes `inconclusive` when the sample is too small. `mkt geo agent-check` compares entity facts with `llms.txt`/MCP/AGENTS and reports crawler/usage counts as a lower bound.
 
 ### Changed
 
