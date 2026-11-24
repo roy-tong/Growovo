@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Added
+
+- GEO workspace: `mkt geo entity|questions|run|capture|score|report|facts` stores a canonical entity fact table, frozen question sets, tiered observations, Wilson intervals, explicit `not_run` rows and content-bound reports. `mkt seo audit` adds a read-only robots/sitemap/canonical/hreflang/JSON-LD/duplicate/doorway audit. Captures stay import-first: no login, CAPTCHA bypass or automatic consumer-AI querying.
+- Risk-tiered authorization: `growth authorize grant|revoke|list` and `growth policy explain` cover action class, scope, quota, expiry and revocation. Routine replies and outreach require grants; public statements and money/contract actions require named review and cannot be standing grants.
+- Observable growth cycle: `growth cycle request|propose|execute|status|list` records `growth.cycle-request/1` → `growth.cycle-proposal/1`, applies the risk policy to every proposal, refuses missing grants/quota/DNC/expired cycles, and routes accepted actions through the existing execution gateway. The worker reports due cycles but never captures or sends on its own.
+
 ### Changed
 
 - Channel actions can no longer be marked `completed` without a completion type. `verified` needs a receipt (`action_id`, `channel`, `sent_at`, `idempotency_key`, `readback`); `attested_manual` needs a named operator and a reason. Metrics split into `completed_verified` / `completed_attested` / `completed_declared`, and downstream actions resting on a manual attestation are marked `dependency_quality: attested`.
@@ -13,7 +19,7 @@
 
 ### Verification
 
-- 2476 offline tests and the zero-network demo pass; new coverage includes lease takeover, completion-type enforcement, provenance and legacy-completion annotation.
+- 2526 offline tests and the zero-network demo pass; new coverage includes lease takeover, completion-type enforcement, provenance, GEO scoring/reproducibility, SEO fixtures, risk grants and cycle refusal paths. A wheel installed into an empty venv exposes `mkt geo`, `mkt seo` and `mkt demo`.
 
 ## 0.21.0 — 2026-11-24
 
