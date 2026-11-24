@@ -30,4 +30,7 @@
     <changefreq>monthly</changefreq>
     <priority>0.8</priority>
   </url>
+  <url><loc>https://roy-tong.github.io/Growovo/blog/index.html</loc><lastmod>2026-11-27</lastmod><priority>0.8</priority></url>
+  <url><loc>https://roy-tong.github.io/Growovo/blog/02-growovo-exactly-once-is-the-wrong-goal.html</loc><lastmod>2026-11-27</lastmod><priority>0.8</priority></url>
+  <url><loc>https://roy-tong.github.io/Growovo/blog/05-growovo-a-scheduler-that-knows-when-not-to-send.html</loc><lastmod>2026-11-27</lastmod><priority>0.8</priority></url>
 </urlset>
