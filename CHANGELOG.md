@@ -1,5 +1,20 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- Channel actions can no longer be marked `completed` without a completion type. `verified` needs a receipt (`action_id`, `channel`, `sent_at`, `idempotency_key`, `readback`); `attested_manual` needs a named operator and a reason. Metrics split into `completed_verified` / `completed_attested` / `completed_declared`, and downstream actions resting on a manual attestation are marked `dependency_quality: attested`.
+- `growth evaluate` records per-metric provenance and adds `primary_verified` next to `primary_success`. Bare numbers stay `owner_declared`; only same-definition observed or independently verified pairs can be `primary_verified`, and unverified numbers no longer trigger a "repeat" recommendation.
+
+### Fixed
+
+- Execution leases carry a monotonic fence in `execution_fence_counters`. A heartbeat that loses the lease marks its state lost, and `run_action` re-checks ownership at entry and before dispatch; a lost lease returns `lease_lost` with `retryable: false` instead of writing.
+
+### Verification
+
+- 2476 offline tests and the zero-network demo pass; new coverage includes lease takeover, completion-type enforcement, provenance and legacy-completion annotation.
+
 ## 0.21.0 — 2026-11-24
 
 ### Added

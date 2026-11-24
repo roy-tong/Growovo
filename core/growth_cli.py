@@ -89,6 +89,10 @@ def register(parser):
     item.add_argument("--note", default="")
     item.add_argument("--minutes", type=int, default=0)
     item.add_argument("--evidence", default="")
+    item.add_argument("--completion-kind", choices=["verified", "attested_manual"], default="",
+                      help="渠道动作标记 completed 时的完成类型；verified 需同时给 --receipt")
+    item.add_argument("--receipt", default="", help="verified 回执 JSON：action_id/channel/sent_at/idempotency_key/readback")
+    item.add_argument("--reason", default="", help="attested_manual 的人工完成原因")
     item.add_argument("--json", action="store_true")
     item = sub.add_parser("evaluate")
     item.add_argument("service_id")
@@ -277,9 +281,17 @@ def handle(args, data_dir):
             _emit(row or {"status": "no_ready_action"})
         elif args.growth_action == "transition":
             evidence = json.loads(args.evidence) if args.evidence else None
+            completion = None
+            if args.completion_kind:
+                completion = {"kind": args.completion_kind}
+                if args.receipt:
+                    completion["receipt"] = json.loads(args.receipt)
+                if args.reason:
+                    completion["reason"] = args.reason
             _emit(growth_service.record_action(
                 data_dir, args.service_id, args.action, args.status,
-                by=args.by, note=args.note, minutes=args.minutes, evidence=evidence))
+                by=args.by, note=args.note, minutes=args.minutes, evidence=evidence,
+                completion=completion))
         elif args.growth_action == "evaluate":
             _emit(growth_service.evaluate(
                 data_dir, args.service_id, _read(args.metrics), by=args.by))
