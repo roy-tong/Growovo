@@ -29,6 +29,24 @@ def _overlap(left, right):
     return len(left & right) / float(len(left | right))
 
 
+def _containment(left, right):
+    """How much of `left` appears in `right`; document length must not dilute it."""
+    if not left:
+        return 0.0
+    return len(left & right) / float(len(left))
+
+
+def _repo_key(url):
+    text = str(url or "").strip().rstrip("/")
+    if text.lower().endswith(".git"):
+        text = text[:-4]
+    return text.lower()
+
+
+def _has_cjk(text):
+    return any("一" <= char <= "鿿" for char in text)
+
+
 def _check(asset, check, status, detail, evidence=None):
     return {"asset": asset, "check": check, "status": status,
             "detail": detail, "evidence": evidence or {}}
@@ -79,20 +97,25 @@ def check(data_dir, repo, *, site=None):
                 checks.append(_check(asset, "homepage", "warn", "未出现事实表主页 URL"))
             else:
                 checks.append(_check(asset, "homepage", "pass", "出现主页 URL"))
-            overlap = _overlap(_tokens(one_line), _tokens(text[:20000]))
-            if one_line and overlap < 0.35:
-                checks.append(_check(asset, "one_line", "warn",
-                                     "一句话描述与事实表重合度较低（%.2f）" % overlap,
-                                     {"overlap": round(overlap, 3), "expected": one_line}))
+            if one_line and ".zh-cn." in asset.lower() and not _has_cjk(one_line):
+                checks.append(_check(asset, "one_line", "not_applicable",
+                                     "中文字档与英文一句话描述语言不同，跳过重合度比对"))
             else:
-                checks.append(_check(asset, "one_line", "pass",
-                                     "一句话描述与事实表一致或接近（%.2f）" % overlap))
+                overlap = _containment(_tokens(one_line), _tokens(text[:20000]))
+                if one_line and overlap < 0.5:
+                    checks.append(_check(asset, "one_line", "warn",
+                                         "一句话描述在文档中的词覆盖度较低（%.2f）" % overlap,
+                                         {"overlap": round(overlap, 3), "expected": one_line}))
+                else:
+                    checks.append(_check(asset, "one_line", "pass",
+                                         "一句话描述在文档中的词覆盖度正常（%.2f）" % overlap,
+                                         {"overlap": round(overlap, 3)}))
         if asset in ("README.md", "README.en.md", "README.zh-CN.md", "llms.txt"):
-            base_repo = repo_url.rstrip("/")
+            base_repo = _repo_key(repo_url)
             foreign = sorted(url for url in _urls(text)
-                             if "github.com" in url and repo_url
-                             and url.rstrip("/") != base_repo
-                             and not url.startswith(base_repo + "/"))
+                             if "github.com" in url and base_repo
+                             and _repo_key(url) != base_repo
+                             and not _repo_key(url).startswith(base_repo + "/"))
             if foreign:
                 checks.append(_check(asset, "foreign_repo", "warn",
                                      "出现其他 GitHub 仓库 URL", {"urls": foreign[:5]}))

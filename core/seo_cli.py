@@ -23,6 +23,7 @@ def register(parser):
     item = sub.add_parser("report", help="审计并输出 Markdown")
     item.add_argument("--url", required=True)
     item.add_argument("--sample", type=int, default=10)
+    item.add_argument("--timeout", type=int, default=10)
     item.add_argument("--out", default="")
     item.add_argument("--json", action="store_true")
     return seo
