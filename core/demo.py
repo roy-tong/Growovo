@@ -232,7 +232,7 @@ def run_demo(base, *, data_dir=None):
 
     # ── 4. 三道拦截（dry-run 永不触发 SEND）────────────────────
     explain = {
-        "dry-run": "干跑停点：门禁与回读校验都过，未发送已留痕（--go 才实跑）",
+        "dry-run": "显式预览停点：门禁与回读校验都过，未发送已留痕（默认 live，--dry-run 才预览）",
         "rejected": "门禁拒绝：占位符残留 = 千人千面没做完",
         "failed": "回读不一致：宁可失败绝不发送（449 空正文事故的固化）",
     }
@@ -299,5 +299,5 @@ def run_demo(base, *, data_dir=None):
           "（包含 d-003 有意失败；不代表外部业务失败或成功）")
 
     print("\n下一步（真实使用）：写 data/plans/<plan_id>.json → lint → 人审 → "
-          "mkt email message --queue data/queues/<campaign>.json（默认 dry-run，--go 才实跑）")
+          "mkt email message --queue data/queues/<campaign>.json（默认 live，--dry-run 显式预览）")
     return 0

@@ -72,7 +72,7 @@ class WritePipeline:
 
     def run_one(self, item, *, channel, action, campaign, transport,
                 expect, target, compose, fill, readback, send, confirm,
-                shot=None, dry_run=True, max_len=None, account=None):
+                shot=None, receipt=None, dry_run=True, max_len=None, account=None):
         """执行一条队列项，返回终态 record dict（同时已入账本）。
 
         expect   期望进入编辑器/邮件正文的文本（回读比对基准）
@@ -134,6 +134,8 @@ class WritePipeline:
             send_started = True
             send(item)                       # Exceptions may occur after acceptance.
             ok = confirm(item)
+            if ok and receipt is not None:
+                rec["evidence"] = str(receipt(item) or "")
             rec.update(result="committed" if ok else "indeterminate")
         except action_claims.DuplicateAction as exc:
             rec.update(result=exc.state,

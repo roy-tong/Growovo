@@ -56,7 +56,7 @@ def main() -> int:
         page.wait_for_timeout(2000)
         if "x.com/login" in page.url:
             log("未登录")
-            page.close()
+            release_page(page)
             return 3
 
         # 每条推：article[data-testid=tweet] 结构；max-pages>1 时滚动加载并按 URL 去重

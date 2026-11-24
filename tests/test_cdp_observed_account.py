@@ -160,7 +160,7 @@ class ObservedAccountVerticalChainTests(unittest.TestCase):
         with patches[0], patches[1], patches[2], patches[3]:
             return run_queue(
                 self.queue_path, data_dir=self.dir, go=True, routine=True,
-                operator="offline-test", run_id="run-switch",
+                legacy_cdp=True, operator="offline-test", run_id="run-switch",
                 log=lambda *a, **k: None)
 
     def _vendor_calls(self):
@@ -231,7 +231,7 @@ class ObservedAccountVerticalChainTests(unittest.TestCase):
                 action_runner.run_action(
                     channel="x", action="reply", data_dir=self.dir,
                     campaign="switch-campaign", target=self.items[0]["target"],
-                    text=self.items[0]["body"], go=True, routine=True,
+                    text=self.items[0]["body"], go=True, routine=True, legacy_cdp=True,
                     operator="offline-test", log=lambda *a, **k: None)
         self.assertIn("identity_unknown", str(ctx.exception))
         self.assertEqual([], self._vendor_calls(), "缺身份绝不能触达 vendor")

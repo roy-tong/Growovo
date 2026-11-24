@@ -5,9 +5,9 @@
 不写盘、不发送）：调 goals 生成目标契约，调 strategy 选主渠道与理由，再折成
 配额、时间窗、供给需求单、读数计划与护栏。真正落盘由 grow_v2.launch 负责。
 
-自动执行只走 platform_caps.auto_channels()；技术可用但平台许可禁止自主写
-的渠道（如 X 的非 API 自动化）编为人工辅助计划，并在编译结果里明确告警，
-避免出现「编译时当作自动、运行时才被合规门拒绝」的假计划。
+自动执行只看 platform_caps.auto_channels() 的写通道、队列支持和技术验证状态。
+UNVERIFIED 渠道需要技术首跑确认；平台规则以非阻断风险提示写入计划，不再把
+业务渠道编译成人工辅助来规避平台口径。
 """
 from __future__ import annotations
 
@@ -194,14 +194,16 @@ def compile_run(*, run_id: str, facts: Dict[str, Any], goal_id: str,
     autonomous_channels = [c for c in channel_list if platform_caps.is_auto(c)]
     assisted_channels = [c for c in channel_list if not platform_caps.is_auto(c)]
     warnings: List[str] = list(plan.get("warnings") or [])
+    for ch in channel_list:
+        row = platform_caps.classify(ch)
+        policy = row.get("policy") or {}
+        if policy.get("risk_warning"):
+            warnings.append(f"渠道 {ch} {policy['risk_warning']}（{policy.get('code')}）")
     for ch in assisted_channels:
         row = platform_caps.classify(ch)
-        code = str((row.get("policy") or {}).get("code") or "")
         warnings.append(
-            f"渠道 {ch} 只能人工辅助：{row.get('reason') or '平台许可不允许自主执行'}"
-            f"{f'（{code}）' if code else ''}。自主执行的渠道是 "
-            f"{platform_caps.auto_channels()}；{ch} 的内容只出人工发送单，"
-            "不计入自动发布量。")
+            f"渠道 {ch} 需要技术首跑确认：{row.get('reason') or '写通道尚未验证'}。"
+            "这不是平台合规阻断；完成技术验证后可进入自主执行。")
 
     primary_actions = actions_map[primary_channel]
     secondary_channels = [c for c in channel_list if c != primary_channel]

@@ -37,24 +37,39 @@ def plan_prefetch(data_dir, policy: Dict[str, Any]) -> Dict[str, Any]:
     sources = {str(x) for x in (config.get("sources") or ["github", "content"])}
     lookahead = max(1, int(config.get("lookahead_waves") or 2))
     payload = supply_pool.load(data_dir)
-    available: Dict[str, int] = {}
+    candidates: Dict[str, int] = {}
+    ready: Dict[str, int] = {}
     for item in (payload.get("items") or {}).values():
         if item.get("status") != "new":
             continue
         key = "%s/%s" % (item.get("channel") or "", item.get("action") or "")
-        available[key] = available.get(key, 0) + 1
+        candidates[key] = candidates.get(key, 0) + 1
+        if str(item.get("text") or "").strip():
+            ready[key] = ready.get(key, 0) + 1
     needed: Dict[str, Dict[str, Any]] = {}
     for key, per_wave in (supply.get("wave_targets") or {}).items():
         source = _SOURCE_FOR.get(str(key))
         if not source:
             continue
         target = int(per_wave or 0) * lookahead
-        current = available.get(str(key), 0)
+        current = ready.get(str(key), 0)
+        candidate_count = candidates.get(str(key), 0)
         if current >= target:
+            continue
+        if candidate_count >= target:
+            bucket = needed.setdefault("drafts", {
+                "source": "drafts", "kind": "draft_preparation",
+                "available": 0, "candidates": 0, "target": 0,
+            })
+            bucket["available"] += current
+            bucket["candidates"] += candidate_count
+            bucket["target"] += target
             continue
         bucket = needed.setdefault(source, {"source": source, "available": 0, "target": 0})
         bucket["available"] += current
         bucket["target"] += target
+    if needed.get("drafts"):
+        out["jobs"].append(needed["drafts"])
     for source in ("github", "x", "content"):
         job = needed.get(source)
         if not job or source not in sources:
@@ -69,11 +84,12 @@ def plan_prefetch(data_dir, policy: Dict[str, Any]) -> Dict[str, Any]:
 class Prefetcher:
     """每波最多一个后台 worker；结束时停止并接受剩余查询，不遗留写线程。"""
 
-    def __init__(self, data_dir, policy: Dict[str, Any], *, ledger=None, log=print):
+    def __init__(self, data_dir, policy: Dict[str, Any], *, ledger=None, log=print, draft_writer=None):
         self.data_dir = Path(data_dir)
         self.policy = policy
         self.ledger = ledger or Ledger(self.data_dir / "ledger.jsonl")
         self.log = log
+        self.draft_writer = draft_writer
         self.stop_event = threading.Event()
         self._thread: Optional[threading.Thread] = None
         self._lock = None
@@ -124,7 +140,11 @@ class Prefetcher:
                 if index and self.stop_event.is_set():
                     break
                 source = job["source"]
-                if source == "github":
+                if source == "drafts":
+                    if self.draft_writer is None:
+                        raise RuntimeError("draft_writer_unavailable")
+                    reports[source] = self.draft_writer(job=job)
+                elif source == "github":
                     days = int(config.get("days") or 14)
                     queries = supply_mine.gh_queries(days)[:max(1, int(
                         config.get("max_queries") or 3))]

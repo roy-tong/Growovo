@@ -165,13 +165,65 @@ def discover(queries: List[str], *, limit: int = 10, max_age_hours: float = 48,
              min_likes: int = 0, min_replies: int = 0,
              exclude_handles: Iterable[str] = (), exclude_urls: Iterable[str] = (),
              pages: int = 1, cdp_url: Optional[str] = None,
+             data_dir: Optional[Path] = None,
              log=print) -> List[Dict[str, Any]]:
+    """只读搜索并返回过滤后的候选。默认 WebBridge，CDP 需显式 legacy。"""
+    from . import x_read_bridge
+    if x_read_bridge.legacy_enabled():
+        return _discover_cdp(queries, limit=limit, max_age_hours=max_age_hours,
+                             min_likes=min_likes, min_replies=min_replies,
+                             exclude_handles=exclude_handles, exclude_urls=exclude_urls,
+                             pages=pages, cdp_url=cdp_url, log=log)
+    return _discover_bridge(queries, limit=limit, max_age_hours=max_age_hours,
+                            min_likes=min_likes, min_replies=min_replies,
+                            exclude_handles=exclude_handles, exclude_urls=exclude_urls,
+                            pages=pages, data_dir=data_dir, log=log)
+
+
+def _discover_bridge(queries: List[str], *, limit: int, max_age_hours: float,
+                     min_likes: int, min_replies: int,
+                     exclude_handles: Iterable[str], exclude_urls: Iterable[str],
+                     pages: int, data_dir: Optional[Path], log) -> List[Dict[str, Any]]:
+    from . import x_read_bridge
+    from .bridge import wb
+    raw: Dict[str, Dict[str, Any]] = {}
+    data_dir = data_dir or Path("data")
+    for query in queries:
+        encoded = query.replace(" ", "%20").replace('"', "%22")
+        search_url = f"https://x.com/search?q={encoded}&src=typed_query&f=live"
+        attach, tab = x_read_bridge.open_x(data_dir, search_url)
+        x_read_bridge.navigate(tab, search_url)
+        x_read_bridge.assert_ready(attach, tab)
+        for page_index in range(max(1, int(pages))):
+            rows = x_read_bridge.read_articles(attach, tab)
+            for row in rows:
+                if not row.get("url"):
+                    continue
+                row["engagement"] = parse_engagement(row.get("labels") or [])
+                row["age_hours"] = age_hours(row.get("created_at", ""))
+                row["query"] = query
+                raw.setdefault(row["url"], row)
+            if page_index + 1 < pages:
+                attach.eval(tab, "window.scrollBy(0, 2500)")
+                wb.time.sleep(1.5)
+        log(f"[targets] {query}: 已收 {len(raw)} 条")
+    return filter_candidates(list(raw.values()), max_age_hours=max_age_hours,
+                             min_likes=min_likes, min_replies=min_replies,
+                             exclude_handles=exclude_handles,
+                             exclude_urls=exclude_urls)
+
+
+def _discover_cdp(queries: List[str], *, limit: int, max_age_hours: float,
+                  min_likes: int, min_replies: int,
+                  exclude_handles: Iterable[str], exclude_urls: Iterable[str],
+                  pages: int, cdp_url: Optional[str], log) -> List[Dict[str, Any]]:
     """只读搜索并返回过滤后的候选。需要已登录的调试 Chrome。"""
     from . import cdp
     queries = [str(q).strip() for q in queries if str(q).strip()]
     if not queries:
         raise TargetError("至少给一个搜索词")
     browser, page = cdp.connect(cdp_url)
+    cdp.assert_x_ready(page)
     raw: Dict[str, Dict[str, Any]] = {}
     try:
         for query in queries:
@@ -238,10 +290,25 @@ def render(rows: List[Dict[str, Any]]) -> str:
 
 
 def read_tweet_text(url: str, *, cdp_url: Optional[str] = None,
+                    data_dir: Optional[Path] = None,
                     log=print) -> str:
     """打开一条推文，读正文（用于 stage 时自动补 target_text）。只读。"""
+    from . import x_read_bridge
+    if x_read_bridge.legacy_enabled():
+        return _read_tweet_text_cdp(url, cdp_url=cdp_url, log=log)
+    attach, tab = x_read_bridge.open_x(data_dir or Path("data"), url)
+    x_read_bridge.navigate(tab, url)
+    x_read_bridge.assert_ready(attach, tab)
+    rows = x_read_bridge.read_articles(attach, tab)
+    if not rows:
+        return ""
+    return " ".join(str(rows[0].get("text") or "").split())[:500]
+
+
+def _read_tweet_text_cdp(url: str, *, cdp_url: Optional[str], log) -> str:
     from . import cdp
     browser, page = cdp.connect(cdp_url)
+    cdp.assert_x_ready(page)
     try:
         if not cdp.safe_goto(page, url, log=log):
             return ""

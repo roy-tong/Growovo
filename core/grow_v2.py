@@ -749,7 +749,8 @@ class GrowRunV2:
              metrics_reader: Optional[Callable[..., Any]] = None,
              content_writer=None, discover=None,
              now: Optional[datetime] = None,
-             deliver: bool = False, log: Callable[..., Any] = print) -> Dict[str, Any]:
+             deliver: bool = False, legacy_cdp: bool = False,
+             log: Callable[..., Any] = print) -> Dict[str, Any]:
         data_dir = Path(data_dir)
         on = on or _today()
         now = now or _now_utc()
@@ -838,7 +839,8 @@ class GrowRunV2:
             try:
                 records = list(runner(
                     queue_path, data_dir=data_dir, go=bool(data.get("go")),
-                    routine=True, account=str((data.get("guards") or {}).get("account_id") or ""),
+                    routine=True, legacy_cdp=legacy_cdp,
+                    account=str((data.get("guards") or {}).get("account_id") or ""),
                     continue_on_duplicate=True, only_ids=[c["id"] for c in candidates],
                     interval_seconds=tuple((data.get("quota") or {}).get("interval_seconds") or ()) or None,
                     operator=f"grow:{data['id']}", run_id=str(data["id"]),

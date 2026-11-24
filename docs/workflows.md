@@ -94,12 +94,12 @@ python3 mkt.py workflow approve hn-reply --by "operator" --days 30
 ## 5. 重放
 
 ```bash
-python3 mkt.py workflow replay hn-reply --var item=123 --var text="..."          # dry-run：只解析定位器
+python3 mkt.py workflow replay hn-reply --var item=123 --var text="..." --dry-run   # dry-run：只解析定位器
 python3 mkt.py workflow replay hn-reply --cdp-url http://127.0.0.1:9222 ... --go  # 实跑
 ```
 
 - dry-run 不填、不点、不发，只报告每一步用哪个策略定位成功；
-- `action` 步骤调用 `action_runner.run_action`，沿用暂停、审批、抑制名单、UNVERIFIED 门槛与账本；
+- `action` 步骤经 `action_gateway.execute`（再调 `action_runner.run_action`）取账号/路线执行租约，沿用暂停、审批、抑制名单、UNVERIFIED 门槛与账本；
 - `commit` 点击在执行前检查全局暂停与当日预算，点击后写账本（`transport=workflow-ui`，结果 `committed`）；点击抛错记为 `indeterminate`；
 - UI 步骤需要调试浏览器（`--cdp-url`），没有浏览器直接报错，不降级成猜测。
 

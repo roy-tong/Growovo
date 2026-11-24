@@ -1,17 +1,27 @@
-"""Growovo local patch: reuse one automation tab across read/write commands."""
-def automation_page(context):
+import os
+
+
+def automation_page(context, url_prefixes=None):
     pages = list(context.pages)
+    managed_url = os.environ.get("MKT_MANAGED_TAB_URL", "")
+    if managed_url:
+        for page in pages:
+            if page.url == managed_url or page.url.startswith(managed_url.rstrip("/") + "/"):
+                return page
+        raise RuntimeError(
+            "managed_tab_required: no x.com/home tab in this CDP browser; "
+            "open x.com/home in the debug browser or use browser-attach")
+    prefixes = tuple(url_prefixes or ("https://x.com/", "https://twitter.com/"))
     for page in pages:
-        if page.url.startswith(('https://x.com/', 'https://twitter.com/')):
+        if page.url.startswith(prefixes):
             return page
     for page in pages:
-        if page.url in ('about:blank', 'chrome://newtab/', 'chrome://newtab'):
+        if page.url in ("about:blank", "chrome://newtab/", "chrome://newtab"):
             return page
-    return context.new_page()
+    raise RuntimeError("managed_tab_required: reuse a WebMonitor managed tab; Playwright new_page is disabled")
 
 
 def release_page(page):
-    # Keep the shared page for the next operation. Exiting Playwright disconnects.
     return None
 
 

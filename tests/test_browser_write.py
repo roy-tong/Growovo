@@ -19,9 +19,9 @@ from core import browser_write
 
 
 class XPlatformPermissionTest(unittest.TestCase):
-    def test_owner_attestation_cannot_reach_engine_or_committed_ledger(self):
+    def test_revoked_owner_attestation_cannot_reach_engine_or_committed_ledger(self):
         fake = mock.Mock()
-        fake.ensure_tab.return_value = 11
+        fake.ensure_managed_tab.return_value = 11
         fake.probe_visibility.return_value = "visible"
         fake.observe_identity.return_value = {
             "enforced": True, "mode": "cdp_observed",
@@ -35,6 +35,7 @@ class XPlatformPermissionTest(unittest.TestCase):
             "approved_at": now.isoformat(), "window_start": now.isoformat(),
             "window_end": (now + dt.timedelta(hours=1)).isoformat(),
             "scopes": ["x:publish"], "stop_conditions": ["captcha"],
+            "revoked": True,
         }
         with tempfile.TemporaryDirectory() as tmp, \
                 mock.patch.object(browser_write, "BrowserAttach", return_value=fake), \
@@ -47,7 +48,7 @@ class XPlatformPermissionTest(unittest.TestCase):
                                       go=True, log=lambda *_: None)
             rows = browser_write._ledger(tmp).all()
 
-        self.assertEqual(ctx.exception.code, "platform_permission_required")
+        self.assertEqual(ctx.exception.code, "authorization_revoked")
         engine.assert_not_called()
         quota.assert_not_called()
         self.assertEqual(rows, [])
@@ -56,7 +57,7 @@ class XPlatformPermissionTest(unittest.TestCase):
 class HiddenXTabTest(unittest.TestCase):
     def test_hidden_x_tab_blocks_when_focus_emulation_unavailable(self):
         fake = mock.Mock()
-        fake.ensure_tab.return_value = 11
+        fake.ensure_managed_tab.return_value = 11
         fake.probe_visibility.return_value = "hidden"
         fake.focus_emulation.return_value = {"ok": False, "error": "cdp refused"}
         with tempfile.TemporaryDirectory() as tmp, \
@@ -67,13 +68,13 @@ class HiddenXTabTest(unittest.TestCase):
                 browser_write.execute("x", "publish", Path(tmp), text="hello", go=True)
 
         self.assertEqual(ctx.exception.code, "tab_hidden")
-        self.assertTrue(fake.ensure_tab.call_args.kwargs.get("prefer_visible"))
+        self.assertTrue(fake.ensure_managed_tab.call_args.kwargs.get("prefer_visible"))
         fake.observe_identity.assert_not_called()
         auth.assert_not_called()
 
     def test_hidden_tab_recovered_by_focus_emulation(self):
         fake = mock.Mock()
-        fake.ensure_tab.return_value = 11
+        fake.ensure_managed_tab.return_value = 11
         fake.probe_visibility.side_effect = ["hidden", "visible"]
         fake.focus_emulation.return_value = {"ok": True}
         fake.observe_identity.return_value = {"handle": "owner"}
@@ -101,7 +102,7 @@ class HiddenXTabTest(unittest.TestCase):
 
     def test_non_x_channels_do_not_probe_visibility(self):
         fake = mock.Mock()
-        fake.ensure_tab.return_value = 14
+        fake.ensure_managed_tab.return_value = 14
         fake.observe_identity.side_effect = RuntimeError("stop after gate order")
         with tempfile.TemporaryDirectory() as tmp, \
                 mock.patch.object(browser_write, "BrowserAttach", return_value=fake):
@@ -118,7 +119,7 @@ class AttemptedSendReadbackTest(unittest.TestCase):
 
     def _execute(self, channel, engine):
         fake = mock.Mock()
-        fake.ensure_tab.return_value = 11
+        fake.ensure_managed_tab.return_value = 11
         fake.probe_visibility.return_value = "visible"
         fake.observe_identity.return_value = {"handle": "owner"}
         with tempfile.TemporaryDirectory() as tmp, \
@@ -168,7 +169,7 @@ class StatusBindingTest(unittest.TestCase):
 
     def _run_publish(self, tmp, engine, readback=None):
         fake = mock.Mock()
-        fake.ensure_tab.return_value = 11
+        fake.ensure_managed_tab.return_value = 11
         fake.probe_visibility.return_value = "visible"
         fake.observe_identity.return_value = {"handle": "owner"}
         with mock.patch.object(browser_write, "BrowserAttach", return_value=fake), \
@@ -217,7 +218,7 @@ class ChannelTargetFailureTest(unittest.TestCase):
 
     def test_discord_same_channel_three_texts_all_execute(self):
         fake = mock.Mock()
-        fake.ensure_tab.return_value = 11
+        fake.ensure_managed_tab.return_value = 11
         fake.observe_identity.return_value = {"handle": "owner"}
         with tempfile.TemporaryDirectory() as tmp, \
                 mock.patch.object(browser_write, "BrowserAttach", return_value=fake), \
@@ -237,7 +238,7 @@ class ChannelTargetFailureTest(unittest.TestCase):
 
     def test_discord_repeated_text_is_skipped_as_duplicate_content(self):
         fake = mock.Mock()
-        fake.ensure_tab.return_value = 11
+        fake.ensure_managed_tab.return_value = 11
         fake.observe_identity.return_value = {"handle": "owner"}
         with tempfile.TemporaryDirectory() as tmp, \
                 mock.patch.object(browser_write, "BrowserAttach", return_value=fake), \
@@ -261,7 +262,7 @@ class ChannelTargetFailureTest(unittest.TestCase):
 
     def test_single_github_422_isolates_target_without_stopping_channel(self):
         fake = mock.Mock()
-        fake.ensure_tab.return_value = 11
+        fake.ensure_managed_tab.return_value = 11
         fake.observe_identity.return_value = {"handle": "owner"}
         with tempfile.TemporaryDirectory() as tmp, \
                 mock.patch.object(browser_write, "BrowserAttach", return_value=fake), \
@@ -282,7 +283,7 @@ class ChannelTargetFailureTest(unittest.TestCase):
 
     def test_three_distinct_github_targets_422_stop_the_channel(self):
         fake = mock.Mock()
-        fake.ensure_tab.return_value = 11
+        fake.ensure_managed_tab.return_value = 11
         fake.observe_identity.return_value = {"handle": "owner"}
         with tempfile.TemporaryDirectory() as tmp, \
                 mock.patch.object(browser_write, "BrowserAttach", return_value=fake), \
@@ -304,7 +305,7 @@ class ChannelTargetFailureTest(unittest.TestCase):
 
     def test_x_unrendered_target_is_isolated_not_retried(self):
         fake = mock.Mock()
-        fake.ensure_tab.return_value = 11
+        fake.ensure_managed_tab.return_value = 11
         fake.probe_visibility.return_value = "visible"
         fake.observe_identity.return_value = {"handle": "owner"}
         target = "https://x.com/a/status/1"
@@ -334,7 +335,7 @@ class DiscordReplyRouteTest(unittest.TestCase):
 
     def _run(self, target, engine=None):
         fake = mock.Mock()
-        fake.ensure_tab.return_value = 11
+        fake.ensure_managed_tab.return_value = 11
         fake.observe_identity.return_value = {"handle": "owner"}
         engine = engine or {"ok": True, "serverId": "9001", "author": "owner"}
         with tempfile.TemporaryDirectory() as tmp, \

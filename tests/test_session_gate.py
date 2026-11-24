@@ -2,6 +2,7 @@
 import tempfile
 import unittest
 from datetime import datetime, timezone
+from unittest import mock
 from pathlib import Path
 
 from core import grow_ops, session_gate
@@ -165,31 +166,35 @@ class PrecheckLoginGateTests(unittest.TestCase):
 
 
 class ReadStatsLoginTests(unittest.TestCase):
-    """未登录时 read_stats 报「登录态缺失」，不冒充解析不出来的「取不到」。"""
+    """WebMonitor 未登录或不可用时要明确报缺，不冒充解析失败。"""
 
     def setUp(self):
-        session_gate.clear_cache()
-        self.addCleanup(session_gate.clear_cache)
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
 
-    def _read(self, status):
-        from unittest.mock import patch
-        from channels.x import read_stats
-        with patch.object(read_stats.session_gate, "check_login",
-                          return_value={"channel": "x", "status": status}):
-            return read_stats.read("verovo", self.tmp.name, log=lambda *a, **k: None)
-
     def test_logged_out_reports_login_gap(self):
-        result = self._read(LOGGED_OUT)
+        from channels.x import read_stats
+        from core.browser_attach import BridgeError
+        fake = mock.Mock()
+        fake.ensure_managed_tab.return_value = 11
+        fake.observe_identity.side_effect = BridgeError(
+            "identity_unavailable", "X 页面未登录")
+        with mock.patch("channels.x.read_stats.BrowserAttach", return_value=fake):
+            result = read_stats.read("verovo", self.tmp.name, log=lambda *a, **k: None)
         self.assertIsNone(result["followers"])
-        self.assertIn("登录态缺失", result["impressions_note"])
-        self.assertEqual(LOGGED_OUT, result["login_status"])
+        self.assertIn("identity_unavailable", result["impressions_note"])
+        self.assertIn("未登录", result["impressions_note"])
+        self.assertEqual("identity_unavailable", result["login_status"])
 
-    def test_cdp_down_reports_channel_gap(self):
-        result = self._read(CDP_UNAVAILABLE)
-        self.assertIn("launch.command", result["impressions_note"])
-        self.assertEqual(CDP_UNAVAILABLE, result["login_status"])
+    def test_bridge_unavailable_reports_channel_gap(self):
+        from channels.x import read_stats
+        from core.browser_attach import BridgeError
+        with mock.patch("channels.x.read_stats.BrowserAttach",
+                        side_effect=BridgeError("bridge_unavailable", "WebBridge 未连接")):
+            result = read_stats.read("verovo", self.tmp.name, log=lambda *a, **k: None)
+        self.assertIsNone(result["followers"])
+        self.assertIn("bridge_unavailable", result["impressions_note"])
+        self.assertEqual("bridge_unavailable", result["login_status"])
 
 
 class DoctorLoginTests(unittest.TestCase):

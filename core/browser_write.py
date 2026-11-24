@@ -191,17 +191,22 @@ def execute(channel: str, action: str, data_dir, *, text: str, target: Optional[
 
     ledger = _ledger(data_dir)
     ref = "ba:%s:%s:%s" % (channel, action, uuid.uuid4().hex[:10])
-    done_states = ("committed", "indeterminate")
+    done_states = ("committed",)
     content_key = hashlib.sha1(text[:200].encode("utf-8")).hexdigest()[:12] \
         if action == "publish" else ""
     if action == "reply" and target and ledger.already(channel=channel, target=str(target),
                                                        ok=done_states):
         return {"ok": True, "skipped": True, "reason": "already_done", "target": target, "ref": ref}
+    if action == "reply" and target and ledger.already(
+            channel=channel, target=str(target), ok=("unavailable_or_unrenderable",)):
+        return {"ok": False, "skipped": True, "result": "target_rejected",
+                "target": target, "ref": ref, "reason": "target_isolated"}
     if action == "reply" and target and ledger.already(channel=channel, target=str(target),
                                                        ok=TARGET_BLOCKED):
         # 目标级永久失败：换正文、换波次都不会成功，别再打同一个目标。
         return {"ok": True, "skipped": True, "reason": "target_isolated",
-                "target": target, "ref": ref}
+                "target": target, "ref": ref, "result": "target_rejected",
+                "error": "不重试名单拦截（indeterminate/no-dm/bounced/suppressed）: " + str(target)}
     if action == "publish":
         for row in ledger.results(channel=channel, action=action):
             if row.get("result") not in done_states:
@@ -210,15 +215,19 @@ def execute(channel: str, action: str, data_dir, *, text: str, target: Optional[
                 return {"ok": True, "skipped": True, "reason": "already_done_content",
                         "target": target, "content_key": content_key, "ref": ref}
     if not go:
+        ledger.append(channel=channel, transport="browser-attach", action=action,
+                      campaign=campaign, target=target or "", result="dry-run", ref=ref,
+                      detail="dry-run preview; no external write")
         return {"ok": True, "dry": True, "channel": channel, "action": action,
                 "target": target, "text_len": len(text), "ref": ref}
 
     attach = BrowserAttach()
-    tab = attach.ensure_tab(channel if channel != "github" else "github",
-                           {"x": "https://x.com/home", "github": "https://github.com/notifications",
-                            "discord": "https://discord.com/channels/@me"}[channel],
-                           group_title="OVO engagement cycle",
-                           prefer_visible=(channel == "x"))
+    tab = attach.ensure_managed_tab(
+        data_dir, channel,
+        {"x": "https://x.com/home", "github": "https://github.com/notifications",
+         "discord": "https://discord.com/channels/@me"}[channel],
+        group_title="OVO engagement cycle",
+        prefer_visible=(channel == "x"))
     focus = {"used": False, "before": "", "after": ""}
     if channel == "x":
         visibility = attach.probe_visibility(tab)

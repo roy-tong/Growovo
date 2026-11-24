@@ -289,6 +289,8 @@ class RunActionIntegrationTests(unittest.TestCase):
             thread = False
             tweet_url = "https://x.com/a/status/3"
             text = "CLI 直通验收内容"
+            legacy_cdp = True
+            cdp_url = ""
 
         with patch("channels.x.adapter.run", _OfflineVendor("dry-run")) as runner:
             rc = mkt.cmd_x(Args())

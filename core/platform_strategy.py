@@ -398,9 +398,9 @@ STRATEGY: Dict[str, Dict[str, Any]] = {
              "statement": "批量关注/取关、批量私信、批量 @、关键词触发的自动推销回复均违禁",
              "fix": "动作白名单只保留 reply/publish，按账号统计单位时间动作数",
              "source": "docs/risk/automation-compliance.md#§二 逐平台官方口径", "grade": "official"},
-            {"code": "non_api_write", "level": "error", "scope": "execution", "detector": None,
-             "statement": "所有 X 非 API 网页脚本写都拒绝；常驻和单次 CDP 均不能用操作者授权替代平台许可",
-             "fix": "自动写接符合 X 规则的官方 API 并具名授权；未接 API 时只读、dry-run、草稿与人在 X 页面操作",
+            {"code": "non_api_write", "level": "warning", "scope": "execution", "detector": None,
+             "statement": "X 非 API 浏览器自动化存在平台规则与账号风险；此提示不阻断业务执行",
+             "fix": "按业务目标选择官方 API 或授权 CDP，保留身份、配额、回执和停手证据",
              "source": "docs/risk/automation-compliance.md#§二 逐平台官方口径", "grade": "official"},
             {"code": "daily_original_cap", "level": "error", "scope": "execution", "detector": None,
              "statement": "一天发十几条刷曝光会被限；原创 1–3 条/日是上限",
@@ -618,12 +618,18 @@ def cadence(platform: str) -> Dict[str, Any]:
 
 
 def gates(platform: str, *, scope: str = "content") -> List[Dict[str, Any]]:
-    """按作用域返回门禁：content（审稿）/ execution（执行前）/ all。"""
+    """返回内容质量检查与非阻断平台风险提示。"""
     want = {"content", "execution"} if scope == "all" else {scope}
     out = []
     for gate in get(platform).get("gates") or []:
-        if (gate.get("scope") or "content") in want:
-            out.append(dict(gate))
+        if (gate.get("scope") or "content") not in want:
+            continue
+        row = dict(gate)
+        if (row.get("grade") == "official" and row.get("code") != "fabricated_experience"
+                and row.get("level") == "error"):
+            row["level"] = "warning"
+        row["blocking"] = row.get("level") == "error"
+        out.append(row)
     return out
 
 

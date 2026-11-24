@@ -3,15 +3,15 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Growovo | 授权邮件执行，X 只读与人工交接</title>
+<title>Growovo | 授权跨渠道执行，回执可复核</title>
 <meta name="description" content="给 Growovo 产品事实、目标受众和允许执行的动作。它检查待发内容，把已授权的动作排入队列，并记录执行回执。邮件发送结果不明时会停下等人核对。回复、激活和成交分别看实际记录。">
 <link rel="canonical" href="https://roy-tong.github.io/Growovo/">
 <meta name="theme-color" content="#fafbfc">
-<meta name="growovo:auto-channels" content="email">
+<meta name="growovo:auto-channels" content="x,email,discord">
 <!-- GSC/Bing 验证码插在这行下面：Search Console 与 Bing WMT 给的 <meta name=...> 标签原样粘贴即可 -->
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="Growovo">
-<meta property="og:title" content="Growovo | 授权邮件执行，X 只读与人工交接">
+<meta property="og:title" content="Growovo | 授权跨渠道执行，回执可复核">
 <meta property="og:description" content="给 Growovo 产品事实、目标受众和允许执行的动作。它检查待发内容，把已授权的动作排入队列，并记录执行回执。邮件发送结果不明时会停下等人核对。回复、激活和成交分别看实际记录。">
 <meta property="og:url" content="https://roy-tong.github.io/Growovo/">
 <meta property="og:image" content="https://roy-tong.github.io/Growovo/assets/social-preview.png">
@@ -21,7 +21,7 @@
 <meta property="og:locale" content="zh_CN">
 <meta property="og:locale:alternate" content="en_US">
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="Growovo | 授权邮件执行，X 只读与人工交接">
+<meta name="twitter:title" content="Growovo | 授权跨渠道执行，回执可复核">
 <meta name="twitter:description" content="给 Growovo 产品事实、目标受众和允许执行的动作。它检查待发内容，把已授权的动作排入队列，并记录执行回执。邮件发送结果不明时会停下等人核对。回复、激活和成交分别看实际记录。">
 <meta name="twitter:image" content="https://roy-tong.github.io/Growovo/assets/social-preview.png">
 <link rel="alternate" hreflang="zh-CN" href="https://roy-tong.github.io/Growovo/">
@@ -47,7 +47,7 @@
   "@context": "https://schema.org",
   "@type": "FAQPage",
   "mainEntity": [
-    { "@type": "Question", "name": "Growovo 能全自动发哪些平台？", "acceptedAnswer": { "@type": "Answer", "text": "第一期只有 Email 可承诺无人值守自主执行；X 的所有非 API 网页脚本写都拒绝，只保留只读、dry-run、草稿与人工交接，自动写需接符合规则的官方 API；GitHub、Reddit、Hacker News、LinkedIn 需人工首跑解锁；小红书、知乎等人工渠道只出作业单，不计入自动发布量。用 mkt grow platforms 随时查看当前状态。" } },
+    { "@type": "Question", "name": "Growovo 能全自动发哪些平台？", "acceptedAnswer": { "@type": "Answer", "text": "X、Discord、Email 具备已验证的自主执行路径；平台规则与合规口径只提示风险，不阻断业务。GitHub、Reddit、Hacker News、LinkedIn 仍需技术首跑确认；小红书、知乎等没有写原语的渠道只出作业单，不计入自动发布量。用 mkt grow platforms 随时查看当前状态。" } },
     { "@type": "Question", "name": "会不会把我的账号搞封？", "acceptedAnswer": { "@type": "Answer", "text": "只用于你拥有、或被明确授权操作的账号。发送前有授权闸门和 dry-run，可以先看它打算做什么再放行；平台规则之外的路径不提供绕过。同时明确：不承诺平台算法给多少曝光。" } },
     { "@type": "Question", "name": "和定时发帖工具有什么区别？", "acceptedAnswer": { "@type": "Answer", "text": "定时发帖工具执行你写好的内容；Growovo 从产品事实和增长目标出发，自己定策略、排计划、执行，并把执行了多少、读数是多少落成可核验的账本。策略和周报是中间产物，交付的是每天的业务结果。" } },
     { "@type": "Question", "name": "它说的结果怎么核实？", "acceptedAnswer": { "@type": "Answer", "text": "账本里每条执行记录逐条可查；读数按 owner_declared / observed / independently_verified 分级，手工录入不自动升级；mkt demo 零网络零账号，本地一秒跑完完整闭环。反例也公开：发布尸检记录了一次没走账本的真实发布实验——0 个新 star，关注与转化没有可靠读数。" } },
@@ -80,18 +80,18 @@ footer{border-top:1px solid var(--line);margin-top:56px;padding-top:18px;color:v
 </head>
 <body>
 <main>
-<h1>Growovo：授权邮件执行，X 只读与人工交接</h1>
+<h1>Growovo：跨 X、Discord 与 Email 的业务执行</h1>
 <p class="tagline"><strong>你定目标，Growovo 把业务执行到底。</strong>从内容、授权队列到回执与回复跟进，端到端交付的业务执行保持可复核。</p>
 <p><strong>Generate Anything. Prove What Matters.</strong> 生成、执行与业务结果分别留证。</p>
 <p><a href="#demo">给我目标，开跑第一轮 →</a></p>
-<span class="badge">开源 MIT</span><span class="badge">CLI / MCP / Agent Skill</span><span class="badge">v0.20.0</span>
+<span class="badge">开源 MIT</span><span class="badge">CLI / MCP / Agent Skill</span><span class="badge">v0.21.0</span>
 <p><a href="#demo">看一个具体任务：一次成功交付，和三次被闸门拦下的执行 →</a></p>
 <p><a href="./examples/controlled-run.html">打开可重放受控执行证据页 →</a></p>
 <p class="note"><strong>OVO / Prove Anything：</strong>Agent 说“完成了”，仍需独立复核。Prove Anything 是族级结果证明协议候选；Verified Capability Factory（VCF）只是研究候选，不是 Growovo 当前依赖。Growovo 可独立使用，执行回执、有效回复、激活与成交继续分层，不能合并成“增长已证明”。</p>
 
 <h2>这是什么</h2>
 <p>给 Growovo 产品事实、目标受众和允许执行的动作。它检查待发内容，把已授权的动作排入队列，并记录执行回执。邮件发送结果不明时会停下等人核对。回复、激活和成交分别看实际记录。</p>
-<p><strong>全自动的前提是平台可自动执行。</strong>第一期只有 Email 可承诺无人值守自主执行；X 的所有非 API 网页脚本写都拒绝，只保留只读、dry-run、草稿与人工交接，自动写需接符合规则的官方 API；GitHub、Reddit、Hacker News、LinkedIn 需人工首跑解锁；小红书、知乎等人工渠道只出作业单，不计入自动发布量。</p>
+<p><strong>全自动的前提是写通道已验证、账号已授权。</strong>X、Discord、Email 具备已验证的自主执行路径；平台规则与合规口径只提示风险，不阻断业务。GitHub、Reddit、Hacker News、LinkedIn 仍需技术首跑确认；小红书、知乎等没有写原语的渠道只出作业单，不计入自动发布量。</p>
 
 <h2>只承诺三件可核验的事</h2>
 <table>
@@ -136,7 +136,7 @@ python3 mkt.py grow platforms       # 看第一期哪些平台能全自动</code
 
 <h2 id="faq">常见问题</h2>
 <h3>能全自动发哪些平台？</h3>
-<p>第一期只有 Email 可承诺无人值守自主执行；X 的所有非 API 网页脚本写都拒绝，只保留只读、dry-run、草稿与人工交接，自动写需接符合规则的官方 API；GitHub、Reddit、Hacker News、LinkedIn 需人工首跑解锁；小红书、知乎等人工渠道只出作业单，不计入自动发布量。用 <code>mkt grow platforms</code> 随时查看当前状态。</p>
+<p>X、Discord、Email 具备已验证的自主执行路径；平台规则与合规口径只提示风险，不阻断业务。GitHub、Reddit、Hacker News、LinkedIn 仍需技术首跑确认；小红书、知乎等没有写原语的渠道只出作业单，不计入自动发布量。用 <code>mkt grow platforms</code> 随时查看当前状态。</p>
 <h3>会不会把我的账号搞封？</h3>
 <p>只用于你拥有、或被明确授权操作的账号。发送前有授权闸门和 dry-run，可以先看它打算做什么再放行；平台规则之外的路径不提供绕过。同时明确：不承诺平台算法给多少曝光。</p>
 <h3>和定时发帖工具有什么区别？</h3>

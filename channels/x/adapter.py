@@ -2,7 +2,7 @@
 """X 渠道适配器 —— vendor x-ops-automation（PROVEN），架构文档 §6.1。
 
 vendor 脚本原样执行（自带节流/回读校验/防错人/防重发），本层做三件事：
-  1. 统一 mkt CLI 语义（写操作默认 dry-run，--go 才实跑）
+  1. 统一 mkt CLI 语义（写操作默认 live，显式 dry-run 才预览）
   2. campaign 维度记账
   3. 把 vendor 的结果 JSON / DM 日志回写全局账本（跨渠道幂等）
 
@@ -20,6 +20,17 @@ from datetime import datetime
 from pathlib import Path
 
 VENDOR = Path(__file__).resolve().parent / "vendor"
+
+
+def _legacy_cdp_vendor_env():
+    """Legacy CDP vendor 只接受同一个调试浏览器里的 x.com/home 标签页。
+
+    这里不再创建 WebBridge 受管标签页：vendor 通过 Playwright 连接的是
+    X_CDP_URL，而 WebBridge 标签存在于操作者日常浏览器，两者不是同一个
+    浏览器。需要操作者已登录浏览器时走 browser-attach。
+    """
+    return {"MKT_MANAGED_TAB_URL": "https://x.com/home"}
+
 
 # action -> (vendor 脚本, 是否写操作, 实跑时是否需要 --go 之外的参数)
 ACTIONS = {
@@ -311,11 +322,16 @@ def run(action, extra_args, *, go=False, adhoc=False, campaign=None, ledger=None
             # 自主写与当次用户确认的浏览器写是两条不同授权路线；后者不是
             # routine 白名单，也必须在触碰 vendor 前拿到真实账号观测。
             from core.platform_compliance import (
-                ComplianceError, require_autonomous_write, require_user_visible_cdp,
+                ComplianceError, require_autonomous_write, require_owner_attested_browser_write,
+                require_user_visible_cdp,
             )
             try:
                 if execution_mode == "user_visible_cdp":
                     require_user_visible_cdp(
+                        "x", action, data_root, go=go, actual_transport="cdp",
+                        identity=identity)
+                elif execution_mode == "owner_attested_cdp":
+                    require_owner_attested_browser_write(
                         "x", action, data_root, go=go, actual_transport="cdp",
                         identity=identity)
                 elif execution_mode == "autonomous":
@@ -366,7 +382,8 @@ def run(action, extra_args, *, go=False, adhoc=False, campaign=None, ledger=None
     if script == "x_search.sh" and go:
         cmd.append("--go")
 
-    proc = subprocess.run(cmd, cwd=str(VENDOR))
+    managed_env = _legacy_cdp_vendor_env() if is_write and go else {}
+    proc = subprocess.run(cmd, cwd=str(VENDOR), env=dict(os.environ, **managed_env))
     recorded_targets = set()
     has_unknown = False
     if ledger is not None and proc.returncode == 0:

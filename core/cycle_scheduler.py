@@ -51,8 +51,9 @@ def _default_executor(config_path, data_dir):
     config_path = Path(config_path)
     data_dir = Path(data_dir)
 
-    def execute(job, go):
+    def execute(job, go, data_dir=data_dir):
         from . import engagement_cycle as cycle
+        data_dir = Path(data_dir)
         kind = job.get("kind")
         if kind == "wave":
             return cycle.run(data_dir, go=go,
@@ -70,6 +71,74 @@ def _default_executor(config_path, data_dir):
             data_dir = Path(job.get("data_dir") or data_dir)
             rows = cycle.collect_inbox(data_dir, session=str(job.get("session") or ""))
             return cycle.merge_inbox(data_dir, rows)
+        if kind in {"goal-compile", "baseline-observe", "final-observe", "goal-evaluate",
+                    "next-experiment", "asset-prepare", "opportunity-scan", "inbox-resolve", "github-sync",
+                    "operator-tick"}:
+            def input_file(name="file"):
+                file = Path(job[name])
+                return file if file.is_absolute() else config_path.parent / file
+            service_id = str(job.get("service_id") or "")
+            operator = str(job.get("by") or "cycle-scheduler")
+            if kind == "operator-tick":
+                from . import growth_worker
+                result = growth_worker.run_once(
+                    data_dir, service_id, github_repo=job.get("repo"),
+                    gmail_sync=bool(job.get("gmail_sync")), watch_topic=job.get("watch_topic"),
+                    pubsub_subscription=job.get("pubsub_subscription"),
+                    account=str(job.get("account") or "default"))
+                result["ok"] = all(row.get("ok") for row in result["components"].values())
+                return result
+            if kind == "goal-compile":
+                from . import growth_goals, growth_service
+                payload = json.loads(input_file().read_text(encoding="utf-8"))
+                if job.get("start_service", True):
+                    return dict(growth_service.start(data_dir, payload), ok=True)
+                return dict(growth_goals.compile_goal(payload), ok=True)
+            if kind in {"baseline-observe", "final-observe"}:
+                from . import growth_service
+                phase = "baseline" if kind == "baseline-observe" else "final"
+                if job.get("repos") or job.get("x_handle"):
+                    from . import growth_metrics
+                    repos = job.get("repos") or []
+                    if isinstance(repos, str):
+                        repos = [row.strip() for row in repos.split(",") if row.strip()]
+                    return growth_metrics.observe_live(
+                        data_dir, service_id, phase, repos,
+                        str(job.get("x_handle") or ""), by=operator)
+                metrics = json.loads(input_file().read_text(encoding="utf-8"))
+                return dict(growth_service.observe(
+                    data_dir, service_id, phase, metrics, by=operator), ok=True)
+            if kind == "goal-evaluate":
+                from . import growth_service
+                metrics = json.loads(input_file().read_text(encoding="utf-8"))
+                return dict(growth_service.evaluate(
+                    data_dir, service_id, metrics, by=operator), ok=True)
+            if kind == "next-experiment":
+                from . import growth_execution
+                result = growth_execution.run(
+                    data_dir, service_id, "next-experiment", by=operator)
+                return dict(result, ok=result.get("status") == "completed")
+            if kind == "asset-prepare":
+                from . import growth_assets
+                spec = json.loads(input_file().read_text(encoding="utf-8"))
+                asset = growth_assets.create(data_dir, service_id, spec)
+                return dict(asset, ok=bool(asset.get("reproduced")))
+            if kind == "github-sync":
+                from . import github_app, growth_engagement
+                rows = github_app.GitHubAppClient.from_env().sync_community_interactions(str(job["repo"]))
+                result = growth_engagement.import_interactions(data_dir, service_id, rows)
+                from . import github_events
+                result["replayed"] = github_events.replay(data_dir, service_id)["processed"]
+                return dict(result, ok=True)
+            if kind == "opportunity-scan":
+                from . import growth_opportunities
+                rows = json.loads(input_file().read_text(encoding="utf-8"))
+                return dict(growth_opportunities.import_opportunities(
+                    data_dir, service_id, rows), ok=True)
+            from . import growth_engagement
+            rows = json.loads(input_file().read_text(encoding="utf-8"))
+            return dict(growth_engagement.import_interactions(
+                data_dir, service_id, rows), ok=True)
         if kind == "receipts":
             from . import receipt_audit
             data_dir = Path(job.get("data_dir") or data_dir)
@@ -166,10 +235,20 @@ def tick(data_dir, config_path, *, now=None, go: bool = False, executor=None, ma
                     current_status = "blocked" if missing else "deferred"
                     result = {"ok": False, "reason": "dependency_not_succeeded" if missing else "tick_job_limit"}
                 else:
-                    result = execute(row, True)
-                    executed += 1
+                    from . import growth_runtime
+                    ticket = growth_runtime.claim_scheduled_job(
+                        data_dir, row, external=row.get("kind") in {"wave", "asset-prepare"})
+                    if ticket["execute"]:
+                        result = execute(row, True)
+                        executed += 1
+                    else:
+                        result = ticket["result"]
                     current_status, reason = _record_status(row, result)
                     result = dict(result, reason=reason)
+                    if ticket["execute"] and current_status not in {"deferred", "blocked"}:
+                        growth_runtime.finish_scheduled_job(data_dir, row, current_status, result)
+                    elif ticket["execute"]:
+                        growth_runtime.release_scheduled_job(data_dir, row)
             stored = dict(state["jobs"].get(row["id"]) or {})
             stored.update(status=current_status, updated_at=current.isoformat(timespec="seconds"),
                           reason=str(result.get("reason") or ""))

@@ -284,6 +284,716 @@
           }
         }
       ]
+    },
+    {
+      "schema_version": "1.0",
+      "kind": "growovo.sop_version",
+      "sop_id": "sop-content-x-email",
+      "version": "0.1.0",
+      "capability_id": "C02",
+      "role_families": [
+        "09",
+        "12",
+        "24"
+      ],
+      "status": "active",
+      "steps": [
+        {
+          "step_id": "brief-align",
+          "purpose": "确认本周目标、受众和渠道分工后再动笔",
+          "actor": {
+            "type": "human",
+            "role_family": "24"
+          },
+          "inputs": [
+            "objective",
+            "approved_product_facts"
+          ],
+          "method": [
+            "确认 20 户目标与主指标",
+            "确认 X 与邮件分工",
+            "确认禁用表述"
+          ],
+          "tools": [
+            {
+              "kind": "read_only",
+              "ref": "objective_registry"
+            }
+          ],
+          "outputs": [
+            {
+              "deliverable_type": "content_brief",
+              "required": true
+            }
+          ],
+          "dod": [
+            {
+              "rule_id": "objective-and-guardrails-bound",
+              "required": true
+            }
+          ],
+          "on_pass": "draft-from-facts",
+          "on_fail": "human-review",
+          "on_unknown": "human-review",
+          "approval": {
+            "required": true,
+            "scope": "weekly_brief"
+          }
+        },
+        {
+          "step_id": "draft-from-facts",
+          "purpose": "按已批准产品事实写出 3 条 X 与 1 封邮件初稿",
+          "actor": {
+            "type": "human",
+            "role_family": "09"
+          },
+          "inputs": [
+            "approved_product_facts",
+            "delivery_requirements"
+          ],
+          "method": [
+            "每条内容标注引用的事实编号",
+            "禁用绝对化表述",
+            "按渠道字数与语气改写"
+          ],
+          "tools": [
+            {
+              "kind": "read_only",
+              "ref": "context_registry"
+            }
+          ],
+          "outputs": [
+            {
+              "deliverable_type": "content_pack",
+              "required": true
+            }
+          ],
+          "dod": [
+            {
+              "rule_id": "every-claim-traced-to-fact",
+              "required": true
+            }
+          ],
+          "on_pass": "fact-check",
+          "on_fail": "return-to-draft",
+          "on_unknown": "human-review",
+          "approval": {
+            "required": false,
+            "scope": ""
+          }
+        },
+        {
+          "step_id": "fact-check",
+          "purpose": "逐条核对内容只使用简表内的事实，且没有简表之外的卖点",
+          "actor": {
+            "type": "shared",
+            "role_family": "24"
+          },
+          "inputs": [
+            "content_pack",
+            "approved_product_facts"
+          ],
+          "method": [
+            "逐条比对事实编号",
+            "标记无出处句子",
+            "检查绝对化措辞"
+          ],
+          "tools": [
+            {
+              "kind": "read_only",
+              "ref": "context_registry"
+            }
+          ],
+          "outputs": [
+            {
+              "deliverable_type": "fact_check_record",
+              "required": true
+            }
+          ],
+          "dod": [
+            {
+              "rule_id": "no-unapproved-claim",
+              "required": true
+            }
+          ],
+          "on_pass": "channel-review",
+          "on_fail": "return-to-draft",
+          "on_unknown": "human-review",
+          "approval": {
+            "required": false,
+            "scope": ""
+          }
+        },
+        {
+          "step_id": "channel-review",
+          "purpose": "由渠道负责人确认可发布并签收",
+          "actor": {
+            "type": "human",
+            "role_family": "12"
+          },
+          "inputs": [
+            "content_pack",
+            "fact_check_record"
+          ],
+          "method": [
+            "按 T05 rubric 评审",
+            "给出 pass/fail 与证据",
+            "fail 必须写回退理由"
+          ],
+          "tools": [
+            {
+              "kind": "read_only",
+              "ref": "deliverable_review"
+            }
+          ],
+          "outputs": [
+            {
+              "deliverable_type": "acceptance_review",
+              "required": true
+            }
+          ],
+          "dod": [
+            {
+              "rule_id": "review-has-evidence-per-item",
+              "required": true
+            }
+          ],
+          "on_pass": "handoff-to-publish",
+          "on_fail": "return-to-draft",
+          "on_unknown": "human-review",
+          "approval": {
+            "required": true,
+            "scope": "channel_publish"
+          }
+        },
+        {
+          "step_id": "handoff-to-publish",
+          "purpose": "把通过评审的内容交给发布负责人并约定排期",
+          "actor": {
+            "type": "shared",
+            "role_family": "12"
+          },
+          "inputs": [
+            "content_pack",
+            "acceptance_review"
+          ],
+          "method": [
+            "确认每条内容对应发布日",
+            "确认账号与 dry-run 预演",
+            "确认回读与异常上报人"
+          ],
+          "tools": [
+            {
+              "kind": "draft",
+              "ref": "handoff_record"
+            }
+          ],
+          "outputs": [
+            {
+              "deliverable_type": "handoff_record",
+              "required": true
+            }
+          ],
+          "dod": [
+            {
+              "rule_id": "schedule-and-owner-assigned",
+              "required": true
+            }
+          ],
+          "on_pass": "close",
+          "on_fail": "return-to-draft",
+          "on_unknown": "human-review",
+          "approval": {
+            "required": false,
+            "scope": ""
+          }
+        }
+      ]
+    },
+    {
+      "schema_version": "1.0",
+      "kind": "growovo.sop_version",
+      "sop_id": "sop-x-publish",
+      "version": "0.1.0",
+      "capability_id": "C03",
+      "role_families": [
+        "12",
+        "15"
+      ],
+      "status": "active",
+      "steps": [
+        {
+          "step_id": "schedule-confirm",
+          "purpose": "确认已验收内容与发布日、账号、时区一一对应",
+          "actor": {
+            "type": "human",
+            "role_family": "12"
+          },
+          "inputs": [
+            "accepted_content_pack",
+            "objective"
+          ],
+          "method": [
+            "逐条对齐内容版本号与排期日",
+            "确认授权账号与登录态",
+            "确认不与其他内容撞日"
+          ],
+          "tools": [
+            {
+              "kind": "read_only",
+              "ref": "deliverable_registry"
+            }
+          ],
+          "outputs": [
+            {
+              "deliverable_type": "publishing_plan",
+              "required": true
+            }
+          ],
+          "dod": [
+            {
+              "rule_id": "schedule-and-owner-assigned",
+              "required": true
+            }
+          ],
+          "on_pass": "publish-fact-recheck",
+          "on_fail": "human-review",
+          "on_unknown": "human-review",
+          "approval": {
+            "required": true,
+            "scope": "channel_publish"
+          }
+        },
+        {
+          "step_id": "publish-fact-recheck",
+          "purpose": "发布前再核一次正文与已验收内容包完全一致",
+          "actor": {
+            "type": "shared",
+            "role_family": "12"
+          },
+          "inputs": [
+            "publishing_plan",
+            "accepted_content_pack"
+          ],
+          "method": [
+            "逐条比对版本号与关键字句",
+            "确认无绝对化表述",
+            "不一致则退回"
+          ],
+          "tools": [
+            {
+              "kind": "read_only",
+              "ref": "deliverable_registry"
+            }
+          ],
+          "outputs": [
+            {
+              "deliverable_type": "fact_check_record",
+              "required": true
+            }
+          ],
+          "dod": [
+            {
+              "rule_id": "no-unapproved-claim",
+              "required": true
+            }
+          ],
+          "on_pass": "queue-dryrun",
+          "on_fail": "return-to-schedule",
+          "on_unknown": "human-review",
+          "approval": {
+            "required": false,
+            "scope": ""
+          }
+        },
+        {
+          "step_id": "queue-dryrun",
+          "purpose": "在队列里 dry-run 预演，确认渲染、链接与授权范围",
+          "actor": {
+            "type": "human",
+            "role_family": "12"
+          },
+          "inputs": [
+            "publishing_plan"
+          ],
+          "method": [
+            "按条 dry-run，不实际发送",
+            "核对正文与事实编号",
+            "记录预演回执"
+          ],
+          "tools": [
+            {
+              "kind": "action_request",
+              "ref": "publish_queue"
+            }
+          ],
+          "outputs": [
+            {
+              "deliverable_type": "dry_run_receipt",
+              "required": true
+            }
+          ],
+          "dod": [
+            {
+              "rule_id": "dry-run-before-send",
+              "required": true
+            }
+          ],
+          "on_pass": "publish-or-hold",
+          "on_fail": "return-to-schedule",
+          "on_unknown": "human-review",
+          "approval": {
+            "required": false,
+            "scope": ""
+          }
+        },
+        {
+          "step_id": "publish-or-hold",
+          "purpose": "按排期发布，异常则停手上报而不是重试",
+          "actor": {
+            "type": "shared",
+            "role_family": "12"
+          },
+          "inputs": [
+            "dry_run_receipt"
+          ],
+          "method": [
+            "只在授权窗口内发布",
+            "登录态或渲染异常立即停手",
+            "不盲目重试未知结果"
+          ],
+          "tools": [
+            {
+              "kind": "draft",
+              "ref": "x_publisher"
+            }
+          ],
+          "outputs": [
+            {
+              "deliverable_type": "publish_receipt",
+              "required": true
+            }
+          ],
+          "dod": [
+            {
+              "rule_id": "no-blind-retry-on-unknown",
+              "required": true
+            }
+          ],
+          "on_pass": "readout-and-close",
+          "on_fail": "human-review",
+          "on_unknown": "human-review",
+          "approval": {
+            "required": true,
+            "scope": "channel_publish"
+          }
+        },
+        {
+          "step_id": "readout-and-close",
+          "purpose": "回收真实回应，按已确认知晓口径计数",
+          "actor": {
+            "type": "human",
+            "role_family": "15"
+          },
+          "inputs": [
+            "publish_receipt"
+          ],
+          "method": [
+            "只计明确回应或点击确认",
+            "曝光与点赞不计入",
+            "把善后问题转给承接人"
+          ],
+          "tools": [
+            {
+              "kind": "read_only",
+              "ref": "x_reply_log"
+            }
+          ],
+          "outputs": [
+            {
+              "deliverable_type": "readout",
+              "required": true
+            }
+          ],
+          "dod": [
+            {
+              "rule_id": "verified-response-only",
+              "required": true
+            }
+          ],
+          "on_pass": "close",
+          "on_fail": "human-review",
+          "on_unknown": "human-review",
+          "approval": {
+            "required": false,
+            "scope": ""
+          }
+        },
+        {
+          "step_id": "return-to-schedule",
+          "purpose": "内容不一致时回到排期，重排日期而不是硬发",
+          "actor": {
+            "type": "human",
+            "role_family": "12"
+          },
+          "inputs": [
+            "fact_check_record"
+          ],
+          "method": [
+            "记录不一致原因",
+            "重新对齐内容版本",
+            "更新排期日"
+          ],
+          "tools": [
+            {
+              "kind": "read_only",
+              "ref": "deliverable_registry"
+            }
+          ],
+          "outputs": [
+            {
+              "deliverable_type": "publishing_plan",
+              "required": true
+            }
+          ],
+          "dod": [
+            {
+              "rule_id": "schedule-and-owner-assigned",
+              "required": true
+            }
+          ],
+          "on_pass": "schedule-confirm",
+          "on_fail": "human-review",
+          "on_unknown": "human-review",
+          "approval": {
+            "required": false,
+            "scope": ""
+          }
+        }
+      ]
+    },
+    {
+      "schema_version": "1.0",
+      "kind": "growovo.sop_version",
+      "sop_id": "sop-lifecycle-email",
+      "version": "0.1.0",
+      "capability_id": "C13",
+      "role_families": [
+        "34",
+        "35"
+      ],
+      "status": "active",
+      "steps": [
+        {
+          "step_id": "audience-consent-check",
+          "purpose": "确认收件人来自已同意接收的留资名单，且未退订",
+          "actor": {
+            "type": "human",
+            "role_family": "34"
+          },
+          "inputs": [
+            "lead_list",
+            "objective"
+          ],
+          "method": [
+            "核对名单来源与同意记录",
+            "剔除退订与投诉用户",
+            "确认频控上限"
+          ],
+          "tools": [
+            {
+              "kind": "read_only",
+              "ref": "consent_registry"
+            }
+          ],
+          "outputs": [
+            {
+              "deliverable_type": "audience_snapshot",
+              "required": true
+            }
+          ],
+          "dod": [
+            {
+              "rule_id": "consent-and-frequency-checked",
+              "required": true
+            }
+          ],
+          "on_pass": "draft-from-approved-pack",
+          "on_fail": "human-review",
+          "on_unknown": "human-review",
+          "approval": {
+            "required": false,
+            "scope": ""
+          }
+        },
+        {
+          "step_id": "draft-from-approved-pack",
+          "purpose": "只基于已验收内容包改写成邮件，不新增卖点",
+          "actor": {
+            "type": "human",
+            "role_family": "34"
+          },
+          "inputs": [
+            "accepted_content_pack",
+            "approved_product_facts"
+          ],
+          "method": [
+            "沿用已通过评审的表述",
+            "逐句标注事实编号",
+            "不使用绝对化措辞"
+          ],
+          "tools": [
+            {
+              "kind": "read_only",
+              "ref": "context_registry"
+            }
+          ],
+          "outputs": [
+            {
+              "deliverable_type": "email_draft",
+              "required": true
+            }
+          ],
+          "dod": [
+            {
+              "rule_id": "every-claim-traced-to-fact",
+              "required": true
+            }
+          ],
+          "on_pass": "claims-and-frequency-review",
+          "on_fail": "human-review",
+          "on_unknown": "human-review",
+          "approval": {
+            "required": false,
+            "scope": ""
+          }
+        },
+        {
+          "step_id": "claims-and-frequency-review",
+          "purpose": "复核邮件与内容包一致，且发送频次未超限",
+          "actor": {
+            "type": "shared",
+            "role_family": "35"
+          },
+          "inputs": [
+            "email_draft",
+            "accepted_content_pack"
+          ],
+          "method": [
+            "逐句比对内容包",
+            "检查退订入口与署名",
+            "检查是否与上次发送过近"
+          ],
+          "tools": [
+            {
+              "kind": "read_only",
+              "ref": "deliverable_review"
+            }
+          ],
+          "outputs": [
+            {
+              "deliverable_type": "email_review",
+              "required": true
+            }
+          ],
+          "dod": [
+            {
+              "rule_id": "review-has-evidence-per-item",
+              "required": true
+            }
+          ],
+          "on_pass": "queue-dryrun",
+          "on_fail": "draft-from-approved-pack",
+          "on_unknown": "human-review",
+          "approval": {
+            "required": true,
+            "scope": "channel_publish"
+          }
+        },
+        {
+          "step_id": "queue-dryrun",
+          "purpose": "在邮件队列里 dry-run 预演收件人、正文与退订链路",
+          "actor": {
+            "type": "human",
+            "role_family": "34"
+          },
+          "inputs": [
+            "email_review",
+            "audience_snapshot"
+          ],
+          "method": [
+            "dry-run 不实际发送",
+            "核对收件人数与去重结果",
+            "记录预演回执"
+          ],
+          "tools": [
+            {
+              "kind": "action_request",
+              "ref": "email_queue"
+            }
+          ],
+          "outputs": [
+            {
+              "deliverable_type": "dry_run_receipt",
+              "required": true
+            }
+          ],
+          "dod": [
+            {
+              "rule_id": "dry-run-before-send",
+              "required": true
+            }
+          ],
+          "on_pass": "send-receipt-and-readout",
+          "on_fail": "draft-from-approved-pack",
+          "on_unknown": "human-review",
+          "approval": {
+            "required": false,
+            "scope": ""
+          }
+        },
+        {
+          "step_id": "send-receipt-and-readout",
+          "purpose": "发送并回收点击/回复，未知结果交人工核对",
+          "actor": {
+            "type": "shared",
+            "role_family": "34"
+          },
+          "inputs": [
+            "dry_run_receipt"
+          ],
+          "method": [
+            "只在授权窗口内发送",
+            "SMTP 结果不明时停手不重发",
+            "按已确认知晓口径计读数"
+          ],
+          "tools": [
+            {
+              "kind": "draft",
+              "ref": "email_sender"
+            }
+          ],
+          "outputs": [
+            {
+              "deliverable_type": "email_receipt",
+              "required": true
+            }
+          ],
+          "dod": [
+            {
+              "rule_id": "no-blind-retry-on-unknown",
+              "required": true
+            }
+          ],
+          "on_pass": "close",
+          "on_fail": "human-review",
+          "on_unknown": "human-review",
+          "approval": {
+            "required": false,
+            "scope": ""
+          }
+        }
+      ]
     }
   ]
 }

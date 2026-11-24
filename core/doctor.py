@@ -106,8 +106,6 @@ def run_doctor(base, data_dir, selftest=False):
         ok("GitHub token", "MKT_GITHUB_TOKEN 已配置（github reply 可用）")
     else:
         warn("GitHub token", "MKT_GITHUB_TOKEN 未配置：github 写不可用（读原语匿名可用，60 次/时）")
-    if os.environ.get("MKT_LINKEDIN_AUTO") == "1":
-        warn("LinkedIn 全自动", "MKT_LINKEDIN_AUTO=1 已解锁（不建议；默认半自动需终端确认）")
     browser = _probe_cdp(os.environ.get("MKT_CDP_URL", CDP_URL))
     if browser:
         ok("CDP 会话", f"{browser}")

@@ -71,11 +71,30 @@ def parse_post_metrics(labels: Sequence[str], body: str = "") -> Dict[str, Any]:
 
 
 def read_post_metrics(url: str, *, cdp_url: Optional[str] = None,
+                      data_dir: Optional[Path] = None,
                       log=print, evidence_dir=None) -> Dict[str, Any]:
     """打开自己的帖子页读公开指标。只读；失败返回 note。"""
+    from . import x_read_bridge
+    if x_read_bridge.legacy_enabled():
+        return _read_post_metrics_cdp(url, cdp_url=cdp_url, log=log, evidence_dir=evidence_dir)
+    attach, tab = x_read_bridge.open_x(data_dir or Path("data"), url)
+    x_read_bridge.navigate(tab, url)
+    x_read_bridge.assert_ready(attach, tab)
+    rows = x_read_bridge.read_articles(attach, tab)
+    status_id = str(url).rstrip("/").split("/")[-1].split("?")[0]
+    for row in rows:
+        if status_id in str(row.get("url") or ""):
+            body = str(row.get("text") or "")
+            metrics = parse_engagement(body.splitlines())
+            return {**metrics, "url": url, "evidence": {"text": body}}
+    return {"url": url, "note": "未找到自己的目标帖子，未读取整页指标"}
+
+
+def _read_post_metrics_cdp(url: str, *, cdp_url: Optional[str], log, evidence_dir) -> Dict[str, Any]:
     from . import cdp
     from .grow_targets import _wait_for_timeline
     browser, page = cdp.connect(cdp_url)
+    cdp.assert_x_ready(page)
     try:
         if not cdp.safe_goto(page, url, log=log):
             return {"url": url, "note": "页面打不开"}
@@ -137,11 +156,28 @@ def match_own_article(articles: List[Dict[str, Any]], *, handle: str,
 
 
 def resolve_post_url(target_url: str, body: str, handle: str, *,
-                     cdp_url: Optional[str] = None, log=print) -> Optional[str]:
+                     cdp_url: Optional[str] = None,
+                     data_dir: Optional[Path] = None,
+                     log=print) -> Optional[str]:
     """回复发出后，回目标帖找自己那条回复的 URL；找不到返回 None（不猜）。"""
+    from . import x_read_bridge
+    if x_read_bridge.legacy_enabled():
+        return _resolve_post_url_cdp(target_url, body, handle, cdp_url=cdp_url, log=log)
+    attach, tab = x_read_bridge.open_x(data_dir or Path("data"), target_url)
+    x_read_bridge.navigate(tab, target_url)
+    x_read_bridge.assert_ready(attach, tab)
+    rows = x_read_bridge.read_articles(attach, tab)
+    articles = [{"handle": row.get("author"), "text": row.get("text"), "url": row.get("url")}
+                for row in rows]
+    return match_own_article(articles, handle=handle, body=body)
+
+
+def _resolve_post_url_cdp(target_url: str, body: str, handle: str, *,
+                          cdp_url: Optional[str], log) -> Optional[str]:
     from . import cdp
     from .grow_targets import _extract_article, _wait_for_timeline
     browser, page = cdp.connect(cdp_url)
+    cdp.assert_x_ready(page)
     try:
         if not cdp.safe_goto(page, target_url, log=log):
             return None

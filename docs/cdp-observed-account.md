@@ -97,25 +97,22 @@ mkt account log --limit 20 --json   # 查看完整字段、实际账号 proof �
 - 离线测试使用注入 `AccountIdentityProof` 和本地假 vendor，覆盖连续 A→B、receipt 对账、缺身份零 vendor 调用及重复意图零新增发送。**这些只证明本地代码路径和状态机，不等于 live-proven，也不证明真实平台权限、真实账号切换或外部送达。**
 - 测试不发送真实账号内容、不读取或修改 `profiles/`、不联网。页面挑战/验证码仍必须停止，不做对抗。
 
-## live 前置检查（只读）
+## 默认 live 前置检查（只读）
 
 ```bash
+python3 mkt.py growth live-preflight --x --x-action publish
 python3 scripts/acceptance_live_x.py --preflight \
-  --authorize-by "<你的人名>" \
-  --profile-dir /tmp/growovo-live-profile \
-  --cdp-url http://127.0.0.1:9223 \
-  --target-url https://x.com/<测试账号>/status/<专用测试推文>
+  --action reply --authorize-by "<确认人>" \
+  --target-url https://x.com/<当前账号>/status/<专用测试推文>
 ```
 
-它只检查授权人、隔离空 profile、独立 CDP 端口（拒绝 9222）、专用 X 测试推文、正文和浏览器端点，输出 `ready=true/false`；**不发送、不创建授权、不触碰 profiles**。`ready=true` 仍需要人显式执行 live 命令。
+默认检查使用 WebBridge 受管标签页、页面实际账号和工作区已有 owner-attested scope，输出 `ready=true/false`、实际路线和 Agent 恢复方案；`writes=0`，不发送、不创建授权、不读取或迁移 profiles。回复验收只能使用当前账号自己的测试推文，发布验收不需要目标 URL。
 
-## 仍需人工 live 验收
+默认验收脚本不调用 `verify_credentials`，也不连接 9222/9223。旧 CDP 的 403 只表示旧接口拒绝且稳定身份未知，不能单独证明未登录；默认任务先通过 `browser-attach` 恢复，而不是反复要求重新登录调试浏览器。
 
-以下步骤必须由有权操作真实账号的人显式执行；仓库测试不会自动执行：
+## 真实验收与旧路线边界
 
-1. 在用户自管的隔离浏览器环境中登录专用测试账号 A，使用独立回环 CDP 端口和专用测试对象，重新签发最小范围的 `cdp_observed` 授权；先 dry-run 核对目标与正文。
-2. 由人显式执行一次低风险真实动作，确认稳定平台 ID、proof_ref、receipt ID/URL 和实际回读正文哈希都来自同一个浏览器上下文。
-3. 在同一浏览器环境中由人切换到专用测试账号 B，再对另一个专用测试对象执行第二个动作；确认 B 是平台实际账号，而不是只改了本地 `account` 参数。
-4. 用 `mkt account log --json` 对照 `operations.jsonl` 与 `ledger.jsonl`：两条 `operation_id/ref` 一一对应，A/B 不串号，第二条 `switched_from` 指向 A，receipt URL 所属账号与各自 proof 一致。
-5. 对第一个已完成条目再次发起相同执行意图，确认原幂等门在 vendor 前拒绝且没有第二条平台动作；另做一次身份不可读检查，确认零发送。不要为验收制造重复触达。
-6. 人工保存真实平台回读与本地 artifact 哈希的核对结果。只有这些真实证据验收通过后，才能另行更新 live 状态；当前仍是 **live 未验收**。
+1. 先运行默认 preflight，确认受管页面、当前账号和 owner scope 一致，再显式执行一条发布或自有帖子回复。
+2. 用同一执行器返回的 ID/URL 对照 `operations.jsonl` 与 `ledger.jsonl`；重复意图必须被幂等门拦截，结果未知必须先对账，不能自动重发。
+3. 业务结果另行读取；发布回执不等于粉丝、Star、激活或收入。
+4. 旧 `cdp_observed` 数字 ID 和 A→B 账号切换验收仅适用于显式 legacy CDP，不得替代默认 WebBridge 健康检查，也不得把 A 浏览器的身份用于 B 浏览器执行。

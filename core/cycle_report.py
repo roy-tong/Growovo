@@ -69,6 +69,62 @@ def _key_row(rows: Dict[str, Dict[str, Any]], key: str) -> Dict[str, Any]:
     })
 
 
+def _project_task_outcome(report: Dict[str, Any]) -> Dict[str, Any]:
+    """One canonical run outcome for every consumer.
+
+    ``report["status"]`` (complete/attention) and each ``wave["status"]``
+    (complete/partial/failed) remain for compatibility, but they answer
+    different questions. This projection answers "did the run resolve the
+    task?" and is the field a CLI/MCP/night report should read.
+    """
+    totals = report["totals"]
+    target = _integer(totals.get("target"))
+    planned = _integer(totals.get("planned"))
+    attempted = _integer(totals.get("attempted"))
+    committed = _integer(totals.get("committed"))
+    basis = target if target else planned
+    wave_statuses = [str(row.get("status") or "") for row in report.get("waves", [])]
+    reasons = []
+    if report.get("errors"):
+        reasons.append("engine_error")
+    if "failed" in wave_statuses:
+        reasons.append("wave_failed")
+    if "partial" in wave_statuses:
+        reasons.append("wave_partial")
+    if _integer(totals.get("deferred")):
+        reasons.append("deferred")
+    if _integer(totals.get("unattempted")):
+        reasons.append("unattempted")
+
+    if not basis:
+        outcome = "unknown"
+    elif committed >= basis:
+        outcome = "resolved"
+    elif committed > 0:
+        outcome = "partial"
+    elif attempted > 0:
+        outcome = "unresolved"
+    else:
+        outcome = "unknown"
+
+    if "wave_failed" in reasons:
+        outcome = "unresolved" if committed == 0 else "partial"
+    elif "wave_partial" in reasons and outcome == "resolved":
+        outcome = "partial"
+
+    return {
+        "outcome": outcome,
+        "basis": "target" if target else ("planned" if planned else "none"),
+        "target": target,
+        "planned": planned,
+        "attempted": attempted,
+        "committed": committed,
+        "reasons": sorted(set(reasons)),
+        "note": ("canonical run outcome; legacy report.status and wave.status "
+                 "remain for compatibility"),
+    }
+
+
 def _scheduled_wave(wave_id: str) -> bool:
     match = re.fullmatch(r"(?:\d{2}-(\d{4})|(\d{4})(?:d\d|gh)?)", wave_id)
     if not match:
@@ -278,6 +334,7 @@ def build_report(data_dir, *, night: str = "", scheduled_only: bool = False) -> 
         "completion_rate": round(committed / target, 4) if target else None,
         "results": dict(sorted(total_results.items())),
     }
+    report["task_outcome"] = _project_task_outcome(report)
     report["inbox"] = {
         "collection_observations": collection_observations,
         "latest_pending_text": latest_pending,

@@ -7,8 +7,9 @@ ZCode 等 MCP 客户端连接）。配法（客户端 mcp 配置）：
 
 安全设计（把 449 教训做进 API 形状）：
   - 写操作只有两个入口：队列粒度（mkt_run_queue，全渠道）与单条动作（mkt_action，
-    全渠道）——两者共用暂停/审批/账本，没有绕过留痕的路径
-  - 写操作默认 dry-run；go=true 需显式传
+    全渠道）——两者都经 action_gateway 取账号/路线执行租约，共用暂停/审批/账本，
+    没有绕过留痕的路径
+  - 写操作默认 live；dry_run=true 才显式预览，go=true 可显式声明实跑
   - UNVERIFIED 渠道（reddit/linkedin/hn/github 写）拒绝实跑；首跑校准（allow_unverified）
     是 CLI 人工通道专属参数，MCP 既不暴露也不接受，agent 不得自行解除渠道验证门禁
   - 实跑须绑定已人审 plan，或在工作区已有有效 routine policy 时显式 routine=true；
@@ -27,6 +28,7 @@ sys.path.insert(0, str(BASE))
 from channels import REGISTRY  # noqa: E402
 from core import transports, workspace  # noqa: E402
 from core.ledger import Ledger  # noqa: E402
+from core.execution_intent import resolve_go  # noqa: E402
 from core.planlint import PlanNotApproved, enforce_approval, lint_plan  # noqa: E402
 
 DATA = workspace.resolve(base=BASE)
@@ -192,7 +194,7 @@ TOOLS = [
     {
         "name": "mkt_action",
         "description": "单条写动作（与队列同一套门禁/暂停/审批/账本）。channel ∈ x|reddit|linkedin|github|hn；"
-                       "action ∈ publish|reply|message|engage。默认 dry-run；go=true 需已人审 plan 或有效 routine policy 且 routine=true；"
+                       "action ∈ publish|reply|message|engage。默认 live；dry_run=true 预览；go=true 需已人审 plan 或有效 routine policy 且 routine=true；"
                        "UNVERIFIED 渠道实跑首跑校准仅限人工 CLI 通道，MCP 不提供绕过。email 只支持队列。",
         "inputSchema": {
             "type": "object",
@@ -208,7 +210,9 @@ TOOLS = [
                 "campaign": {"type": "string"},
                 "account": {"type": "string", "description": "routine policy 精确匹配的执行账号"},
                 "extra": {"type": "array", "items": {"type": "string"}},
-                "go": {"type": "boolean", "default": False},
+                "go": {"type": "boolean", "description": "可选；省略时默认 live，仍需通过执行门"},
+                "dry_run": {"type": "boolean", "default": False,
+                            "description": "true 时只预览，不执行外部写动作"},
                 "routine": {"type": "boolean", "default": False,
                             "description": "仅在工作区已有有效日常营销授权时使用；不能自我授权"},
             },
@@ -226,16 +230,57 @@ TOOLS = [
         },
     },
     {
+        "name": "mkt_growth",
+        "description": "AI Growth Service：目标编译、持久服务、下一动作、资产、入站、执行与结果评估。"
+                       "action 使用 growth CLI 同名子命令；默认 live，preview 仅在目标合同或 dry_run 中显式指定。",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "action": {"type": "string"},
+                "action_id": {"type": "string", "description": "growth run/reconcile 的动作 ID，避免与子命令 action 冲突"},
+                "service_id": {"type": "string"},
+                "repo": {"type": "string"},
+                "account": {"type": "string", "default": "default"},
+                "platform": {"type": "string"},
+                "thread_id": {"type": "string"},
+                "topic": {"type": "string"},
+                "subscription": {"type": "string"},
+                "host": {"type": "string", "default": "127.0.0.1"},
+                "port": {"type": "integer", "default": 8765},
+                "file": {"type": "string"},
+                "metrics": {"type": "string"},
+                "asset": {"type": "string"},
+                "by": {"type": "string"},
+                "text": {"type": "string"},
+                "target": {"type": "string"},
+                "channels": {"type": "string"},
+                "minutes": {"type": "integer"},
+                "note": {"type": "string"},
+                "status": {"type": "string"},
+                "conversation": {"type": "string"},
+                "reason": {"type": "string"},
+                "receipt_ref": {"type": "string"},
+                "experiment": {"type": "string"},
+                "secondary_targets": {"type": "string"},
+                "manual": {"type": "string"},
+                "assisted": {"type": "string"}
+            },
+            "required": ["action"]
+        }
+    },
+    {
         "name": "mkt_run_queue",
         "description": "执行一个队列（全渠道：email/hn/github/reddit/linkedin/x-reply）。"
-                       "默认 dry-run；go=true 实跑；UNVERIFIED 渠道首跑校准仅限人工 CLI 通道；"
+                       "默认 live；dry_run=true 预览；go=true 实跑；UNVERIFIED 渠道首跑校准仅限人工 CLI 通道；"
                        "实跑须已人审 plan，或显式 routine=true 且策略匹配（无 plan 的 adhoc 仅 CLI；授权管理不对 MCP 开放）。",
         "inputSchema": {
             "type": "object",
             "properties": {
                 "queue_path": {"type": "string", "description": "data/queues/<campaign>.json"},
                 "account": {"type": "string", "description": "可选：覆盖队列顶层账号，供 routine policy 精确校验"},
-                "go": {"type": "boolean", "default": False},
+                "go": {"type": "boolean", "description": "可选；省略时默认 live，仍需通过执行门"},
+                "dry_run": {"type": "boolean", "default": False,
+                            "description": "true 时只预览，不执行外部写动作"},
                 "routine": {"type": "boolean", "default": False,
                             "description": "仅使用已存在的 routine policy；MCP 不能创建或撤销授权"},
             },
@@ -693,14 +738,35 @@ def _call_tool(name, args):
         report["next"] = camp.next_step(DATA, Ledger(DATA / "ledger.jsonl"), cid)
         return _text(report)
 
+    if name == "mkt_growth":
+        import contextlib
+        import io
+        from types import SimpleNamespace
+        from core import growth_cli
+        if args["action"] in {"capability-upsert", "github-webhook-serve", "operator-serve"}:
+            return _err("该动作只能在具名操作者的本地 CLI 中执行；MCP 不得自行登记能力或启动长驻服务")
+        namespace = SimpleNamespace(**dict(args, growth_action=args["action"]))
+        if args.get("action_id"):
+            namespace.action = args["action_id"]
+        buffer = io.StringIO()
+        with contextlib.redirect_stdout(buffer):
+            code = growth_cli.handle(namespace, DATA)
+        if code != 0:
+            return _err("growth command failed; see server stderr for details")
+        try:
+            return _text(json.loads(buffer.getvalue()))
+        except json.JSONDecodeError:
+            return _err("growth command returned invalid JSON")
+
     if name == "mkt_run_queue":
         from core.queue_runner import QueueRunError, run_queue
         escalation = _agent_escalation_error(args)
         if escalation:
             return _err(escalation)
+        execution_go = resolve_go(args.get("go"), args.get("dry_run", False))
         try:
             results = run_queue(args["queue_path"], data_dir=DATA,
-                                go=bool(args.get("go")),
+                                go=execution_go,
                                 routine=bool(args.get("routine")), account=args.get("account"))
         except QueueRunError as exc:
             return _err(f"队列拒跑: {exc}")
@@ -709,7 +775,7 @@ def _call_tool(name, args):
             tally[r.get("result", "?")] = tally.get(r.get("result", "?"), 0) + 1
         return _text({
             "queue": args["queue_path"],
-            "dry_run": not args.get("go"),
+            "dry_run": not execution_go,
             "summary": tally,
             "records": [{"id": r.get("ref") or r.get("target"),
                          "target": r.get("target"), "result": r.get("result")}
@@ -717,21 +783,28 @@ def _call_tool(name, args):
         })
 
     if name == "mkt_action":
-        from core.action_runner import ActionError, run_action
+        from core import action_gateway
+        from core.action_runner import ActionError
         escalation = _agent_escalation_error(args)
         if escalation:
             return _err(escalation)
         try:
-            rec = run_action(
+            rec = action_gateway.execute(
                 channel=args["channel"], action=args["action"], data_dir=DATA,
-                campaign=args.get("campaign", ""), go=bool(args.get("go")),
+                campaign=args.get("campaign", ""),
+                go=resolve_go(args.get("go"), args.get("dry_run", False)),
                 target=args.get("target"), text=args.get("text"),
                 title=args.get("title"), url=args.get("url"),
                 subreddit=args.get("subreddit"), number=args.get("number"),
                 extra=args.get("extra"), routine=bool(args.get("routine")),
-                account=args.get("account", ""))
+                account=args.get("account", ""),
+                transport=args.get("transport") or "",
+                legacy_cdp=bool(args.get("legacy_cdp", False)))
         except ActionError as exc:
             return _err(f"动作拒跑: {exc}")
+        if rec.get("result") == "account_busy":
+            return _err(f"账号忙: {rec.get('account')} / {rec.get('route')} "
+                        f"正在执行其他写入，稍后重试。")
         return _text(rec)
 
     if name == "mkt_inbox":
@@ -1022,7 +1095,8 @@ def _call_tool(name, args):
 
     if name == "mkt_voice":
         from core import voice
-        d = voice.draft(args["platform"], hook=args.get("hook", ""), what=args.get("what", ""))
+        d = voice.draft(args["platform"], hook=args.get("hook", ""), what=args.get("what", ""),
+                        ask=args.get("ask", ""))
         return _text({"profile": voice.profile(args["platform"]), "drafts": d["drafts"],
                       "rendered": voice.render(args["platform"])})
 

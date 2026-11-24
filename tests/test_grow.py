@@ -382,7 +382,8 @@ class GrowCliTests(unittest.TestCase):
         out = self.run_mkt("grow", "start", "g1", "--facts", str(facts),
                            "--goal", "awareness.followers")
         self.assertIn("闭环已建", out.stdout)
-        self.assertIn("go=False", out.stdout)
+        self.assertIn("go=True", out.stdout)
+        self.assertIn("默认 live", out.stdout)
 
         out = self.run_mkt("grow", "status", "g1", "--on", "2026-11-08")
         self.assertIn("目标进度", out.stdout)

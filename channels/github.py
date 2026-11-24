@@ -218,12 +218,58 @@ def inbox(slug, *, log=log):
 
 # ---------------------------------------------------------------- 写原语（统一写路径）
 
+def create_issue(slug, title, text, *, go=False, adhoc=False, campaign=None, ledger=None, log=log,
+                 data_dir=None, token=None, client=None):
+    from core.github_app import GitHubAppClient
+    data = Path(data_dir or DATA)
+    ledger = ledger or Ledger(data / "ledger.jsonl")
+    throttle = Throttle(data / "state")
+    ev = Evidence(data / "shots" / (campaign or "adhoc"))
+    app = client or GitHubAppClient.from_env()
+    response = {}
+
+    def _compose(item):
+        repository = app.get_repository(slug, token=token)
+        if repository.get("full_name") != slug:
+            raise RuntimeError("GitHub App 仓库访问与目标不一致")
+
+    def _fill(item):
+        pass
+
+    def _readback(item):
+        return text
+
+    def _send(item):
+        nonlocal response
+        response = app.create_issue(slug, title, text, token=token)
+
+    def _confirm(item, timeout=0):
+        observed = app.get_issue(slug, response["number"], token=token)
+        return (observed.get("number") == response.get("number")
+                and observed.get("html_url") == response.get("html_url")
+                and observed.get("title") == title
+                and observed.get("body") == text)
+
+    def _shot(item):
+        return ev.write_json("github-issue-create", {"target": slug, "title": title, "body": text[:500]})
+
+    if go:
+        time.sleep(throttle.interval("github", "publish"))
+    pipe = standard_pipeline(data, ledger, adhoc=adhoc)
+    return pipe.run_one(
+        {"id": f"repo:{slug}"}, channel="github", action="publish",
+        campaign=campaign or "", transport="api", expect=text, target=slug,
+        compose=_compose, fill=_fill, readback=_readback, send=_send,
+        confirm=_confirm, shot=_shot, receipt=lambda item: response.get("html_url") or "",
+        dry_run=not go, max_len=60000)
+
+
 def reply(slug, number, text, *, go=False, adhoc=False, campaign=None, ledger=None, log=log,
-          data_dir=None):
+          data_dir=None, token=None):
     """在 issue/PR 下评论 —— api 通道的写路径首例。
 
-    走统一管道：Gate（占位符/查重/禁字符）→ 节流（30-90s 人类节奏）→ 回读比对
-    （协议层：构造体与 expect 一致）→ 留证（JSON 而非截图）→ POST → 201+html_url 即 committed。
+    走统一管道：Gate → 节流 → 发送前正文比对 → 留证 → POST → 独立 GET 核对
+    评论 URL、正文、作者和目标 Issue，全部一致后才 committed。
     """
     data = Path(data_dir or DATA)
     ledger = ledger or Ledger(data / "ledger.jsonl")
@@ -234,7 +280,7 @@ def reply(slug, number, text, *, go=False, adhoc=False, campaign=None, ledger=No
     resp = {}
 
     def _compose(item):
-        it = _api(f"/repos/{slug}/issues/{number}")
+        it = _api(f"/repos/{slug}/issues/{number}", token=token)
         if it.get("state") == "locked":
             raise RuntimeError("issue 已锁定，不能评论")
         if _days_ago(it.get("created_at")) is None:
@@ -248,7 +294,7 @@ def reply(slug, number, text, *, go=False, adhoc=False, campaign=None, ledger=No
 
     def _send(item):
         nonlocal resp
-        tok = _token()
+        tok = token or _token()
         if not tok:
             raise RuntimeError("写操作需要 MKT_GITHUB_TOKEN（环境变量，零凭据哲学）")
         body = json.dumps({"body": text}).encode("utf-8")
@@ -262,7 +308,13 @@ def reply(slug, number, text, *, go=False, adhoc=False, campaign=None, ledger=No
             raise RuntimeError("API 未返回评论 URL")
 
     def _confirm(item, timeout=0):
-        return bool(resp.get("html_url"))  # 协议回执即确认（201 + html_url）
+        if not resp.get("id") or not resp.get("html_url"):
+            return False
+        observed = _api(f"/repos/{slug}/issues/comments/{resp['id']}", token=token)
+        return (observed.get("html_url") == resp.get("html_url")
+                and observed.get("body") == text
+                and (observed.get("user") or {}).get("id") == (resp.get("user") or {}).get("id")
+                and str(observed.get("issue_url") or "").endswith(f"/issues/{number}"))
 
     def _shot(item):
         return ev.write_json("github-reply",
@@ -277,4 +329,63 @@ def reply(slug, number, text, *, go=False, adhoc=False, campaign=None, ledger=No
         {"id": target}, channel="github", action="reply",
         campaign=campaign or "", transport="api", expect=text, target=target,
         compose=_compose, fill=_fill, readback=_readback, send=_send,
-        confirm=_confirm, shot=_shot, dry_run=not go, max_len=60000)
+        confirm=_confirm, shot=_shot, receipt=lambda item: resp.get("html_url") or "",
+        dry_run=not go, max_len=60000)
+
+
+def find_replies(slug, number, text, *, token=None):
+    rows = _api(f"/repos/{slug}/issues/{number}/comments?per_page=100", token=token)
+    return [row for row in rows if str(row.get("body") or "") == str(text or "")]
+
+
+def discussion_reply(slug, number, text, *, go=False, adhoc=False, campaign=None, ledger=None, log=log,
+                     data_dir=None, token=None, client=None):
+    from core.github_app import GitHubAppClient
+    data = Path(data_dir or DATA)
+    ledger = ledger or Ledger(data / "ledger.jsonl")
+    throttle = Throttle(data / "state")
+    ev = Evidence(data / "shots" / (campaign or "adhoc"))
+    app = client or GitHubAppClient.from_env()
+    target = f"discussion:{slug}#{number}"
+    resp = {}
+
+    def _compose(item):
+        discussion = app.discussion(slug, number, token=token)
+        if discussion.get("closed"):
+            raise RuntimeError("discussion 已关闭，不能评论")
+
+    def _fill(item):
+        pass
+
+    def _readback(item):
+        return text
+
+    def _send(item):
+        nonlocal resp
+        resp = app.add_discussion_comment(slug, number, text, token=token)
+
+    def _confirm(item, timeout=0):
+        observed = app.discussion_comment(slug, number, resp.get("id"), token=token)
+        return (observed.get("id") == resp.get("id")
+                and observed.get("url") == resp.get("url")
+                and observed.get("body") == text
+                and (observed.get("author") or {}).get("login") == (resp.get("author") or {}).get("login"))
+
+    def _shot(item):
+        return ev.write_json("github-discussion-reply", {"target": target, "body": text[:500]})
+
+    if go:
+        time.sleep(throttle.interval("github", "reply"))
+    pipe = standard_pipeline(data, ledger, adhoc=adhoc)
+    return pipe.run_one(
+        {"id": target}, channel="github", action="reply", campaign=campaign or "",
+        transport="api", expect=text, target=target, compose=_compose, fill=_fill,
+        readback=_readback, send=_send, confirm=_confirm, shot=_shot,
+        receipt=lambda item: resp.get("url") or "", dry_run=not go, max_len=60000)
+
+
+def find_discussion_replies(slug, number, text, *, token=None, client=None):
+    from core.github_app import GitHubAppClient
+    app = client or GitHubAppClient.from_env()
+    rows = app.find_discussion_comments(slug, number, token=token)
+    return [row for row in rows if str(row.get("body") or "") == str(text or "")]

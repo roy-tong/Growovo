@@ -207,7 +207,7 @@ def send_queue(queue_file, *, go=False, only=None, only_ids=None, campaign=None,
     """
     data_dir = Path(data_dir or DATA)
     ledger = ledger or Ledger(data_dir / "ledger.jsonl")
-    throttle = throttle or Throttle(data_dir / "state")
+    throttle = throttle or Throttle(data_dir / "state", day_boundary="rolling_24h")
     qcampaign, items = load_queue(queue_file)
     campaign = campaign or qcampaign
     block_path = batch_block_path(data_dir, campaign)

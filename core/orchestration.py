@@ -241,6 +241,8 @@ def _contains(text: str, keyword: str) -> bool:
 def infer_motion(product: Dict[str, Any], goal: str, task: str) -> str:
     text = f"{goal} {task}".lower()
     # More specific task shapes precede broad product defaults.
+    if any(keyword in text for keyword in ("有效线索", "合格线索", "线索资格", "资格标准", "授权名单", "授权触达")):
+        return "sales_development"
     if any(k in text for k in ("sdr", "bdr", "陌生开发", "销售开发")) and not any(
             k in text for k in ("abm", "pipeline", "全链路", "poc", "需求增长")):
         return "sales_development"
@@ -475,7 +477,7 @@ def lint_orchestration(plan: Dict[str, Any]) -> List[str]:
 def render_markdown(plan: Dict[str, Any]) -> str:
     """Render the selected work and expression as an actionable planning brief."""
     lines = [f"# GTM 工作编排 · {plan['motion']}", "",
-             f"- 产品：{plan['product'].get('name') or plan['product'].get('product_type') or '未命名'}",
+             f"- 产品：{plan['product'].get('name') or (plan['product'].get('product') or {}).get('name') or plan['product'].get('product_type') or '未命名'}",
              f"- 目标：{plan['goal']}", f"- 任务：{plan['task']}",
              "- 组队原则：只选任务必需岗位，不默认使用全部岗位。", "",
              "## 最小 Workstream", "",
@@ -505,6 +507,10 @@ def render_markdown(plan: Dict[str, Any]) -> str:
         if exp["channel_rules"]:
             lines.append("- 渠道规则：" + "；".join(exp["channel_rules"]))
         lines.append("")
+    warnings = (plan.get("validation") or {}).get("warnings") or []
+    if warnings:
+        lines += ["", "## 未证事实（不得当作已验证卖点）", ""]
+        lines.extend(f"- {warning}" for warning in warnings)
     lines += ["## 验收与边界", ""]
     lines.extend(f"- {rule}" for rule in expression["evidence_rules"])
     lines.extend(f"- {rule}" for rule in expression["exclusions"])

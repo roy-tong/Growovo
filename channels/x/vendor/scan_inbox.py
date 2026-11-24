@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """扫描 Gmail：列出 to:me 的邮件线程概要。只读。"""
-from session_page import connect_browser
+from session_page import connect_browser, automation_page
 import json
 import os
 import sys
@@ -29,7 +29,7 @@ def main():
         browser = connect_browser(p.chromium, CDP_URL)
         ctx = browser.contexts[0]
         ensure_windows(browser)
-        page = next((pg for pg in ctx.pages if "mail.google.com" in pg.url), None) or ctx.new_page()
+        page = automation_page(ctx, ("https://mail.google.com/",))
         page.bring_to_front()
         page.goto("https://mail.google.com/mail/u/0/#search/" + QUERY.replace(" ", "+"), timeout=45000)
         time.sleep(4)

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import copy
 import hashlib
+import json
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
 
@@ -108,6 +109,121 @@ def lint_context(snapshot: Dict[str, Any]) -> List[str]:
     return errors
 
 
+def context_snapshot_from_file(path: Path | str) -> Dict[str, Any]:
+    source_path = Path(path).absolute()
+    snapshot = json.loads(source_path.read_text(encoding="utf-8"))
+    if not isinstance(snapshot, dict):
+        raise WorkError("context 文件必须是 JSON 对象")
+    if "claims" in snapshot or "content_sha256" in snapshot:
+        return snapshot
+    source = snapshot.get("source") or {}
+    facts = snapshot.get("product_facts")
+    if source.get("kind") != "askovo" or not isinstance(facts, list):
+        return snapshot
+    claims = []
+    original_ref = _text(source.get("ref"))
+    for index, fact in enumerate(facts):
+        statement = _text(fact.get("fact") if isinstance(fact, dict) else fact)
+        if not statement:
+            raise WorkError(f"旧 Askovo product_facts[{index}] 缺 fact，不能迁移为空结论")
+        claims.append({
+            "claim_id": f"legacy-fact-{index + 1:03d}",
+            "statement": statement,
+            "status": "insufficient_evidence",
+            "evidence_refs": [{
+                "evidence_id": f"legacy:{original_ref}#product_facts[{index}]",
+                "source": str(source_path),
+            }],
+        })
+    migrated = copy.deepcopy(snapshot)
+    migrated["source"] = {
+        **source, "ref": str(source_path), "original_ref": original_ref,
+        "migration": "legacy_askovo_product_facts/1",
+    }
+    migrated["content_sha256"] = hashlib.sha256(source_path.read_bytes()).hexdigest()
+    migrated["claims"] = claims
+    migrated["product_facts"] = [dict(fact, claim_status="insufficient_evidence")
+                                  if isinstance(fact, dict) else {"fact": str(fact), "claim_status": "insufficient_evidence"}
+                                  for fact in facts]
+    migrated["migration"] = {
+        "kind": "legacy_askovo_product_facts/1",
+        "claim_status": "insufficient_evidence",
+        "note": "只迁移旧交接结构；没有新增证据，事实不升级为已证实",
+    }
+    return migrated
+
+
+def facts_pack_from_context(snapshot: Dict[str, Any], *, name: str,
+                             product_type: str = "", url: str = "unknown") -> Dict[str, Any]:
+    name = _text(name)
+    if not name:
+        raise WorkError("旧 Askovo 上下文缺少 product.name；请用 --name / --product-name 明确产品名")
+    facts = snapshot.get("product_facts") or []
+    if len(facts) < 2:
+        raise WorkError("旧 Askovo 上下文至少需要一个产品事实和一条目标用户事实，不能猜测 ICP")
+    statements = [_text(item.get("fact") if isinstance(item, dict) else item) for item in facts]
+    status_by_statement = {_text(claim.get("statement")): _text(claim.get("status"))
+                           for claim in snapshot.get("claims") or [] if isinstance(claim, dict)}
+    migrated_facts = []
+    for statement in statements:
+        status = status_by_statement.get(statement) or "insufficient_evidence"
+        migrated_facts.append({"fact": statement, "claim_status": status})
+    source_ref = _text((snapshot.get("source") or {}).get("ref"))
+    audience = statements[1].lower()
+    tags = (["consumers"] if any(token in audience for token in ("家庭", "消费者", "个人用户"))
+            else ["b2b-buyers"] if any(token in audience for token in ("企业", "公司", "品牌", "采购", "b2b"))
+            else [])
+    document = {
+        "product": {"name": name, "what": statements[0], "url": _text(url) or "unknown",
+                    "stage": "discovery", "product_type": _text(product_type)},
+        "icp": [{"hypothesis": statements[1], "tags": tags,
+                 "evidence_label": "hypothesis", "evidence": source_ref + "#product_facts[1]"}],
+        "goals": [],
+        "value_events": [{"event": _text(item.get("event")),
+                          "name": _text(item.get("meaning")) or _text(item.get("event")),
+                          "source": source_ref + f"#value_event_definitions[{index}]",
+                          "is_approximation": True}
+                         for index, item in enumerate(snapshot.get("value_event_definitions") or [])],
+        "constraints": {"red_lines": list(snapshot.get("non_goals") or [])},
+        "owned_assets": {"platforms": []},
+        "product_facts": migrated_facts,
+        "claims": copy.deepcopy(snapshot.get("claims") or []),
+        "source_context": {"context_id": snapshot.get("context_id"), "version": snapshot.get("version"),
+                           "content_sha256": snapshot.get("content_sha256")},
+    }
+    return document
+
+
+def facts_document_from_file(path: Path | str, *, name: str = "",
+                             product_type: str = "", url: str = "unknown") -> Dict[str, Any]:
+    document = json.loads(Path(path).read_text(encoding="utf-8"))
+    if isinstance(document.get("product"), dict) and all(
+            key in document for key in ("icp", "value_events", "constraints", "owned_assets")):
+        return document
+    if any(document.get(key) for key in ("name", "product_type", "type")):
+        return document
+    snapshot = context_snapshot_from_file(path)
+    return facts_pack_from_context(snapshot, name=name, product_type=product_type, url=url)
+
+
+def evidence_warnings(document: Dict[str, Any]) -> List[str]:
+    warnings = []
+    seen = set()
+    for fact in document.get("product_facts") or []:
+        statement = _text(fact.get("fact") if isinstance(fact, dict) else fact)
+        status = _text(fact.get("claim_status") if isinstance(fact, dict) else "")
+        if statement and status and status != "evidence_supported" and statement not in seen:
+            warnings.append(f"未证事实：{statement}（{status}；不得当作已验证卖点）")
+            seen.add(statement)
+    for claim in document.get("claims") or []:
+        statement = _text(claim.get("statement"))
+        status = _text(claim.get("status"))
+        if statement and status != "evidence_supported" and statement not in seen:
+            warnings.append(f"未证事实：{statement}（{status}；不得当作已验证卖点）")
+            seen.add(statement)
+    return warnings
+
+
 class ContextStore:
     def __init__(self, data_dir: Path | str):
         self.events = EventStore(Path(data_dir) / "context" / "snapshots.jsonl", "context")
@@ -138,7 +254,7 @@ class ContextStore:
         return rows[-1]
 
 
-def lint_objective(objective: Dict[str, Any]) -> List[str]:
+def lint_objective(objective: Dict[str, Any], *, context_snapshot: Dict[str, Any] = None) -> List[str]:
     errors: List[str] = []
     for key in ("objective_id", "version", "business_question", "subject_type", "window", "owner"):
         if not _text(objective.get(key)):
@@ -147,6 +263,16 @@ def lint_objective(objective: Dict[str, Any]) -> List[str]:
         errors.append("objective.context_ref 必须固定 context_id/version")
     if not _ref_ok(objective.get("primary_metric_ref"), "metric_id", "version"):
         errors.append("objective 必须有一个带版本的主结果指标 primary_metric_ref")
+    if context_snapshot:
+        question = _text(objective.get("business_question"))
+        declared = {_text(item.get("statement")): item for item in objective.get("fact_assertions") or []
+                    if isinstance(item, dict) and item.get("status") == "hypothesis" and _text(item.get("source_ref"))}
+        for fact in context_snapshot.get("product_facts") or []:
+            statement = _text(fact.get("fact") if isinstance(fact, dict) else fact)
+            status = _text(fact.get("claim_status") if isinstance(fact, dict) else "")
+            if statement and status != "evidence_supported" and statement in question and statement not in declared:
+                errors.append("objective.business_question 含未证事实：" + statement +
+                              "；改用假设描述，或在 fact_assertions 中登记 statement/status=hypothesis/source_ref")
     return errors
 
 
@@ -160,7 +286,10 @@ class ObjectiveStore:
         if errors:
             raise WorkError("；".join(errors))
         ref = objective["context_ref"]
-        ContextStore(self.data_dir).get(ref["context_id"], ref["version"])
+        snapshot = ContextStore(self.data_dir).get(ref["context_id"], ref["version"])
+        errors = lint_objective(objective, context_snapshot=snapshot)
+        if errors:
+            raise WorkError("；".join(errors))
         metric = objective["primary_metric_ref"]
         from .metrics import MetricRegistry
         MetricRegistry(self.data_dir).get(metric["metric_id"], metric["version"])

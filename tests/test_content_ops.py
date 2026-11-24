@@ -86,12 +86,11 @@ class ContentOpsTests(unittest.TestCase):
         self.assertFalse(res["ok"])
         self.assertIn("meta_narration", [e["code"] for e in res["errors"]])
 
-    def test_audit_rejects_cta_label_and_private_contact(self):
+    def test_audit_rejects_cta_label_but_only_warns_about_private_contact(self):
         text = "很多团队做AI硬件。\n\n正文。\n\n文末CTA：关注我。加我微信。"
         res = content_ops.audit_text("xiaohongshu", text, title="硬件加AI")
-        codes = [e["code"] for e in res["errors"]]
-        self.assertIn("cta_label", codes)
-        self.assertIn("private_contact", codes)
+        self.assertIn("cta_label", [e["code"] for e in res["errors"]])
+        self.assertIn("private_contact", [e["code"] for e in res["warnings"]])
 
     def test_audit_rejects_missing_own_product_setup(self):
         text = "很多团队做AI硬件。\n\nAskovo 可以帮你整理评论。\n\n关注并私信我。"

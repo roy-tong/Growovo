@@ -99,7 +99,8 @@ def connect():
     pw = sync_playwright().start()
     browser = pw.chromium.connect_over_cdp(CDP)
     ctx = browser.contexts[0]
-    page = ctx.new_page()          # 独占标签页，避免和其他采集器抢同一个
+    from channels.x.vendor.session_page import automation_page
+    page = automation_page(ctx, ("https://www.xiaohongshu.com/",))
     return pw, browser, ctx, page
 
 

@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from core import approval, execute, planlint, strategy
+from core import approval, campaign, execute, planlint, queue, strategy
 
 
 class ExecutionApprovalTests(unittest.TestCase):
@@ -56,6 +56,25 @@ class ExecutionApprovalTests(unittest.TestCase):
             approval.approve_plan(self.data, "c1", by="roy")
         plan = json.loads(Path(self.result["plan"]).read_text())
         self.assertFalse(plan["review"]["human_approved"])
+
+    def test_original_x_publish_has_one_gate_result(self):
+        queue_path = self.data / "queues/original-x.json"
+        queue_path.parent.mkdir(parents=True, exist_ok=True)
+        payload = {"campaign": "original-x", "channel": "x", "action": "publish",
+                   "items": [{"id": "original-x-001", "target": "d1",
+                              "body": "第一版刚发，30 star。愿意在两台设备上试一次吗"}]}
+        queue_path.write_text(json.dumps(payload), encoding="utf-8")
+        self.assertEqual([], queue.lint_queue(payload, path=queue_path))
+        rows = campaign.preflight(payload, self.data)
+        self.assertTrue(rows[0]["ok"], rows)
+        plan = json.loads(Path(self.result["plan"]).read_text())
+        plan["waves"] = [{"wave": 1, "channel": "x", "action": "publish", "size": 1,
+                          "content_policy": "只写已确认事实，不群发模板", "queue": str(queue_path)}]
+        plan["plan_id"] = "original-x"
+        plan_path = self.data / "plans/original-x.json"
+        approval.save_plan(plan, plan_path)
+        approved, _, _ = approval.approve_plan(self.data, "original-x", by="林一")
+        self.assertTrue(approved["review"]["human_approved"])
 
     def test_revoke_blocks_execution(self):
         plan, _, _ = approval.approve_plan(self.data, "c1", by="roy")

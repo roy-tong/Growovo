@@ -542,8 +542,21 @@ def draft(pid: str, *, hook: str = "", what: str = "", ask: str = "") -> Dict[st
     """给三个开头骨架。全文必须人写——这里只解决「第一句说什么」。"""
     pid = resolve(pid)
     v = profile(pid)
+    if pid == "x":
+        missing = [name for name, value in (("hook", hook), ("what", what), ("ask", ask))
+                   if not str(value or "").strip()]
+        if missing:
+            raise ValueError("X 草稿需要 --hook（当前进展）、--what（做什么）、--ask（邀请动作）；缺 "
+                             + ", ".join(missing))
+        openers = [
+            f"{hook.strip()}。{what.strip()}。{ask.strip()}",
+            f"我在做{what.strip()}，当前真实进展是{hook.strip()}。{ask.strip()}",
+            f"{what.strip()}，先不承诺结果。{hook.strip()}。{ask.strip()}",
+        ]
+    else:
+        openers = v["openers"]
     out = []
-    for tpl in v["openers"][:3]:
+    for tpl in openers[:3]:
         text = tpl
         if hook:
             text = text.replace("<具体>", hook).replace("<细节>", hook)

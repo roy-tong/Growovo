@@ -97,5 +97,5 @@ body:
           required: true
         - label: I have not treated sends, exposure, stars or attributed outcomes as causal proof
           required: true
-        - label: No unsolicited bulk sending or non-API X website scripting was used
+        - label: No unsolicited bulk sending; any non-API X write ran through a named owner-attested managed tab with account authorization and readback
           required: true

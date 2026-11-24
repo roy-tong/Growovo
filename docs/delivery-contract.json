@@ -40,7 +40,7 @@
     "保证涨粉/转化等外部结果",
     "绕过挑战页/验证码/平台风控",
     "未知结果（indeterminate）自动重发",
-    "未授权的真实发送（写操作默认 dry-run，--go 且有效授权才实跑）",
+    "未授权的真实发送（渠道写动作默认 live，显式 --dry-run 预览，有效授权才实跑）",
     "触碰非用户提供的浏览器 profile 或远程 CDP 端点"
   ],
   "requires_procurement_template": {

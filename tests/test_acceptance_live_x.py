@@ -13,6 +13,10 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
+from unittest import mock
+
+import scripts.acceptance_live_x as live_x
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "acceptance_live_x.py"
@@ -25,6 +29,28 @@ def run_script(*args, timeout=120):
 
 
 class DryRunChainTests(unittest.TestCase):
+    def test_default_acceptance_never_selects_legacy_cdp(self):
+        from core import action_gateway
+        with tempfile.TemporaryDirectory() as tmp:
+            with mock.patch("core.action_gateway.resolve_transport",
+                            wraps=action_gateway.resolve_transport) as route:
+                rc = live_x.main(["--dry-run", "--workspace", tmp])
+        self.assertEqual(0, rc)
+        request = route.call_args.args[0]
+        self.assertFalse(request.get("routine", False))
+        self.assertFalse(request.get("legacy_cdp", False))
+        self.assertEqual("browser-attach", request["transport"])
+
+    def test_publish_preview_uses_the_same_managed_route(self):
+        from core import action_gateway
+        with tempfile.TemporaryDirectory() as tmp:
+            with mock.patch("core.action_gateway.resolve_transport",
+                            wraps=action_gateway.resolve_transport) as route:
+                rc = live_x.main(["--dry-run", "--action", "publish", "--workspace", tmp])
+        self.assertEqual(0, rc)
+        self.assertEqual("publish", route.call_args.args[0]["action"])
+        self.assertEqual("browser-attach", route.call_args.args[0]["transport"])
+
     def test_dry_run_full_chain_offline_green(self):
         with tempfile.TemporaryDirectory() as tmp:
             proc = run_script("--dry-run", "--workspace", tmp)
@@ -61,6 +87,34 @@ class DryRunChainTests(unittest.TestCase):
             self.assertTrue(any(r.get("result") == "indeterminate" for r in rows))
 
 
+class ManagedBrowserPreflightTests(unittest.TestCase):
+    def test_preflight_uses_managed_tab_identity_and_owner_authorization(self):
+        args = SimpleNamespace(
+            authorize_by="roy", target_url="https://x.com/elliwoodtong/status/1",
+            text="controlled acceptance", workspace="", cdp_url="http://127.0.0.1:9223",
+            profile_dir="")
+        attach = mock.Mock()
+        attach.ensure_managed_tab.return_value = 11
+        attach.observe_identity.return_value = {
+            "enforced": True, "mode": "cdp_observed",
+            "observed_platform_identity": "x:elliwoodtong", "handle": "elliwoodtong",
+            "identity_proof_ref": "browser-attach:11@now",
+            "browser_context": "webbridge-session:test", "observed_at": "now",
+        }
+        with tempfile.TemporaryDirectory() as tmp, \
+                mock.patch("core.browser_attach.BrowserAttach", return_value=attach), \
+                mock.patch("core.platform_compliance.require_owner_attested_browser_write",
+                           return_value={"route": "owner_attested_session"}) as permit, \
+                mock.patch("core.cdp_identity.probe",
+                           side_effect=AssertionError("default preflight must not use legacy CDP")):
+            args.workspace = tmp
+            rc = live_x.preflight(args)
+        self.assertEqual(0, rc)
+        attach.ensure_managed_tab.assert_called_once()
+        permit.assert_called_once()
+        self.assertEqual("browser-attach", permit.call_args.kwargs["actual_transport"])
+
+
 class LiveGuardTests(unittest.TestCase):
     def test_live_requires_authorize_by(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -94,35 +148,46 @@ class LiveGuardTests(unittest.TestCase):
 
 
 class PreflightTests(unittest.TestCase):
-    def test_preflight_blocks_missing_authorization_profile_and_browser(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            proc = run_script("--preflight", "--workspace", tmp,
-                              "--cdp-url", "http://127.0.0.1:9231",
-                              "--target-url", "https://x.com/growovo_test/status/1")
+    def _args(self, tmp, **overrides):
+        values = dict(authorize_by="", action="reply", target_url="",
+                      text="controlled acceptance", workspace=tmp)
+        values.update(overrides)
+        return SimpleNamespace(**values)
+
+    def test_preflight_reports_managed_failure_and_agent_recovery(self):
+        from core.browser_attach import BridgeError
+        with tempfile.TemporaryDirectory() as tmp, \
+                mock.patch("scripts.acceptance_live_x._managed_browser",
+                           side_effect=BridgeError("tab_not_found", "missing")):
+            proc = run_script("--preflight", "--workspace", tmp)
             self.assertEqual(2, proc.returncode)
             payload = json.loads(proc.stdout)
             self.assertFalse(payload["ready"])
+            self.assertEqual("browser-attach", payload["transport"])
             checks = {item["check"]: item for item in payload["checks"]}
             self.assertFalse(checks["authorized_by"]["ok"])
-            self.assertFalse(checks["isolated_profile"]["ok"])
-            self.assertFalse(checks["browser_endpoint"]["ok"])
+            self.assertFalse(checks["managed_browser"]["ok"])
+            self.assertNotIn("independent_cdp_endpoint", checks)
+            self.assertNotIn("isolated_profile", checks)
+            self.assertEqual("browser-attach", payload["recovery"]["route"])
             self.assertFalse((Path(tmp) / "operations.jsonl").exists())
             self.assertFalse((Path(tmp) / "ledger.jsonl").exists())
 
-    def test_preflight_refuses_campaign_port(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            profile = Path(tmp) / "profile"
-            profile.mkdir()
-            proc = run_script("--preflight", "--workspace", tmp,
-                              "--authorize-by", "tester",
-                              "--profile-dir", str(profile),
-                              "--cdp-url", "http://127.0.0.1:9222",
-                              "--target-url", "https://x.com/growovo_test/status/1")
-            self.assertEqual(2, proc.returncode)
-            payload = json.loads(proc.stdout)
-            checks = {item["check"]: item for item in payload["checks"]}
-            self.assertFalse(checks["independent_cdp_endpoint"]["ok"])
-            self.assertIn("9222", checks["independent_cdp_endpoint"]["detail"])
+    def test_preflight_rejects_someone_elses_target(self):
+        identity = {
+            "enforced": True, "mode": "cdp_observed",
+            "observed_platform_identity": "x:elliwoodtong", "handle": "elliwoodtong",
+            "identity_proof_ref": "browser-attach:11@now",
+            "browser_context": "webbridge-session:test", "observed_at": "now",
+        }
+        attach = mock.Mock(session="test")
+        permit = {"route": "owner_attested_session", "window_end": "tomorrow"}
+        with tempfile.TemporaryDirectory() as tmp, \
+                mock.patch("scripts.acceptance_live_x._managed_browser",
+                           return_value=(attach, 11, identity, permit)):
+            args = self._args(tmp, authorize_by="tester",
+                              target_url="https://x.com/someone_else/status/1")
+            self.assertEqual(2, live_x.preflight(args))
 
 
 if __name__ == "__main__":

@@ -662,9 +662,9 @@ def build_start_plan(data_dir, *, facts_path, goal_id: str,
             blocking=True, code="UNSUPPORTED_SCOPE"))
     elif risk["gated_channels"]:
         steps.append(_step("risk", "needs_review",
-                           "渠道未解锁自动执行：" + "、".join(risk["gated_channels"]),
-                           f"首次 live 只用可自主执行的渠道（{_auto_hint()}）；"
-                           "其余出人工辅助单，或接官方 API 并授权",
+                           "渠道需要技术首跑确认：" + "、".join(risk["gated_channels"]),
+                           f"当前可自主执行的渠道（{_auto_hint()}）；"
+                           "其余先完成技术验证，平台风险仅提示",
                            blocking=True, code="UNSUPPORTED_SCOPE"))
         record("scope", "UNSUPPORTED_SCOPE")
     elif int(actions_per_week) < 1:
@@ -817,8 +817,8 @@ def _next_for_plan(*, ux_state: str, run_id: str, facts_state: Dict[str, Any],
                 "确认主目标")
     if risk.get("gated_channels"):
         return ("mkt grow platforms",
-                "这些渠道不能自主执行：" + "、".join(risk["gated_channels"])
-                + f"；首次 live 换成 {_auto_hint()}，或把它们编成人工辅助任务")
+                "这些渠道需要技术首跑确认：" + "、".join(risk["gated_channels"])
+                + f"；可先使用 {_auto_hint()}，平台风险仅提示")
     if not can_apply:
         return ("mkt grow start --dry-run", "先补齐启动输入")
     if ux_state == "READY":

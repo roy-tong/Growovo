@@ -125,7 +125,7 @@ mkt queue run data/queues/<campaign>.json --go --routine
 # MCP 同样只传 routine/account；不能通过 MCP 创建、扩大或撤销授权
 ```
 
-未指定 `--go` 时仍然是 dry-run。未指定 `--routine` 或策略不匹配时，仍走原有 plan 审批。UNVERIFIED 平台仍需相应技术确认，不能借 routine 把未验证选择器说成已验证。
+写操作默认 live，显式 `--dry-run` 才预览。未指定 `--routine` 或策略不匹配时，仍走原有 plan 审批。UNVERIFIED 平台仍需相应技术确认，不能借 routine 把未验证选择器说成已验证。
 
 ### 3.4 只允许哪些日常动作
 
@@ -142,7 +142,7 @@ mkt queue run data/queues/<campaign>.json --go --routine
 
 常驻授权**只替代逐次 plan 审批**，不会降低以下约束：
 
-- dry-run 默认；
+- 写操作默认 live，显式 dry-run 预览；平台规则只提示风险，不单独阻断业务；
 - 全局暂停；
 - DNC / suppression / bounced；
 - 日预算和原子预留；

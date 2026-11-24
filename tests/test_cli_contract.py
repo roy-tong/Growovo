@@ -4,6 +4,7 @@
 """
 import json
 import os
+import py_compile
 import re
 import subprocess
 import sys
@@ -66,11 +67,21 @@ class CliContractTests(unittest.TestCase):
         self.assertIn(str(expected), proc.stdout)
         self.assertIn("路径规则", proc.stdout)
 
+    def test_entrypoint_compiles(self):
+        py_compile.compile(str(MKT), doraise=True)
+
     def test_sop_coverage_summary_is_explicit(self):
         proc = self.run_mkt("sop", "coverage")
         self.assertEqual(0, proc.returncode, proc.stderr)
         self.assertRegex(proc.stdout, r"SOP 覆盖：\d+/18 个能力域有可执行 SOP")
         self.assertIn("不表示已在真实业务中运行过", proc.stdout)
+
+    def test_sop_register_help_states_the_contract(self):
+        proc = self.run_mkt("sop", "register", "--help")
+        self.assertEqual(0, proc.returncode, proc.stderr)
+        self.assertIn("5–8", proc.stdout)
+        self.assertIn("read_only/draft/action_request", proc.stdout)
+        self.assertIn("close", proc.stdout)
 
     def test_capability_lint_reports_coverage(self):
         proc = self.run_mkt("capability", "lint")

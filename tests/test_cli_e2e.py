@@ -53,7 +53,7 @@ class CliE2ETests(unittest.TestCase):
         self.assertTrue(queue.exists())
         self.run_mkt("plan", "approve", "--id", "c1", "--by", "roy",
                      "--account", "acct-a", "--workspace", str(self.home))
-        dry = self.run_mkt("queue", "run", str(queue))
+        dry = self.run_mkt("queue", "run", str(queue), "--dry-run")
         self.assertIn("dry-run", dry)
         result = json.loads(self.run_mkt("result", "--campaign", "c1", "--json"))
         self.assertEqual("c1", result["scope"]["campaign"])

@@ -34,7 +34,7 @@ class PlanTest(unittest.TestCase):
             self.assertEqual(got["jobs"][0]["available"], 0)
             self.assertEqual(got["jobs"][0]["target"], 30)
 
-    def test_enough_supply_does_not_start_work(self):
+    def test_candidate_inventory_requires_draft_preparation_before_mining(self):
         with tempfile.TemporaryDirectory() as tmp:
             supply_pool.merge(tmp, [{
                 "channel": "github", "action": "reply",
@@ -43,7 +43,7 @@ class PlanTest(unittest.TestCase):
             local = policy()
             local["supply"]["wave_targets"] = {"github/reply": 15}
             got = plan_prefetch(tmp, local)
-            self.assertEqual(got["jobs"], [])
+            self.assertEqual("draft_preparation", got["jobs"][0]["kind"])
 
     def test_disabled_or_unlisted_source_is_not_planned(self):
         with tempfile.TemporaryDirectory() as tmp:

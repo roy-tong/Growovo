@@ -539,9 +539,9 @@ class ReconciliationTests(Workspace):
         with patch.object(adapter, "VENDOR", vendor), \
                 patch.object(session_gate, "check_login", logged_in):
             first = run.tick(self.dir, on="2026-11-03",
-                             now=_now("2026-11-03"))
+                             now=_now("2026-11-03"), legacy_cdp=True)
             second = run.tick(self.dir, on="2026-11-03",
-                              now=_now("2026-11-03"))
+                              now=_now("2026-11-03"), legacy_cdp=True)
         self.assertTrue(first["ran"])
         self.assertTrue(any("不重试名单" in str(entry.get("error") or "")
                             for entry in first["ran"]),

@@ -6,9 +6,9 @@ OVO family boundary: Prove Anything is the family-level result-proof protocol ca
 
 ## Start here
 
-- Zero-network check first: `python3 mkt.py demo` (about one second, no accounts), then `python3 mkt.py grow platforms` to see which channels are fully automated this phase.
+- Zero-network check first: `python3 mkt.py demo` (about one second, no accounts), then `python3 mkt.py growth compile --file examples/growth-goal.json` to see a business goal become a persistent action DAG. [Growth Service guide](https://github.com/roy-tong/Growovo/blob/main/docs/growth-service.md).
 - Read-only proof export: `mkt --workspace DATA proof export RUN_ID --out NEW_DIR --by NAME`; no external action, private source fields excluded, P0/P2/P4 kept separate with no causal credit.
-- Platform boundary: all scripted non-API X browser writes are refused, including one-off `--go` and standing browser sessions. X remains read-only with dry runs, drafts and manual handoff; automated writing requires a separately connected, compliant official API.
+- Platform boundary: official API/SMTP is preferred; existing write primitives may execute through WebBridge transport over WebMonitor managed tabs inside a named owner-attested window. X `publish`/`reply` default to that route; routine X writes also use owner-attested instead of defaulting to routine CDP, and X reads default to WebBridge. Debug-browser CDP 9222 is explicit `--legacy-cdp` only, and identity observation must use the same endpoint as execution. Unauthorized accounts, CAPTCHA/challenge bypass and risk-control evasion remain forbidden. Owner-attested CDP is an operator-risk route, not a claim of platform permission.
 - [Review outreach and private feedback writeback](https://github.com/roy-tong/Growovo/blob/main/docs/review-outreach.md): same-day evidence, named-person mapping, cross-track cooldown, native unapproved queues; no autonomous sending or repository writes
 - [Result loop (grow v2)](https://github.com/roy-tong/Growovo/blob/main/docs/grow-%E9%97%AD%E7%8E%AF.md) · [Platform matrix](https://github.com/roy-tong/Growovo/blob/main/docs/platform-automation-matrix.md)
 - [Feature status](https://github.com/roy-tong/Growovo/blob/main/docs/feature-status.md): what works, what is gated, what is deferred
@@ -17,7 +17,7 @@ OVO family boundary: Prove Anything is the family-level result-proof protocol ca
 
 ## Interfaces
 
-- CLI `mkt.py`: `demo`, `grow platforms|launch|arm|daemon|daily|review|prospects|learn`, `strategy card|cards|validate`, `content rules|brief|audit|plan`, `policy enable`, queue and channel ops. Approval-gated with dry-run; deterministic outputs.
+- CLI `mkt.py`: `demo`, `growth compile|start|next|run|evaluate|plan|brief`, `grow platforms|launch|arm|daemon|daily|review|prospects|learn`, queue and channel ops. Writes default to live; explicit `--dry-run` previews. Growth Service compiles goals into persistent business action DAGs with opportunities, inbox, assets, experiments and human-budget allocation.
 - MCP server `mcp_server.py` (`mkt-server`): stdio JSON-RPC 2.0, zero third-party dependencies — Claude Desktop, Codex and any MCP client can attach without the MCP SDK.
 - Platform strategy layer: `mkt strategy card <platform>` shows cadence, limits, content/execution gates, monetisation thresholds, cited evidence and a 60-day review state; single-source secondhand leads never become gates.
 - Agent Skill [skills/growovo-gtm/SKILL.md](https://github.com/roy-tong/Growovo/blob/main/skills/growovo-gtm/SKILL.md): GTM judgment and protocol for agents.

@@ -172,6 +172,8 @@ class Throttle:
         return now.date().isoformat()
 
     def _state_file(self):
+        if self.day_boundary == "rolling_24h":
+            return self.state_dir / "mkt-rolling-24h.json"
         # 文件名带口径前缀：切换日界时不会误读旧口径的账本（旧文件仍留在磁盘可审计）。
         prefix = "utc-" if self.day_boundary != "local" else ""
         return self.state_dir / f"mkt-daily-{prefix}{self._day_key()}.json"
@@ -201,8 +203,23 @@ class Throttle:
                 fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
             fh.close()
 
+    def _rolling_events(self):
+        state = self._read_state()
+        cutoff = _now() - timedelta(hours=24)
+        events = []
+        for item in state.get("events", []):
+            try:
+                at = datetime.fromisoformat(str(item.get("at", "")).replace("Z", "+00:00"))
+            except (ValueError, TypeError):
+                continue
+            if at.tzinfo is None:
+                at = at.replace(tzinfo=timezone.utc)
+            if at >= cutoff:
+                events.append(at)
+        return events
+
     def _legacy_local_used(self, channel, action):
-        if self.day_boundary == "local":
+        if self.day_boundary in ("local", "rolling_24h"):
             return 0
         now = _now()
         utc_start = datetime.combine(now.date(), datetime.min.time(), tzinfo=timezone.utc)
@@ -221,6 +238,8 @@ class Throttle:
         return total
 
     def daily_used(self, channel, action):
+        if self.day_boundary == "rolling_24h":
+            return len(self._rolling_events())
         state = self._read_state()
         try:
             current = int(state.get(f"{channel}/{action}", 0))
@@ -263,12 +282,26 @@ class Throttle:
                 raise ThrottleError(
                     f"{channel}/{action} 日预算已用 {used}/{daily_cap}，"
                     f"不能再预留 {n} 次；{self.advice(channel, action, n)}")
+            if self.day_boundary == "rolling_24h":
+                events = list(state.get("events", []))
+                events.extend({"at": _now().isoformat()} for _ in range(n))
+                state = {"schema": "growovo.rolling-24h/1", "events": events}
+                f.write_text(json.dumps(state, ensure_ascii=False, indent=1), encoding="utf-8")
+                return len(self._rolling_events())
             state[key] = used + n
             f.write_text(json.dumps(state, ensure_ascii=False, indent=1), encoding="utf-8")
             return state[key]
 
     def daily_charge(self, channel, action, n=1):
         """兼容旧调用：原子增加已用额度（发送成功后调用）。"""
+        if self.day_boundary == "rolling_24h":
+            with self._locked():
+                f = self._state_file()
+                state = self._read_state(f)
+                events = list(state.get("events", []))
+                events.extend({"at": _now().isoformat()} for _ in range(n))
+                f.write_text(json.dumps({"schema": "growovo.rolling-24h/1", "events": events}, ensure_ascii=False, indent=1), encoding="utf-8")
+            return
         key = f"{channel}/{action}"
         with self._locked():
             f = self._state_file()

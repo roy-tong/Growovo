@@ -110,10 +110,10 @@ mkt grow resume g1 --by "$USER" --note "处理了什么"
 
 ## 第一期平台边界
 
-无人值守全自动写只承诺 **Email**。**X** 的平台许可禁止非 API 自主写入，编成人工辅助任务；
-GitHub 走 REST API，浏览器 owner-attested 作备用；Reddit、Hacker News、LinkedIn、Discord
-可正常编入人工辅助计划，浏览器写首跑需人工盯。人工渠道（小红书、知乎等）只出作业单。
-渠道受限不关闭业务：风控只停当前渠道并提示降频、拆批、顺延。见
+当前可自主执行 **X、Discord、Email**。平台规则与合规口径只提示风险，不阻断业务；
+GitHub 走 REST API，浏览器 owner-attested 作备用；Reddit、Hacker News、LinkedIn
+的写流程仍需技术首跑确认。人工渠道（小红书、知乎等）只出作业单。
+渠道技术故障不关闭其他业务：风控只停当前渠道并提示降频、拆批、顺延。见
 [平台自动执行矩阵](platform-automation-matrix.md)。
 
 ## v2 之后

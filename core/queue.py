@@ -101,15 +101,11 @@ def lint_queue(queue, *, path=None, max_len=None, registry=None):
         else:
             seen_ids.add(iid)
         raw_target = item.get("target")
-        if action == "publish" and channel != "email":
-            # publish 的 target 常是版块/账号/产品链接，不是触达对象，不做格式校验
-            target = str(raw_target or "").strip()
-        else:
-            try:
-                target = check_target(channel, raw_target) if channel else raw_target
-            except GateError as exc:
-                errs.append(f"{tag}: {exc}")
-                target = raw_target
+        try:
+            target = check_target(channel, raw_target, action) if channel else raw_target
+        except GateError as exc:
+            errs.append(f"{tag}: {exc}")
+            target = raw_target
         if target and str(target).strip():
             if str(target) in seen_targets:
                 errs.append(f"{tag}: 目标重复 {target}（同一队列不要重复触达）")

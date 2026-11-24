@@ -14,7 +14,7 @@ If those two commands fail on a clean checkout, that's a bug — report it befor
 
 | Invariant | Where it lives |
 |---|---|
-| Writes default to dry-run; `--go` is explicit | `core/action_runner.py` |
+| Writes default to live; explicit `--dry-run` previews; platform rules are non-blocking risk notices | `core/action_runner.py`, `core/platform_compliance.py` |
 | A write must be covered by a human-approved plan (or explicit CLI `--ad-hoc`) | `core/plan*`, CLI |
 | Pause, daily budget, suppression and DNC checks run before any send | `core/`, `channels/` |
 | Read-back mismatch blocks the send | channel adapters |

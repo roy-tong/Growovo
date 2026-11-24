@@ -12,7 +12,7 @@ search 只读 → publish dry-run → 实发 1 帖（Show HN，自有项目）�
   - Show HN 只对自己拥有/深度参与的项目（人工纪律，代码不代管）
   - 标题 ≤80 字符、无 clickbait 词（Gate max_len 硬拦截）
   - engage/message 不实现：无 DM；投票操纵判定风险同 Reddit
-  - 一切写操作默认 dry-run，--go 才执行（mkt CLI 层强制）
+  - 写操作默认 live，显式 --dry-run 才预览（mkt CLI 层强制）
 """
 import json
 import time
@@ -79,7 +79,7 @@ def inbox(*, log=log):
 
     HN 无通知 API；提交后的守帖动作（首小时回评论，Show HN 文化要求）从这里巡检。
     """
-    browser, page = cdp.connect()
+    browser, page = cdp.connect(site="hn", data_dir=DATA, managed_url=f"{HN}/replies")
     try:
         cdp.safe_goto(page, f"{HN}/replies", log=log)
         time.sleep(2)
@@ -95,7 +95,7 @@ def inbox(*, log=log):
         log(f"{len(rows)} 条新回复（守帖用：逐条实质回应，不灌 thanks）")
         return rows
     finally:
-        page.close()
+        cdp.release_page(page)
 
 
 # ---------------------------------------------------------------- 写原语（统一写路径）
@@ -113,7 +113,7 @@ def publish(title, url=None, text=None, *, go=False, adhoc=False, campaign=None,
     pipe = standard_pipeline(data, ledger, adhoc=adhoc)
     ev = Evidence(data / "shots" / (campaign or "adhoc"))
     target = f"hn:submit:{(url or 'text')[:60]}"
-    browser, page = cdp.connect()
+    browser, page = cdp.connect(site="hn", data_dir=data, managed_url=f"{HN}/submit")
     try:
         def _compose(item):
             cdp.safe_goto(page, f"{HN}/submit", log=log)
@@ -156,7 +156,7 @@ def publish(title, url=None, text=None, *, go=False, adhoc=False, campaign=None,
             target=target, compose=_compose, fill=_fill, readback=_readback,
             send=_send, confirm=_confirm, shot=_shot, dry_run=not go)
     finally:
-        page.close()
+        cdp.release_page(page)
 
 
 def reply(item, text, *, go=False, adhoc=False, campaign=None, ledger=None, log=log,
@@ -175,7 +175,7 @@ def reply(item, text, *, go=False, adhoc=False, campaign=None, ledger=None, log=
     ledger = ledger or Ledger(data / "ledger.jsonl")
     pipe = standard_pipeline(data, ledger, adhoc=adhoc)
     ev = Evidence(data / "shots" / (campaign or "adhoc"))
-    browser, page = cdp.connect()
+    browser, page = cdp.connect(site="hn", data_dir=data, managed_url=item)
     try:
         def _compose(i):
             cdp.safe_goto(page, item, log=log)
@@ -213,4 +213,4 @@ def reply(item, text, *, go=False, adhoc=False, campaign=None, ledger=None, log=
             target=item, compose=_compose, fill=_fill, readback=_readback,
             send=_send, confirm=_confirm, shot=_shot, dry_run=not go)
     finally:
-        page.close()
+        cdp.release_page(page)

@@ -41,7 +41,7 @@
 | The price Verovo paid | What Growovo hardcodes |
 |---|---|
 | 449 empty-body incident | Readback mismatch never sends; `indeterminate` results never auto-resend — a human must `ledger resolve` |
-| Recurring scale impulses (199/day → 500+/day → 100-message batches, each falsified) | All writes default to dry-run; a plan whose size exceeds the kernel daily budget is rejected at lint |
+| Recurring scale impulses (199/day → 500+/day → 100-message batches, each falsified) | Writes default to live with explicit dry-run previews; a plan whose size exceeds the kernel daily budget is rejected at lint |
 | Bought stars poisoning all early attribution | The ledger records "platform action succeeded" and "business outcome" as two independent fields; sent ≠ converted |
 | Refusing to stop at the line (the $990 line burned 6 weeks before the verdict) | Decision lines preregistered: 40 emails, 10 qualified quotes, 2 weeks of zero growth — at the line, kill |
 | "Ten seconds from the account owner" actions stuck for weeks | Human review is an explicit gate (signature + fingerprint + validity window); human actions are listed, never silently awaited |

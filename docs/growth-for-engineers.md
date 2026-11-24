@@ -15,7 +15,7 @@
 |---|---|---|
 | SLA / SLO | [结果契约](grow-闭环.md)：硬承诺 vs 明确不承诺 | 只承诺可核验的执行量、真实读数、闭环责任；不承诺平台算法给多少曝光 |
 | audit log | 账本 ledger，committed 逐条可回查 | 每个真实发出的动作都落账，永不涂改 |
-| staging / canary | 一切写操作默认 dry-run，`--go` 才实跑；先 canary 后放量 | 和你部署的习惯一模一样 |
+| staging / canary | 写操作默认 live，显式 `--dry-run` 预览；先 canary 后放量 | 和你部署的习惯一模一样 |
 | trust level | 证据分级 UNVERIFIED → PROVEN | 没对过数的读数不冒充已验证 |
 | CI 日循环 | `grow daemon` / `grow daily` 每日闭环：执行→读数→调参 | 每天一屏，像看 pipeline 状态 |
 | 告警 | 供给缺口提前 3 天报警；异常停车待人工裁决 | 失败即停，不重试轰炸 |
@@ -60,7 +60,8 @@ python3 mkt.py grow learn g1
 
 - [发布尸检：11 小时 73 条推文，0 个新 star](launch-autopsy-20261105.md)——一次真实的 GTM 发布实验（当晚没走账本，进度靠临时脚本记）：拿到的数字，以及它暴露的账本缺口。
 - [为什么不自己写个脚本，或者用通用自动化平台？Why not just write a script?](compare.md)（英文）——逐项对比，每条主张对应仓库文件。
-- [平台自动执行矩阵](platform-automation-matrix.md)——无人值守全自动执行只承诺 Email；X 写通道技术可用但平台禁止非 API 自主写入，只编人工辅助任务；GitHub 走 REST API，浏览器 owner-attested 作备用；Reddit、Hacker News、LinkedIn、Discord 的浏览器写尚未验证，首次运行需人工盯，但仍可正常编入人工辅助计划；小红书、知乎等人工渠道只出作业单。受限渠道不会关闭业务：风控只停当前渠道，并给出降频、拆批、顺延建议。
+- [平台自动执行矩阵](platform-automation-matrix.md)——X、Discord、Email 具备自主执行路径；平台规则只提示风险，不阻断业务。授权窗口内可通过 WebMonitor 受管标签组执行 CDP，保留 scope、身份、配额和回读；技术未验收的渠道仍为 GATED/UNVERIFIED，其余人工渠道只出作业单。单渠道技术故障不关闭其他业务，人工工作包与 live 阻断分别记录。
+- [AI Growth Service](growth-service.md)——业务目标编译、持久服务、机会、统一入站、可复现资产、实验与人工预算。
 
 ## 合规底线（也是你的安全带）
 

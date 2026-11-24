@@ -182,13 +182,13 @@ class RoutineExecutionTests(RoutineTestCase):
 
         with patch("channels.x.adapter.run", side_effect=fake_xrun) as vendor:
             dry = run_action(channel="x", action="reply", data_dir=self.data,
-                             campaign="routine-campaign", go=False, routine=True,
+                             campaign="routine-campaign", go=False, routine=True, legacy_cdp=True,
                              target=queueless_target, text="helpful reply", log=lambda *_: None)
             self.assertEqual("dry-run", dry["result"])
             self.assertNotIn("approval", dry)
             with self.assertRaises(ActionError):
                 run_action(channel="x", action="reply", data_dir=self.data,
-                           campaign="routine-campaign", go=True, routine=True,
+                           campaign="routine-campaign", go=True, routine=True, legacy_cdp=True,
                            target=queueless_target, text="helpful reply", log=lambda *_: None)
             self.assertEqual(1, vendor.call_count)  # denied before vendor on real run
 
@@ -197,7 +197,7 @@ class RoutineExecutionTests(RoutineTestCase):
             authorize(self.data, by="operator", actions=["x:reply"], accounts=["acct-a"])
             with self.assertRaises(ActionError) as blocked:
                 run_action(channel="x", action="reply", data_dir=self.data,
-                           campaign="routine-campaign", go=True, routine=True,
+                           campaign="routine-campaign", go=True, routine=True, legacy_cdp=True,
                            account="acct-a", target=queueless_target,
                            text="helpful reply", log=lambda *_: None)
             self.assertIn("authorization_missing_identity", str(blocked.exception))
@@ -213,7 +213,7 @@ class RoutineExecutionTests(RoutineTestCase):
             authorize(self.data, by="operator", actions=["x:reply"],
                       accounts=["acct-a"], identities=["acct-a=x:uid-a"])
             rec = run_action(channel="x", action="reply", data_dir=self.data,
-                             campaign="routine-campaign", go=True, routine=True,
+                             campaign="routine-campaign", go=True, routine=True, legacy_cdp=True,
                              account="acct-a", target=queueless_target,
                              text="helpful reply", log=lambda *_: None)
         self.assertEqual("committed", rec["result"])
@@ -238,11 +238,11 @@ class RoutineExecutionTests(RoutineTestCase):
             precheck("github", "reply", self.data, "routine-campaign", True, False,
                      routine=True)
 
-    def test_platform_permission_is_enforced_in_shared_routine_precheck(self):
+    def test_platform_risk_does_not_block_shared_routine_precheck(self):
         authorize(self.data, by="operator", actions=["hn:reply"])
-        with self.assertRaisesRegex(ActionError, "平台许可"):
-            precheck("hn", "reply", self.data, "routine-campaign", True, True,
-                     routine=True)
+        got = precheck("hn", "reply", self.data, "routine-campaign", True, True,
+                       routine=True)
+        self.assertEqual("routine-policy", got)
 
     def test_pipeline_marks_routine_policy_in_result_and_ledger(self):
         authorize(self.data, by="operator", actions=["email:message"])

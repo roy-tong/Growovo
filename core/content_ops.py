@@ -532,8 +532,10 @@ def _claim_hit(text: str, words: Iterable[str]) -> str:
     return ""
 
 
-def _add(target: List[Dict[str, str]], code: str, message: str, excerpt: str = "") -> None:
-    target.append({"code": code, "message": message, "excerpt": excerpt[:120]})
+def _add(target: List[Dict[str, str]], code: str, message: str, excerpt: str = "",
+         blocking: bool = True) -> None:
+    target.append({"code": code, "message": message, "excerpt": excerpt[:120],
+                   "blocking": blocking})
 
 
 def _apply_gates(channel: str, rules: Dict[str, Any], body: str, title: str,
@@ -560,7 +562,8 @@ def _apply_gates(channel: str, rules: Dict[str, Any], body: str, title: str,
         if detector in _SINGLE_HIT:
             unique = unique[:1]
         for hit in unique[:3]:
-            _add(bucket, gate["code"], message, hit)
+            _add(bucket, gate["code"], message, hit,
+                 blocking=gate.get("blocking", gate.get("level") == "error"))
         existing.add(gate["code"])
 
 
@@ -597,8 +600,9 @@ def audit_text(channel: str, text: str, *, title: str = "", strict: bool = False
             break
 
     if CONTACT_PATTERN.search(body):
-        _add(errors if channel in ("xiaohongshu", "zhihu") else warnings, "private_contact",
-             "出现微信/加V/二维码等站外联系方式", CONTACT_PATTERN.search(body).group(0))
+        _add(warnings, "private_contact",
+             "出现微信/加V/二维码等站外联系方式；这是平台风险提示，不阻断业务执行",
+             CONTACT_PATTERN.search(body).group(0), blocking=False)
 
     if check_title:
         if not title:
@@ -685,8 +689,9 @@ def audit_text(channel: str, text: str, *, title: str = "", strict: bool = False
                  "、".join(internal))
 
     if strict:
-        errors = errors + [dict(w, code="strict_" + w["code"]) for w in warnings]
-        warnings = []
+        errors = errors + [dict(w, code="strict_" + w["code"])
+                           for w in warnings if w.get("blocking", True)]
+        warnings = [w for w in warnings if not w.get("blocking", True)]
 
     return {
         "channel": channel,
@@ -1004,7 +1009,7 @@ def render_rules(channel: str) -> str:
                          f" — {ov.get('note', '')}（{ov.get('guide', '')}）")
     gates = r.get("gates") or []
     if gates:
-        lines += ["", "## 平台门禁（审稿会拦）", ""]
+        lines += ["", "## 内容质量检查与平台风险提示", ""]
         for gate in gates:
             how = "自动" if gate.get("detector") else "人工清单"
             lines.append(f"- [{gate['level']}] {gate['statement']} → {gate.get('fix', '')}"

@@ -259,7 +259,7 @@ class TestCampaign(Tmp):
         self.assertEqual("approve", camp.next_step(self.dir, led, "p1-w1")["code"])
 
         approval.approve_plan(self.dir, "p1", by="roy")
-        self.assertEqual("dry-run", camp.next_step(self.dir, led, "p1-w1")["code"])
+        self.assertEqual("live", camp.next_step(self.dir, led, "p1-w1")["code"])
 
         q = {"campaign": "p1-w1", "channel": "email", "action": "message",
              "items": [{"id": "1", "target": "a@example.com", "body": "正文"}]}

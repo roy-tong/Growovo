@@ -1131,13 +1131,13 @@ def run(data_dir, *, go: bool = False, queue_path=None, max_actions: int = 0,
         wave_id: str = "", budget_sec: int = 3000, session: str = "",
         prefetch: Optional[bool] = None, auto_inbox: Optional[bool] = None,
         preflight: Optional[bool] = None, inbox_writer=None,
-        log=print) -> Dict[str, Any]:
+        log=print, now=None) -> Dict[str, Any]:
     """串行执行真实波次；dry-run 保持只读且不占用执行锁。"""
     if not go:
         return _run(data_dir, go=False, queue_path=queue_path, max_actions=max_actions,
                     wave_id=wave_id, budget_sec=budget_sec, session=session,
                     prefetch=prefetch, auto_inbox=auto_inbox, preflight=preflight,
-                    inbox_writer=inbox_writer, log=log)
+                    inbox_writer=inbox_writer, log=log, now=now)
     lock_file = _lock_path(data_dir)
     try:
         lock_file.parent.mkdir(parents=True, exist_ok=True)
@@ -1154,7 +1154,7 @@ def run(data_dir, *, go: bool = False, queue_path=None, max_actions: int = 0,
         return _run(data_dir, go=True, queue_path=queue_path, max_actions=max_actions,
                     wave_id=wave_id, budget_sec=budget_sec, session=session,
                     prefetch=prefetch, auto_inbox=auto_inbox, preflight=preflight,
-                    inbox_writer=inbox_writer, log=log)
+                    inbox_writer=inbox_writer, log=log, now=now)
     finally:
         fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
         handle.close()
@@ -1164,9 +1164,10 @@ def _run(data_dir, *, go: bool = False, queue_path=None, max_actions: int = 0,
          wave_id: str = "", budget_sec: int = 3000, session: str = "",
          prefetch: Optional[bool] = None, auto_inbox: Optional[bool] = None,
          preflight: Optional[bool] = None, inbox_writer=None,
-         log=print) -> Dict[str, Any]:
+         log=print, now=None) -> Dict[str, Any]:
     """执行一波：窗口 → 停手 → 计划 → 逐条 sleep 后发送 → 记波次摘要。"""
-    from .action_runner import run_action
+    from . import action_gateway
+    run_action = action_gateway.execute
     from .browser_attach import BridgeError
     from .browser_write import ActionBlocked, StopChannel
     from . import inbox_tracking
@@ -1174,13 +1175,20 @@ def _run(data_dir, *, go: bool = False, queue_path=None, max_actions: int = 0,
     data_dir = Path(data_dir)
     policy = load_policy(data_dir)
     used_session = _use_session(session or bridge_session(policy))
-    now = _now()
+    now = now or _now()
     start = night_start(now, policy)
     if not start:
         return {"ok": False, "reason": "outside_window", "now": now.isoformat(timespec="seconds")}
     night = night_key(start)
     wave = wave_id or now.strftime("%H%M")
     campaign = "night-%s-w%s" % (night, wave)
+    from .run_manifest import SourceVersionChanged, assert_source_stable
+    try:
+        assert_source_stable(data_dir, night=night, source_dir=Path(__file__).resolve().parents[1])
+    except SourceVersionChanged as exc:
+        return {"ok": False, "reason": "source_version_changed",
+                "expected_source_sha256": exc.expected, "actual_source_sha256": exc.actual,
+                "night": night, "wave": wave, "campaign": campaign}
     from .runtime import RunContext
     context = RunContext.create(data_dir, campaign, wave, now=now,
                                 metadata={"bridge_session": used_session})
@@ -1191,9 +1199,33 @@ def _run(data_dir, *, go: bool = False, queue_path=None, max_actions: int = 0,
             return {"ok": False, "reason": "business_baseline_missing",
                     "night": night, "wave": wave, "campaign": campaign,
                     "next": "先用 cycle observe --phase baseline --apply 导入带证据的基线"}
+    readiness_queue = load_queue(queue_file)
+    readiness_stale = stale_rows(readiness_queue, policy, now=now)
+    readiness_stale_keys = {_queue_key(row) for row in readiness_stale}
+    stops_config = policy.get("wave_stops") or {}
+    cooldown = int(stops_config.get("cooldown_sec", STOP_COOLDOWN_SEC))
+    stop_states = {name: stop_state(data_dir, night, name, now=now, cooldown=cooldown)
+                   for name in (policy.get("platforms") or {})}
+    if all(state == "open" for state in stop_states.values()):
+        return {"ok": False, "reason": "all_channels_stopped", "night": night,
+                "stop_states": stop_states}
+    from . import platform_compliance
+    readiness_x_attested = platform_compliance.owner_attested_active(data_dir, "x", now=now)
+    readiness_eligible = [row for row in readiness_queue
+                          if _queue_key(_normalize(row)) not in readiness_stale_keys
+                          and str(row.get("channel") or row.get("platform") or "")
+                          not in {name for name, state in stop_states.items() if state == "open"}
+                          and not (str(row.get("channel") or row.get("platform") or "") == "x"
+                                   and not readiness_x_attested)]
+    readiness_plan = plan(
+        readiness_eligible, policy, ledger=Ledger(data_dir / "ledger.jsonl"), now=now,
+        budget_sec=budget_sec, max_actions=max_actions, campaign=campaign,
+        throttle=Throttle(data_dir / "state"), data_dir=data_dir)
+    ready_preview = bool(readiness_plan["scheduled"])
     inbox_config = policy.get("inbox") or {}
-    inbox_enabled = (bool(inbox_config.get("auto_collect", False))
-                     if auto_inbox is None else bool(auto_inbox)) and go
+    standing_observation = auto_inbox is None and bool(inbox_config.get("auto_collect", False))
+    wave_collection = auto_inbox is not None and bool(auto_inbox) and ready_preview
+    inbox_enabled = go and (standing_observation or wave_collection)
     inbox_summary: Dict[str, Any] = {"auto_collect": inbox_enabled, "collected": 0,
                                      "written": 0, "pending_text": 0,
                                      "dm_count": 0, "dm_pending": [],
@@ -1232,11 +1264,7 @@ def _run(data_dir, *, go: bool = False, queue_path=None, max_actions: int = 0,
     stale = stale_rows(queue, policy, now=now)
     stale_keys = {_queue_key(row) for row in stale}
 
-    stops_config = policy.get("wave_stops") or {}
-    cooldown = int(stops_config.get("cooldown_sec", STOP_COOLDOWN_SEC))
     probe_actions = max(1, int(stops_config.get("probe_actions", STOP_PROBE_ACTIONS)))
-    stop_states = {name: stop_state(data_dir, night, name, now=now, cooldown=cooldown)
-                   for name in (policy.get("platforms") or {})}
     blocked = {name: state == "open" for name, state in stop_states.items()}
     if all(blocked.values()):
         return {"ok": False, "reason": "all_channels_stopped", "night": night,
@@ -1245,7 +1273,7 @@ def _run(data_dir, *, go: bool = False, queue_path=None, max_actions: int = 0,
 
     preflight_summary: Dict[str, Any] = {"enabled": False, "channels": {}}
     preflight_skipped: Dict[str, str] = {}
-    if go and (bool((policy.get("wave_preflight") or {}).get("enabled", False))
+    if go and ready_preview and (bool((policy.get("wave_preflight") or {}).get("enabled", False))
                if preflight is None else bool(preflight)):
         from .wave_preflight import check as check_wave
         preflight_summary = check_wave(policy, session=used_session, log=log)
@@ -1273,13 +1301,15 @@ def _run(data_dir, *, go: bool = False, queue_path=None, max_actions: int = 0,
                 if _queue_key(_normalize(row)) not in stale_keys
                 and str(row.get("channel") or row.get("platform") or "") not in unusable]
     platform_skipped = []
+    from . import platform_compliance
+    x_attested = platform_compliance.owner_attested_active(data_dir, "x", now=now)
     for raw in list(eligible):
         row = _normalize(raw)
-        if row["channel"] == "x":
+        if row["channel"] == "x" and not x_attested:
             eligible.remove(raw)
             platform_skipped.append({
                 "channel": row["channel"], "action": row["action"],
-                "target": row["target"], "reason": "platform_permission_required"})
+                "target": row["target"], "reason": "account_authorization_required"})
     prepared = plan(eligible,
                     policy, ledger=ledger, now=now, budget_sec=budget_sec,
                     max_actions=max_actions, campaign=campaign,

@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.21.0 — 2026-11-24
+
+### Added
+
+- AI Growth Service now persists goals, domain state, conversations, opportunities, assets, experiments, attempts and connector cursors in SQLite with JSON compatibility projections. GitHub App Issues/Discussions and Gmail two-way synchronization join the same runtime.
+- Account × platform × action × route capability records separate implemented, available, verified and authorized read/write/readback state. Long-running workers share the unified scheduler and action gateway.
+
+### Fixed
+
+- Final release review rejects credential-shaped fields throughout capability records, including client secrets, API keys, passwords and private-key paths.
+- Account/route execution leases now renew while a slow write is active; an expired lease cannot let a second writer enter merely because the first action exceeded five minutes.
+
+### Verification
+
+- 2461 offline tests and the zero-network demo pass, including slow-writer lease renewal, credential-field rejection, GitHub/Gmail local golden chains and the unified runtime regressions. Real canary evidence remains scoped to the explicitly documented GitHub/Gmail/X actions; no production worker or business outcome is inferred.
+
+### Changed
+
+- Business execution level (AUTO/GATED/MANUAL) is now independent of technical first-run status. X, Discord and Email are AUTO; GitHub remains GATED. The blanket fail-closed rule for non-API X browser writes recorded under 0.18.1/0.19.0 was superseded; account authorization, observed identity, pause, DNC, quotas, readback and unknown-result reconciliation remain. See `docs/feature-status.md` (2026-11-24).
+- X `publish`/`reply` now default to `browser-attach` (WebBridge managed tab), so identity observation and execution share one browser; routine X writes also use owner-attested instead of defaulting to routine CDP, and X reads default to WebBridge. Vendor CDP 9222 is explicit `--legacy-cdp` only. `mkt x` joins `action_gateway`, and `cdp.connect` no longer creates a WebBridge tab before connecting to the debug browser. See `docs/feature-status.md` (2026-11-24).
+
 ## 0.20.0 — 2026-11-23
 
 ### Changed

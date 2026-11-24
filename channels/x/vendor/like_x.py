@@ -4,7 +4,7 @@
 用法:
   python3 like_x.py <tweet-url> [<tweet-url> ...]
 """
-from session_page import connect_browser
+from session_page import connect_browser, automation_page, release_page
 import argparse
 import json
 import os
@@ -40,7 +40,7 @@ def main() -> int:
     with sync_playwright() as p:
         browser = connect_browser(p.chromium, CDP_URL)
         ctx = browser.contexts[0] if browser.contexts else browser.new_context()
-        page = ctx.new_page()
+        page = automation_page(ctx)
         for url in args.urls:
             rec = {"url": url}
             try:
@@ -48,7 +48,7 @@ def main() -> int:
                 page.wait_for_timeout(4000)
                 if "x.com/login" in page.url:
                     log("未登录")
-                    page.close()
+                    release_page(page)
                     return 3
                 like = page.locator('[data-testid="like"]').first
                 unlike = page.locator('[data-testid="unlike"]').first
@@ -66,7 +66,7 @@ def main() -> int:
             finally:
                 records.append(rec)
             time.sleep(6)
-        page.close()
+        release_page(page)
 
     LOG_DIR.mkdir(parents=True, exist_ok=True)
     name = datetime.now().strftime("like-%Y%m%d-%H%M%S.json")

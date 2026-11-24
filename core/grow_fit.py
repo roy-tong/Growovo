@@ -540,13 +540,39 @@ def parse_account_text(text: str) -> Dict[str, Any]:
 
 
 def enrich_account(handle: str, *, cdp_url: Optional[str] = None,
+                   data_dir: Optional[Path] = None,
                    sleep_seconds: float = 2.0, log=print) -> Dict[str, Any]:
     """打开作者主页读 bio/粉丝/近期帖子。只读，失败返回 note 不抛。"""
+    from . import x_read_bridge
+    if x_read_bridge.legacy_enabled():
+        return _enrich_account_cdp(handle, cdp_url=cdp_url,
+                                   sleep_seconds=sleep_seconds, log=log)
+    from channels.x import read_stats
+    attach, tab = x_read_bridge.open_x(data_dir or Path("data"), f"https://x.com/{handle}")
+    x_read_bridge.navigate(tab, f"https://x.com/{handle}")
+    x_read_bridge.assert_ready(attach, tab)
+    text = x_read_bridge.read_page_text(attach, tab)
+    followers = read_stats.parse_followers(text)
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    bio = ""
+    for line in lines:
+        if line.startswith("@"):
+            continue
+        if len(line) >= 20 and not line.startswith("@"):
+            bio = line[:300]
+            break
+    return {"bio": bio, "followers": followers,
+            "raw_excerpt": " | ".join(lines[:20])[:800]}
+
+
+def _enrich_account_cdp(handle: str, *, cdp_url: Optional[str],
+                        sleep_seconds: float, log) -> Dict[str, Any]:
     from . import cdp
     handle = str(handle or "").lstrip("@").strip()
     if not handle:
         raise FitError("handle 为空")
     browser, page = cdp.connect(cdp_url)
+    cdp.assert_x_ready(page)
     try:
         # 后台标签页会被渲染节流：不提到前台时粉丝数/简介读成空，KOC 判定
         # 因此失效（2026-11-15 实测：7,541 粉的账号被读成 None）。

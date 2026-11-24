@@ -24,9 +24,9 @@ class WebsitePlatformClaimsTest(unittest.TestCase):
     def page(self, name):
         return (ROOT / "website" / name).read_text(encoding="utf-8")
 
-    def test_execution_registry_limits_unattended_writes_to_email(self):
-        self.assertEqual(caps.auto_channels(), ["email"])
-        self.assertFalse(caps.is_auto("x"))
+    def test_execution_registry_includes_verified_business_routes(self):
+        self.assertEqual(caps.auto_channels(), ["x", "email", "discord"])
+        self.assertTrue(caps.is_auto("x"))
         self.assertTrue(caps.is_auto("email"))
 
     def test_machine_readable_claims_match_execution_registry(self):

@@ -1,5 +1,6 @@
 """学习回路：指标解析、采集、按公式归因、样本门槛与提案；纯离线。"""
 import json
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -167,7 +168,9 @@ class OwnPostReaderTests(unittest.TestCase):
         own.inner_text.return_value = '100 views'
         browser, page = Mock(), Mock()
         page.locator.return_value.all.return_value = [parent, own]
-        with patch('core.cdp.connect', return_value=(browser, page)), patch('core.cdp.safe_goto', return_value=True):
+        with patch.dict(os.environ, {"MKT_X_LEGACY_CDP": "1"}), \
+                patch('core.cdp.connect', return_value=(browser, page)), \
+                patch('core.cdp.safe_goto', return_value=True):
             result = gl.read_post_metrics('https://x.com/me/status/2')
         self.assertEqual(100, result['views'])
         self.assertEqual(3, result['replies'])
