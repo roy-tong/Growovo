@@ -2,19 +2,40 @@
   <img src="docs/assets/logo.png" width="400" alt="Growovo">
 </p>
 
-<p align="center"><strong>告诉 Growovo 你的业务目标，让它执行增长运营并回读结果</strong><br>
-<em>Official API / SMTP / managed CDP execution with receipts and separate business outcomes</em></p>
+<p align="center"><strong>你定目标和边界，Growovo 持续完成增长运营</strong><br>
+<em>Authorized execution, persistent conversations, receipts and business outcomes in one growth runtime</em></p>
 
 <p align="center"><strong>简体中文</strong> · <a href="README.en.md">English</a></p>
 
-给 Growovo 产品事实、目标受众和允许执行的动作。它检查待发内容，把已授权的动作排入队列，并记录执行回执。邮件发送结果不明时会停下等人核对。回复、激活和成交分别看实际记录。
+给 Growovo 产品事实、目标受众和授权范围。它发现机会、准备内容、执行已授权动作、跟进回复，并把执行回执、激活和成交分别留在记录里。你决定服务谁、允许做什么，以及何时继续或停止。
 
 ```bash
-git clone https://github.com/roy-tong/Growovo.git && cd Growovo
-python3 mkt.py demo    # 零网络零账号：人审、离线回执、三次拦截和结果卡；写入 ./data/demo
+pipx install growovo
+mkt demo    # 零网络零账号：授权、离线回执、三次拦截和结果卡；写入 ./data/demo
 ```
 
-[打开受控执行示例与任务模板](https://roy-tong.github.io/Growovo/examples/controlled-run.html)，先看它能证明什么、不能证明什么。无需安装依赖或配置账号。
+[打开受控执行示例与任务模板](https://roy-tong.github.io/Growovo/examples/controlled-run.html)。无需先配置真实账号。
+
+## 授权范围内自动，范围之外升级
+
+| 业务动作 | 默认执行方式 |
+| --- | --- |
+| 搜索反馈、观察指标 | 自动 |
+| 生成内容、分析机会 | 自动 |
+| 已授权范围内的常规回复 | 自动 |
+| 新客户外联 | 按授权人群、渠道和配额执行 |
+| 高影响力公开声明 | 风险升级审核 |
+| 新账号、新权限、新渠道 | 首次授权 |
+| 金钱、合同、不可逆承诺 | 单独审核 |
+
+策略不明确时升级，不默认放行。显式 `--dry-run` 用于预览；它不是唯一的授权机制。
+
+## 不只是定时发布
+
+- **持久业务状态**：目标、机会、资产、会话、尝试、事件和恢复状态跨 CLI、MCP 与定时任务保持一致。
+- **执行之后继续跟进**：GitHub Issue/Discussion 与 Gmail 双向会话进入同一工作流。
+- **结果分层**：发送回执、有效回复、激活和成交分别记录；未知结果不自动重发。
+- **从失败中学习**：公开保留[73 条推文、0 新增 Star 的发布复盘](docs/launch-autopsy-20261105.md)，不再用外发量证明增长。
 
 **AI Growth Service：** `mkt growth` 把业务目标编译成动作 DAG，用 SQLite 事务持久管理服务、会话、能力、尝试、事件和恢复状态，CLI/MCP/定时器共用同一编号。GitHub Issue/Discussion 与 Gmail 双向会话支持授权入站、增量同步、回复回读和故障恢复；长期 Worker 负责关闭聊天后的同步与心跳。见[增长服务说明](docs/growth-service.md)与[目标合同样例](examples/growth-goal.json)。
 

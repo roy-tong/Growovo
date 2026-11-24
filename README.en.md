@@ -2,19 +2,40 @@
   <img src="docs/assets/logo.png" width="400" alt="Growovo">
 </p>
 
-<p align="center"><strong>Give Growovo a business goal. It executes growth work and reads back outcomes.</strong><br>
-<em>告诉 Growovo 你的业务目标，让它执行增长运营并回读结果</em></p>
+<p align="center"><strong>Set the goal and guardrails. Growovo keeps growth work moving.</strong><br>
+<em>你定目标和边界，Growovo 持续完成增长运营</em></p>
 
 <p align="center"><a href="README.md">简体中文</a> · <strong>English</strong></p>
 
-Give Growovo the product facts, audience and actions you authorize. It checks drafts, queues approved work and records receipts. An uncertain email send stops the batch for review. Track replies, activation and sales from their own records.
+Give Growovo the product facts, audience and scope you authorize. It finds opportunities, prepares content, executes authorized actions, follows up replies, and keeps receipts, activation and sales in separate records. You decide whom to serve, what it may do, and when to continue or stop.
 
 ```bash
-git clone https://github.com/roy-tong/Growovo.git && cd Growovo
-python3 mkt.py demo    # no network or accounts: approval, offline receipt, three blocked actions; writes ./data/demo
+pipx install growovo
+mkt demo    # no network or accounts: authorization, offline receipt, three blocked actions; writes ./data/demo
 ```
 
-[Open the controlled-run example and task template](https://roy-tong.github.io/Growovo/examples/controlled-run.en.html) to see what the run does and does not establish. No dependency installation or account setup is needed.
+[Open the controlled-run example and task template](https://roy-tong.github.io/Growovo/examples/controlled-run.en.html). No real account setup is needed first.
+
+## Automate within the approved scope. Escalate beyond it.
+
+| Business action | Default execution |
+| --- | --- |
+| Search feedback and observe metrics | Automatic |
+| Generate content and analyze opportunities | Automatic |
+| Routine replies within existing authorization | Automatic |
+| New-customer outreach | Authorized audience, channel and quota |
+| High-impact public statements | Risk review |
+| New accounts, permissions or channels | First-use authorization |
+| Money, contracts or irreversible commitments | Separate approval |
+
+When the policy is unclear, Growovo escalates instead of defaulting to publish. Explicit `--dry-run` previews an action; it is not the only authorization mechanism.
+
+## More than a scheduler
+
+- **Persistent business state**: goals, opportunities, assets, conversations, attempts, events and recovery stay consistent across CLI, MCP and scheduled jobs.
+- **Follow-up after execution**: GitHub Issue/Discussion and Gmail conversations continue in the same workflow.
+- **Separate outcomes**: send receipts, meaningful replies, activation and sales remain distinct; unknown results never auto-resend.
+- **Learn from failure**: the public [73 tweets, 0 new stars autopsy](docs/launch-autopsy-20261105.md) remains a warning against using volume as growth proof.
 
 **AI Growth Service:** `mkt growth` compiles business goals into an action DAG. A SQLite transactional runtime keeps services, conversations, capabilities, attempts, events and recovery state consistent across CLI, MCP and scheduled jobs. GitHub Issue/Discussion and Gmail two-way conversations cover authorized ingestion, incremental sync, reply readback and recovery; a long-running worker continues synchronization and heartbeat beyond chat sessions. See [Growth Service](docs/growth-service.md) and the [goal contract example](examples/growth-goal.json).
 

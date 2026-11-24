@@ -46,15 +46,15 @@ class WebsitePlatformClaimsTest(unittest.TestCase):
     def test_visible_copy_leads_with_growth_value_and_next_action(self):
         requirements = {
             "index.html": (
-                "你定目标，Growovo 把业务执行到底。",
-                "端到端交付的业务执行",
-                "给我目标，开跑第一轮",
+                "你定目标和边界，增长运营持续发生",
+                "授权范围内自动，范围之外升级",
+                "先跑零账号 Demo",
                 "docs/platform-automation-matrix.md",
             ),
             "en.html": (
-                "You set the goal. Growovo carries out the work.",
-                "delivers the whole business workflow",
-                "Start your first run",
+                "Set the goal and guardrails. Growovo keeps growth work moving.",
+                "Automate within the approved scope. Escalate beyond it.",
+                "Run the zero-account demo",
                 "docs/platform-automation-matrix.md",
             ),
         }
