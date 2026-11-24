@@ -127,18 +127,18 @@ class NightStabilityMatrixTest(unittest.TestCase):
 
         def send(**kwargs):
             entered.set()
-            time.sleep(1.4)
+            time.sleep(4.2)
             return {"result": "committed"}
 
         real_acquire = growth_runtime.try_acquire_execution_lane
 
         def short_lease(data_dir, account, route, owner, lease_seconds=300):
-            return real_acquire(data_dir, account, route, owner, lease_seconds=1)
+            return real_acquire(data_dir, account, route, owner, lease_seconds=3)
 
         with tempfile.TemporaryDirectory() as data:
             with mock.patch("core.growth_runtime.try_acquire_execution_lane",
                             side_effect=short_lease), \
-                    mock.patch("core.action_gateway.LEASE_HEARTBEAT_SECONDS", 0.1,
+                    mock.patch("core.action_gateway.LEASE_HEARTBEAT_SECONDS", 0.2,
                                create=True), \
                     mock.patch("core.action_runner.run_action", side_effect=send):
                 with ThreadPoolExecutor(max_workers=1) as pool:
@@ -146,7 +146,7 @@ class NightStabilityMatrixTest(unittest.TestCase):
                                         data_dir=data, channel="github", action="reply",
                                         campaign="test", go=True, target="issue:o/r#1", text="one")
                     self.assertTrue(entered.wait(timeout=5))
-                    time.sleep(1.2)
+                    time.sleep(3.4)
                     second = action_gateway.execute(
                         data_dir=data, channel="github", action="reply",
                         campaign="test", go=True, target="issue:o/r#2", text="two")

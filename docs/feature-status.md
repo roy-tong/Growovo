@@ -4,7 +4,7 @@
 
 - Capability records reject credential-shaped keys recursively, including `client_secret`, `api_key`, `password` and private-key paths; verification evidence remains a reference rather than a secret store.
 - Account/route leases are renewed by the gateway while a slow action is still running. A second writer receives `account_busy` instead of entering after the original five-minute lease expires; owner-checked release remains unchanged.
-- **Verification:** 2461 offline tests and `mkt demo` pass, including a slow-writer regression that renews a one-second lease and keeps the competing writer out.
+- **Verification:** 2461 offline tests and `mkt demo` pass, including a slow-writer regression that renews a three-second lease and keeps the competing writer out.
 
 ## Canonical run outcome (2026-11-24)
 
