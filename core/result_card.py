@@ -589,8 +589,83 @@ def _render_evidence(card: Dict[str, Any]) -> List[str]:
     return lines
 
 
+def _business_advice(card: Dict[str, Any]) -> str:
+    run_layers = card.get("layers") or {}
+    l3 = run_layers.get("L3") or {}
+    goal = card.get("goal_status") or {}
+    evidence = card.get("evidence") or {}
+    learning = card.get("learning") or {}
+    if learning.get("review_required"):
+        return "先复核现有学习样本，再调整内容或发布节奏。"
+    sample = _as_int_or_none(learning.get("sample"))
+    if sample is not None and sample < MIN_LEARNING_SAMPLE:
+        return f"有效样本只有 {sample} 条：继续积累，不据此调整内容权重或发布数量。"
+    if run_layers.get("degraded"):
+        return "先恢复业务结果数据的读取，再评估增长效果。"
+    if l3.get("state") == "UNKNOWN" or not l3.get("source_connected"):
+        return "先接入激活和付费结果，再判断这些运营动作有没有带来真实使用。"
+    if (evidence.get("coverage") or {}).get("reading_days", 0) == 0:
+        return "先补齐平台读数，再区分“没有效果”和“没有数据”。"
+    if l3.get("unverified"):
+        return "先核验尚未确认的业务事件，核验前不要把它们计入激活或付费。"
+    if goal.get("state") == "short":
+        return "主目标不足：先检查内容、人群和跟进是否匹配，再决定是否调整渠道或减量。"
+    if goal.get("state") == "met":
+        return "主目标已达标：保持当前节奏，继续观察，不把单周表现当成长期结论。"
+    return "保持当前节奏，继续积累可核验的互动、激活和付费结果。"
+
+
+def _render_business_main(card: Dict[str, Any]) -> List[str]:
+    goal = card.get("goal_status") or {}
+    layers = card.get("layers") or {}
+    l2 = layers.get("L2") or {}
+    l3 = layers.get("L3") or {}
+    published = (card.get("published") or {}).get("total") or 0
+    impressions = card.get("impressions") or {}
+    followers = card.get("followers") or {}
+    lines = [
+        "## 业务结论",
+        "",
+        f"- **{goal.get('text') or '主目标暂无可核验读数'}**",
+        f"- 已确认完成 {_fmt_int(published)} 次运营动作；这只说明做了什么，不直接说明增长效果。",
+    ]
+    if l3.get("state") == "UNKNOWN" or not l3.get("source_connected"):
+        lines.append("- 还不能判断激活或付费：产品业务结果尚未接入或仍需核验。")
+    else:
+        lines.append(f"- **产品使用与转化**：{l3.get('text') or '本期没有可确认的业务事件'}")
+    if l2.get("text"):
+        lines.append(f"- **目标人群互动**：{l2['text']}")
+    lines.extend([
+        f"- 平台估计：日均曝光 {_fmt_int(impressions.get('avg_daily'))}；"
+        f"新增粉丝 {_fmt_int(followers.get('new'))}。这些读数用于观察变化，不证明运营动作带来了转化。",
+        "",
+        "## 下一步怎么推进",
+        "",
+        f"- {_business_advice(card)}",
+    ])
+    for change in (card.get("next_week") or {}).get("changes") or []:
+        detail = str(change.get("detail") or "").strip()
+        if detail:
+            lines.append(f"- {detail}")
+    guardrails = card.get("guardrails") or {}
+    failed = _as_int(guardrails.get("failed"))
+    unknown = _as_int(guardrails.get("indeterminate"))
+    bounced = _as_int((card.get("email") or {}).get("bounced"))
+    minutes = card.get("human_minutes")
+    if failed or unknown or bounced or minutes is not None:
+        lines.extend(["", "## 需要处理的风险", ""])
+        if failed or unknown:
+            lines.append(f"- 有 {failed} 次执行失败、{unknown} 次结果未知，需要人工核对后再继续。")
+        if bounced:
+            lines.append(f"- 有 {bounced} 封邮件退信，需要检查联系人有效性。")
+        if minutes is not None:
+            lines.append(f"- 本周人工投入 {_fmt_int(minutes)} 分钟，可与业务结果一起评估投入产出。")
+    lines.append("")
+    return lines
+
+
 def render(card: Dict[str, Any]) -> str:
-    """人读版结果单。这一页就是交付物：数字、证据口径、边界声明。"""
+    """Business outcome first; execution and evidence detail stays in the appendix."""
     goal = card.get("goal") or {}
     pub = card.get("published") or {}
     imp = card.get("impressions") or {}
@@ -604,6 +679,11 @@ def render(card: Dict[str, Any]) -> str:
          f"目标：{goal.get('name') or goal.get('metric', '')}"
          f"（基线 {_fmt_int(goal.get('baseline'))}"
          f" → 目标 {_fmt_int(goal.get('target'))}）"),
+        "",
+    ]
+    lines += _render_business_main(card)
+    lines += [
+        "## 附录：执行与核验明细",
         "",
         "## 这一周交付了什么",
         "",

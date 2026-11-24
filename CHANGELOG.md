@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- Result cards now lead with the business goal, confirmed actions, target-audience interactions, activation/payment status, platform estimates and plain-language next steps. Execution receipts, L1/L2/L3 codes, attribution, evidence coverage and replay boundaries remain in the appendix with unchanged calculations and no inference from actions to conversion.
+
 ## 0.21.0 — 2026-11-24
 
 ### Added

@@ -35,7 +35,7 @@ python3 mkt.py grow decide my-run --action optimize --note '根据日结果调�
 
 默认每轮最多生产 3 条，每日最多尝试 12 个内容任务，每个候选最多审核 3 次、生成/审稿最多 2 轮；单次 CLI 调用超时 180 秒。失败记录到 `production.jsonl` 并退避 30 分钟。待发内容过期、审稿失败或缺候选均如实显示，不算完成。
 
-Email 不猜测地址，联系人来自事实包的 `outreach_contacts: [{"email":"...", "context":"为什么相关"}]`；没有联系人就保留缺口。同日多渠道分别建队列。结果单默认落本地 Markdown/HTML；`--deliver` 目前仍只生成本地邮件草稿，不等于邮件已送达。
+Email 不猜测地址，联系人来自事实包的 `outreach_contacts: [{"email":"...", "context":"为什么相关"}]`；没有联系人就保留缺口。同日多渠道分别建队列。结果单默认落本地 Markdown/HTML，主文先读主目标、业务结果、业务衡量和下一步，执行回执、内部层级与证据口径放附录；`--deliver` 目前仍只生成本地邮件草稿，不等于邮件已送达。
 
 ## 运行可靠性
 
