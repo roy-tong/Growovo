@@ -362,9 +362,11 @@ def identity_status(data_dir=None, *, env=None) -> Dict[str, Any]:
                      "handle": proof.handle, "source_ref": proof.source_ref}
                     if proof is not None else None)
         probe = last_probe()
-    hint = ("设置 MKT_CDP_IDENTITY=1 并保持调试浏览器在 9222 端口打开后重试"
+    hint = ("默认 X 任务使用 browser-attach；仅显式 legacy CDP 需要设置 MKT_CDP_IDENTITY=1 "
+            "并打开 X 页面"
             if not enabled else
-            "且确认已在调试浏览器里登录授权账号；读不到稳定数字 ID 时按身份未知拒绝")
+            "默认 X 任务先运行 growth live-preflight --x，使用 browser-attach 恢复；"
+            "legacy verify_credentials 403 不能单独证明未登录，只能按身份未知拒绝并继续分类")
     return {"enabled": enabled, "observed": observed,
             "probe": {"reason": (probe or {}).get("reason"),
                       "detail": (probe or {}).get("detail"),
@@ -424,7 +426,8 @@ def enforce_identity(data_dir, channel, account, proof, *, policy=None,
         # must carry the observed account. No match against a pre-bound identity.
         if proof is None:
             raise _blocked("identity_unknown",
-                           "CDP 观测模式无法读取当前浏览器账号：请确认调试浏览器已登录并开放回环端口")
+                           "CDP 观测模式无法读取当前浏览器账号：默认任务先用 browser-attach 受管页预检；"
+                           "legacy verify_credentials 403 不能单独证明未登录，需按页面和响应继续分类")
         if proof.channel != channel:
             raise _blocked("identity_channel_mismatch",
                            f"proof 渠道 {proof.channel!r} 与执行渠道 {channel!r} 不符")

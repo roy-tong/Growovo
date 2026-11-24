@@ -476,7 +476,8 @@ def _x_args(*, go=True, account="acct-a", campaign="c1",
         extra=list(extra if extra is not None else
                    ["--tweet-url", target, "--text", "针对该楼的具体回复，没有链接。"]),
         file=None, thread=False, go=go, adhoc=True, campaign=campaign,
-        account=account, handle="", record=False)
+        account=account, handle="", record=False,
+        legacy_cdp=True, cdp_url="", text=None, tweet_url=target)
 
 
 class _SendCase(unittest.TestCase):
@@ -520,7 +521,7 @@ class LegacyAuthorizationMigrationTests(_SendCase):
         self._vendor_patch()
         with self.assertRaises(QueueRunError) as ctx:
             run_queue(_queue_file(self.dir), data_dir=self.dir, go=True,
-                      routine=True, log=lambda *a, **k: None)
+                      routine=True, legacy_cdp=True, log=lambda *a, **k: None)
         message = str(ctx.exception)
         self.assertIn("AUTH_REQUIRED", message)
         self.assertIn("mkt policy migrate-identity", message)
@@ -546,7 +547,7 @@ class LegacyAuthorizationMigrationTests(_SendCase):
             response = mcp_server.call_tool("mkt_action", {
                 "channel": "x", "action": "reply", "target": X_REPLY_TARGET,
                 "text": "针对该楼的具体回复，没有链接。", "go": True,
-                "routine": True, "account": ""})
+                "routine": True, "legacy_cdp": True, "account": ""})
         self.assertTrue(response.get("isError"))
         text = response["content"][0]["text"]
         self.assertIn("AUTH_REQUIRED", text)
@@ -558,7 +559,7 @@ class LegacyAuthorizationMigrationTests(_SendCase):
         self._vendor_patch()
         logs = []
         rows = run_queue(_queue_file(self.dir), data_dir=self.dir, go=False,
-                         routine=True, log=logs.append)
+                         routine=True, legacy_cdp=True, log=logs.append)
         self.assertEqual(["dry-run"], [row["result"] for row in rows])
         joined = "\n".join(str(line) for line in logs)
         self.assertIn("阻塞项", joined)
@@ -617,7 +618,7 @@ class LegacyAuthorizationMigrationTests(_SendCase):
         self._vendor_patch()
         account_identity.set_reader(lambda channel: _fake_identity_proof("uid-a"))
         rows = run_queue(_queue_file(self.dir), data_dir=self.dir, go=True,
-                         routine=True, log=lambda *a, **k: None)
+                         routine=True, legacy_cdp=True, log=lambda *a, **k: None)
         self.assertEqual("committed", rows[0]["result"])
         self.assertEqual("uid-a", rows[0]["identity"]["observed_platform_identity"])
         self.assertEqual(1, len(real_calls(self.vendor)))
@@ -677,7 +678,7 @@ class ThreeEntryChainTests(_SendCase):
 
     def _run_queue(self, target=X_REPLY_TARGET):
         return run_queue(self._queue(target), data_dir=self.dir, go=True,
-                         routine=True, log=lambda *a, **k: None)
+                         routine=True, legacy_cdp=True, log=lambda *a, **k: None)
 
     def _run_cli(self, target, *, campaign="cli-1"):
         out = io.StringIO()
@@ -691,7 +692,7 @@ class ThreeEntryChainTests(_SendCase):
             return mcp_server.call_tool("mkt_action", {
                 "channel": "x", "action": "reply", "target": target,
                 "text": "针对该楼的具体回复，没有链接。", "go": True,
-                "routine": True, "account": "acct-a", "campaign": campaign})
+                "routine": True, "legacy_cdp": True, "account": "acct-a", "campaign": campaign})
 
     def test_three_entries_match_identity_and_receipts_carry_proof(self):
         self._bound()

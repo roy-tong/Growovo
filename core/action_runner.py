@@ -9,7 +9,7 @@
   hn       publish / reply
   github   reply
   reddit   publish / reply
-  linkedin message（实跑要求 MKT_LINKEDIN_AUTO=1，MCP 无 TTY 不做交互确认）
+  linkedin message（UNVERIFIED 首跑需显式技术确认；平台风险仅提示）
   x        publish / reply / message / engage（message/engage 透传 vendor 参数）
   discord  publish / reply（仅 transport=browser-attach）
   email    仅队列（action_runner 拒绝单条发信）
@@ -73,9 +73,9 @@ def precheck(channel, action, data_dir, campaign, go, allow_unverified, target=N
         permission = policy_row(channel)
         if not permission.get("autonomous_write"):
             raise ActionError(
-                f"平台许可不允许 {channel}/{action} 进入 routine 自主执行："
-                f"{permission.get('reason') or '未声明自主写许可'}；"
-                f"{permission.get('next') or '改用人工辅助'}")
+                f"{channel}/{action} 未登记自主写能力："
+                f"{permission.get('reason') or '缺少写原语或技术验证'}；"
+                f"{permission.get('next') or '先完成技术接入与首跑验证'}")
     action_status = (reg[channel].get("action_status") or {}).get(action)
     if action_status == "UNVERIFIED" and not allow_unverified:
         raise ActionError(f"{channel}/{action} 为 UNVERIFIED，拒绝实跑（人工首跑校准后加 allow_unverified=true）")
@@ -187,6 +187,18 @@ def _parse_issue(target):
     return m.group(1), int(m.group(2))
 
 
+def _parse_discussion(target):
+    import re
+    text = str(target or "").strip()
+    url = re.match(r"^https?://(?:www\.)?github\.com/([\w.-]+/[\w.-]+)/discussions/(\d+)", text)
+    if url:
+        return url.group(1), int(url.group(2))
+    match = re.match(r"^(?:discussion:)?([\w.-]+/[\w.-]+)#(\d+)$", text)
+    if not match:
+        raise ActionError("github discussion reply 的 target 应为 discussion:owner/repo#N 或 Discussion URL")
+    return match.group(1), int(match.group(2))
+
+
 def _x_last_record(ledger, campaign, action, fallback):
     recs = [r for r in ledger.results(channel="x", campaign=campaign, action=action)]
     if recs:
@@ -230,14 +242,18 @@ def _dispatch_action_inner(*, channel, action, data_dir=None, campaign="", go=Fa
                            allow_unverified=False, target=None, text=None, title=None, url=None,
                            subreddit=None, number=None, extra=None, log=print,
                            routine=False, account="", platform_user_id=None,
-                           transport="", actor=""):
+                           transport="", actor="", github_token=None,
+                           thread_id=None, gmail_token=None, subject="", in_reply_to="",
+                           legacy_cdp=False):
     """执行单条写动作，返回账本记录 dict。"""
     data = Path(data_dir or resolve())
     channel = (channel or "").strip().lower()
     action = (action or "").strip().lower()
     transport = str(transport or "").strip().lower()
-    if transport not in {"", "browser-attach"}:
-        raise ActionError("未知传输 %r（可选: browser-attach；缺省走原渠道适配器）" % transport)
+    if channel == "x" and action in {"publish", "reply"} and not transport and not legacy_cdp:
+        transport = "browser-attach"
+    if transport not in {"", "browser-attach", "gmail-api"}:
+        raise ActionError("未知传输 %r（可选: browser-attach、gmail-api；缺省走原渠道适配器）" % transport)
     if action in READ_ACTIONS:
         raise ActionError("读动作请用 mkt search/inbox/audit，不走 run_action")
     if not go:
@@ -303,6 +319,19 @@ def _dispatch_action_inner(*, channel, action, data_dir=None, campaign="", go=Fa
 
     if channel == "github":
         from channels import github
+        if action == "publish":
+            if not target or not title or not text:
+                raise ActionError("github publish 需要 owner/repo target、title 和 text")
+            return _record(github.create_issue(
+                str(target), title, text, go=go, campaign=campaign,
+                ledger=ledger, data_dir=data, log=log, token=github_token))
+        if str(target or "").startswith("discussion:") or "/discussions/" in str(target or ""):
+            slug, num = _parse_discussion(target)
+            if not text:
+                raise ActionError("github discussion reply 需要 text")
+            return _record(github.discussion_reply(
+                slug, num, text, go=go, campaign=campaign,
+                ledger=ledger, data_dir=data, log=log, token=github_token))
         if number and "/" in str(target or "") and "#" not in str(target):
             slug, num = str(target).strip(), int(number)
         else:
@@ -311,7 +340,7 @@ def _dispatch_action_inner(*, channel, action, data_dir=None, campaign="", go=Fa
             raise ActionError("github reply 需要 text")
         return _record(github.reply(
             slug, num, text, go=go, campaign=campaign,
-            ledger=ledger, data_dir=data, log=log))
+            ledger=ledger, data_dir=data, log=log, token=github_token))
 
     if channel == "reddit":
         from channels import reddit
@@ -329,11 +358,7 @@ def _dispatch_action_inner(*, channel, action, data_dir=None, campaign="", go=Fa
             ledger=ledger, data_dir=data, log=log))
 
     if channel == "linkedin":
-        import os
         from channels import linkedin
-        if go and os.environ.get("MKT_LINKEDIN_AUTO", "") != "1":
-            raise ActionError("LinkedIn 半自动需要终端确认，MCP/队列无法交互；"
-                              "实跑请设 MKT_LINKEDIN_AUTO=1 并自行承担全自动风险")
         if not (target and text):
             raise ActionError("linkedin message 需要 target（profile URL）与 text")
         return _record(linkedin.message(
@@ -360,9 +385,14 @@ def _dispatch_action_inner(*, channel, action, data_dir=None, campaign="", go=Fa
                                   f"['--only','handle'] 或 ['follow','@a','@b']）")
             args = extra
         publish_options = {"logical_target": target} if action == "publish" and target else {}
+        from .platform_compliance import owner_attested_active
+        execution_mode = ("owner_attested_cdp" if owner_attested_active(data, "x")
+                          else ("autonomous" if routine else "user_visible_cdp"))
+        if routine and action in ("publish", "reply"):
+            log("[x] routine 授权走 legacy CDP；browser-attach 需要 owner-attested 授权，不混用")
         code = xrun(action, args, go=go, campaign=campaign, ledger=ledger,
                     data_dir=data, log=log, identity=identity_evidence,
-                    execution_mode="autonomous" if routine else "user_visible_cdp",
+                    execution_mode=execution_mode,
                     **publish_options)
         fallback = {"channel": "x", "action": action, "campaign": campaign,
                     "target": target or "", "result":
@@ -371,7 +401,15 @@ def _dispatch_action_inner(*, channel, action, data_dir=None, campaign="", go=Fa
         return _record(_x_last_record(ledger, campaign, action, fallback))
 
     if channel == "email":
-        raise ActionError("email 只支持队列执行（mkt email message --queue …）")
+        if transport == "gmail-api" and action == "message":
+            from channels import gmail
+            if (not thread_id and not subject) or not target or not text:
+                raise ActionError("gmail-api 回复需要 thread_id；新邮件需要 subject；两者都需要收件人和 text")
+            return _record(gmail.reply(
+                thread_id, target, text, go=go, campaign=campaign,
+                ledger=ledger, data_dir=data, log=log, token=gmail_token,
+                subject=subject, in_reply_to=in_reply_to))
+        raise ActionError("email 只支持队列执行（mkt email message --queue …）或 gmail-api 单条回复")
 
     raise ActionError(f"{channel}/{action} 未接入统一动作执行器")
 

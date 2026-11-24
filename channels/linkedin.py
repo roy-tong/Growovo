@@ -1,16 +1,10 @@
 #!/usr/bin/env python3
 """LinkedIn 渠道 —— CDP 通道，验证等级：UNVERIFIED（03 渠道文档 §3）。
 
-设计立场：发现冲刺实测结论"LinkedIn 自动化降级人工"——本渠道目标不是替代人工，
-是把准备成本降到近零。Tier 分级：
-  A 只读：search（抓人/公司结果进线索库）、inbox（通知扫描）——全自动
-  B 半自动（默认）：message = 连接请求带个性化 note，填好后**人工确认键**才发送
-  C 全自动：默认锁死；MKT_LINKEDIN_AUTO=1 显式解锁（不建议，风控最凶）
-
+业务执行不再被平台合规口径或终端确认阻断；平台规则只作为风险提示。
 选择器按 LinkedIn 公开页面结构编写，UI 变化频繁，全部 UNVERIFIED，
-首跑必须人工盯跑。
+首跑仍需显式技术确认，审批、配额、身份和回读保持不变。
 """
-import os
 import time
 from pathlib import Path
 
@@ -25,13 +19,11 @@ DATA = Path(__file__).resolve().parents[1] / "data"  # 仓库根/data（原 pare
 
 def search(keywords, *, limit=10, out=None, log=log):
     """Tier A 只读：搜索人，抓名字/头衔/链接进线索库（b2b-account-mapping 的上游）。"""
-    browser, page = cdp.connect()
+    from urllib.parse import quote
+    url = f"https://www.linkedin.com/search/results/people/?keywords={quote(keywords)}"
+    browser, page = cdp.connect(site="linkedin", data_dir=DATA, managed_url=url)
     try:
-        from urllib.parse import quote
-        cdp.safe_goto(
-            page,
-            f"https://www.linkedin.com/search/results/people/?keywords={quote(keywords)}",
-            log=log)
+        cdp.safe_goto(page, url, log=log)
         time.sleep(4)
         if "login" in page.url:
             log("LinkedIn 未登录", "ERROR")
@@ -50,15 +42,14 @@ def search(keywords, *, limit=10, out=None, log=log):
         log(f"{len(rows)} 人 → {out}（公司账号须按 b2b-account-mapping 富化到员工后才可入队）")
         return rows
     finally:
-        page.close()
+        cdp.release_page(page)
 
 
 def message(profile_url, note, *, go=False, adhoc=False, campaign=None, ledger=None, log=log,
             data_dir=None):
-    """Tier B 半自动连接请求：填好 note → 截图 → 终端人工确认 → 发送。
+    """连接请求：填好 note → 截图 → 业务授权与执行安全检查 → 发送。
 
-    go=False（默认）：dry-run，停在确认前；go=True 且未设 MKT_LINKEDIN_AUTO 时
-    仍需终端回车确认；全自动（无确认）必须 MKT_LINKEDIN_AUTO=1 且 go=True。
+    go=False 为显式 dry-run；go=True 不再要求环境解锁或终端确认。
     """
     data = Path(data_dir or DATA)
     ledger = ledger or Ledger(data / "ledger.jsonl")
@@ -70,8 +61,7 @@ def message(profile_url, note, *, go=False, adhoc=False, campaign=None, ledger=N
             "当天补量连发会提高平台风控风险，保持每天 10 条以内的节奏更稳。")
     pipe = standard_pipeline(data, ledger, adhoc=adhoc)
     ev = Evidence(data / "shots" / (campaign or "adhoc"))
-    auto = os.environ.get("MKT_LINKEDIN_AUTO", "") == "1" and go
-    browser, page = cdp.connect()
+    browser, page = cdp.connect(site="linkedin", data_dir=data, managed_url=profile_url)
     try:
         def _compose(item):
             cdp.safe_goto(page, profile_url, log=log)
@@ -100,10 +90,6 @@ def message(profile_url, note, *, go=False, adhoc=False, campaign=None, ledger=N
             return cdp.read_back(page.locator("textarea[name='message'], #custom-message").first)
 
         def _send(item):
-            if not auto:
-                ans = input("  确认发送？[回车=发送 / s=跳过] ").strip().lower()
-                if ans == "s":
-                    raise RuntimeError("人工选择跳过")
             page.locator("button[type=submit]:has-text('Send'), button:has-text('发送'), button[aria-label='Send']").first.click()
 
         def _confirm(item, timeout=15):
@@ -116,7 +102,7 @@ def message(profile_url, note, *, go=False, adhoc=False, campaign=None, ledger=N
             page.screenshot(path=str(p))
             return p
 
-        mode = "全自动" if auto else ("半自动（需终端确认）" if go else "dry-run")
+        mode = "业务执行（平台风险仅提示）" if go else "dry-run"
         log(f"[linkedin] {profile_url} — {mode}，日预算 {throttle.daily_used('linkedin', 'message')}/10")
         return pipe.run_one(
             {"id": profile_url}, channel="linkedin", action="message",
@@ -124,4 +110,4 @@ def message(profile_url, note, *, go=False, adhoc=False, campaign=None, ledger=N
             target=profile_url, compose=_compose, fill=_fill, readback=_readback,
             send=_send, confirm=_confirm, shot=_shot, dry_run=not go)
     finally:
-        page.close()
+        cdp.release_page(page)

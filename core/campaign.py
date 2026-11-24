@@ -307,9 +307,9 @@ def next_step(data_dir, ledger, campaign=None, followups=None):
     records = ledger.results(campaign=campaign)
     results = [r.get("result") for r in records]
     if not records:
-        return {"code": "dry-run", "title": "先干跑一遍，看截图再决定",
+        return {"code": "live", "title": "按已批准计划真实执行；需要预览时显式 dry-run",
                 "command": f"mkt queue run {qpath}",
-                "why": "写路径默认 dry-run：门禁、回读、留证都走一遍但不发送。"}
+                "why": "渠道写动作默认 live；授权、门禁、回读和留证照常执行。预览请加 --dry-run。"}
     if results.count("dry-run") and "committed" not in results:
         return {"code": "go", "title": "干跑已留证，可以人审后实跑",
                 "command": f"mkt review {campaign}",

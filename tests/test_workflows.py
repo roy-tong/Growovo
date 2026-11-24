@@ -301,7 +301,7 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(0, approved.returncode, approved.stdout + approved.stderr)
         dry = subprocess.run(
             [sys.executable, str(MKT), "--workspace", str(self.data), "workflow", "replay",
-             "hn-action", "--var", "item=1", "--var", "text=hello"],
+             "hn-action", "--var", "item=1", "--var", "text=hello", "--dry-run"],
             capture_output=True, text=True, timeout=120)
         self.assertEqual(0, dry.returncode, dry.stdout + dry.stderr)
         self.assertEqual("dry-run", json.loads(dry.stdout)["status"])

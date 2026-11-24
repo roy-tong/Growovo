@@ -100,7 +100,7 @@ def render_init(info):
             lines.append("  不做：" + "；".join(exclusions))
         lines.append("  需要采购/授权时：requires_procurement 分支"
                      "（terminal_state=BLOCKED_USER_INPUT，transaction_executed=false）")
-        lines.append("  写操作默认 dry-run；真实发送需人工授权"
+        lines.append("  渠道写动作默认 live，显式 --dry-run 预览；真实发送需人工授权"
                      "（mkt policy enable --by <你的名字>）")
     n = info["next"]
     lines += ["", f"下一步：{n['title']}", f"  {n['command']}"]

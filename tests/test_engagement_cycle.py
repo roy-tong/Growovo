@@ -763,11 +763,27 @@ class OwnerAttestedGateTest(unittest.TestCase):
             self.check(platform="github")
         self.assertEqual(ctx.exception.code, "authorization_missing")
 
-    def test_x_owner_attestation_never_authorizes_browser_write(self):
+    def test_x_owner_attestation_authorizes_scoped_browser_write(self):
         self.write_auth()
+        permit = self.check()
+        self.assertEqual("owner_attested_session", permit["route"])
+        self.assertIs(False, permit["platform_permission"])
+        self.assertEqual("browser-attach", permit["transport"])
+
+    def test_x_owner_attestation_still_limits_scope_and_window(self):
+        self.write_auth(scopes=["x:publish"])
+        with self.assertRaises(platform_compliance.ComplianceError) as ctx:
+            self.check(action="reply")
+        self.assertEqual(ctx.exception.code, "authorization_scope_missing")
+        self.write_auth(revoked=True)
         with self.assertRaises(platform_compliance.ComplianceError) as ctx:
             self.check()
-        self.assertEqual(ctx.exception.code, "platform_permission_required")
+        self.assertEqual(ctx.exception.code, "authorization_revoked")
+
+    def test_x_without_attestation_fails_closed(self):
+        with self.assertRaises(platform_compliance.ComplianceError) as ctx:
+            self.check()
+        self.assertEqual(ctx.exception.code, "authorization_missing")
 
     def test_scope_and_transport_are_enforced(self):
         self.write_auth(platform="github", scopes=["github:publish"])
@@ -775,7 +791,7 @@ class OwnerAttestedGateTest(unittest.TestCase):
             self.check(platform="github", action="reply")
         self.assertEqual(ctx.exception.code, "authorization_scope_missing")
         with self.assertRaises(platform_compliance.ComplianceError) as ctx:
-            self.check(platform="github", actual_transport="cdp")
+            self.check(platform="github", actual_transport="playwright")
         self.assertEqual(ctx.exception.code, "transport_mismatch")
 
     def test_revoked_and_closed_window_reject(self):
@@ -800,12 +816,12 @@ class OwnerAttestedGateTest(unittest.TestCase):
             self.check(platform="github", identity=dict(self.identity, mode="self_reported"))
         self.assertEqual(ctx.exception.code, "identity_mode_mismatch")
 
-    def test_autonomous_write_gate_still_rejects_browser_transport(self):
+    def test_autonomous_browser_write_returns_non_blocking_risk(self):
         self.write_auth()
-        with self.assertRaises(platform_compliance.ComplianceError) as ctx:
-            platform_compliance.require_autonomous_write(
-                "x", "publish", self.data, go=True, actual_transport="browser-attach")
-        self.assertEqual(ctx.exception.code, "non_api_write_forbidden")
+        got = platform_compliance.require_autonomous_write(
+            "x", "publish", self.data, go=True, actual_transport="browser-attach")
+        self.assertEqual(got["risk_code"], "non_api_write_forbidden")
+        self.assertIn("不阻断", got["risk_warning"])
 
 
 class CyclePlatformPermissionTest(unittest.TestCase):
@@ -829,7 +845,39 @@ class CyclePlatformPermissionTest(unittest.TestCase):
                          ["discord"])
         self.assertEqual(got["committed"], 1)
         self.assertEqual([r["reason"] for r in got["skipped"] if r["channel"] == "x"],
-                         ["platform_permission_required"])
+                         ["account_authorization_required"])
+
+    def test_real_wave_runs_x_with_owner_attestation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            data = Path(tmp)
+            now = at("2026-11-20T22:05:00+08:00")
+            auth = {
+                "route": "owner_attested_session", "approved_by": "test",
+                "approved_at": now.isoformat(),
+                "window_start": (now - dt.timedelta(hours=1)).isoformat(),
+                "window_end": (now + dt.timedelta(hours=1)).isoformat(),
+                "scopes": ["x:publish", "x:reply"], "stop_conditions": ["captcha"],
+                "revoked": False,
+            }
+            path = platform_compliance.owner_attested_path(data, "x")
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(json.dumps(auth), encoding="utf-8")
+            queue_file = data / "queue.json"
+            cycle.save_queue(queue_file, [
+                row("x", "publish", text="synthetic x"),
+                row("discord", "publish", "1573250833871536161", text="synthetic discord"),
+            ])
+            with mock.patch.object(cycle, "_now", return_value=now), \
+                    mock.patch.object(cycle.time, "sleep"), \
+                    mock.patch("core.action_runner.run_action", return_value={
+                        "ok": True, "result": "success", "ledger_result": "committed"
+                    }) as execute:
+                got = cycle.run(data, go=True, queue_path=queue_file,
+                                wave_id="2205", log=lambda *_: None)
+
+        channels = sorted(call.kwargs["channel"] for call in execute.call_args_list)
+        self.assertEqual(channels, ["discord", "x"])
+        self.assertEqual(got["committed"], 2)
 
 
 class BridgeSessionTest(unittest.TestCase):

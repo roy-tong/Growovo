@@ -1,5 +1,7 @@
 # Growovo 自动运营（2026-11-14）
 
+> 2026-11-24 当前工作树更新：写操作默认 live，显式 `--dry-run` 才预览。CDP 读写统一使用 WebMonitor 受管标签组，禁止 Playwright 直接 `new_page()`，使用结束不关闭受管页。X 可在有效 owner-attested 窗口内执行 publish/reply/message/engage；平台规则与合规口径只提示风险，不阻断业务；未授权账号、身份不明、验证码/挑战和风控对抗继续拒绝。Growth Service 的目标编译、机会、入站、资产、实验和持久作业见 [AI Growth Service](growth-service.md)。
+
 输入产品事实与增长目标后，Growovo 用本机已登录的 Codex CLI 生产内容，经过独立审稿后暂存；执行器按既有授权和日配额发送，读回自己的帖子指标并生成每日结果。用户通过 `decide continue|optimize` 决定是否调整策略。
 
 ## 启动与使用

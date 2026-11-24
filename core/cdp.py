@@ -2,12 +2,22 @@
 """CDP 会话助手 —— 自 x-ops-automation 提炼的 PROVEN 模式（架构文档 §2.2）。
 
 约定：先跑仓库根的 launch.command 启动带调试端口的真实 Chrome；
-本模块只连接，不做任何登录、不碰任何凭据。
+本模块只连接调试端口，不做任何登录、不碰任何凭据。它**不会**创建
+WebBridge 受管标签页：调试浏览器和操作者日常浏览器是两个不同的进程，
+在一个里面建标签再连另一个执行，会让身份探测与执行落在不同浏览器。
+需要操作者已登录浏览器时走 `browser-attach` 传输。
 """
 import os
 import time
 
 CDP_URL = os.environ.get("MKT_CDP_URL", "http://127.0.0.1:9222")
+SITE_PREFIXES = {
+    "x": ("https://x.com/", "https://twitter.com/"),
+    "gmail": ("https://mail.google.com/",),
+    "reddit": ("https://old.reddit.com/", "https://www.reddit.com/"),
+    "hn": ("https://news.ycombinator.com/",),
+    "linkedin": ("https://www.linkedin.com/",),
+}
 GOTO_TIMEOUT_MS = int(os.environ.get("MKT_GOTO_TIMEOUT_MS", "20000"))
 # 这些是导航被中断（上一次跳转未完成、连接抖动），重试有意义；
 # 导航超时（Playwright 自身或 net::ERR_TIMED_OUT）说明页面/线路卡住了，
@@ -29,42 +39,43 @@ def _playwright():
     return _PLAYWRIGHT
 
 
-def connect(cdp_url=None):
-    """连接调试 Chrome，返回 (browser, page)。playwright 延迟导入以便离线测试 core。"""
+def connect(cdp_url=None, site="x", data_dir=None, managed_url=None):
+    """连接调试 Chrome，返回 (browser, page)。playwright 延迟导入以便离线测试 core。
+
+    data_dir/managed_url 仅为旧调用签名保留；CDP 路径不会创建 WebBridge 标签页。
+    身份探测与执行必须使用同一个 CDP 端点。X 的 CDP 只在显式
+    `MKT_X_LEGACY_CDP=1` 时允许，默认 X 任务走 browser-attach。
+    """
+    if site == "x" and os.environ.get("MKT_X_LEGACY_CDP") != "1":
+        raise RuntimeError(
+            "x_legacy_cdp_required: 默认 X 任务不走调试浏览器；"
+            "请用 browser-attach，或显式 MKT_X_LEGACY_CDP=1 / --legacy-cdp")
     from channels.x.vendor.session_page import connect_browser
     pw = _playwright()
     browser = connect_browser(pw.chromium, cdp_url or CDP_URL)
     ctx = browser.contexts[0] if browser.contexts else browser.new_context()
-    page = _reuse_page(ctx)
+    page = _reuse_page(ctx, SITE_PREFIXES.get(site, SITE_PREFIXES["x"]))
     return browser, page
 
 
-def _reuse_page(ctx):
-    """复用调试 Chrome 里已有的自动化标签页；没有才新建一次。
+def _reuse_page(ctx, url_prefixes=None):
+    from channels.x.vendor.session_page import automation_page
 
-    约定：所有读操作都在同一个标签页里导航，不每次新开（用户能看到的标签
-    数应保持稳定）。优先复用上次停在 x.com 的页，其次空白页。
-    """
-    pages = []
-    try:
-        pages = list(ctx.pages)
-    except Exception:  # noqa: BLE001
-        pages = []
-    for target in pages:
-        try:
-            url = target.url
-        except Exception:  # noqa: BLE001 页可能已关
-            continue
-        if url.startswith("https://x.com") or url.startswith("https://twitter.com"):
-            return target
-    for target in pages:
-        try:
-            url = target.url
-        except Exception:  # noqa: BLE001
-            continue
-        if url in ("about:blank", "chrome://newtab/", "chrome://newtab"):
-            return target
-    return ctx.new_page()
+    return automation_page(ctx, url_prefixes)
+
+
+def release_page(page):
+    return None
+
+
+def assert_x_ready(page):
+    """调试浏览器若停在 X 登录页，立即给出可行动错误，不把空结果当“没有数据”。"""
+    url = str(getattr(page, "url", "") or "").strip()
+    low = url.lower()
+    if "/login" in low or "i/flow/login" in low:
+        raise RuntimeError(
+            "x_login_required: 调试浏览器停在 X 登录页；请登录该浏览器，"
+            "或改用 browser-attach（如 mkt cycle attach / mkt x stats）")
 
 
 def safe_goto(page, url, attempts=3, log=None, timeout_ms=None):

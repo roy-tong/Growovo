@@ -17,7 +17,7 @@ CLI（`python3 mkt.py …`）或 MCP（mkt-server），本协议不发明新动�
 agent 在这条链路里的职责是**供给内容**，不是替用户做执行决策：
 
 ```bash
-python3 mkt.py grow platforms            # 第一期只有 X + Email 能全自动
+python3 mkt.py grow platforms            # 查看业务可自主执行渠道与非阻断风险提示
 python3 mkt.py grow launch g1 --facts facts.json \
   --goal awareness.followers --target 200 --handle your_handle --owner you@example.com
 python3 mkt.py grow briefs g1            # 读内容需求单，按 brief 生产
@@ -75,7 +75,7 @@ python3 mkt.py work-action materialize --work-order-id <id> --step-id <step> \
 - `ready` 前检查输入验收、上下文 / 目标 / SOP 版本、Owner、Receiver、交付物、指标和依赖；缺项只能 blocked。
 - SOP 步骤没有产物和 DoD 证据不能完成；R3/R4 作者不能终审自己；Handoff 只有指定接收人能 accepted。
 - 当前只有 `sop-devrel-first-success@1.0.0` 是完整可执行 Step Contract；其他岗位的注册摘要不能冒充已运行 SOP。
-- `work-action` 只生成既有 plan/queue，真实发送走 `plan approve` 或有效 `routine-policy`，并始终经过 dry-run、`pipeline/action_runner` 等既有门禁。MCP 的 `mkt_capabilities`、`mkt_templates`、`mkt_work_order`、`mkt_metric_measure` 只读。
+- `work-action` 只生成既有 plan/queue，真实发送走 `plan approve` 或有效 `routine-policy`，默认 live，显式 dry-run 才预览，并始终经过 `pipeline/action_runner` 等执行安全门。MCP 的 `mkt_capabilities`、`mkt_templates`、`mkt_work_order`、`mkt_metric_measure` 只读。
 - KPI 分母为 0 或观察未成熟返回 null；committed 只增加平台动作，不推进任务或业务结果。
 - 完整命令与边界见 `docs/gtm-os/05-implementation.md`；先跑 `python3 mkt.py work-demo` 可看全链。
 
@@ -83,13 +83,13 @@ python3 mkt.py work-action materialize --work-order-id <id> --step-id <step> \
 
 日常发帖、私信回复和邮件可以在工作区已有有效 `routine-policy` 时直接执行，不必逐次 plan 人审。
 
-账号可以用用户自己已登录的浏览器：`mkt policy enable --observe-account` 进入 `cdp_observed` 模式，不预绑定账号；执行前读取当前浏览器实际账号，写入账本 `identity`/`account`，`mkt account log` 可查。夜间循环用 `mkt cycle`，它复用用户已打开的标签页（`browser-attach`），读写找不到目标站点标签页都报 `tab_not_found`，默认绝不新开；身份按页面可见账号读取，目前已覆盖 X、Discord 和 GitHub。X 只保留只读、草稿与人工处理，常驻 browser-attach 写在计划和执行门两层拒绝；GitHub/Discord 单动作与队列可显式选择 `--transport browser-attach`，这条路线使用 owner-attested 独立授权，不与 routine 混用。
+账号可以用用户自己已登录的浏览器：`mkt policy enable --observe-account` 进入 `cdp_observed` 模式，不预绑定账号；执行前读取当前浏览器实际账号，写入账本 `identity`/`account`，`mkt account log` 可查。夜间循环用 `mkt cycle`，它复用用户已打开的标签页（`browser-attach`），读写找不到目标站点标签页都报 `tab_not_found`，默认绝不新开；身份按页面可见账号读取，目前已覆盖 X、Discord 和 GitHub。X/Discord 可在账号授权窗口内执行 browser-attach 写，平台规则仅提示风险，不阻断业务；GitHub/Discord 单动作与队列可显式选择 `--transport browser-attach`，这条路线使用 owner-attested 独立授权，不与 routine 混用。
 
 ```bash
 # 授权管理只能由人通过 CLI 完成；agent 不自我创建/扩大授权
 python3 mkt.py policy show
 python3 mkt.py policy check --channel x --action-name publish --account default
-# 已授权的日常动作：显式 routine + go；不传 go 仍只是 dry-run
+# 已授权的日常动作：默认 live；显式 --dry-run 才预览
 python3 mkt.py action x publish --text "<内容>" --campaign <id> --account default --go --routine
 python3 mkt.py queue run data/queues/<campaign>.json --go --routine
 ```
@@ -117,7 +117,7 @@ python3 mkt.py queue run data/queues/<campaign>.json --go --routine
 
 ```text
 quota / pending-auth → 已授权的 attach → enqueue 已准备草稿
-→ plan → run（默认 dry-run；只有有效 owner-attested 授权才允许 --go）→ 读取波次摘要
+→ plan → run（默认 live；显式 dry-run 才预览；只有有效 owner-attested 授权才允许实跑）→ 读取波次摘要
 ```
 
 - 当前工作区 `inbox.auto_collect=true`：真实 `run` 会在读取队列和排程前再次收集三平台入站回复，并在同一把波次锁内去重合并，不依赖 cron 提示词记得调用 `inbox`。`--no-inbox` 可关闭当波重读；`--inbox` 可显式开启。准备阶段仍需提前运行 `cycle inbox` 并补真实正文，否则最后几分钟新到的消息会留在 `pending_text`，不会自动发送。嵌入式调用方可给 `cycle.run(inbox_writer=...)` 传写稿器；它只能补现有空白 inbox 行，不能新增动作。
@@ -301,13 +301,13 @@ mkt queue build --campaign <campaign> --channel email --wave-action message \
   --template assets/outreach.md --targets data/targets.csv   # 模板+CSV 生成队列
 mkt queue lint data/queues/<campaign>.json                   # 编辑期门禁
 mkt review <campaign>                                        # 逐条预检 + 留证
-python3 mkt.py email message --queue data/queues/<campaign>.json          # dry-run
+python3 mkt.py email message --queue data/queues/<campaign>.json --dry-run  # 显式预览
 python3 mkt.py email message --queue data/queues/<campaign>.json --go     # 实跑（须已人审 plan）
 ```
 - 内容由人审产出（写作走 [[warm-email-outreach]] / [[expert-review-outreach]]）；
   队列正文千人千面，占位符残留会被门禁直接拒绝
-- 写操作永远先 dry-run 看截图，再 --go
-- UNVERIFIED 渠道（reddit/linkedin/hn）首跑必须用户在场
+- 写操作默认 live；需要预览时显式 `--dry-run`
+- UNVERIFIED 渠道（reddit/linkedin/hn）首跑需显式技术确认，不是平台合规阻断
 - 失败即停，不重试轰炸
 
 ### ⑦ 复盘（量引擎 + 记账自动化）
@@ -352,7 +352,7 @@ mkt campaign report <campaign>                     # 一页纸：计划/执行/�
 - 上限是内核属性：计划写多大都会被日预算/单次上限拒绝
 - 回读校验不一致绝不发送（449 空正文事故固化）
 - 不做对抗：不绕验证码、不伪造指纹、不用代理池绕过平台限制；代理只在合法网络需求与授权一致时绑定，不能提高配额或绕封禁
-- LinkedIn 全自动默认锁死（半自动=终端人工确认）；Reddit 日 ≤3 帖；HN 日 ≤1 帖（Show HN 限自有项目，提交后 1h 内发首条作者评论）
+- LinkedIn 不再要求 `MKT_LINKEDIN_AUTO` 或终端确认；Reddit 日 ≤3 帖；HN 日 ≤1 帖（Show HN 限自有项目，提交后 1h 内发首条作者评论）；平台规则只提示风险，不额外阻断业务
 - 结果事件不得编造或近似：activation/paid 必须真实发生并带核验状态；实验观察只在 running 期接受
 
 ## 与其他 skill 的分工

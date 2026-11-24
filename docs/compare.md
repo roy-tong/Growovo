@@ -11,7 +11,7 @@
 | Flexibility | Whatever you write | Fixed command surface + playbooks |
 | Setup time | Hours to days, per channel | `pip install` / clone, then `mkt demo` in 30s |
 | Approval gate | You build it | Built in (signed approval, plan fingerprint, expiry) |
-| Dry-run default | You build it | Every write is dry-run unless `--go` |
+| Live execution with explicit preview | You build it | Writes default to live; `--dry-run` is explicit |
 | Budget / throttle | You build it | Atomic pre-reservation + per-channel tables |
 | Read-back verification | You build it | Required; mismatch blocks the send |
 | Unknown outcome | Usually retried (the dangerous part) | `indeterminate`, never auto-retried, needs a human |
@@ -66,7 +66,7 @@ Every claim above maps to something you can read or run:
 | Claim | Where |
 |---|---|
 | Approval is signed, fingerprinted, time-bounded | `core/` approval + plan modules, `mkt plan approve` |
-| Writes are dry-run by default | `core/action_runner.py`, `python3 mkt.py demo` |
+| Writes default to live with explicit dry-run previews | `core/action_runner.py`, `python3 mkt.py demo` |
 | Unknown outcomes are never auto-retried | `core/`, `mkt ledger resolve` |
 | Ledger is append-only | `data/`, `mkt status` |
 | Verification levels are per channel, not global | [`docs/feature-status.md`](feature-status.md), README command matrix |

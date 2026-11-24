@@ -52,6 +52,21 @@ class VoiceTests(unittest.TestCase):
         self.assertEqual(len(d["drafts"]), 3)
         self.assertTrue(any("v2.4.1" in x["opener"] for x in d["drafts"]))
 
+    def test_x_draft_uses_real_hook_product_and_invitation(self):
+        result = voice.draft(
+            "x", hook="第一版刚发，30 star", what="本地优先笔记同步，不绑云笔记厂商",
+            ask="你愿意先在自己两台设备上试一次吗")
+        self.assertEqual(3, len(result["drafts"]))
+        for row in result["drafts"]:
+            self.assertIn("30 star", row["opener"])
+            self.assertIn("本地优先笔记同步", row["opener"])
+            self.assertIn("两台设备", row["opener"])
+            self.assertNotIn("double-count", row["opener"])
+
+    def test_x_draft_does_not_return_unrelated_canned_text_without_inputs(self):
+        with self.assertRaisesRegex(ValueError, "hook|what|ask"):
+            voice.draft("x")
+
     def test_draft_cli_prints_platform_length(self):
         d = voice.draft("github")
         self.assertTrue(d["length"])

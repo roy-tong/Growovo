@@ -6,7 +6,7 @@
 
 纪律: 每天 ≤10 个新关注；只关注真正相关且持续输出的账号。
 """
-from session_page import connect_browser
+from session_page import connect_browser, automation_page, release_page
 import argparse
 import json
 import os
@@ -42,7 +42,7 @@ def main() -> int:
     with sync_playwright() as p:
         browser = connect_browser(p.chromium, CDP_URL)
         ctx = browser.contexts[0] if browser.contexts else browser.new_context()
-        page = ctx.new_page()
+        page = automation_page(ctx)
         for h in args.handles:
             rec = {"handle": h, "started_at": datetime.now().isoformat()}
             try:
@@ -50,7 +50,7 @@ def main() -> int:
                 page.wait_for_timeout(4500)
                 if "x.com/login" in page.url:
                     log("未登录", "ERROR")
-                    page.close()
+                    release_page(page)
                     return 3
                 # 关注按钮：动态 testid 为 {user-id}-follow（语言无关）
                 follow = page.locator('button[data-testid$="-follow"]').first
@@ -71,7 +71,7 @@ def main() -> int:
                 rec["finished_at"] = datetime.now().isoformat()
                 records.append(rec)
             time.sleep(8)  # 人类节奏
-        page.close()
+        release_page(page)
 
     LOG_DIR.mkdir(parents=True, exist_ok=True)
     name = datetime.now().strftime("follow-%Y%m%d-%H%M%S.json")

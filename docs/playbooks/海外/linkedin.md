@@ -15,7 +15,7 @@
 ## 3. 官方规矩
 - **官方政策（已核原文链接）**：LinkedIn 不允许任何第三方软件——爬虫、bot、浏览器插件——抓取或自动化平台（[官方帮助：Prohibited software and extensions](https://www.linkedin.com/help/linkedin/answer/a1341387)）。
 - **封号触发机制（社区实测）**：**LinkedIn 不太在意每日数量；坏的定向（低接受率/低回复率）才是被标记的主因**（[Indie Hackers 讨论](https://www.indiehackers.com/post/how-to-do-linkedin-outreach-without-getting-banned-HFFCWEUbGqgEYyQafXxC)）；2026 年收紧后，"安全工具+安全限额"仍出现**永久封号**案例——检测基于接受/回复率（[后续讨论](https://www.indiehackers.com/post/how-to-do-linkedin-outreach-without-getting-banned-WrKXtCwhsGQ5vORZvQao)、[2026 收紧分析](https://www.leadium.com/blog/linkedin-outreach-automation)）。
-- **含义**：Growovo 的 linkedin 渠道保持**半自动（终端确认）+ UNVERIFIED** 定级是正确的；自动化加好友/私信本身就违反官方政策。
+- **含义**：这些是平台与账号风险信息。Growovo 的 linkedin 写流程保持 **UNVERIFIED + 首跑技术确认**；平台规则只提示，不单独阻断业务，也不再要求环境解锁或终端确认。
 
 ## 4. 真实打法（B2B 主场景）
 1. **第一步**：档案做实（标题=价值主张，不是职位名）；内容互动 2 周再触达。

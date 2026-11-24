@@ -13,7 +13,10 @@ import time
 from pathlib import Path
 
 from . import account_identity
-from .action_runner import ActionError, gate_account_identity, precheck, run_action
+from . import action_gateway
+from .action_runner import ActionError, gate_account_identity, precheck
+
+run_action = action_gateway.execute
 from .queue import item_text, lint_queue, load_queue
 from .safety import is_paused
 from .throttle import Throttle
@@ -107,7 +110,8 @@ def rejection_kind(rec) -> str:
 def run_queue(queue_path, *, data_dir=None, go=False, allow_unverified=False,
               only=None, only_ids=None, log=print, routine=False, account=None,
               continue_on_duplicate=False, interval_seconds=None, sleeper=None,
-              operator="", run_id="", resume_batch=False, transport=None):
+              operator="", run_id="", resume_batch=False, transport=None,
+              legacy_cdp=False):
     """执行队列，返回逐条记录列表。
 
     account=None 继承队列顶层 account；显式字符串覆盖它。账号范围始终按
@@ -278,6 +282,8 @@ def run_queue(queue_path, *, data_dir=None, go=False, allow_unverified=False,
             "extra": item.get("extra"), "log": log, "transport": transport,
             "actor": item.get("actor") or item.get("handle") or item.get("author") or "",
         }
+        if legacy_cdp:
+            action_kwargs["legacy_cdp"] = True
         if routine is True:
             action_kwargs.update(routine=True, account=account,
                                  operator=operator, run_id=run_id,
@@ -313,8 +319,14 @@ def run_queue(queue_path, *, data_dir=None, go=False, allow_unverified=False,
                 continue
             outcome, detail, next_step = _browser_recovery(exc)
             channel_stop = (outcome, detail, next_step)
-            results.append(_followup_record(
-                channel, action, campaign, item, outcome, detail, next_step))
+            from . import action_resolution
+            recovery = action_resolution.recovery(
+                {"kind": "channel", "channel": channel, "action": action},
+                {"code": code or outcome, "detail": detail}, route="browser-attach")
+            followup = _followup_record(
+                channel, action, campaign, item, outcome, detail, next_step)
+            followup["recovery"] = recovery
+            results.append(followup)
             log(f"channel stopped: {detail}")
             log(f"[{idx + 1}/{len(items)}] {item.get('id', '')} {target}: {outcome}")
             continue
@@ -327,6 +339,13 @@ def run_queue(queue_path, *, data_dir=None, go=False, allow_unverified=False,
             rec.setdefault("identity", dict(identity_evidence))
         if account and "account" not in rec:
             rec["account"] = account
+        if rec.get("result") in {"failed", "indeterminate", "rejected"}:
+            from . import action_resolution
+            rec.setdefault("recovery", action_resolution.recovery(
+                {"kind": "channel", "channel": channel, "action": action},
+                {"code": str(rec.get("result") or "failed"),
+                 "detail": str(rec.get("detail") or rec.get("error") or "")},
+                route=transport))
         results.append(rec)
         log(f"[{idx + 1}/{len(items)}] {item.get('id', '')} {target}: {rec.get('result')}")
         # 人类节奏：真实发送之间随机停顿；dry-run 不碰平台，不需要等。

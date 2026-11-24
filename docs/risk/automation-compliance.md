@@ -32,7 +32,7 @@
 平台没给 API 而操作又必须发生时（少数场景），T3 的安全边界由工程纪律决定，Growovo 内核已内置：
 
 1. **零凭据**：不保存任何密码/token/Cookie（CDP 复用操作者已登录的浏览器会话）；
-2. **默认 dry-run，`--go` 才实跑**，且实跑必须绑定已人审 plan（指纹+有效期）；
+2. **默认 live，显式 `--dry-run` 才预览**，实跑必须绑定已人审 plan、有效 routine 或 owner-attested 授权；
 3. **人类节奏**：随机间隔+单次硬上限+原子日预算（throttle 表，代码预算低于官方上限）；
 4. **回读校验**：写后回读不一致绝不发送（449 事故固化）；`indeterminate` 禁自动重试；
 5. **失败即停**、全局暂停总闸、全量账本留证；
@@ -43,24 +43,24 @@
 
 ## 四、对 Growovo 产品路线的直接推论
 
-1. **X 渠道执行路线**：所有经 Growovo vendor 的 X 非 API 网页脚本写都由 `core/platform_compliance` 拒绝，包括 routine、常驻 browser-attach 和单次 `user_visible_cdp --go`。操作者授权、账号观测、人审／adhoc、配额和回读是安全门，不是平台许可，不能解锁这些路径。未接官方 API 时只提供只读、dry-run、草稿与人工处理；人在 X 页面自行操作不属于 Growovo 的脚本执行。要自动写，必须另行接入并授权符合 X 规则的官方 API。
+1. **X 渠道执行路线**：官方 API 优先；当前工作树也允许具名 owner-attested 窗口内的受管 CDP publish/reply/message/engage。平台规则与合规口径只提示风险，不单独阻断业务。操作者授权、页面身份、配额和回读是执行安全约束，不是平台许可；无有效账号授权、窗口过期、身份不明或出现风控信号时拒绝，不能用 routine/adhoc 绕过。官方自动化规则与账号处置风险仍由操作者承担，技术 canary 单独验收。
 2. **自动化优先级**：新渠道接入优先查 T1（Reddit API、YouTube Data API、Graph API）；但 T1 与 T3 并列可选——API 需采购、拿不到权限或接入成本高于收益时，走 T3 自有账号低频路线，并附平台风控提示与降频建议，不因此关闭业务；T4 永久不做。
 3. **给用户的产品形态**：Growovo 卖的不是"自动发帖机器人"，是**"授权边界内的执行纪律"**——审批/预算/回读/账本这套 T3 风控包本身就是产品差异化（详见 README 合规节）。
 4. **工具侧补充**：排期/发布类需求推荐用户接 T2 官方合作工具（如开源的 Postiz 走各平台官方 API [**未核其认证状态**]），Growovo 做上层的 plan/账本/复盘。
 
-### 四之一、`owner_attested_session`：GitHub／Discord 的受限浏览器窗口（2026-11-23）
+### 四之一、`owner_attested_session`：受限浏览器窗口（2026-11-23）
 
-操作者用自己已登录的浏览器，授权 Growovo 在一个时间窗口内、按平台配额连续执行 **GitHub 评论、Discord 频道发帖与单条回复**。X 不在这条路线内：`cycle` 在计划阶段以 `platform_permission_required` 跳过，写适配器即使拿到有效授权、身份与配额也 fail closed，不调用 X 写引擎、不提交 committed 账本。X 只读、草稿与人工处理保留；自主写必须走符合 X 规则的官方 API。
+操作者用自己已登录的浏览器，授权 Growovo 在一个时间窗口内、按平台配额执行 **X publish/reply/message/engage、GitHub 评论、Discord 频道发帖与单条回复**。这些路线统一使用 WebMonitor 受管标签组；没有有效窗口、scope 或页面身份时 fail closed，不调用写引擎、不提交 committed 账本。
 
 GitHub／Discord 浏览器路线只做三件事：复用其现有标签页、按页面上可见的账号确认身份、按纪律限速和回读。边界：
 
 1. **不是平台许可**：该路线不声称 GitHub／Discord 认可自动化操作，也不承诺零风控；账号处置风险由操作者承担。
-2. **一波一授权**：`data/policies/owner-attested-<platform>.json` 记录 route、scopes、窗口起止、撤销标志和操作者自报账号；窗口过期即拒写，续期需重新签发。X 授权文件不能解锁 X。
+2. **一波一授权**：`data/policies/owner-attested-<platform>.json` 记录 route、scopes、窗口起止、撤销标志和操作者自报账号；窗口过期即拒写，续期需重新签发。授权只代表操作者接受风险，不替代平台许可。
 3. **身份必须现场读**：写前从执行写动作的那个标签页读当前账号（Discord 用户面板、GitHub `user-login`），自报账号不能替代。`cdp_observed` 只作为既有门禁标签，含义是"身份来自实际执行的浏览器"，不再特指 CDP。
 4. **零凭据**：不读取、不导出、不保存 cookies、令牌和密码；Discord 的 `/users/@me` 因需要额外凭据或绕过校验而未被使用。
-5. **上限是自设的，不是官方额度**：GitHub 的 15 条/小时、135 条/夜低于官方对内容生成类请求的二级限流口径（约 80 次/分钟、500 次/小时），仍属自设纪律；Discord 每夜 54，即每波 6 个频道各 1 条、全平台每小时 6 条。X 的 browser-attach 可执行额度为 0，旧配置不构成许可。
+5. **上限是自设的，不是官方额度**：GitHub 的 15 条/小时、135 条/夜低于官方对内容生成类请求的二级限流口径（约 80 次/分钟、500 次/小时），仍属自设纪律；Discord 每夜 54，即每波 6 个频道各 1 条、全平台每小时 6 条。X 也按 `core/throttle.py` 的自设预算执行，不能用旧配置推定平台许可。
 6. **仍受既有门禁**：暂停总闸、DNC、幂等、防重发、回读、`indeterminate` 不重试全部有效；页面出现风控提示、验证码或 429 时立即停该渠道，不绕过、不换马甲。
-7. **默认不新开标签页**：`browser-attach` 找不到目标站点的现有标签页即 `tab_not_found`；底层 `allow_new=True` 只保留给显式调用，`cycle` 不使用它。
+7. **受管标签组**：`ensure_managed_tab` 优先复用存活页，失效后重绑；仍没有时由 WebMonitor 创建一次并登记。使用结束不关闭受管页，Playwright 不得自行 `new_page()`。
 8. **统一执行而非旁路**：`cycle`、单动作和队列经 `action_runner(transport="browser-attach")` 调用传输适配器。owner-attested 替代通用 plan/routine 审批，但不替代其他安全门；操作日志记录授权路线、平台与授权文件 SHA-256，GitHub／Discord 回执只携带真实取得的 ID／URL。
 9. **能力边界要如实说**：Discord 支持整频道发帖与按 `channel_id:message_id` 的单条回复，回复后回读该消息；GitHub 评论优先 REST API，浏览器可作 owner-attested 的备用路线。
 

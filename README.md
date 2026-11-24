@@ -2,8 +2,8 @@
   <img src="docs/assets/logo.png" width="400" alt="Growovo">
 </p>
 
-<p align="center"><strong>在自己的邮件账号运行受控推广；X 未接官方 API 前只做只读研究、草稿与人工交接</strong><br>
-<em>Run authorized email campaigns; keep X read-only until an official API is connected</em></p>
+<p align="center"><strong>告诉 Growovo 你的业务目标，让它执行增长运营并回读结果</strong><br>
+<em>Official API / SMTP / managed CDP execution with receipts and separate business outcomes</em></p>
 
 <p align="center"><strong>简体中文</strong> · <a href="README.en.md">English</a></p>
 
@@ -15,6 +15,14 @@ python3 mkt.py demo    # 零网络零账号：人审、离线回执、三次拦�
 ```
 
 [打开受控执行示例与任务模板](https://roy-tong.github.io/Growovo/examples/controlled-run.html)，先看它能证明什么、不能证明什么。无需安装依赖或配置账号。
+
+**AI Growth Service：** `mkt growth` 把业务目标编译成动作 DAG，用 SQLite 事务持久管理服务、会话、能力、尝试、事件和恢复状态，CLI/MCP/定时器共用同一编号。GitHub Issue/Discussion 与 Gmail 双向会话支持授权入站、增量同步、回复回读和故障恢复；长期 Worker 负责关闭聊天后的同步与心跳。见[增长服务说明](docs/growth-service.md)与[目标合同样例](examples/growth-goal.json)。
+
+```bash
+python3 mkt.py growth compile --file examples/growth-goal.json
+python3 mkt.py growth start --file examples/growth-goal.json
+python3 mkt.py growth next SERVICE_ID
+```
 
 求评与暖回访可用 `mkt review-ops` 做当日证据、人员资格、跨轨冷却与内容检查，再生成原生未批准邮件/GitHub 队列；回复只投影成私有反馈草稿，不自动发邮件、评论或提交仓库。见[求评外联与反馈回写](docs/review-outreach.md)。
 
@@ -30,9 +38,9 @@ mkt --workspace ./data proof export RUN_ID --out ./proof-bundle --by "proof-revi
 
 它只承诺三件可核验的事：**执行量**（账本 committed 逐条可查）、**真实读数**（按 `owner_declared / observed / independently_verified` 分级；手工录入不自动升级，配对绑定对象、口径与时序）、**闭环责任**（完成率驱动调量建议、供给缺口提前报警、异常停车待人工裁决）。不承诺平台算法给多少曝光，也不把未验证渠道包装成全自动。
 
-**无人值守全自动只承诺 Email，其他渠道照常编计划。** 第一期只有 **Email** 可承诺无人值守自主执行（写通道已实现）。**X** 的平台规则禁止非 API 网页脚本写，因此 Growovo 拒绝所有 X CDP/browser-attach 真实写，包括单次 `--go` 与常驻 owner-attested；操作者授权、身份观测和本地配额都不能解锁。X 只保留只读、dry-run、草稿与人工交接，自动写需另行接入符合规则的官方 API。GitHub、Reddit、Hacker News、LinkedIn、Discord 按各自平台规则与验证状态编成人工辅助或受限任务，首跑人工确认解锁。拿不到 API 不自动获得浏览器权限；遇到平台风控只停当前渠道并提示降频、拆批或顺延。小红书、知乎等人工渠道只出作业单，不计入自动发布量。见[平台自动执行矩阵](docs/platform-automation-matrix.md)。
+**执行按业务目标、授权与渠道能力选择，不把某个接口或合规口径当成业务阻断。** 官方 API / SMTP 优先；已有写原语的平台可在具名 owner-attested 窗口内通过 WebMonitor 受管标签组执行 CDP，保留账号身份、动作 scope、暂停、DNC、配额和公开回读。平台规则只提示风险，不单独否决业务动作；未授权账号、验证码、平台挑战与风控对抗始终禁止。真实技术验收未完成前仍标 GATED/UNVERIFIED。渠道不通时由 Action Resolution 选择替代路径或最小人工交接，不自动降级成 dry-run。见[平台自动执行矩阵](docs/platform-automation-matrix.md)。
 
-**从这里开始。** 准备产品事实包、常驻动作授权和邮件 SMTP 凭据；选 X 人工辅助时再准备已登录的本机 Codex CLI 和浏览器 CDP 会话。之后每天看结果、决定继续还是优化。配置步骤见[自动运营说明](docs/grow-autonomous-operations.md)。
+**从这里开始。** 准备产品事实包、常驻动作授权和邮件 SMTP 凭据；使用 CDP 时准备已登录的 WebMonitor 会话，需要自动写稿时再配置本机 Codex CLI。之后每天看结果、决定继续还是优化。配置步骤见[自动运营说明](docs/grow-autonomous-operations.md)。
 
 ```bash
 python3 mkt.py grow platforms          # 看第一期哪些平台能自主执行
@@ -50,9 +58,9 @@ python3 mkt.py grow agent g1          # 已有任务可用此命令启用 Codex 
 python3 mkt.py grow produce g1 --max-items 3
 ```
 
-> 想用 X？`--channels x` 只编只读研究、草稿和人工交接计划。Growovo 不运行 X 非 API 网页写脚本；人在 X 页面自行发送，或另行接入符合规则的官方 API。
+> 想用 X？可接官方 API，或在有效 owner-attested 窗口内通过受管 CDP 执行 publish/reply/message/engage；未授权、窗口过期、身份不明或遇到风控时拒绝并保留人工交接。
 
-**CDP 账号观测（v0.14+ 新增）：** 用户提供已登录的调试浏览器，Growovo 不预绑定账号；`mkt policy enable --observe-account` 后，每次动作读取当前浏览器实际账号并写入账本。`mkt account observe` 只读探测，`mkt account log` 查看操作日志。详见 [CDP 账号观测](docs/cdp-observed-account.md)。
+**受管 CDP 与账号观测：** 浏览器页面由 WebMonitor 标签组统一登记和复用；缺页时只创建一次，失效后重绑，使用结束不关闭受管页。Playwright 不得自行 `new_page()`。每次写动作读取当前页面实际账号并写入账本；未授权账号、页面挑战和风控对抗继续拒绝。详见 [CDP 账号观测](docs/cdp-observed-account.md)与[增长服务](docs/growth-service.md)。
 
 **先看证据再决定信不信：** [发布尸检：11 小时 73 条推文，0 个新 star](docs/launch-autopsy-20261105.md)——一次真实的 GTM 发布实验，当晚**没走 Growovo 的账本**（进度靠临时脚本记）；这是它拿到的数字，也是它暴露出的账本缺口。
 
@@ -88,7 +96,7 @@ python3 mkt.py grow produce g1 --max-items 3
 - 仅用于**本人拥有或明确授权运营的账号**；无授权不碰他人账号，账号归属、权限和人工接管全程留痕
 - **引擎不管理账号**：账号=浏览器登录态——写动作过授权门后自动检测调试 Chrome 里目标站点的登录态，有登录态直接执行，缺失即明确报缺（账本记 rejected，不冒充已发送）；全程不保存任何 Cookie/token
 - CDP 通道零凭据：不保存任何密码/token/Cookie；SMTP 凭据只走环境变量
-- **一切写操作默认 dry-run，`--go` 才实跑**；实跑须绑定**已人审 plan**，或显式 `--routine` 且工作区常驻策略覆盖该账号/渠道/动作——无授权默认拒跑，仅 CLI 人工通道 `--adhoc` 显式放行（账本记 adhoc=true；MCP 不开放授权管理）
+- **写操作默认 live，显式 `--dry-run` 才预览**；实跑须绑定**已人审 plan**，或显式 `--routine` 且工作区常驻策略覆盖该账号/渠道/动作——无授权默认拒跑，仅 CLI 人工通道 `--adhoc` 显式放行（账本记 adhoc=true；MCP 不开放授权管理）
 - 日预算在发送前原子预留；`indeterminate`（未知结果）不可自动重发，必须人工 `ledger resolve`；contacts 的 DNC/bounced 身份与 `suppress.txt` 合并为同一发送抑制源
 - 失败即停（不重试轰炸）；回读校验不一致绝不发送（449 空正文事故的固化）
 - 人类节奏：随机间隔 + 单次硬上限 + 日预算（core/throttle.py 的表）
@@ -172,30 +180,30 @@ python3 mkt.py check              # 确认 CDP 会话与 X/Gmail 登录态
 | `mkt retro scan/analyze/report` | **复盘引擎**：扫本地日志→带出处的事实→渠道账→业务结论。比率只从人工钉定的 `--facts` 算，机器不替你选口径；每条结论必须带数字、出处、因果机制和可执行动作，缺一项拒绝出报告 | — |
 | `mkt billing --actions N --outcomes M` | **报价实验**：保留按动作/按结果，也支持显式订阅/混合实验与接受度记录；接受报价不等于付款 | — |
 | `mkt x search/inbox …` | X 只读检索与收件箱（历史真实账号验证） | **PROVEN（仅只读）** |
-| `mkt x publish/reply/message/engage …` | X 非 API 网页写：当前版本全部拒绝；只保留 dry-run、草稿与人工交接 | **DISABLED** |
+| `mkt x publish/reply/message/engage …` | publish/reply 默认走 WebBridge 受管标签（身份与执行同一标签）；routine 也改走 owner-attested，不再默认 routine CDP；message/engage 与显式 `--legacy-cdp` 走调试浏览器 CDP；X 只读默认 WebBridge；官方 X API 尚未接入；平台规则仅提示风险 | **AUTO**（publish/reply 写通道 PROVEN） |
 | `mkt email message --queue data/queues/w1.json [--go]` | SMTP 发信队列 | **PORTED** |
 | `mkt email inbox` / `mkt email bounces` | CDP 只读扫 Gmail / 退信 | **PORTED**（模式 PROVEN） |
 | `mkt reddit search --query "…"` | 只读搜索 | **UNVERIFIED** |
 | `mkt reddit reply --url <帖> --text "…" [--go]` | 评论（回读校验管道） | **UNVERIFIED** |
 | `mkt reddit publish --sub <版块> --title … --body-file … [--go]` | 发帖（日 ≤3） | **UNVERIFIED** |
 | `mkt linkedin search --keywords "…"` | 只读搜人 | **UNVERIFIED** |
-| `mkt linkedin message --url <profile> --note-file … [--go]` | 半自动连接请求（终端确认） | **UNVERIFIED** |
+| `mkt linkedin message --url <profile> --note-file … [--go]` | 授权连接请求；平台规则仅提示风险，无环境锁或终端确认 | **UNVERIFIED** |
 | `mkt github audit --repo owner/repo` | **仓库体检**（基础/社区健康/releases/贡献者集中度/AI-readiness/Scorecard） | **PROVEN** |
 | `mkt github inbox --repo owner/repo` | open issues/PR 清单 + 零回复标记（48h 首响巡检） | **PROVEN** |
 | `mkt github search --query "…"` | 仓库搜索（客群/对标发现） | **PROVEN** |
 | `mkt github reply --repo o/r --number N --text "…" [--go]` | issue/PR 评论（api 通道写路径首例；需 `MKT_GITHUB_TOKEN`） | **UNVERIFIED** |
-| `mkt playbook github-inbox --repo o/r --drafts drafts.json` | 收件箱分流→候选回复→标准队列（不发送；仍需审批/dry-run） | **PORTED** |
+| `mkt playbook github-inbox --repo o/r --drafts drafts.json` | 收件箱分流→候选回复→标准队列（不发送；发送仍需审批，预览用 `--dry-run`） | **PORTED** |
 | `mkt hn search --query "…"` | HN 讨论/客群发现（Algolia 公共 API，匿名只读） | **PROVEN**（只读） |
 | `mkt hn publish --title "Show HN: …" --url … [--go]` | submit 表单提交（CDP；日≤1，标题≤80；Show HN 限自有项目） | **UNVERIFIED** |
 | `mkt hn reply --item item:N --text "…" [--go]` | 条目评论（首用=Show HN 首条作者评论，提交后 1h 内） | **UNVERIFIED** |
 | `python3 mkt.py memory …` | 只读运营记忆：从已核验回执提取重复模式（见文末） | — |
-| `python3 mkt.py workflow …` | 可复用配方：learn / approve / replay（默认 dry-run）/ runs / reconcile | — |
+| `python3 mkt.py workflow …` | 可复用配方：learn / approve / replay（默认 live，--dry-run 预览）/ runs / reconcile | — |
 | `python3 mkt.py scorecard` | 记分卡：确认/未知/失败/证据率与业务结果计数（只读） | — |
 | `python3 mkt.py optimize` | 优化建议（requires_human，不自动执行） | — |
 | `python3 mkt.py gtm diagnose --facts <json>` | **GTM 诊断**：产品事实包→平台优先级+冷启动+放量判据（每条推荐挂证据标签；schema 见 core/gtm.py；风控口径见 docs/risk/） | — |
 | `python3 mkt.py schedule …` | 持久化排期：add / tick / status / resume | — |
 
-等级含义：PROVEN=真实账号跑通；PORTED=模式已验证、本封装未整跑；UNVERIFIED=选择器未实测，首跑必须人工盯跑（首跑清单见 03 渠道文档 §5）；DISABLED=当前版本禁止执行，历史验证不构成放行依据。
+等级含义：PROVEN=真实账号跑通；PORTED=模式已验证、本封装未整跑；UNVERIFIED=选择器未实测，首跑必须人工盯跑（首跑清单见 03 渠道文档 §5）；DISABLED=当前版本禁止执行，历史验证不构成放行依据。这一等级是**技术首跑轴**；业务执行等级（AUTO/GATED/MANUAL）见 `docs/platform-automation-matrix.md`，两者是独立的两条轴，不能互相替代。
 
 ## 规划层：计划是数据，人审是闸门（05 产品方案 §2）
 
@@ -217,8 +225,8 @@ mkt queue lint data/queues/askovo-p0-w1.json
 
 # 5. 人审预览 → 干跑 → 实跑
 mkt review askovo-p0-w1
-mkt email message --queue data/queues/askovo-p0-w1.json          # dry-run
-mkt email message --queue data/queues/askovo-p0-w1.json --go     # 须已批准
+mkt email message --queue data/queues/askovo-p0-w1.json --dry-run  # 预览
+mkt email message --queue data/queues/askovo-p0-w1.json --go     # 实跑，须已批准
 
 # 6. 记账与复盘
 mkt link create --campaign askovo-p0-w1 --channel hn --url https://example.com
@@ -240,10 +248,11 @@ mkt campaign report askovo-p0-w1
 {"mkt": {"command": "python3", "args": ["/绝对路径/Growovo/mcp_server.py"]}}
 ```
 
-10 个工具，全渠道读写：
+49 个工具，全渠道读写：
 
 - 读：`mkt_status` / `mkt_channels` / `mkt_plan_lint` / `mkt_search`（x/reddit/linkedin/hn/github）/ `mkt_ledger_query` / `mkt_campaign` / `mkt_inbox`（hn/github/email/x）/ `mkt_audit`（github）
-- 写：`mkt_run_queue`（全渠道队列，默认 dry-run）/ `mkt_action`（单条动作，同一套门禁/审批/账本）
+- 写：`mkt_run_queue`（全渠道队列，默认 live，dry_run 显式预览）/ `mkt_action`（单条动作，同一套门禁/审批/账本）
+- 增长服务：`mkt_growth`（与 `mkt growth` 共用目标、持久状态、机会、入站、资产、执行与结果评估）
 
 写操作实跑一律要求已人审 plan；UNVERIFIED 渠道需 `allow_unverified=true`（人工首跑校准）；adhoc 仅 CLI 人工通道，MCP 不开放。MCP 进程同样读 `MKT_HOME`，可与 CLI 用不同工作区。
 
@@ -272,7 +281,6 @@ RESERVE×6（通道储备库）：`webdriver`｜`rss-public`（只读）｜`esp-
 |---|---|
 | `MKT_CDP_URL` | CDP 端点（默认 http://127.0.0.1:9222） |
 | `MKT_EMAIL_USER` / `MKT_EMAIL_APP_PASSWORD` | Gmail SMTP（App Password，绝不入库） |
-| `MKT_LINKEDIN_AUTO=1` | 解锁 LinkedIn 全自动（不建议；默认半自动需终端确认） |
 | `MKT_GITHUB_TOKEN` | GitHub PAT（仅写操作 reply 需要；读原语匿名可用，限额 60 次/时） |
 
 ## 数据三件套（`data/`，gitignore）
@@ -288,7 +296,7 @@ core/      ledger 账本（含人工裁决覆盖）· gates 门禁（含 DNC 合
 channels/  x/(vendor+adapter) · email_smtp · email_cdp · reddit · linkedin · github（api 通道首发） · hn（CDP 写 + Algolia 读）
 transports/  os_input（macOS 键鼠/AX 模拟，UNVERIFIED）
 skills/    growovo-gtm（GTM 操作协议）· github-project-ops（GitHub 项目经营协议+体检脚本）
-tests/     离线单测（599 项，含 449 事故回归、全渠道人审门禁/adhoc 放行、执行级审批指纹/队列篡改/账号与工作区绑定、预算原子预留、DNC/indeterminate 阻断、真实 CLI 端到端、37 平台策略/节奏/人工单契约、语义对抗/真实复现交付链/时序身份多触点旅程/经验可追溯复核、账号与报价实验、demo 闭环与 doctor 分级）：python3 -m unittest discover -s tests
+tests/     离线单测（2460 项，含事故回归、全渠道人审门禁/adhoc 放行、执行级审批指纹/队列篡改/账号与工作区绑定、预算原子预留、DNC/indeterminate 阻断、真实 CLI 端到端、37 平台策略/节奏/人工单契约、语义对抗/真实复现交付链/时序身份多触点旅程/经验可追溯复核、账号与报价实验、demo 闭环与 doctor 分级）：python3 -m unittest discover -s tests
 mcp_server.py  MCP 外壳（stdio JSON-RPC，零依赖）
 ```
 
@@ -306,7 +314,7 @@ MIT（见 [LICENSE](LICENSE)）。`channels/x/vendor/` 引入自同作者仓库 
 ```bash
 python3 mkt.py workflow learn hn-reply --trace trace.json      # 观察一次 → 草稿（不自动批准）
 python3 mkt.py workflow approve hn-reply --by "operator" --days 30
-python3 mkt.py workflow replay hn-reply --var item=123 --var text="…"          # dry-run：只解析定位器
+python3 mkt.py workflow replay hn-reply --var item=123 --var text="…" --dry-run   # dry-run：只解析定位器
 python3 mkt.py workflow replay hn-reply --cdp-url http://127.0.0.1:9222 … --go  # 实跑
 python3 mkt.py workflow runs
 python3 mkt.py workflow reconcile --run <id> --outcome not_sent --note "已核对平台后台" --by "operator"

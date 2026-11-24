@@ -39,7 +39,9 @@ def check_content(text, *, max_len=None, min_len=1, forbidden=DEFAULT_FORBIDDEN,
         raise GateError(f"{label}内容含占位符残留: {m.group(0)!r}")
 
 
-def check_target(channel, target):
+def check_target(channel, target, action=""):
+    if action == "publish" and channel != "email":
+        return str(target or "").strip()
     if not target or not str(target).strip():
         raise GateError("目标为空")
     t = str(target).strip()
@@ -56,8 +58,10 @@ def check_target(channel, target):
         if not t.startswith("https://www.linkedin.com"):
             raise GateError(f"LinkedIn 目标应为 profile URL: {t}")
     elif channel == "github":
-        if not re.match(r"^issue:[\w.-]+/[\w.-]+#\d+$", t):
-            raise GateError(f"GitHub 目标应为 issue:owner/repo#N: {t}")
+        repository = action == "publish" and re.match(r"^[\w.-]+/[\w.-]+$", t)
+        conversation = re.match(r"^(?:issue|discussion):[\w.-]+/[\w.-]+#\d+$", t)
+        if not (repository or conversation):
+            raise GateError(f"GitHub 目标应为 owner/repo、issue:owner/repo#N 或 discussion:owner/repo#N: {t}")
     elif channel == "hn":
         if not (t.startswith("item:") or t.startswith("hn:submit:")
                 or t.startswith("https://news.ycombinator.com")):
@@ -160,7 +164,7 @@ class Gate:
     def check(self, *, channel, action, target, campaign=None, content=None,
               max_len=None, dedupe=True):
         """依次过五关；任何一关不过抛 GateError（调用方记 rejected，继续下一条）。"""
-        target = check_target(channel, target)
+        target = check_target(channel, target, action)
         if target in self.suppress:
             raise GateError(f"目标在抑制名单: {target}")
         if self.ledger is not None:

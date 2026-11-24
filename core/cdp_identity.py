@@ -550,7 +550,8 @@ def probe(channel="x", *, endpoint=None, timeout=None, http_get=None,
             detail = "；".join(errors[-2:])
             reason = EVALUATE_ERROR
         elif api and api.get("ok") is False and api.get("status"):
-            detail = ("verify_credentials HTTP %s；twid cookie 无数字 ID"
+            detail = ("verify_credentials HTTP %s；twid cookie 无数字 ID；"
+                      "403 不能单独证明未登录，需检查页面与脱敏响应类别"
                       % api.get("status"))
             reason = IDENTITY_MISSING
         else:

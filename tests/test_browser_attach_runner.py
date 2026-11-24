@@ -185,6 +185,24 @@ class BrowserAttachQueueTest(unittest.TestCase):
         self.assertIn("渠道已停", rows[1]["detail"])
         self.assertEqual(run.call_count, 1)
 
+    def test_bridge_failure_includes_structured_agent_recovery(self):
+        from core.browser_attach import BridgeError
+        with mock.patch("core.queue_runner.run_action",
+                        side_effect=BridgeError("tab_not_found", "missing")):
+            rows = run_queue(self.queue_path, data_dir=self.data, go=True,
+                             log=lambda *_: None)
+        self.assertEqual("deferred", rows[0]["result"])
+        self.assertEqual("browser-attach", rows[0]["recovery"]["route"])
+        self.assertEqual("ensure_managed_tab", rows[0]["recovery"]["steps"][0]["operation"])
+
+    def test_indeterminate_queue_result_requires_reconciliation_not_retry(self):
+        with mock.patch("core.queue_runner.run_action",
+                        return_value={"result": "indeterminate", "detail": "readback unavailable"}):
+            rows = run_queue(self.queue_path, data_dir=self.data, go=True,
+                             log=lambda *_: None)
+        self.assertEqual("reconcile_receipt", rows[0]["recovery"]["steps"][0]["operation"])
+        self.assertFalse(rows[0]["recovery"]["retry_write"])
+
     def test_platform_risk_signal_blocks_channel_and_defers_rest(self):
         self._write_two_item_queue()
         stop = browser_write.StopChannel("discord", "challenge page")
@@ -230,7 +248,7 @@ class ReceiptTest(unittest.TestCase):
         self.addCleanup(self.tmp.cleanup)
         self.data = Path(self.tmp.name)
         self.attach = mock.Mock()
-        self.attach.ensure_tab.return_value = 11
+        self.attach.ensure_managed_tab.return_value = 11
         self.attach.probe_visibility.return_value = "visible"
 
     def _patches(self, platform="x"):

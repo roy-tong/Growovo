@@ -193,7 +193,7 @@ result 终态：`committed` / `indeterminate`（人工裁决，禁自动重发�
   暂停/UNVERIFIED/人审计检查，逐条交给 action_runner。email 仍走 `send_queue` 整队执行。
   X 队列只支持 `reply`；`publish` 用 `mkt action x publish`，`message/engage` 用 `mkt action` 透传 vendor 参数。
 - `mkt action <channel> <action>`：单条写动作，与队列共用暂停/审批/账本；`email` 只支持队列。
-  LinkedIn 实跑要求 `MKT_LINKEDIN_AUTO=1`（MCP/队列无 TTY，不能交互确认）。
+  LinkedIn 写流程 UNVERIFIED，首跑需显式技术确认；不再要求 `MKT_LINKEDIN_AUTO` 或终端确认。
 
 ## 本地 collector（core/collector.py）
 

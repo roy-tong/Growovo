@@ -1,34 +1,52 @@
-# 平台自动执行矩阵（第一期）
+# 平台自动执行矩阵
 
-日期：2026-11-14 · 代码：`core/platform_caps.py` · 命令：`python3 mkt.py grow platforms`
+日期：2026-11-24（当前工作树） · 代码：`core/platform_caps.py`、`core/platform_compliance.py`、`core/action_resolution.py`
 
-判定不看平台名气，只看三件事同时成立：
+## 1. 判定方式
 
-1. 渠道注册表（`channels/__init__.py`）里的写通道已验证（PROVEN / PORTED）；
-2. 内核有可调用的写原语（`core/platforms.py` 的 `WRITE`）；
-3. 队列执行器支持该动作（`core/queue_runner.py` 的 `QUEUE_ACTIONS`）。
+Growovo 以业务交付为核心，分别判断三件事：
 
-三条都成立才是 **AUTO**（技术可执行）；再叠加一条「平台许可」才是可承诺的自主执行。
+1. **业务执行能力**：渠道有写原语、队列支持该动作，写通道为 PROVEN / PORTED；
+2. **技术首跑状态**：UNVERIFIED 的选择器或流程仍需显式 `allow_unverified`，这不是平台合规阻断；
+3. **执行安全条件**：账号授权、身份、暂停、DNC、配额、回读、防重发、验证码与风控停手、未知结果对账。
 
-| 等级 | 含义 | 平台 |
-|---|---|---|
-| ✅ AUTO | 写通道已验证、队列可执行，**且平台允许自主执行** | **Email**（PORTED，message） |
-| ⛔ 平台许可拒绝网页脚本写 | X 的常驻与单次非 API 脚本写均不放行；只读、dry-run、草稿与人在 X 页面操作保留 | **X**（`policy.autonomous_write=false`，`user_visible_cdp_write=false`，`owner_attested_browser_write=false`） |
-| ⚠️ GATED | 有写通道但未实测，首跑需人工盯 + 显式 `allow_unverified`；**可以编入人工辅助计划**，不当场关闭业务 | GitHub（reply，浏览器可作 owner-attested 备用路线）、Reddit（reply）、Hacker News（reply）、LinkedIn（message）、Discord（publish/reply） |
-| ⬜ MANUAL | 没有自动写通道，只出人工作业单，**不计入自动发布量** | 小红书、知乎、公众号、B 站、抖音、Product Hunt、V2EX、即刻、微博、SEO、Newsletter 等其余平台 |
+平台规则和社区口径只进入 `code / reason / risk_warning`，**不得单独否决业务动作或把 AUTO 降为人工辅助**。`non_api_write_forbidden`、`self_bot_forbidden`、`platform_forbids_automation` 是历史风险码名称，不代表当前执行结果。
 
-> 「技术可执行」不等于「平台允许执行」。X 的 vendor 网页写脚本无论常驻还是单次都不放行；操作者确认、账号观测与本地配额不能替代平台许可。
+写操作默认 **live**，显式 `--dry-run` 才预览。live 条件不足时返回 `LIVE_BLOCKED` 或人工工作包，不自动降级成 dry-run 成功。
 
-## 为什么无人值守自主执行只承诺 Email
+## 2. 当前矩阵
 
-- X：所有非 API 网页脚本写都拒绝，包括非 routine 单次 `--go` 的 publish/reply/message/engage。未接官方 API 时只提供只读、dry-run、草稿与人工处理；人在 X 页面自行发送，不由 Growovo 调用 vendor 代发。
-- 夜间循环（`mkt cycle`）：X 回复／原创不进入 browser-attach 计划，统一返回 `platform_permission_required`，不会触碰 X 写引擎或提交 committed 账本；X 只读采集与人工处理保留，自主写需符合 X 规则的官方 API。GitHub 评论、Discord 频道发帖与单条回复仍可按平台签发 `owner_attested_session` 授权，在操作者已打开的标签页里按波执行；默认只复用现有标签页，找不到即 `tab_not_found`，不会擅自新开。第一件事是读通知并回别人给我的回复。身份按页面可见账号现场读取，`cdp_observed` 在此只表示"身份来自实际执行的浏览器"。每条允许的动作经过 `action_runner(transport="browser-attach")`，使用独立 owner-attested 授权而非 plan/routine，统一写任务结果和操作日志。这是操作者自担风险的路线，不是平台许可；额度为自设上限。页面出现风控提示、验证码或 429 时停该渠道并给降频建议，不换身份、不换代理。
-- Email：SMTP 是协议通道，发送前异常记 failed，**提交后**异常（超时/断连/回执丢失）记 `indeterminate`——服务端可能已收下，按未知结果停机，不自动重发；适合做结果单投递和一对一承接。
-- 其他写渠道（GitHub / Reddit / HN / LinkedIn / Discord）选择器按公开 UI 编写、没有在真实账号跑过完整链路。它们不进入「无人值守全自动」承诺，但**可以正常编入人工辅助计划**：内容、排期、账本照常生成，发送前人工确认并显式解锁；运行期遇到平台风控只停当前渠道并给出降频/拆批/顺延建议，不把整个业务判死。
+| 等级 | 平台 | 业务执行方式、验证与风险提示 |
+| --- | --- | --- |
+| ✅ AUTO | **X** | publish/reply 默认通过 WebBridge 受管标签执行（身份观测与执行在同一标签）；routine 也改走 owner-attested，不再默认 routine CDP；message/engage 与显式 `--legacy-cdp` 走调试浏览器 CDP；X 只读默认 WebBridge；官方 X API 写入尚未实现。`non_api_write_forbidden` 仅提示平台与账号风险，不再阻断业务 |
+| ✅ AUTO | **Discord** | publish 可通过授权 WebMonitor 受管页面执行；reply 仍有独立 UNVERIFIED 技术边界。`self_bot_forbidden` 仅提示风险 |
+| ✅ AUTO | **Email** | SMTP / Gmail API + 有效 routine/plan、DNC、配额和未知结果保护。Gmail 授权测试账号自测 canary 已通过；真实 SMTP 验收仍是独立边界 |
+| ⚠️ GATED | **GitHub** | GitHub App 优先，Issue 使用 REST、Discussion 使用 GraphQL。自有仓库 Issue #41 创建与评论 canary 已通过；Discussion 和其他仓库仍需技术验收，当前全局成熟度字段仍待按动作/路线拆分 |
+| ⚠️ GATED | **Reddit** | 当前 CDP 写流程 UNVERIFIED，首跑需显式技术确认；`non_api_write_forbidden` 仅提示风险，不再改判为人工辅助 |
+| ⚠️ GATED | **Hacker News** | 当前 CDP 写流程 UNVERIFIED，首跑需显式技术确认；`platform_forbids_automation` 仅提示社区风险 |
+| ⚠️ GATED | **LinkedIn** | 当前 CDP 写流程 UNVERIFIED，首跑需显式技术确认；已移除 `MKT_LINKEDIN_AUTO` 和终端确认锁，平台规则仅提示风险 |
+| ⬜ MANUAL | 其余 30 个注册平台 | 没有已接入写原语，只出人工作业单，不计入自动发布量 |
 
-## 边界纪律
+`mkt grow platforms` 是业务执行能力的统一展示入口。AUTO 表示具备自主执行技术路径，不表示平台官方许可，也不保证每个账号、动作或业务结果成功。
 
-- 编译器按同一判定工作：`auto_channels()` 只含 Email；用户指定 X／GitHub／Reddit／HN／LinkedIn／Discord 时，计划编为人工辅助（内容、排期、账本正常，发送需人确认），不会到运行阶段才被合规门拒绝。
-- 人工渠道不写入「自动发布量」；结果单会把它们单列，避免把人工动作算成引擎交付。
-- 新增 AUTO 平台必须同时满足：写通道实跑验证 + 回读校验 + 队列门禁 + 配额 + 读数通道；缺一项就只能停在 GATED。
-- `mkt grow platforms` 输出是唯一事实源；README 与销售话术不得超出这张表。
+## 3. 受管 CDP 与账号授权合同
+
+所有 CDP 读写使用 WebMonitor 受管标签组：
+
+- 按 `session + site` 持久登记 `tabId / group_title / url`；
+- 优先复用存活页，其次 attach 用户已有的同站页；仍没有时由 `ensure_managed_tab` 通过 WebMonitor 创建一次；
+- 失效页重绑，使用结束只释放引用，不 `page.close()`；
+- Playwright 只复用页面，不得自行 `new_page()`；
+- 身份必须来自当前页面；owner-attested 是操作者账号授权事实和风险提示，不是平台官方许可；
+- 未授权账号、身份不符、验证码、挑战、429、封禁或风控信号停止对应渠道，不换页、换号或代理规避。
+
+## 4. Action Resolution
+
+执行按以下顺序选择：
+
+1. 已接入的官方 API / SMTP；
+2. 有账号授权且技术条件满足的受管 CDP；
+3. 最小人工工作包，带目标、资产、CTA、负责人和回读待办；
+4. 不允许人工降级时返回 `LIVE_BLOCKED`。
+
+单渠道技术故障不应停止其他可执行工作。平台风险只提示；未知结果不自动重试，技术首跑未确认时不伪称 PROVEN。

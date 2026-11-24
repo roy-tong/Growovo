@@ -1,12 +1,4 @@
-"""平台自动执行白名单的单元测试。
-
-判定口径以 docs/grow-v2-实现契约.md 第 1 节为准：
-AUTO 必须四件事同时成立（注册表已验证 + 有写原语 + 队列支持该动作
-+ 平台许可允许自主写），第一期 AUTO 集合恰为 {email}；
-技术可用但平台许可禁止自主写的渠道（X）降为 GATED，只出人工辅助；
-GATED 还包括有写通道但未实测的渠道；其余平台一律 MANUAL，
-未知渠道也不假装支持。
-"""
+"""业务执行能力矩阵：AUTO 只看写通道、队列支持和技术验证，平台规则仅提示风险。"""
 import unittest
 
 from channels import REGISTRY
@@ -21,23 +13,22 @@ REQUIRED_KEYS = {"channel", "status", "tier", "technical_tier", "autonomous",
 class AutoChannelTests(unittest.TestCase):
     """第一期能全自动执行的渠道。"""
 
-    def test_auto_channels_exactly_email(self):
-        # X 技术可用但平台许可禁止自主写，不在自主白名单里
-        self.assertEqual(caps.auto_channels(), ["email"])
+    def test_auto_channels_include_verified_business_routes(self):
+        self.assertEqual(caps.auto_channels(), ["x", "email", "discord"])
 
-    def test_auto_set_is_exactly_email(self):
-        self.assertEqual(set(caps.auto_channels()), {"email"})
+    def test_auto_set_includes_x_and_discord(self):
+        self.assertEqual(set(caps.auto_channels()), {"x", "email", "discord"})
 
     def test_is_auto(self):
-        self.assertFalse(caps.is_auto("x"))
+        self.assertTrue(caps.is_auto("x"))
         self.assertTrue(caps.is_auto("email"))
 
-    def test_x_is_technically_auto_but_license_gated(self):
+    def test_x_is_auto_with_non_blocking_risk(self):
         row = caps.classify("x")
         self.assertEqual(row["technical_tier"], caps.AUTO)
-        self.assertEqual(row["tier"], caps.GATED)
-        self.assertFalse(row["autonomous"])
-        self.assertFalse((row.get("policy") or {}).get("autonomous_write", True))
+        self.assertEqual(row["tier"], caps.AUTO)
+        self.assertTrue(row["autonomous"])
+        self.assertEqual("non_api_write_forbidden", row["policy"]["code"])
 
     def test_auto_requires_supported_write_action(self):
         for channel in caps.auto_channels():
@@ -53,12 +44,14 @@ class AutoChannelTests(unittest.TestCase):
 
 
 class GatedChannelTests(unittest.TestCase):
-    """有写通道、但未实测或平台许可禁止自主写的渠道，必须人工放行。"""
+    """有写通道但技术 UNVERIFIED 的渠道，需要首跑确认。"""
 
-    def test_gated_contains_expected_channels(self):
+    def test_gated_contains_only_technically_unverified_channels(self):
         gated = set(caps.gated_channels())
-        self.assertTrue({"x", "github", "reddit", "hn", "linkedin"} <= gated,
+        self.assertTrue({"github", "reddit", "hn", "linkedin"} <= gated,
                         f"gated 集合缺少渠道: {gated}")
+        self.assertNotIn("x", gated)
+        self.assertNotIn("discord", gated)
 
     def test_gated_channels_have_write_but_unverified_or_license_gated(self):
         for channel in caps.gated_channels():
@@ -71,10 +64,10 @@ class GatedChannelTests(unittest.TestCase):
                 self.assertIsNotNone(row["write"])
                 self.assertIn(row["write"][1], QUEUE_ACTIONS)
                 self.assertIn(row["platform"], WRITE)
-                license_gated = (row.get("policy") or {}).get("autonomous_write") is False
+                capability_missing = (row.get("policy") or {}).get("autonomous_write") is False
                 self.assertTrue(
-                    row["status"] == "UNVERIFIED" or license_gated,
-                    f"{row['platform']} 既未实测也未拿到平台许可，不能只标 GATED")
+                    row["status"] == "UNVERIFIED" or capability_missing,
+                    f"{row['platform']} 的技术验证或写能力信息不完整")
 
     def test_hackernews_platform_is_gated(self):
         # 平台 id 是 hackernews，内核渠道名是 hn
@@ -145,9 +138,8 @@ class AssertAutoTests(unittest.TestCase):
         caps.assert_auto(["email"])  # 不抛错即通过
         caps.assert_auto([])
 
-    def test_rejects_x_without_license(self):
-        with self.assertRaises(caps.PlatformError):
-            caps.assert_auto(["x"])
+    def test_accepts_x_with_risk_notice(self):
+        caps.assert_auto(["x"])
 
     def test_rejects_zhihu(self):
         with self.assertRaises(caps.PlatformError):

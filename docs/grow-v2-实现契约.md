@@ -3,11 +3,11 @@
 本文件是并行开发的唯一契约。所有模块按此实现；签名/字段不得自行改名。
 总目标：用户给 facts + 增长目标，`mkt grow launch` 自动编译策略与执行参数，
 每日自动执行/读数/出日结果，每周出结果单并投递；用户每天可据业务结果决定
-「继续」或「优化策略」。第一期可承诺无人值守自主执行的平台只有 **email**；**x** 的写通道虽然技术可用（PROVEN），但平台许可禁止非 API 自主写入，编译器只出人工辅助计划。
+「继续」或「优化策略」。业务可自主执行的平台由写原语、队列支持和技术验证共同决定；当前包括 **x、email、discord**。平台规则只提示风险，不再把渠道编译成人工辅助。
 
 ## 0. 全局约定
 
-- Python 3.11，标准库，不新增依赖；中文 docstring；日期一律 ISO `YYYY-MM-DD`，
+- Python 3.9+，标准库，不新增依赖；中文 docstring；日期一律 ISO `YYYY-MM-DD`，
   时间戳 ISO `YYYY-MM-DDTHH:MM:SS`。
 - 纯函数优先；所有 `now` 可注入；测试不联网、不真发送、不真等 sleep。
 - data 目录由调用方传入 `data_dir`；禁止模块内硬编码仓库 `data/`。
@@ -20,42 +20,38 @@
 ## 1. `core/platform_caps.py`（新建）——平台自动执行白名单
 
 ```python
-AUTO = "auto"      # 第一期可自主执行（技术可执行 且 平台许可允许自主）
-GATED = "gated"    # 技术可执行但平台许可禁止自主，或写通道 UNVERIFIED 需显式 opt-in
+AUTO = "auto"      # 写原语、队列支持与技术验证均满足
+GATED = "gated"    # 写通道 UNVERIFIED，需显式技术首跑确认
 MANUAL = "manual"  # 无写通道，只能出人工作业单
 
 def classify(channel: str) -> dict
 # {"channel","platform","status","technical_tier","tier","autonomous","policy",
 #  "write": (channel, action) | None,
-#  "actions": ["reply"], "reason": str, "queue_action": "reply"|None}
+#  "actions": ["reply"], "reason": str}
 
 def matrix() -> list[dict]      # 按 tier 排序：auto → gated → manual
-def auto_channels() -> list[str]   # ["email"]
+def auto_channels() -> list[str]   # ["x", "email", "discord"]
 def gated_channels() -> list[str]
 def is_auto(channel: str) -> bool  # tier == AUTO 且 autonomous 为真
 ```
 
 判定规则（不得放宽）：
 
-- `GATED` 不等于拒绝：GATED 渠道照常编入人工辅助计划（内容、排期、账本正常，
-  发送需人确认）；平台风控只停当前渠道并给降频/拆批/顺延建议，不关闭业务。
-- `AUTO`：`channels.REGISTRY[ch].status in {"PROVEN","PORTED"}` 且存在写通道
-  （`core/platforms.WRITE`）且 `queue_runner.QUEUE_ACTIONS` 支持该动作，
-  **且 `platform_compliance.policy_row(ch)` 允许自主写入**。
-  当前结果必须恰为 `email`。
-- `x`：写通道 PROVEN，`technical_tier` 仍为 AUTO，但平台许可
-  （`non_api_write_forbidden`）禁止非 API 自主写入，因此 `autonomous=False`，
-  `tier` 降为 GATED。计划编译为人工辅助（human_assisted），不抛错。
-- `GATED`：注册表有该渠道且存在写通道，但 status == "UNVERIFIED"，或技术 AUTO
-  但平台许可禁止自主。当前：x、github、reddit、hn（hackernews）、linkedin。
-- `MANUAL`：其余全部平台。
+- `AUTO`：`channels.REGISTRY[ch].status in {"PROVEN","PORTED"}`，存在写通道
+  （`core/platforms.WRITE`），且 `queue_runner.QUEUE_ACTIONS` 支持该动作。
+  当前为 `x、email、discord`。
+- `GATED`：注册表有该渠道和写通道，但 status == "UNVERIFIED"。这是技术首跑边界，
+  不是平台合规阻断；完成技术验证后进入 AUTO。
+- `policy` 中的 `code / reason / risk_warning` 仅提示平台与账号风险，不参与 AUTO 判定，
+  不得据此把渠道改成 human_assisted。
+- `MANUAL`：其余没有写原语的平台。
 - `email` 动作是 `message`，`x` 默认动作 `reply`（publish/message 在 actions 里列出但
   primary action 用 reply）。
-- reason 用中文一句话说明证据级别与许可边界。`matrix()` 覆盖 platforms.BY_ID 的
+- reason 用中文一句话说明证据级别与技术边界。`matrix()` 覆盖 platforms.BY_ID 的
   全部平台，未知渠道落 MANUAL。
 
-测试：`tests/test_platform_caps.py`（auto 集合恰为 {email}、x 技术 AUTO 但许可
-GATED、gated 集合、未知渠道 MANUAL、matrix 排序稳定）。
+测试：`tests/test_platform_caps.py`（auto 集合、X/Discord 非阻断风险提示、
+技术 UNVERIFIED 的 gated 集合、未知渠道 MANUAL、matrix 排序稳定）。
 
 文档：`docs/platform-automation-matrix.md`（一张表：平台/状态/能否自动/动作/第一期是否启用/原因）。
 
@@ -207,10 +203,9 @@ def fingerprint(spec: dict) -> str
 
 - 调 `core.goals.select(facts, goal_id, platforms=..., target=..., window_days=...)`
   拿目标契约；调 `core.strategy.build(product, goal_plan=selection)` 拿主/辅渠道 why。
-- 渠道过滤：无人值守自动执行只用 `platform_caps.auto_channels()`（当前为 email）；
-  技术可用但平台许可禁止自主的渠道（x/github/reddit/hackernews/linkedin/discord）
-  编为人工辅助计划（`strategy.execution` 分组、
-  `automation.execution.mode = human_assisted|mixed`），不抛错；既无写通道也不支持
+- 渠道过滤：无人值守自动执行只用 `platform_caps.auto_channels()`（当前为 x、email、discord）；
+  技术 UNVERIFIED 的渠道（github/reddit/hackernews/linkedin）需首跑确认并标记技术边界；
+  平台规则只写非阻断风险提示，不再把 x/discord 编为人工辅助；既无写通道也不支持
   人工辅助的未知渠道抛 `CompileError`。
 - actions：email → `["message"]`；x → `["reply"]`（若用户指定 publish 则并入）；
   github/reddit/hackernews → `["reply"]`；linkedin → `["message"]`；

@@ -8,7 +8,7 @@
 
 ## Invariants
 
-- [ ] Writes still default to dry-run, and `--go` is still explicit
+- [ ] Writes still default to live, `--dry-run` is still explicit, and platform rules remain non-blocking risk notices
 - [ ] A write still requires an approved plan (or explicit CLI `--ad-hoc`)
 - [ ] Pause / budget / quota / suppression / DNC checks still run before any send
 - [ ] Read-back mismatch still blocks the send

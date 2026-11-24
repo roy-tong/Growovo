@@ -44,7 +44,8 @@ def run(subs, limit, sort="top", window="month"):
     pw = sync_playwright().start()
     b = pw.chromium.connect_over_cdp("http://127.0.0.1:9222")
     ctx = b.contexts[0]
-    page = ctx.new_page()
+    from channels.x.vendor.session_page import automation_page
+    page = automation_page(ctx, (MIRROR + "/",))
     total = 0
     for sub in subs:
         url = f"{MIRROR}/r/{sub}/{sort}?t={window}"

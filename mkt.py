@@ -4,7 +4,7 @@
 用法:
   mkt <channel> <action> [参数] [--go] [--campaign <id>] [--only <target>] [--adhoc]
 
-统一语义：**写操作默认 dry-run，--go 才实跑**；实跑须绑定已人审 plan，或显式 --routine
+统一语义：**写操作默认 live，显式 --dry-run 才预览**；实跑须绑定已人审 plan，或显式 --routine
 且工作区 routine policy 覆盖该账号/渠道/动作。无 plan 管辖的临时发送仍可显式
 **--adhoc** 放行（账本记 adhoc=true；MCP 不开放该通道，也不开放授权管理）。
   mkt status                账本聚合（channel/campaign/result）
@@ -45,9 +45,9 @@
                             indeterminate 裁决后恢复/一键暂停
 
 示例:
-  python3 mkt.py email message --queue data/queues/er-wave7.json        # dry-run
-  python3 mkt.py email message --queue data/queues/er-wave7.json --go   # 实跑
-  python3 mkt.py x publish --campaign day3 -- --dry-run 传给 vendor（默认即 dry-run）
+  python3 mkt.py email message --queue data/queues/er-wave7.json --dry-run  # 显式预览
+  python3 mkt.py email message --queue data/queues/er-wave7.json            # 默认 live
+  python3 mkt.py x publish --campaign day3 --dry-run                       # 显式预览
   python3 mkt.py reddit search --query "agent observability"
   python3 mkt.py linkedin message --url <profile> --note-file note.txt
 """
@@ -57,15 +57,26 @@ import os
 import sys
 from pathlib import Path
 
+from core.execution_intent import add_execution_arguments, resolve_go
+
 BASE = Path(__file__).resolve().parent
 sys.path.insert(0, str(BASE))
 
 DATA = BASE / "data"
 
 
+def _execution_go(args):
+    return resolve_go(getattr(args, "go", None), getattr(args, "dry_run", False))
+
+
 def _ledger():
     from core.ledger import Ledger
     return Ledger(DATA / "ledger.jsonl")
+
+
+def _write_lease(route, account=""):
+    from core import action_gateway
+    return action_gateway.lease(DATA, account=str(account or "default"), route=route)
 
 
 def _load_facts(path, what="产品事实包"):
@@ -150,7 +161,7 @@ def cmd_check(args):
         print("CDP 会话正常。登录态: " + "；".join(f"{n}={s}" for n, s in results))
         return 0
     finally:
-        page.close()
+        cdp.release_page(page)
 
 
 def cmd_pause(args):
@@ -1586,7 +1597,7 @@ def cmd_grow(args):
 
     if act == "platforms":
         from core import platform_caps
-        print("第一期可自主执行的平台（技术可执行，且平台许可允许自主）：")
+        print("业务可自主执行的平台（写通道已验证；平台风险仅提示）：")
         for row in platform_caps.matrix():
             if row["tier"] != platform_caps.AUTO:
                 continue
@@ -1595,7 +1606,9 @@ def cmd_grow(args):
                 continue
             print(f"  ✅ {row['platform']:<12} {row['status']:<8} "
                   f"动作 {'/'.join(write[1:]) or '—'}｜{row['reason']}")
-        print("\n需人工执行 / 首跑解锁（不纳入第一期自主承诺）：")
+            if (row.get("policy") or {}).get("risk_warning"):
+                print(f"     风险提示：{row['policy']['risk_warning']}（不阻断）")
+        print("\n技术首跑确认（不是平台合规阻断）：")
         for row in platform_caps.matrix():
             if row["tier"] != platform_caps.GATED:
                 continue
@@ -2054,7 +2067,7 @@ def cmd_grow(args):
                                  target=args.target, window_days=args.window,
                                  started=args.on or None,
                                  actions_per_week=args.actions_per_week or 20,
-                                 go=args.go, data_dir=DATA, owner=args.owner or "")
+                                 go=_execution_go(args), data_dir=DATA, owner=args.owner or "")
         except GrowErrors as exc:
             print(f"不能开始：{exc}")
             payload = getattr(exc, "payload", None)
@@ -2066,7 +2079,7 @@ def cmd_grow(args):
         print(f"闭环已建：{data['id']}（{data['started']} 起，渠道 {'、'.join(data['channels'])}）")
         print(f"  目标：{goal.get('target_text') or goal.get('metric')}"
               f"（基线 {goal.get('baseline')}）")
-        print(f"  实跑开关 go={data['go']}（默认只 dry-run；确认后 mkt grow arm {data['id']}）")
+        print(f"  实跑开关 go={data['go']}（默认 live；仍需 mkt grow arm {data['id']} 开闸）")
         print(f"  暂存队列放 data/queues/{data['id']}-<名字>.json（campaign 用 {data['id']} 开头），"
               f"cron 每小时跑：mkt grow tick {data['id']}")
         print(f"  读数：每天一次 mkt x stats --handle <账号>（首周人工对数后加 --record）")
@@ -3383,7 +3396,7 @@ def cmd_cycle(args):
 
     本命令逐条经过 action_runner，并显式选择 browser-attach 传输；不走通用
     CDP 身份或 plan/routine 预检，授权由 data/policies/owner-attested-*.json
-    的 owner_attested_session 独立承担。run 默认 dry-run，--go 才执行；暂停、
+    的 owner_attested_session 独立承担。run 默认 live，--dry-run 才预览；暂停、
     DNC、页面身份、日预算、回读、账本、任务结果和统一操作日志全部保留。
     """
     import datetime as _dt
@@ -3441,7 +3454,7 @@ def cmd_cycle(args):
     if args.action in ("jobs-tick", "jobs-status"):
         from core import cycle_scheduler
         if args.action == "jobs-tick":
-            got = cycle_scheduler.tick(DATA, args.file, now=_when(), go=bool(args.go),
+            got = cycle_scheduler.tick(DATA, args.file, now=_when(), go=_execution_go(args),
                                        max_jobs=int(args.max_jobs or 1))
         else:
             got = cycle_scheduler.status(DATA, args.file, now=_when())
@@ -3519,13 +3532,13 @@ def cmd_cycle(args):
         return 0
 
     if args.action == "run":
-        got = cycle.run(DATA, go=bool(args.go), queue_path=_queue_path(),
+        got = cycle.run(DATA, go=_execution_go(args), queue_path=_queue_path(),
                         max_actions=int(getattr(args, "max_actions", 0) or 0),
                         wave_id=str(getattr(args, "wave", "") or ""),
                         budget_sec=int(getattr(args, "budget_sec", 3000) or 3000),
                         session=getattr(args, "session", "") or "",
                         prefetch=getattr(args, "prefetch", None),
-                        auto_inbox=getattr(args, "auto_inbox", None), log=_log)
+                        auto_inbox=getattr(args, "auto_inbox", None), log=_log, now=_when())
         _emit(got)
         return 0 if got.get("ok") else 2
 
@@ -3703,16 +3716,23 @@ def cmd_validation(args):
 
 
 @_business_command
+def cmd_growth(args):
+    from core import growth_cli
+    return growth_cli.handle(args, DATA)
+
+
+@_business_command
 def cmd_orchestrate(args):
-    from core import orchestration
-    product = _load_structured(args.product)
-    if isinstance(product, dict) and isinstance(product.get("product"), dict):
-        product = product["product"]
+    from core import orchestration, work
+    product = work.facts_document_from_file(args.product, name=getattr(args, "product_name", ""))
     plan = orchestration.orchestrate(product, args.goal, args.task,
                                      audience=args.audience, channel=args.channel,
                                      motion=args.motion)
     errors = orchestration.lint_orchestration(plan)
-    plan["validation"] = {"ok": not errors, "errors": errors}
+    warnings = work.evidence_warnings(product)
+    plan["validation"] = {"ok": not errors, "errors": errors,
+                          "warnings": warnings,
+                          "evidence_status": "insufficient_evidence" if warnings else "unchanged"}
     if args.out:
         out = Path(args.out)
         out.parent.mkdir(parents=True, exist_ok=True)
@@ -3767,13 +3787,25 @@ def cmd_template(args):
 
 @_business_command
 def cmd_context(args):
-    from core.work import ContextStore
+    from core.work import ContextStore, context_snapshot_from_file
     store = ContextStore(DATA)
     if args.action == "import":
-        return _emit(store.import_snapshot(_load_structured(args.file), by=args.by))
+        return _emit(store.import_snapshot(context_snapshot_from_file(args.file), by=args.by))
     if args.action == "show":
         return _emit(store.get(args.context_id, args.version or None))
     return _emit({"contexts": store.list()})
+
+
+@_business_command
+def cmd_facts(args):
+    from core.work import evidence_warnings, facts_document_from_file
+    document = facts_document_from_file(args.file, name=args.name)
+    out = Path(args.out)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    with out.open("x", encoding="utf-8") as handle:
+        handle.write(json.dumps(document, ensure_ascii=False, indent=2) + "\n")
+    return _emit({"status": "migrated", "out": str(out), "product": document["product"],
+                  "warnings": evidence_warnings(document)})
 
 
 @_business_command
@@ -4563,11 +4595,11 @@ def cmd_queue(args):
                 "NEEDS_USER_INPUT", "queue run 需要队列文件路径。",
                 missing=["队列文件路径（位置参数 path）"],
                 impact="没有读取或执行任何队列，未发送任何消息。",
-                next_action="传一个已通过 lint 的队列路径；先加 --go 才是实跑，默认 dry-run。",
+                next_action="传一个已通过 lint 的队列路径；默认 live，显式预览请加 --dry-run。",
                 example="mkt queue run data/queues/demo-w1.json --go")
         from core.queue_runner import QueueRunError, run_queue
         try:
-            results = run_queue(args.path, data_dir=DATA, go=args.go,
+            results = run_queue(args.path, data_dir=DATA, go=_execution_go(args),
                                 allow_unverified=args.allow_unverified,
                                 only=args.only, routine=args.routine,
                                 resume_batch=getattr(args, "resume_batch", False),
@@ -4584,7 +4616,7 @@ def cmd_queue(args):
         for r in results:
             tally[r.get("result", "?")] = tally.get(r.get("result", "?"), 0) + 1
         audit_gaps = [r for r in results if r.get("audit_gap")]
-        print(json.dumps({"queue": str(Path(args.path).resolve()), "go": args.go,
+        print(json.dumps({"queue": str(Path(args.path).resolve()), "go": _execution_go(args),
                           "results": tally,
                           "audit_gaps": len(audit_gaps)}, ensure_ascii=False, indent=1))
         if tally.get("indeterminate") or audit_gaps:
@@ -4895,6 +4927,59 @@ def cmd_outcome(args):
     return 1
 
 
+def _x_browser_payload(args):
+    """解析 browser-attach 的单条正文/目标；不触碰浏览器。"""
+    if args.action == "reply":
+        target = str(getattr(args, "tweet_url", "") or "").strip()
+        text = str(getattr(args, "text", "") or "").strip()
+        extra = list(getattr(args, "extra", []) or [])
+        if not target and "--tweet-url" in extra:
+            idx = extra.index("--tweet-url")
+            target = str(extra[idx + 1]).strip() if idx + 1 < len(extra) else ""
+        elif not target and extra:
+            target = str(extra[0]).strip()
+        if not text and "--text" in extra:
+            idx = extra.index("--text")
+            text = str(extra[idx + 1]).strip() if idx + 1 < len(extra) else ""
+        return target, text
+    if getattr(args, "thread", False):
+        raise SystemExit(
+            "browser-attach 不支持线程发布；请显式加 --legacy-cdp 走调试浏览器，或拆成单条。")
+    text = str(getattr(args, "text", "") or "").strip()
+    if text and not getattr(args, "file", None):
+        return "", text
+    file_arg = str(getattr(args, "file", "") or "thread.json")
+    path = Path(file_arg)
+    if not path.is_absolute():
+        vendor_path = Path(__file__).resolve().parent / "channels" / "x" / "vendor" / path
+        path = vendor_path if vendor_path.exists() else path.resolve()
+    try:
+        cfg = json.loads(path.read_text(encoding="utf-8"))
+    except OSError as exc:
+        raise SystemExit(f"读取发布文件失败：{path}（{exc}）")
+    except json.JSONDecodeError as exc:
+        raise SystemExit(f"发布文件不是合法 JSON：{path}（{exc}）")
+    tweets = cfg.get("tweets") if isinstance(cfg, dict) else None
+    if not isinstance(tweets, list) or not tweets:
+        raise SystemExit(f"发布文件缺少 tweets 列表：{path}")
+    if len(tweets) != 1:
+        raise SystemExit(
+            "browser-attach 单次只发一条；多推文线程请显式加 --legacy-cdp，或拆成单条。")
+    return "", str(tweets[0]).strip()
+
+
+def _x_legacy_endpoint(args):
+    """legacy CDP：身份探测和 vendor 执行强制使用同一个端点。"""
+    endpoint = (str(getattr(args, "cdp_url", "") or "").strip()
+                or os.environ.get("MKT_CDP_URL") or os.environ.get("X_CDP_URL")
+                or "http://127.0.0.1:9222")
+    os.environ["MKT_CDP_URL"] = endpoint
+    os.environ["X_CDP_URL"] = endpoint
+    os.environ["MKT_CDP_IDENTITY_URL"] = endpoint
+    os.environ["MKT_X_LEGACY_CDP"] = "1"
+    return endpoint
+
+
 def cmd_x(args):
     if args.action == "stats":
         from channels.x import read_stats
@@ -4910,45 +4995,117 @@ def cmd_x(args):
         else:
             print("默认只读不落账；人工核对数字后加 --record 才写入 outcome 计数")
         return 0
-    from channels.x.adapter import run as x_run
-    identity_evidence = None
-    if args.go:
-        # G-01：CLI adhoc 直通路径同样过账号身份门禁——绑定身份的授权下，
-        # 浏览器实际账号必须与授权一致；未绑定授权不介入（legacy 语义不变）。
-        # 门禁返回的观测证据必须随回执落账，否则三条入口的回执字段不一致。
-        from core.action_runner import ActionError, gate_account_identity
+
+    # 单条 publish/reply 默认走 browser-attach：身份观测与实际执行在同一个
+    # WebBridge 受管标签里。调试浏览器 CDP 只保留为显式 legacy 通道。
+    if args.action in ("publish", "reply") and not getattr(args, "legacy_cdp", False):
+        from core import action_gateway, operations_log
+        from core.action_runner import ActionError
+        from core.browser_attach import BridgeError
+        from core.browser_write import ActionBlocked, StopChannel
         try:
-            identity_evidence = gate_account_identity(
-                "x", DATA, getattr(args, "account", "") or "")
-        except ActionError as exc:
+            target, text = _x_browser_payload(args)
+        except SystemExit as exc:
+            print(str(exc))
+            return 1
+        if not text:
+            print("拒绝执行：browser-attach 需要非空正文（--text，或 --file 里的单条 tweets[0]）")
+            return 1
+        if len(text) > 280:
+            print(f"拒绝执行：正文 {len(text)} 字符，超过 X 的 280 字符预检上限")
+            return 1
+        if args.action == "reply" and not target:
+            print("拒绝执行：browser-attach reply 需要 --tweet-url <推文 URL>")
+            return 1
+        recorder = operations_log.LedgerRecorder(_ledger())
+        try:
+            rec = action_gateway.execute(
+                channel="x", action=args.action, data_dir=DATA,
+                campaign=args.campaign or "", go=_execution_go(args),
+                target=target, text=text, transport="browser-attach",
+                actor=getattr(args, "actor", "") or "")
+        except (ActionError, ActionBlocked, StopChannel, BridgeError) as exc:
+            print(f"拒绝执行：{exc}")
+            from core import action_resolution
+            recovery = action_resolution.recovery(
+                {"kind": "channel", "channel": "x", "action": args.action},
+                {"code": str(getattr(exc, "code", "") or type(exc).__name__),
+                 "detail": str(exc)}, route="browser-attach")
+            print(json.dumps(recovery, ensure_ascii=False))
+            return 1
+        try:
+            recorder.flush_operations(
+                DATA, channel="x", action=args.action, target=target,
+                text=text, campaign=args.campaign or "", go=_execution_go(args),
+                operator="cli:mkt-x:browser-attach")
+        except Exception as exc:  # noqa: BLE001 日志失败不掩盖动作结果
+            print(f"[opslog] 操作日志写入失败：{exc}")
+        print(json.dumps(rec, ensure_ascii=False, indent=1))
+        result = str(rec.get("result") or "")
+        if result in ("committed", "dry-run", "skipped"):
+            return 0
+        return 3 if result == "indeterminate" else 1
+
+    previous_legacy_env = os.environ.get("MKT_X_LEGACY_CDP")
+    try:
+        from channels.x.adapter import run as x_run
+        if args.action in ("message", "engage") and not getattr(args, "legacy_cdp", False):
+            print("x message/engage 暂不支持 browser-attach；请显式加 --legacy-cdp（需已登录调试浏览器）")
+            return 1
+        endpoint = _x_legacy_endpoint(args)
+        if _execution_go(args):
+            print(f"[x] legacy CDP：{endpoint}（显式通道；身份探测与执行同端点）")
+        identity_evidence = None
+        if _execution_go(args):
+            # G-01：CLI adhoc 直通路径同样过账号身份门禁——绑定身份的授权下，
+            # 浏览器实际账号必须与授权一致；未绑定授权不介入（legacy 语义不变）。
+            # 门禁返回的观测证据必须随回执落账，否则三条入口的回执字段不一致。
+            from core.action_runner import ActionError, gate_account_identity
+            try:
+                identity_evidence = gate_account_identity(
+                    "x", DATA, getattr(args, "account", "") or "")
+            except ActionError as exc:
+                print(f"拒绝执行：{exc}")
+                return 1
+        extra = list(args.extra or [])
+        if getattr(args, "file", None):
+            extra += ["--file", args.file]
+        if getattr(args, "thread", False):
+            extra += ["--thread"]
+        # reply 的 vendor 参数原先只能靠 "--" 透传，argparse 会拒绝；显式暴露两个参数。
+        if getattr(args, "tweet_url", None):
+            extra += ["--tweet-url", args.tweet_url]
+        if getattr(args, "text", None):
+            extra += ["--text", args.text]
+        # CLI 直通入口也要落统一操作日志（§4.2）：捕获本次动作新增的账本行，
+        # 结束后按动作现场扩写成完整记录（不依赖事后扫账本的时间启发式）。
+        from core import operations_log
+        from core import action_gateway
+        recorder = operations_log.LedgerRecorder(_ledger())
+        from core.platform_compliance import owner_attested_active
+        execution_mode = "owner_attested_cdp" if owner_attested_active(DATA, "x") else "user_visible_cdp"
+        try:
+            with _write_lease("x", getattr(args, "account", "")):
+                rc = x_run(args.action, extra, go=_execution_go(args), adhoc=args.adhoc,
+                           campaign=args.campaign, ledger=recorder, data_dir=DATA,
+                           identity=identity_evidence, execution_mode=execution_mode)
+        except action_gateway.AccountBusy as exc:
             print(f"拒绝执行：{exc}")
             return 1
-    extra = list(args.extra or [])
-    if getattr(args, "file", None):
-        extra += ["--file", args.file]
-    if getattr(args, "thread", False):
-        extra += ["--thread"]
-    # reply 的 vendor 参数原先只能靠 "--" 透传，argparse 会拒绝；显式暴露两个参数。
-    if getattr(args, "tweet_url", None):
-        extra += ["--tweet-url", args.tweet_url]
-    if getattr(args, "text", None):
-        extra += ["--text", args.text]
-    # CLI 直通入口也要落统一操作日志（§4.2）：捕获本次动作新增的账本行，
-    # 结束后按动作现场扩写成完整记录（不依赖事后扫账本的时间启发式）。
-    from core import operations_log
-    recorder = operations_log.LedgerRecorder(_ledger())
-    rc = x_run(args.action, extra, go=args.go, adhoc=args.adhoc,
-               campaign=args.campaign, ledger=recorder, data_dir=DATA,
-               identity=identity_evidence, execution_mode="user_visible_cdp")
-    try:
-        recorder.flush_operations(
-            DATA, channel="x", action=args.action,
-            target=getattr(args, "tweet_url", None) or "",
-            text=getattr(args, "text", None),
-            campaign=args.campaign or "", go=bool(args.go),
-            operator="cli:mkt-x")
-    except Exception as exc:  # noqa: BLE001 日志失败不掩盖动作结果
-        print(f"[opslog] 操作日志写入失败：{exc}")
+        try:
+            recorder.flush_operations(
+                DATA, channel="x", action=args.action,
+                target=getattr(args, "tweet_url", None) or "",
+                text=getattr(args, "text", None),
+                campaign=args.campaign or "", go=_execution_go(args),
+                operator="cli:mkt-x:legacy-cdp")
+        except Exception as exc:  # noqa: BLE001 日志失败不掩盖动作结果
+            print(f"[opslog] 操作日志写入失败：{exc}")
+    finally:
+        if previous_legacy_env is None:
+            os.environ.pop("MKT_X_LEGACY_CDP", None)
+        else:
+            os.environ["MKT_X_LEGACY_CDP"] = previous_legacy_env
     return rc
 
 
@@ -4963,13 +5120,18 @@ def cmd_email(args):
         return 0
     # 写动作统一走 SMTP 队列（publish/reply/message 同一管道，campaign 区分）
     from channels.email_smtp import BatchBlocked, send_queue
+    from core import action_gateway
     try:
-        res = send_queue(args.queue, go=args.go, adhoc=args.adhoc, only=args.only,
-                         campaign=args.campaign, data_dir=DATA,
-                         ledger=_ledger(), throttle=_throttle(),
-                         operator="mkt:email",
-                         resume_batch=bool(getattr(args, "resume_batch", False)),
-                         run_id=str(getattr(args, "run_id", "") or ""))
+        with _write_lease("email", getattr(args, "account", "")):
+            res = send_queue(args.queue, go=_execution_go(args), adhoc=args.adhoc, only=args.only,
+                             campaign=args.campaign, data_dir=DATA,
+                             ledger=_ledger(), throttle=_throttle(),
+                             operator="mkt:email",
+                             resume_batch=bool(getattr(args, "resume_batch", False)),
+                             run_id=str(getattr(args, "run_id", "") or ""))
+    except action_gateway.AccountBusy as exc:
+        print(f"拒绝执行：{exc}")
+        return 1
     except BatchBlocked as exc:
         print(str(exc), file=sys.stderr)
         return 3
@@ -4998,14 +5160,26 @@ def cmd_reddit(args):
     if args.action == "reply":
         text = Path(args.text_file).read_text(encoding="utf-8").strip() \
             if args.text_file else args.text
-        rec = reddit.reply(args.url, text, go=args.go, adhoc=args.adhoc,
-                           campaign=args.campaign, ledger=_ledger(), data_dir=DATA)
+        from core import action_gateway
+        try:
+            with _write_lease("reddit", getattr(args, "account", "")):
+                rec = reddit.reply(args.url, text, go=_execution_go(args), adhoc=args.adhoc,
+                                   campaign=args.campaign, ledger=_ledger(), data_dir=DATA)
+        except action_gateway.AccountBusy as exc:
+            print(f"拒绝执行：{exc}")
+            return 1
         return 0 if rec["result"] in ("committed", "dry-run") else 1
     if args.action == "publish":
         body = Path(args.body_file).read_text(encoding="utf-8").strip() \
             if args.body_file else (args.body or "")
-        rec = reddit.publish(args.sub, args.title, body, go=args.go, adhoc=args.adhoc,
-                             campaign=args.campaign, ledger=_ledger(), data_dir=DATA)
+        from core import action_gateway
+        try:
+            with _write_lease("reddit", getattr(args, "account", "")):
+                rec = reddit.publish(args.sub, args.title, body, go=_execution_go(args), adhoc=args.adhoc,
+                                     campaign=args.campaign, ledger=_ledger(), data_dir=DATA)
+        except action_gateway.AccountBusy as exc:
+            print(f"拒绝执行：{exc}")
+            return 1
         return 0 if rec["result"] in ("committed", "dry-run") else 1
     return 2
 
@@ -5018,8 +5192,14 @@ def cmd_linkedin(args):
     if args.action == "message":
         note = Path(args.note_file).read_text(encoding="utf-8").strip() \
             if args.note_file else args.note
-        rec = linkedin.message(args.url, note, go=args.go, adhoc=args.adhoc,
-                               campaign=args.campaign, ledger=_ledger(), data_dir=DATA)
+        from core import action_gateway
+        try:
+            with _write_lease("linkedin", getattr(args, "account", "")):
+                rec = linkedin.message(args.url, note, go=_execution_go(args), adhoc=args.adhoc,
+                                       campaign=args.campaign, ledger=_ledger(), data_dir=DATA)
+        except action_gateway.AccountBusy as exc:
+            print(f"拒绝执行：{exc}")
+            return 1
         return 0 if rec["result"] in ("committed", "dry-run") else 1
     return 2
 
@@ -5038,8 +5218,14 @@ def cmd_github(args):
     if args.action == "reply":
         text = Path(args.text_file).read_text(encoding="utf-8").strip() \
             if args.text_file else args.text
-        rec = github.reply(args.repo, args.number, text, go=args.go, adhoc=args.adhoc,
-                           campaign=args.campaign, ledger=_ledger(), data_dir=DATA)
+        from core import action_gateway
+        try:
+            with _write_lease("github", getattr(args, "account", "")):
+                rec = github.reply(args.repo, args.number, text, go=_execution_go(args), adhoc=args.adhoc,
+                                   campaign=args.campaign, ledger=_ledger(), data_dir=DATA)
+        except action_gateway.AccountBusy as exc:
+            print(f"拒绝执行：{exc}")
+            return 1
         detail = rec.get("detail", "")
         print(f"github reply -> {rec['result']}"
               + (f"（{detail}）" if detail else "")
@@ -5058,13 +5244,19 @@ def cmd_hn(args):
         return 0
     text = Path(args.text_file).read_text(encoding="utf-8").strip() \
         if args.text_file else (args.text or "")
-    if args.action == "publish":
-        rec = hn.publish(args.title, url=args.url, text=text or None,
-                         go=args.go, adhoc=args.adhoc, campaign=args.campaign,
-                         ledger=_ledger(), data_dir=DATA)
-    else:  # reply
-        rec = hn.reply(args.item, text, go=args.go, adhoc=args.adhoc,
-                       campaign=args.campaign, ledger=_ledger(), data_dir=DATA)
+    from core import action_gateway
+    try:
+        with _write_lease("hn", getattr(args, "account", "")):
+            if args.action == "publish":
+                rec = hn.publish(args.title, url=args.url, text=text or None,
+                                 go=_execution_go(args), adhoc=args.adhoc, campaign=args.campaign,
+                                 ledger=_ledger(), data_dir=DATA)
+            else:  # reply
+                rec = hn.reply(args.item, text, go=_execution_go(args), adhoc=args.adhoc,
+                               campaign=args.campaign, ledger=_ledger(), data_dir=DATA)
+    except action_gateway.AccountBusy as exc:
+        print(f"拒绝执行：{exc}")
+        return 1
     detail = rec.get("detail", "")
     print(f"hn {args.action} -> {rec['result']}"
           + (f"（{detail}）" if detail else "")
@@ -5486,7 +5678,7 @@ def cmd_schedule(args):
     if args.action == "add":
         schedule = scheduler.add(
             data, schedule_id=args.id, queues=args.queue or [],
-            interval_minutes=args.interval, go=args.go, max_waves=args.max_waves)
+            interval_minutes=args.interval, go=_execution_go(args), max_waves=args.max_waves)
         print(json.dumps(schedule, ensure_ascii=False, indent=2))
         return 0
     if args.action == "list":
@@ -5511,7 +5703,7 @@ def cmd_schedule(args):
 def cmd_workflow(args):
     """Versioned, approved, replayable operation recipes (no implicit sends)."""
     from core import workflows
-    from core.action_runner import run_action
+    from core import action_gateway
     data = Path(DATA)
     action = args.action
     if action == "list":
@@ -5568,15 +5760,15 @@ def cmd_workflow(args):
             from core import cdp
             browser, page = cdp.connect(args.cdp_url)
         def _executor(**kwargs):
-            return run_action(data_dir=str(data), log=print, **kwargs)
+            return action_gateway.execute(data_dir=str(data), log=print, **kwargs)
         try:
             result = workflows.replay(data, workflow, page=page, executor=_executor,
-                                      go=args.go, campaign=args.campaign or "",
+                                      go=_execution_go(args), campaign=args.campaign or "",
                                       values=values, log=print)
         finally:
             if page is not None:
                 try:
-                    page.close()
+                    cdp.release_page(page)
                 finally:
                     if browser is not None:
                         browser.close()
@@ -5637,7 +5829,8 @@ def cmd_playbook(args):
 
 
 def cmd_action(args):
-    from core.action_runner import ActionError, run_action
+    from core import action_gateway
+    from core.action_runner import ActionError
     from core.browser_attach import BridgeError
     from core.browser_write import ActionBlocked, StopChannel
     transport = getattr(args, "transport", "") or ""
@@ -5648,15 +5841,16 @@ def cmd_action(args):
     text = Path(args.text_file).read_text(encoding="utf-8").strip() \
         if args.text_file else args.text
     try:
-        rec = run_action(
+        rec = action_gateway.execute(
             channel=args.channel, action=args.action, data_dir=DATA,
-            campaign=args.campaign or "", go=args.go,
+            campaign=args.campaign or "", go=_execution_go(args),
             allow_unverified=args.allow_unverified, target=args.target,
             text=text, title=args.title, url=args.url,
             subreddit=args.subreddit, number=args.number,
             extra=args.extra, routine=args.routine, account=args.account,
             platform_user_id=args.platform_user_id or None,
-            transport=transport, actor=getattr(args, "actor", "") or "")
+            transport=transport, actor=getattr(args, "actor", "") or "",
+            legacy_cdp=bool(getattr(args, "legacy_cdp", False)))
     except (ActionError, ActionBlocked, StopChannel, BridgeError) as exc:
         raise SystemExit(f"动作拒跑：{exc}")
     print(json.dumps(rec, ensure_ascii=False, indent=1))
@@ -5767,7 +5961,7 @@ def build_parser():
     sp.add_argument("--id-prefix", dest="id_prefix")
     sp.add_argument("--max-len", dest="max_len", type=int)
     sp.add_argument("--force", action="store_true")
-    sp.add_argument("--go", action="store_true", help="run：实跑（须已人审 plan 或有效 routine policy）")
+    add_execution_arguments(sp)
     sp.add_argument("--routine", action="store_true", help="run：使用工作区日常营销常驻授权；其他安全门不变")
     sp.add_argument("--only", help="run：只跑指定 id/target")
     sp.add_argument("--allow-unverified", dest="allow_unverified", action="store_true",
@@ -5787,14 +5981,16 @@ def build_parser():
     sp.add_argument("--subreddit"); sp.add_argument("--number", type=int)
     sp.add_argument("--campaign")
     sp.add_argument("--account", default="", help="执行账号；routine policy 按此精确匹配")
-    sp.add_argument("--go", action="store_true")
+    add_execution_arguments(sp)
     sp.add_argument("--routine", action="store_true", help="使用日常营销常驻授权；付款/合同等不适用")
     sp.add_argument("--platform-user-id", default="",
                     help="平台用户 ID；策略声明 identity 时用于核对账号身份")
     sp.add_argument("--allow-unverified", dest="allow_unverified", action="store_true")
     sp.add_argument("--extra", nargs="*", help="透传 vendor（x message/engage）")
-    sp.add_argument("--transport", choices=["browser-attach"],
-                    help="显式复用当前浏览器现有标签页；授权走 owner-attested")
+    sp.add_argument("--transport", choices=["browser-attach", "cdp"],
+                    help="显式复用当前浏览器现有标签页；授权走 owner-attested；cdp 为旧调试浏览器")
+    sp.add_argument("--legacy-cdp", action="store_true",
+                    help="显式使用 9222/--cdp-url 调试浏览器（旧 vendor 通道；默认走 WebBridge 受管标签）")
     sp.add_argument("--session", default="", help="browser-attach：WebBridge 会话名；默认读 cycle 策略")
     sp.add_argument("--actor", default="", help="browser-attach：外部对象标识，用于每对象额度")
     sp.set_defaults(fn=cmd_action)
@@ -6075,10 +6271,10 @@ def build_parser():
     a.add_argument("--phase", required=True, choices=["baseline", "final"])
     a.add_argument("--by", required=True)
     a.add_argument("--apply", action="store_true")
-    a = cysub.add_parser("jobs-tick", help="执行持久作业配置中的到期作业；默认 dry-run")
+    a = cysub.add_parser("jobs-tick", help="执行持久作业配置中的到期作业；默认 live，--dry-run 预览")
     a.add_argument("--file", required=True, help="作业配置 JSON")
     a.add_argument("--now", default="", help="模拟 tick 时间，ISO 格式")
-    a.add_argument("--go", action="store_true", help="执行到期作业；wave 仍须自身安全门通过")
+    add_execution_arguments(a)
     a.add_argument("--max-jobs", type=int, default=1)
     a = cysub.add_parser("jobs-status", help="查看持久作业与依赖状态（只读）")
     a.add_argument("--file", required=True, help="作业配置 JSON")
@@ -6107,12 +6303,13 @@ def build_parser():
     a.add_argument("--budget-sec", type=int, default=3000, help="单波最长秒数")
     a.add_argument("--max-actions", type=int, default=0, help="本波最多动作数；0 用策略上限")
     a.add_argument("--campaign", default="")
-    a = cysub.add_parser("run", help="执行一波；默认 dry-run，--go 才写")
+    a = cysub.add_parser("run", help="执行一波；默认 live，--dry-run 只列计划")
+    a.add_argument("--now", default="", help="模拟当前时间，ISO 格式")
     a.add_argument("--queue", default="")
     a.add_argument("--wave", default="", help="波次标签，默认当前 HHMM")
     a.add_argument("--budget-sec", type=int, default=3000)
     a.add_argument("--max-actions", type=int, default=0)
-    a.add_argument("--go", action="store_true", help="真正执行；不加只列计划")
+    add_execution_arguments(a)
     a.add_argument("--session", default="", help="WebBridge 会话名；不填用策略值")
     a.add_argument("--prefetch", dest="prefetch", action="store_true", default=None,
                    help="执行期间按缺口后台预取 GitHub/内容候选")
@@ -6179,8 +6376,14 @@ def build_parser():
     register_runtime_commands(sub, runtime_handler=cmd_runtime, outreach_handler=cmd_outreach,
                               validation_handler=cmd_validation)
 
+    sp = sub.add_parser("growth", help="AI Growth Service：目标编译、持久服务、下一动作与结果评估")
+    from core import growth_cli
+    growth_cli.register(sp)
+    sp.set_defaults(fn=cmd_growth)
+
     sp = sub.add_parser("orchestrate", help="按产品/目标/任务选择最小岗位组合、交付物与表达方式")
     sp.add_argument("--product", required=True, help="产品事实 JSON；也接受含 product 的事实包")
+    sp.add_argument("--product-name", default="", help="旧 Askovo 上下文的产品名；标准 facts pack 不覆盖原名")
     sp.add_argument("--goal", required=True, help="本轮业务目标")
     sp.add_argument("--task", required=True, help="具体任务、受众、渠道和范围描述")
     sp.add_argument("--audience", default="", choices=["", "executive", "operator", "developer", "sales", "customer", "partner", "高管", "运营", "开发者", "销售", "客户", "伙伴"])
@@ -6239,7 +6442,12 @@ def build_parser():
     a = ssub.add_parser("coverage", help="人读：18 个能力域的 SOP 覆盖率与未覆盖项")
     a = ssub.add_parser("show"); a.add_argument("sop_id"); a.add_argument("--version", default="")
     a = ssub.add_parser("lint"); a.add_argument("--file", required=True)
-    a = ssub.add_parser("register"); a.add_argument("--file", required=True); a.add_argument("--by", default="operator")
+    a = ssub.add_parser(
+        "register",
+        help="注册 SOP：5–8 个主要步骤；工具限 read_only/draft/action_request；on_pass 指向下一步或 close",
+        description="注册不可变 SOP 版本。主要步骤须为 5–8 个；工具类型只允许 read_only/draft/action_request；每步 on_pass 必须指向已定义步骤或 close。")
+    a.add_argument("--file", required=True, help="SOP JSON 文件；先用 mkt sop lint 预检")
+    a.add_argument("--by", default="operator")
     a = ssub.add_parser("start"); a.add_argument("--work-order-id", required=True); a.add_argument("--by", default="operator")
     a = ssub.add_parser("run"); a.add_argument("--run-id", required=True)
     a = ssub.add_parser("complete"); a.add_argument("--run-id", required=True); a.add_argument("--step-id", required=True)
@@ -6622,7 +6830,8 @@ def build_parser():
     a.add_argument("--window", type=int, default=None, help="目标窗口天数")
     a.add_argument("--actions-per-week", type=int, default=None)
     a.add_argument("--owner", default=""); a.add_argument("--on", default="")
-    a.add_argument("--go", action="store_true", help="建完直接开实跑（默认 dry-run）")
+    a.add_argument("--go", action="store_true", default=None,
+                   help="旧版 v1：显式实跑；省略也默认 live，--dry-run 可预览")
     a.add_argument("--run-id", default="", help="向导建的 run id（默认按产品名+日期）")
     a.add_argument("--action", dest="wizard_action", default="message",
                    help="向导的主渠道动作（默认 message）")
@@ -7086,7 +7295,7 @@ def build_parser():
     sp.add_argument("--json", action="store_true")
     sp.set_defaults(fn=cmd_billing)
 
-    sp = sub.add_parser("x", help="X 渠道（vendor，PROVEN；stats 为 UNVERIFIED 读原语）")
+    sp = sub.add_parser("x", help="X 渠道（默认 browser-attach；legacy CDP 显式开启）")
     sp.add_argument("action", choices=["publish", "reply", "message", "engage", "search", "inbox", "stats"])
     sp.add_argument("extra", nargs="*", help="透传 vendor 参数（如搜索词、@handle、tweet url）")
     sp.add_argument("--file", help="publish 内容文件（默认 thread.json）")
@@ -7095,7 +7304,12 @@ def build_parser():
     sp.add_argument("--tweet-url", help="reply：目标推文 URL")
     sp.add_argument("--text", help="reply：回复正文")
     sp.add_argument("--record", action="store_true", help="stats：人工对数后落 outcome 计数")
-    sp.add_argument("--go", action="store_true")
+    sp.add_argument("--legacy-cdp", action="store_true",
+                    help="显式使用调试浏览器 9222/--cdp-url（旧 vendor 通道；默认走 WebBridge 受管标签）")
+    sp.add_argument("--cdp-url", default="",
+                    help="legacy CDP 端点（默认 MKT_CDP_URL 或 http://127.0.0.1:9222）")
+    sp.add_argument("--actor", default="", help="browser-attach：外部对象标识，用于每对象额度")
+    add_execution_arguments(sp)
     sp.add_argument("--campaign")
     sp.add_argument("--account", default="",
                    help="G-01：绑定身份授权下实跑时声明的账号 ID（配合身份观测校验）")
@@ -7107,7 +7321,7 @@ def build_parser():
     sp.add_argument("action", choices=["send", "publish", "reply", "message", "inbox", "bounces"])
     sp.add_argument("--queue", help="队列文件（data/queues/<campaign>.json）")
     sp.add_argument("--only", help="只处理指定 id/target")
-    sp.add_argument("--go", action="store_true")
+    add_execution_arguments(sp)
     sp.add_argument("--campaign")
     sp.add_argument("--adhoc", action="store_true",
                        help="实跑无 plan 管辖时的显式放行（账本记 adhoc=true）")
@@ -7122,7 +7336,7 @@ def build_parser():
     sp.add_argument("--text"); sp.add_argument("--text-file")
     sp.add_argument("--sub"); sp.add_argument("--title")
     sp.add_argument("--body"); sp.add_argument("--body-file")
-    sp.add_argument("--go", action="store_true"); sp.add_argument("--campaign")
+    add_execution_arguments(sp); sp.add_argument("--campaign")
     sp.add_argument("--adhoc", action="store_true",
                        help="实跑无 plan 管辖时的显式放行（账本记 adhoc=true）")
     sp.set_defaults(fn=cmd_reddit)
@@ -7133,7 +7347,7 @@ def build_parser():
     sp.add_argument("--limit", type=int, default=10)
     sp.add_argument("--url", help="目标 profile URL")
     sp.add_argument("--note"); sp.add_argument("--note-file")
-    sp.add_argument("--go", action="store_true"); sp.add_argument("--campaign")
+    add_execution_arguments(sp); sp.add_argument("--campaign")
     sp.add_argument("--adhoc", action="store_true",
                        help="实跑无 plan 管辖时的显式放行（账本记 adhoc=true）")
     sp.set_defaults(fn=cmd_linkedin)
@@ -7144,7 +7358,7 @@ def build_parser():
     sp.add_argument("--query"); sp.add_argument("--limit", type=int, default=10)
     sp.add_argument("--number", type=int, help="reply 目标 issue/PR 编号")
     sp.add_argument("--text"); sp.add_argument("--text-file")
-    sp.add_argument("--go", action="store_true"); sp.add_argument("--campaign")
+    add_execution_arguments(sp); sp.add_argument("--campaign")
     sp.add_argument("--adhoc", action="store_true",
                        help="实跑无 plan 管辖时的显式放行（账本记 adhoc=true）")
     sp.set_defaults(fn=cmd_github)
@@ -7184,6 +7398,14 @@ def build_parser():
     dg = gsub.add_parser("taxonomy", help="列出对象/目标/机制词表")
     dg.add_argument("--json", action="store_true")
     sp.set_defaults(fn=cmd_gtm)
+
+    sp = sub.add_parser("facts", help="旧 Askovo 上下文 → 统一产品事实包；证据不升级")
+    facts_sub = sp.add_subparsers(dest="action", required=True)
+    a = facts_sub.add_parser("migrate", help="显式补产品名，生成 goal/orchestrate 可读的 facts pack")
+    a.add_argument("--file", required=True)
+    a.add_argument("--name", required=True, help="产品名；不从 context_id 猜测")
+    a.add_argument("--out", required=True, help="新文件；不覆盖已有文件")
+    sp.set_defaults(fn=cmd_facts)
 
     sp = sub.add_parser("goal", help="目标：先定这一轮要什么（声量/使用/商业），再选平台")
     gsub = sp.add_subparsers(dest="action", required=True)
@@ -7312,7 +7534,7 @@ def build_parser():
     sp.add_argument("--id"); sp.add_argument("--queue", action="append")
     sp.add_argument("--interval", type=int, default=1440, help="分钟，默认 1440")
     sp.add_argument("--max-waves", type=int)
-    sp.add_argument("--go", action="store_true", help="排期波次实跑（默认 dry-run）")
+    add_execution_arguments(sp)
     sp.add_argument("--note"); sp.add_argument("--by", default="operator")
     sp.set_defaults(fn=cmd_schedule)
 
@@ -7326,7 +7548,7 @@ def build_parser():
     sp.add_argument("--note", help="审批/裁决说明")
     sp.add_argument("--cdp-url", help="UI 步骤使用的调试浏览器地址")
     sp.add_argument("--campaign", help="重放归属 campaign")
-    sp.add_argument("--go", action="store_true", help="实跑（默认 dry-run，只解析定位器）")
+    add_execution_arguments(sp)
     sp.add_argument("--var", action="append", help="模板变量 key=value，可重复")
     sp.add_argument("--run", help="运行 id（reconcile 用）")
     sp.add_argument("--outcome", choices=["sent", "not_sent"], help="裁决结果")
@@ -7359,7 +7581,7 @@ def build_parser():
     sp.add_argument("--url", help="publish 链接帖 URL（与 --text 二选一）")
     sp.add_argument("--item", help="reply 目标：item:N 或 news.ycombinator.com/item?id=N")
     sp.add_argument("--text"); sp.add_argument("--text-file")
-    sp.add_argument("--go", action="store_true"); sp.add_argument("--campaign")
+    add_execution_arguments(sp); sp.add_argument("--campaign")
     sp.add_argument("--adhoc", action="store_true",
                        help="实跑无 plan 管辖时的显式放行（账本记 adhoc=true）")
     sp.set_defaults(fn=cmd_hn)
@@ -7440,6 +7662,14 @@ def main(argv=None):
     global DATA
     from core import workspace
     argv = list(sys.argv[1:] if argv is None else argv)
+    if argv and argv[0] == "case":
+        acceptance_home = Path(os.environ.get("OVO_ACCEPTANCE_HOME") or BASE.parents[2] / "ovo-acceptance")
+        if not acceptance_home.is_dir():
+            print("OVO 案例运行时未找到，请设置 OVO_ACCEPTANCE_HOME", file=sys.stderr)
+            return 2
+        sys.path.insert(0, str(acceptance_home))
+        from ovo_acceptance.casebook import main as case_main
+        return int(case_main(argv[1:]))
     argv, ws = _extract_workspace(argv)
     DATA = workspace.resolve(ws, base=BASE)
     args = build_parser().parse_args(argv)

@@ -39,6 +39,12 @@ class PlatformStrategyTests(unittest.TestCase):
                 self.assertIn(gate["grade"], ("official", "craft"))
                 self.assertTrue(gate.get("source"))
 
+    def test_official_rules_are_warnings_except_truthfulness(self):
+        for pid in platform_strategy.platform_ids():
+            for gate in platform_strategy.gates(pid, scope="all"):
+                if gate["grade"] == "official" and gate["code"] != "fabricated_experience":
+                    self.assertNotEqual("error", gate["level"], f"{pid}/{gate['code']}")
+
     def test_limits_match_content_channels(self):
         for pid in ("xiaohongshu", "wechat", "zhihu", "douyin"):
             channel = content_ops.CHANNELS[pid]
@@ -92,17 +98,23 @@ class ContentGateTests(unittest.TestCase):
         self.assertNotIn("anxiety_sell", errors)
         self.assertEqual(warnings.count("anxiety_sell"), 1)
 
-    def test_wechat_share_inducement_is_error(self):
-        errors, _ = self._codes("wechat", "很多团队做AI硬件。\n\n集赞满30个送模板。\n\n评论区聊聊。")
-        self.assertIn("induce_share", errors)
+    def test_wechat_share_inducement_is_risk_warning(self):
+        errors, warnings = self._codes("wechat", "很多团队做AI硬件。\n\n集赞满30个送模板。\n\n评论区聊聊。")
+        self.assertNotIn("induce_share", errors)
+        self.assertIn("induce_share", warnings)
+        strict = content_ops.audit_text(
+            "wechat", "很多团队做AI硬件。\n\n集赞满30个送模板。\n\n评论区聊聊。", strict=True)
+        self.assertNotIn("strict_induce_share", [row["code"] for row in strict["errors"]])
+        self.assertIn("induce_share", [row["code"] for row in strict["warnings"]])
 
     def test_wechat_ad_begging_is_error(self):
         errors, _ = self._codes("wechat", "很多团队做AI硬件。\n\n点文末广告支持我。\n\n评论区聊聊。")
         self.assertIn("ad_begging", errors)
 
-    def test_zhihu_contact_is_error(self):
-        errors, _ = self._codes("zhihu", "先说结论。\n\n加我微信聊。\n\n" + "过程细节。" * 300)
-        self.assertIn("private_contact", errors)
+    def test_zhihu_contact_is_risk_warning(self):
+        errors, warnings = self._codes("zhihu", "先说结论。\n\n加我微信聊。\n\n" + "过程细节。" * 300)
+        self.assertNotIn("private_contact", errors)
+        self.assertIn("private_contact", warnings)
 
     def test_douyin_external_link_is_error(self):
         errors, _ = self._codes("douyin", "3 秒演示功能。\n\n完整步骤见 https://example.com/x\n\n关注看系列。")

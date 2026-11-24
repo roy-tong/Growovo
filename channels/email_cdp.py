@@ -20,10 +20,10 @@ BOUNCE_QUERY = "from:mailer-daemon OR from:postmaster newer_than:7d"
 
 def scan(query=DEFAULT_QUERY, *, out=None, log=log):
     out = Path(out or (DATA / "inbox-scan.json"))
-    browser, page = cdp.connect()
+    url = "https://mail.google.com/mail/u/0/#search/" + query.replace(" ", "+")
+    browser, page = cdp.connect(site="gmail", data_dir=DATA, managed_url=url)
     try:
-        page.goto("https://mail.google.com/mail/u/0/#search/" + query.replace(" ", "+"),
-                  timeout=45000)
+        page.goto(url, timeout=45000)
         time.sleep(4)
         if "accounts.google.com" in page.url:
             log("Gmail 未登录（先在 CDP 会话里登录）", "ERROR")
@@ -44,7 +44,7 @@ def scan(query=DEFAULT_QUERY, *, out=None, log=log):
         log(f"扫描完成：{len(rows)} 条线程 → {out}")
         return result
     finally:
-        page.close()
+        cdp.release_page(page)
 
 
 def bounces(*, out=None):

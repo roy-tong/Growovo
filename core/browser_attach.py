@@ -17,6 +17,10 @@ SITES = {
     "x": ("https://x.com/", "https://twitter.com/"),
     "github": ("https://github.com/",),
     "discord": ("https://discord.com/",),
+    "gmail": ("https://mail.google.com/",),
+    "reddit": ("https://old.reddit.com/", "https://www.reddit.com/"),
+    "hn": ("https://news.ycombinator.com/",),
+    "linkedin": ("https://www.linkedin.com/",),
 }
 
 _JS_X_IDENTITY = r"""
@@ -244,6 +248,28 @@ class BrowserAttach:
                 return int(tab["tabId"])
             wb.time.sleep(0.25)
         raise BridgeError("tab_open_timeout", "新建 %s 标签页后 8 秒内未出现在标签列表" % site)
+
+    def ensure_managed_tab(self, data_dir, site: str, url: str, group_title: str,
+                           prefer_visible: bool = False) -> int:
+        from .managed_tabs import ManagedTabs
+
+        tabs = ManagedTabs(data_dir)
+        registered = tabs.get(self.session, site)
+        if registered:
+            tab_id = int(registered["tabId"])
+            if self._tab_alive(tab_id, site):
+                return tab_id
+            tabs.forget(self.session, site, tab_id)
+        try:
+            tab_id = self.attach_site(site, prefer_visible=prefer_visible)
+        except BridgeError as exc:
+            if exc.code != "tab_not_found":
+                raise
+            tab_id = self.ensure_tab(
+                site, url, group_title=group_title,
+                prefer_visible=prefer_visible, allow_new=True)
+        tabs.remember(self.session, site, tab_id, group_title, url)
+        return tab_id
 
     # ---- 页面操作 -----------------------------------------------------
     def eval(self, tab: int, code: str) -> Any:

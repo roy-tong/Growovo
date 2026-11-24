@@ -28,7 +28,7 @@ REGISTRY = {
     },
     "linkedin": {
         "status": "UNVERIFIED",
-        "note": "Tier B 半自动；全自动默认锁死（MKT_LINKEDIN_AUTO=1 才解锁）",
+        "note": "写流程 UNVERIFIED，首跑需显式技术确认；平台规则仅提示，不再要求环境解锁或终端确认",
         "actions": {"publish", "reply", "message", "search", "inbox"},
         "transports": {"cdp"},
     },

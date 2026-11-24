@@ -14,7 +14,7 @@
   python3 xdm.py                      # 正式发送（读取 xdm-queue.json）
   python3 xdm.py --only <handle>
 """
-from session_page import connect_browser
+from session_page import connect_browser, automation_page, release_page
 import argparse
 import json
 import os
@@ -355,7 +355,7 @@ def main() -> int:
     log(f"X DM 队列 {len(queue)} 条（dry-run={'是' if args.dry_run else '否'}）")
     with sync_playwright() as p:
         browser = connect_browser(p.chromium, CDP_URL)
-        page = browser.contexts[0].new_page()
+        page = automation_page(browser.contexts[0])
         try:
             for idx, rec in enumerate(queue):
                 log(f"[{rec['handle']}] 处理中…")
@@ -368,7 +368,7 @@ def main() -> int:
                     log(f"等待 {wait}s…")
                     time.sleep(wait)
         finally:
-            page.close()
+            release_page(page)
     log("完成" + ("（dry-run，未发送任何私信）" if args.dry_run else ""))
     return 0
 

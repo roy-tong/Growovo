@@ -105,3 +105,28 @@ def write_manifest(data_dir, *, source_dir, queue_path, policy: Dict[str, Any],
     _atomic_write_text(path, json.dumps(manifest, ensure_ascii=False, indent=1, sort_keys=True))
     manifest["manifest_path"] = str(path)
     return manifest
+
+
+class SourceVersionChanged(RuntimeError):
+    def __init__(self, expected, actual):
+        super().__init__("source code changed between waves")
+        self.expected = expected
+        self.actual = actual
+
+
+def assert_source_stable(data_dir, *, night, source_dir):
+    from .storage import AtomicJSONStore, atomic_write_text
+    data_dir = Path(data_dir)
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", str(night or "")):
+        raise ValueError("night 格式不正确")
+    current = source_fingerprint(source_dir)["sha256"]
+    path = data_dir / "state" / ("night-source-%s.json" % night)
+    if path.is_file():
+        expected = AtomicJSONStore(path).load().get("source_sha256")
+        if expected != current:
+            raise SourceVersionChanged(expected, current)
+    else:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        atomic_write_text(path, json.dumps({"night": night, "source_sha256": current},
+                                          ensure_ascii=False, sort_keys=True))
+    return current

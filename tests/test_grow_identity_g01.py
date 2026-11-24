@@ -70,7 +70,7 @@ class IdentityGateG01Tests(unittest.TestCase):
                         lambda *a, **k: "routine-policy"):
             try:
                 run_queue(self.queue_path, data_dir=self.dir, go=True,
-                          routine=True, log=lambda *a, **k: None)
+                          routine=True, legacy_cdp=True, log=lambda *a, **k: None)
                 outcome = "ok"
             except QueueRunError as exc:
                 outcome = str(exc)
@@ -142,7 +142,7 @@ class IdentityGateG01Tests(unittest.TestCase):
              mock.patch("core.queue_runner.precheck",
                         lambda *a, **k: "routine-policy"):
             results = run_queue(self.queue_path, data_dir=self.dir, go=True,
-                                routine=True, log=lambda *a, **k: None)
+                                routine=True, legacy_cdp=True, log=lambda *a, **k: None)
         self.assertEqual(1, len(records))  # 真的执行了
         identity = results[0].get("identity")
         self.assertIsNotNone(identity)
@@ -179,6 +179,19 @@ class IdentityGateG01Tests(unittest.TestCase):
         self.assertIn("authorization_not_identity_bound", outcome)
         self.assertIn("migrate-identity", outcome)
         self.assertEqual(0, sends)
+
+    def test_legacy_403_hint_does_not_claim_logged_out(self):
+        probe = {"reason": "identity_missing",
+                 "detail": "verify_credentials HTTP 403；twid cookie 无数字 ID",
+                 "endpoint": "http://127.0.0.1:9222"}
+        with mock.patch("core.cdp_identity.enabled", return_value=True), \
+                mock.patch("core.account_identity.observe", return_value=None), \
+                mock.patch("core.account_identity.last_probe", return_value=probe):
+            got = account_identity.identity_status(self.dir, env={"MKT_CDP_IDENTITY": "1"})
+        hint = got["next_required_action"]
+        self.assertIn("browser-attach", hint)
+        self.assertIn("403 不能单独证明未登录", hint)
+        self.assertNotIn("确认已在调试浏览器里登录", hint)
 
     def test_action_path_gate_blocks_mismatch(self):
         """单动作路径（mkt x / MCP 共用的 run_action）同样被门禁拦截。"""
@@ -225,7 +238,9 @@ class IdentityRealPathIntegrationTests(unittest.TestCase):
         return SimpleNamespace(action="reply", extra=[], file=None,
                                thread=False, go=True, adhoc=True,
                                campaign="c1", account=account,
-                               handle="", record=False)
+                               handle="", record=False,
+                               legacy_cdp=True, cdp_url="",
+                               text=None, tweet_url=None)
 
     def test_require_identity_queue_real_path_commits(self):
         """复审问题 1 回归：require_identity 下队列真实路径可发送且回执带身份。"""
@@ -234,7 +249,7 @@ class IdentityRealPathIntegrationTests(unittest.TestCase):
         with mock.patch("channels.x.adapter.run",
                         side_effect=self._vendor(calls)):
             results = run_queue(self.queue_path, data_dir=self.dir, go=True,
-                                routine=True, log=lambda *a, **k: None)
+                                routine=True, legacy_cdp=True, log=lambda *a, **k: None)
         self.assertEqual(1, len(calls))  # vendor 真实到达（不是 mock 断言）
         self.assertEqual("committed", results[0]["result"])
         self.assertEqual("acct-a",

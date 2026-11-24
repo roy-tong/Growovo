@@ -1,6 +1,7 @@
 """Read-only wave-to-ledger receipt audits; never resolve or retry automatically."""
 from __future__ import annotations
 
+import ast
 import json
 from pathlib import Path
 import re
@@ -25,28 +26,114 @@ def _evidence_format(record: Dict[str, Any]) -> str:
     return "unsupported_channel_receipt"
 
 
-def live_verify(record: Dict[str, Any]) -> Dict[str, Any]:
-    """Independently read a GitHub comment; other channels stay explicitly unknown."""
+def live_verify(record: Dict[str, Any], browser=None) -> Dict[str, Any]:
     evidence = str(record.get("evidence") or "").strip()
-    match = _GITHUB_RECEIPT.fullmatch(evidence)
-    if str(record.get("channel") or "") != "github":
-        return {"status": "unknown", "detail": "live_verifier_not_implemented"}
-    if not match:
-        return {"status": "unknown", "detail": "invalid_github_receipt"}
-    repo, _, comment_id = match.groups()
-    got = gh_post.run(["api", "--method", "GET", "repos/%s/issues/comments/%s" % (repo, comment_id)])
-    if not got.get("ok"):
-        return {"status": "unknown", "detail": str(got.get("err") or got.get("code") or "read failed")[:300]}
+    channel = str(record.get("channel") or "")
+    if channel == "github":
+        match = _GITHUB_RECEIPT.fullmatch(evidence)
+        if not match:
+            return {"status": "unknown", "detail": "invalid_github_receipt"}
+        repo, _, comment_id = match.groups()
+        got = gh_post.run(["api", "--method", "GET", "repos/%s/issues/comments/%s" % (repo, comment_id)])
+        if got.get("ok"):
+            try:
+                payload = json.loads(got.get("out") or "")
+            except (TypeError, json.JSONDecodeError):
+                return {"status": "unknown", "detail": "unparseable_comment_response"}
+            actual = str(payload.get("html_url") or "")
+            if not actual:
+                return {"status": "unknown", "detail": "comment_url_missing"}
+            if actual != evidence:
+                return {"status": "mismatch", "detail": "comment_url_mismatch", "observed": actual}
+            return {"status": "verified", "detail": "comment_read_back", "observed": actual}
+        return _browser_verify(record, browser=browser)
+    if channel in {"x", "discord"}:
+        return _browser_verify(record, browser=browser)
+    return {"status": "unknown", "detail": "live_verifier_not_implemented"}
+
+
+def _browser_verify(record: Dict[str, Any], browser=None) -> Dict[str, Any]:
+    if browser is None:
+        from .browser_attach import BrowserAttach
+        browser = BrowserAttach("ovo-night-run")
+    channel = str(record.get("channel") or "")
+    evidence = str(record.get("evidence") or "").strip()
     try:
-        payload = json.loads(got.get("out") or "")
-    except (TypeError, json.JSONDecodeError):
-        return {"status": "unknown", "detail": "unparseable_comment_response"}
-    actual = str(payload.get("html_url") or "")
-    if not actual:
-        return {"status": "unknown", "detail": "comment_url_missing"}
-    if actual != evidence:
-        return {"status": "mismatch", "detail": "comment_url_mismatch", "observed": actual}
-    return {"status": "verified", "detail": "comment_read_back", "observed": actual}
+        if channel == "github":
+            match = _GITHUB_RECEIPT.fullmatch(evidence)
+            if not match:
+                return {"status": "unknown", "detail": "invalid_github_receipt"}
+            comment_id = match.group(3)
+            tab = browser.attach_site("github")
+            code = ("fetch(%r, {credentials: 'include'}).then(async response => {"
+                    "const text = await response.text(); return {status: response.status, "
+                    "found: text.includes(%r)};})" % (evidence, "issuecomment-" + comment_id))
+            got = browser.eval(tab, code) or {}
+            if got.get("status") == 200 and got.get("found"):
+                return {"status": "verified", "detail": "browser_comment_read_back", "observed": evidence}
+            if got.get("status") in {404, 410}:
+                return {"status": "mismatch", "detail": "comment_or_repository_not_found", "observed": got.get("status")}
+            return {"status": "unknown", "detail": "browser_comment_unverified", "observed": got}
+        if channel == "x":
+            handle = str(record.get("identity_handle") or "")
+            if not evidence.isdigit() or not handle:
+                return {"status": "unknown", "detail": "missing_x_receipt_or_identity"}
+            url = "https://x.com/%s/status/%s" % (handle, evidence)
+            tab = browser.attach_site("x")
+            browser.route_spa(tab, url)
+            text = browser.read_page(tab, max_chars=20000)
+            actual_url = str(browser.eval(tab, "location.href") or "")
+            unavailable = any(marker in text for marker in (
+                "This page doesn’t exist", "This page doesn't exist", "此页面不存在", "No such post"))
+            if unavailable:
+                return {"status": "mismatch", "detail": "status_not_found", "observed": actual_url}
+            if evidence in actual_url and handle in text and "status" in actual_url:
+                return {"status": "verified", "detail": "browser_status_read_back", "observed": actual_url}
+            return {"status": "unknown", "detail": "browser_status_unverified", "observed": actual_url}
+        if channel == "discord":
+            try:
+                payload = ast.literal_eval(evidence)
+            except (ValueError, SyntaxError):
+                payload = {}
+            if not isinstance(payload, dict):
+                payload = {}
+            detail = str(record.get("detail") or "")
+            actual_id = re.search(r"['\"](?:serverId|lastIdAfter)['\"]\s*:\s*['\"](\d+)['\"]", detail)
+            message_id = (str(record.get("operations_receipt_id") or "") or
+                          (actual_id.group(1) if actual_id else
+                           str(payload.get("serverId") or payload.get("lastId") or "")))
+            content = str(payload.get("content") or payload.get("lastText") or "")
+            if not message_id:
+                matched_id = re.search(r"['\"]lastId['\"]\s*:\s*['\"](\d+)['\"]", evidence)
+                message_id = matched_id.group(1) if matched_id else ""
+            if not content:
+                matched_text = re.search(r"['\"]lastText['\"]\s*:\s*['\"](.*?)['\"]\s*,\s*['\"]mine['\"]", evidence, re.S)
+                content = matched_text.group(1) if matched_text else ""
+            channel_id = str(record.get("target") or "")
+            if not message_id or not content or not channel_id.isdigit():
+                return {"status": "unknown", "detail": "missing_discord_receipt"}
+            tab = browser.attach_site("discord")
+            current_url = str(browser.eval(tab, "location.href") or "")
+            guild = re.search(r"/channels/(\d+)/", current_url)
+            if not guild:
+                return {"status": "unknown", "detail": "discord_guild_unavailable"}
+            browser.route_spa(tab, "https://discord.com/channels/%s/%s" % (guild.group(1), channel_id))
+            expected_row = "chat-messages-%s-%s" % (channel_id, message_id)
+            identity = browser.observe_identity("discord", tab)
+            if str(record.get("identity_handle") or "") != str(identity.get("handle") or ""):
+                return {"status": "mismatch", "detail": "discord_identity_mismatch"}
+            code = ("Array.from(document.querySelectorAll('[id^=\"chat-messages-\"]'))"
+                    ".map(node => ({id: node.id, text: node.innerText}))")
+            rows = browser.eval(tab, code) or []
+            matched = next((row for row in rows if row.get("id") == expected_row), None)
+            if matched and content in str(matched.get("text") or ""):
+                return {"status": "verified", "detail": "browser_message_read_back", "observed": message_id}
+            if matched:
+                return {"status": "mismatch", "detail": "discord_content_mismatch", "observed": message_id}
+            return {"status": "unknown", "detail": "discord_message_not_in_current_view", "observed": message_id}
+    except Exception as exc:
+        return {"status": "unknown", "detail": "browser_verifier_unavailable: %s" % type(exc).__name__}
+    return {"status": "unknown", "detail": "live_verifier_not_implemented"}
 
 
 def audit(data_dir, *, night: str, scheduled_only: bool = False, live: bool = False,
@@ -58,6 +145,14 @@ def audit(data_dir, *, night: str, scheduled_only: bool = False, live: bool = Fa
     by_ref = {}
     for record in ledger:
         by_ref.setdefault((str(record.get("campaign") or ""), str(record.get("ref") or "")), []).append(record)
+    operations_by_ref = {}
+    operations_path = data_dir / "operations.jsonl"
+    if operations_path.is_file():
+        with operations_path.open(encoding="utf-8") as handle:
+            for raw in handle:
+                if raw.strip():
+                    operation = json.loads(raw)
+                    operations_by_ref[str(operation.get("operation_id") or "")] = operation
     items = []
     for path in paths:
         payload = json.loads(path.read_text(encoding="utf-8"))
@@ -80,7 +175,12 @@ def audit(data_dir, *, night: str, scheduled_only: bool = False, live: bool = Fa
                 "resolved_by": "", "resolution_note": "",
             }
             candidates = by_ref.get((campaign, ref), []) if ref else []
-            record = candidates[-1] if candidates else None
+            record = dict(candidates[-1]) if candidates else None
+            if record is not None:
+                operation = operations_by_ref.get(ref) or {}
+                receipt_id = (operation.get("receipt") or {}).get("id")
+                if receipt_id:
+                    record["operations_receipt_id"] = str(receipt_id)
             if record is None:
                 base.update(status="missing_ledger", detail="ledger_record_not_found")
                 items.append(base)
@@ -89,7 +189,14 @@ def audit(data_dir, *, night: str, scheduled_only: bool = False, live: bool = Fa
                         resolved_by=str(record.get("resolved_by") or ""),
                         resolution_note=str(record.get("resolution_note") or ""))
             if str(record.get("result") or "") != "committed":
-                base.update(detail="ledger_state_%s" % (record.get("result") or "unknown"))
+                if live and str(record.get("result") or "") == "indeterminate":
+                    checked = (verifier or live_verify)(record)
+                    if checked.get("status") == "verified":
+                        base.update(status="verified", detail=str(checked.get("detail") or ""))
+                    else:
+                        base.update(detail="ledger_state_indeterminate; %s" % str(checked.get("detail") or ""))
+                else:
+                    base.update(detail="ledger_state_%s" % (record.get("result") or "unknown"))
                 items.append(base)
                 continue
             if wave_state != "committed" and not record.get("resolved_by"):

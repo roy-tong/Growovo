@@ -15,7 +15,7 @@ What you share: engineering discipline, no growth training. Growovo's design ass
 |---|---|---|
 | SLA / SLO | The [result contract](grow-闭环.md): hard commitments vs. explicit non-promises | Commits only to verifiable execution volume, honest readings, and closed-loop responsibility — never to platform reach |
 | audit log | The ledger: every committed action, individually traceable | Every real send is recorded; nothing is overwritten |
-| staging / canary | All write actions default to dry-run; `--go` for live; canary before scale-out | Exactly how you deploy |
+| staging / canary | Writes default to live; explicit `--dry-run` previews; canary before scale-out | Exactly how you deploy |
 | trust levels | Evidence grades: UNVERIFIED → PROVEN | Readings that haven't been reconciled never masquerade as verified |
 | CI loop | `grow daemon` / `grow daily`: execute → read → adjust, every day | One screen a day, like a pipeline status page |
 | alerting | Supply gaps alert 3 days early; anomalies halt for human adjudication | Fail fast, no retry storms |

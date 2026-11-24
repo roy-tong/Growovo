@@ -115,7 +115,7 @@ def build(strategy: Dict[str, Any], targets: List[Dict[str, str]], *,
             "items": len(items), "plan": str(plan_path), "queue": str(queue_path),
             "next": [f"mkt review {campaign}",
                      f"mkt plan approve --id {campaign} --by <你的名字>",
-                     f"mkt queue run {queue_path}（默认 dry-run，加 --go 才发）"]}
+                     f"mkt queue run {queue_path}（默认 live，--dry-run 显式预览）"]}
 
 
 def build_manual(strategy: Dict[str, Any], targets: List[Dict[str, str]], *,

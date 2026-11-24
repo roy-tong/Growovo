@@ -8,7 +8,7 @@ search 只读 → dry-run 评论 → 实评 1 条（无链接）→ 无痕窗口
   - engage（upvote）默认禁用：vote manipulation 判定风险
   - publish 日 ≤3（throttle 表）
   - 新账号 30 天内不发外链（人工纪律，代码不代管）
-  - 一切写操作默认 dry-run，--go 才执行（mkt CLI 层强制）
+  - 写操作默认 live，显式 --dry-run 才预览（mkt CLI 层强制）
 """
 import time
 from pathlib import Path
@@ -25,10 +25,11 @@ OLD = "https://old.reddit.com"
 
 def search(query, *, limit=10, out=None, log=log):
     """只读：全站/子版块搜索，抓标题+链接+子版块（线索发现）。"""
-    browser, page = cdp.connect()
+    from urllib.parse import quote
+    url = f"{OLD}/search?q={quote(query)}&sort=new"
+    browser, page = cdp.connect(site="reddit", data_dir=DATA, managed_url=url)
     try:
-        from urllib.parse import quote
-        cdp.safe_goto(page, f"{OLD}/search?q={quote(query)}&sort=new", log=log)
+        cdp.safe_goto(page, url, log=log)
         time.sleep(3)
         if "login" in page.url or page.locator(".search-result").count() == 0:
             log("未登录或无结果（Reddit 结构可能变化，本模块 UNVERIFIED）", "WARN")
@@ -47,7 +48,7 @@ def search(query, *, limit=10, out=None, log=log):
         log(f"{len(rows)} 条候选 → {out}")
         return rows
     finally:
-        page.close()
+        cdp.release_page(page)
 
 
 def _comment_box(page):
@@ -65,7 +66,7 @@ def reply(thread_url, text, *, go=False, adhoc=False, campaign=None, ledger=None
     ledger = ledger or Ledger(data / "ledger.jsonl")
     pipe = standard_pipeline(data, ledger, adhoc=adhoc)
     ev = Evidence(data / "shots" / (campaign or "adhoc"))
-    browser, page = cdp.connect()
+    browser, page = cdp.connect(site="reddit", data_dir=data, managed_url=thread_url)
     try:
         def _compose(item):
             cdp.safe_goto(page, thread_url, log=log)
@@ -98,7 +99,7 @@ def reply(thread_url, text, *, go=False, adhoc=False, campaign=None, ledger=None
             target=thread_url, compose=_compose, fill=_fill, readback=_readback,
             send=_send, confirm=_confirm, shot=_shot, dry_run=not go)
     finally:
-        page.close()
+        cdp.release_page(page)
 
 
 def publish(subreddit, title, body, *, go=False, adhoc=False, campaign=None, ledger=None, log=log,
@@ -108,7 +109,9 @@ def publish(subreddit, title, body, *, go=False, adhoc=False, campaign=None, led
     ledger = ledger or Ledger(data / "ledger.jsonl")
     pipe = standard_pipeline(data, ledger, adhoc=adhoc)
     ev = Evidence(data / "shots" / (campaign or "adhoc"))
-    browser, page = cdp.connect()
+    browser, page = cdp.connect(
+        site="reddit", data_dir=data,
+        managed_url=f"{OLD}/r/{subreddit}/submit?selftext=yes")
     try:
         def _compose(item):
             cdp.safe_goto(page, f"{OLD}/r/{subreddit}/submit?selftext=yes", log=log)
@@ -145,4 +148,4 @@ def publish(subreddit, title, body, *, go=False, adhoc=False, campaign=None, led
             compose=_compose, fill=_fill, readback=_readback,
             send=_send, confirm=_confirm, shot=_shot, dry_run=not go)
     finally:
-        page.close()
+        cdp.release_page(page)

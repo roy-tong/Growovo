@@ -2,8 +2,8 @@
   <img src="docs/assets/logo.png" width="400" alt="Growovo">
 </p>
 
-<p align="center"><strong>Run authorized email campaigns; keep X read-only until an official API is connected</strong><br>
-<em>在自己的邮件账号运行受控推广；X 未接官方 API 前只做只读研究、草稿与人工交接</em></p>
+<p align="center"><strong>Give Growovo a business goal. It executes growth work and reads back outcomes.</strong><br>
+<em>告诉 Growovo 你的业务目标，让它执行增长运营并回读结果</em></p>
 
 <p align="center"><a href="README.md">简体中文</a> · <strong>English</strong></p>
 
@@ -15,6 +15,14 @@ python3 mkt.py demo    # no network or accounts: approval, offline receipt, thre
 ```
 
 [Open the controlled-run example and task template](https://roy-tong.github.io/Growovo/examples/controlled-run.en.html) to see what the run does and does not establish. No dependency installation or account setup is needed.
+
+**AI Growth Service:** `mkt growth` compiles business goals into an action DAG. A SQLite transactional runtime keeps services, conversations, capabilities, attempts, events and recovery state consistent across CLI, MCP and scheduled jobs. GitHub Issue/Discussion and Gmail two-way conversations cover authorized ingestion, incremental sync, reply readback and recovery; a long-running worker continues synchronization and heartbeat beyond chat sessions. See [Growth Service](docs/growth-service.md) and the [goal contract example](examples/growth-goal.json).
+
+```bash
+python3 mkt.py growth compile --file examples/growth-goal.json
+python3 mkt.py growth start --file examples/growth-goal.json
+python3 mkt.py growth next SERVICE_ID
+```
 
 `mkt review-ops` prepares expert-review and warm-follow-up batches with same-day evidence, named-person checks, cross-track cooldown and content gates. It writes native unapproved email/GitHub queues and private feedback drafts only; it never sends, comments or pushes by itself. See [review outreach and feedback writeback](docs/review-outreach.md).
 
@@ -30,9 +38,9 @@ Export is read-only and performs no external action. Targets, bodies, accounts, 
 
 It commits to exactly three verifiable things: **execution volume** (every committed action is in the ledger), **honest readings** (graded `owner_declared / observed / independently_verified`; manual entry never upgrades itself, and pairs bind subject, metric definition and time order), and **closed-loop responsibility** (completion drives volume changes, supply gaps alert three days early, failures stop the loop for human adjudication). It does not promise platform reach, and it does not dress unverified channels up as full automation.
 
-**Unattended automation is committed for Email only; every other channel still gets a plan.** Phase one commits to unattended execution on **Email**. X's rules forbid non-API website scripting, so Growovo rejects every real X CDP/browser-attach write, including one-off `--go` and standing owner-attested sessions. Operator authorization, observed identity and local quotas cannot unlock them. X remains read-only with dry runs, drafts and manual handoff; automated writing requires a separately connected, compliant official API. GitHub, Reddit, Hacker News, LinkedIn and Discord compile as human-assisted or restricted tasks according to their own rules and verification status. Missing API access never grants browser permission by itself; a platform risk signal stops only that channel and returns lower-frequency, split-batch or defer guidance. Manual channels such as Xiaohongshu and Zhihu get work orders only and are excluded from automated volume. See the [platform automation matrix](docs/platform-automation-matrix.md).
+**Execution follows business goals, authorization and channel readiness, not a fixed interface or a compliance veto.** Official APIs and SMTP are preferred. Platforms with existing write primitives may execute through managed CDP tabs inside a named owner-attested window, with account identity, action scopes, pause, DNC, quotas and public readback preserved. Platform rules are non-blocking risk notices; unauthorized accounts, CAPTCHA/challenge bypass and risk-control evasion remain forbidden. Channels remain GATED/UNVERIFIED until technical acceptance. Action Resolution selects an available alternative or a minimal human handoff instead of silently falling back to dry-run. See the [platform automation matrix](docs/platform-automation-matrix.md).
 
-**Start here.** Prepare product facts, standing action authorization and SMTP credentials for email; for human-assisted X, also prepare an authenticated local Codex CLI and a browser CDP session. Read results daily and decide whether to continue or optimize. See [autonomous operations](docs/grow-autonomous-operations.md).
+**Start here.** Prepare product facts, standing action authorization and SMTP credentials for email. For CDP, prepare a logged-in WebMonitor session; add an authenticated local Codex CLI only when automatic drafting is needed. Read results daily and decide whether to continue or optimize. See [autonomous operations](docs/grow-autonomous-operations.md).
 
 ```bash
 python3 mkt.py grow platforms          # what phase one can run autonomously
@@ -45,7 +53,9 @@ python3 mkt.py grow daemon g1          # foreground service; Ctrl-C stops it
 python3 mkt.py grow daily g1           # one screen a day: volume/readings/supply/guardrails
 ```
 
-> Want X? `--channels x` compiles read-only research, drafts and manual handoff. Growovo does not run non-API X website write scripts; a person posts directly in X, or you separately connect a compliant official API.
+> Want X? Connect the official API, or execute publish/reply/message/engage through managed CDP inside a valid owner-attested window. Missing authorization, expired windows, unknown identity and risk signals still stop execution and preserve manual handoff.
+
+**Managed CDP and account observation:** WebMonitor owns a persistent tab group for each session and site. Existing pages are reused; a missing page is created once through the managed group and rebound when stale. Managed pages are not closed after actions, and Playwright cannot create pages directly. See [Growth Service](docs/growth-service.md).
 
 **See the receipts first:** [Launch autopsy: 73 tweets in 11 hours, 0 new stars](docs/launch-autopsy-20261105.md) — a real launch experiment we ran without the ledger (throwaway scripts instead), the numbers it produced, and the ledger gap it exposed in our own process.
 
@@ -79,7 +89,7 @@ Each can be used independently. The `mkt.py` and `growovo-gtm` identifiers are k
 - Only for accounts **you own or are explicitly authorized to operate**; never touch unauthorized accounts. Ownership, scope, and human takeover are audited.
 - **The engine manages no accounts**: an account is the browser's logged-in session — after the approval gate, a real write automatically probes the target site's login state in the debugging Chrome and proceeds when present; when missing it reports the gap explicitly (ledger records rejected, never a fake send). No cookies or tokens are ever stored.
 - The CDP channel is zero-credential: no passwords, tokens, or cookies are ever stored; SMTP credentials come only from environment variables
-- **All write operations default to dry-run; `--go` runs for real** — real runs require a **human-approved plan**, or explicit `--routine` with a workspace policy matching the account/channel/action. Without authorization the default is refusal; only the manual CLI path `--adhoc` explicitly allows an unplanned run (ledger `adhoc=true`; MCP exposes no policy management)
+- **Write operations default to live; explicit `--dry-run` previews** — real runs require a **human-approved plan**, or explicit `--routine` with a workspace policy matching the account/channel/action. Without authorization the default is refusal; only the manual CLI path `--adhoc` explicitly allows an unplanned run (ledger `adhoc=true`; MCP exposes no policy management)
 - Daily budgets are atomically reserved before sends; `indeterminate` (unknown outcome) can never be auto-resent — a human must run `ledger resolve`; DNC/bounced identities in contacts merge with `suppress.txt` into a single suppression source
 - Fail and stop (no retry bombardment); a read-back mismatch never sends (codified after the 449 empty-body incident)
 - Human pacing: randomized intervals + per-run hard cap + daily budget (see the table in core/throttle.py)
@@ -130,24 +140,24 @@ python3 mkt.py check              # verify the CDP session and X/Gmail login sta
 | `python3 mkt.py pause --on 'reason' / --off` | **Global pause switch** (all write operations refuse to run, and the pause is logged) | — |
 | `python3 mkt.py contacts add/find/dnc/mark/import` | Contact store operations (idempotent dedup / DNC hiding / er-batch import) | — |
 | `mkt x search/inbox …` | X read-only search and inbox (historically verified on a real account) | **PROVEN (read-only)** |
-| `mkt x publish/reply/message/engage …` | X non-API browser writes: all refused in this release; dry-run, drafts and manual handoff only | **DISABLED** |
+| `mkt x publish/reply/message/engage …` | publish/reply default to the WebBridge managed tab (identity and execution in the same tab); routine also uses owner-attested instead of defaulting to routine CDP; message/engage and explicit `--legacy-cdp` use the debug-browser CDP route; X reads default to WebBridge; no official X API writer yet; platform rules are risk notices only | **AUTO** (publish/reply write path PROVEN) |
 | `mkt email message --queue data/queues/w1.json [--go]` | SMTP send queue | **PORTED** |
 | `mkt email inbox` / `mkt email bounces` | CDP read-only Gmail scan / bounce handling | **PORTED** (pattern PROVEN) |
 | `mkt reddit search --query "…"` | Read-only search | **UNVERIFIED** |
 | `mkt reddit reply --url <post> --text "…" [--go]` | Comment (read-back verification pipeline) | **UNVERIFIED** |
 | `mkt reddit publish --sub <sub> --title … --body-file … [--go]` | Post (≤3/day) | **UNVERIFIED** |
 | `mkt linkedin search --keywords "…"` | Read-only people search | **UNVERIFIED** |
-| `mkt linkedin message --url <profile> --note-file … [--go]` | Semi-auto connection request (terminal confirmation) | **UNVERIFIED** |
+| `mkt linkedin message --url <profile> --note-file … [--go]` | Authorized connection request; platform rules are risk notices only, with no environment lock or terminal confirmation | **UNVERIFIED** |
 | `mkt github audit --repo owner/repo` | **Repo health audit** (basics/community health/releases/contributor concentration/AI-readiness/Scorecard) | **PROVEN** |
 | `mkt github inbox --repo owner/repo` | open issues/PR list + zero-reply flags (48h first-response patrol) | **PROVEN** |
 | `mkt github search --query "…"` | Repo search (audience/competitor discovery) | **PROVEN** |
 | `mkt github reply --repo o/r --number N --text "…" [--go]` | issue/PR comment (first write path on the api channel; requires `MKT_GITHUB_TOKEN`) | **UNVERIFIED** |
-| `mkt playbook github-inbox --repo o/r --drafts drafts.json` | Inbox triage → candidate replies → standard queue (does not send; still requires approval/dry-run) | **PORTED** |
+| `mkt playbook github-inbox --repo o/r --drafts drafts.json` | Inbox triage → candidate replies → standard queue (does not send; sending still requires approval, `--dry-run` previews) | **PORTED** |
 | `mkt hn search --query "…"` | HN discussion/audience discovery (Algolia public API, anonymous read-only) | **PROVEN** (read-only) |
 | `mkt hn publish --title "Show HN: …" --url … [--go]` | Submit form submission (CDP; ≤1/day, title ≤80 chars; Show HN only for your own projects) | **UNVERIFIED** |
 | `mkt hn reply --item item:N --text "…" [--go]` | Item comment (first use = the author's first comment on a Show HN, within 1h of submitting) | **UNVERIFIED** |
 | `python3 mkt.py memory …` | Read-only operations memory from verified receipts (see the last section) | — |
-| `python3 mkt.py workflow …` | Reusable recipes: learn / approve / replay (dry-run by default) / runs / reconcile | — |
+| `python3 mkt.py workflow …` | Reusable recipes: learn / approve / replay (live by default; explicit dry-run preview) / runs / reconcile | — |
 | `python3 mkt.py scorecard` | Receipt and outcome scorecard (read-only) | — |
 | `python3 mkt.py optimize` | Optimization proposals (requires_human, never auto-applied) | — |
 | `mkt gtm design` | **GTM design**: object × objective × motion × channel with constraint checks, outcome contract, unknowns and verification level | Local design only; no execution |
@@ -175,7 +185,7 @@ python3 mkt.py check              # verify the CDP session and X/Gmail login sta
 | `mkt billing --actions N --outcomes M` | **Pricing experiments**: action/outcome plus explicit subscription/hybrid candidates and acceptance logs; accepted quote is not payment | — |
 | `python3 mkt.py schedule …` | Persisted waves: add / tick / status / resume | — |
 
-Level meanings: PROVEN = verified on a real account; PORTED = the pattern is verified, this wrapper has not been run end-to-end; UNVERIFIED = selectors untested in practice — the first run must be supervised (first-run checklist in channel doc 03 §5); DISABLED = forbidden in this release, and historical verification does not authorize execution.
+Level meanings: PROVEN = verified on a real account; PORTED = the pattern is verified, this wrapper has not been run end-to-end; UNVERIFIED = selectors untested in practice — the first run must be supervised (first-run checklist in channel doc 03 §5); DISABLED = forbidden in this release, and historical verification does not authorize execution. This is the **technical first-run axis**; the business execution level (AUTO/GATED/MANUAL) in `docs/platform-automation-matrix.md` is a separate axis, and neither substitutes for the other.
 
 ## Planning layer: plans are data, human review is the gate (product doc 05 §2)
 
@@ -198,8 +208,8 @@ mkt queue lint data/queues/askovo-p0-w1.json
 
 # 5. Human-review preview → dry run → real run
 mkt review askovo-p0-w1
-mkt email message --queue data/queues/askovo-p0-w1.json          # dry-run
-mkt email message --queue data/queues/askovo-p0-w1.json --go     # requires approval
+mkt email message --queue data/queues/askovo-p0-w1.json --dry-run  # preview
+mkt email message --queue data/queues/askovo-p0-w1.json --go     # real run, requires approval
 
 # 6. Accounting and retrospective
 mkt link create --campaign askovo-p0-w1 --channel hn --url https://example.com
@@ -218,10 +228,11 @@ Caps are a core property: a plan whose size exceeds the `core/throttle.py` daily
 {"mkt": {"command": "python3", "args": ["/absolute/path/Growovo/mcp_server.py"]}}
 ```
 
-10 tools, read and write across all channels:
+49 tools, read and write across all channels:
 
 - Read: `mkt_status` / `mkt_channels` / `mkt_plan_lint` / `mkt_search` (x/reddit/linkedin/hn/github) / `mkt_ledger_query` / `mkt_campaign` / `mkt_inbox` (hn/github/email/x) / `mkt_audit` (github)
-- Write: `mkt_run_queue` (all-channel queue, dry-run by default) / `mkt_action` (single action, same gates/approval/ledger)
+- Write: `mkt_run_queue` (all-channel queue, live by default; explicit dry_run preview) / `mkt_action` (single action, same gates/approval/ledger)
+- Growth services: `mkt_growth` (same goals, persistent state, opportunities, inbox, assets, execution and evaluations as `mkt growth`)
 
 Real runs of write operations always require a human-approved plan; UNVERIFIED channels need `allow_unverified=true` (manual first-run calibration); adhoc is CLI-manual-path only and never exposed over MCP. The MCP process also reads `MKT_HOME`, so it can use a different workspace than the CLI.
 
@@ -250,7 +261,6 @@ Each channel × action declares a preferred transport plus a fallback chain; **f
 |---|---|
 | `MKT_CDP_URL` | CDP endpoint (default http://127.0.0.1:9222) |
 | `MKT_EMAIL_USER` / `MKT_EMAIL_APP_PASSWORD` | Gmail SMTP (App Password, never stored) |
-| `MKT_LINKEDIN_AUTO=1` | Unlock fully automatic LinkedIn (not recommended; default is semi-auto with terminal confirmation) |
 | `MKT_GITHUB_TOKEN` | GitHub PAT (only needed for write `reply`; read primitives work anonymously, 60 req/h) |
 
 ## The data trio (`data/`, gitignored)
@@ -266,7 +276,7 @@ core/      ledger (with human adjudication overrides) · gates (incl. DNC merge)
 channels/  x/(vendor+adapter) · email_smtp · email_cdp · reddit · linkedin · github (first api-channel release) · hn (CDP write + Algolia read)
 transports/  os_input (macOS keyboard/mouse/AX simulation, UNVERIFIED)
 skills/    growovo-gtm (GTM operations protocol) · github-project-ops (GitHub project operations protocol + audit script)
-tests/     offline unit tests (599, incl. the 449 incident regression, all-channel human-review gates/adhoc passthrough, approval fingerprints & expiry, atomic budget reservation, DNC/indeterminate blocking, queue edit-time gates, idempotent CSV import, ledger adjudication overrides, collector redirect/event auth, clean MCP stdout, semantic adversarial cases, real local reproduction/delivery chains, journey timing/identity/multi-touch, traceable experience review, the demo loop and doctor tiers): python3 -m unittest discover -s tests
+tests/     offline unit tests (2460, incl. incident regressions, all-channel human-review gates/adhoc passthrough, approval fingerprints & expiry, atomic budget reservation, DNC/indeterminate blocking, queue edit-time gates, idempotent CSV import, ledger adjudication overrides, collector redirect/event auth, clean MCP stdout, semantic adversarial cases, real local reproduction/delivery chains, journey timing/identity/multi-touch, traceable experience review, the demo loop and doctor tiers): python3 -m unittest discover -s tests
 mcp_server.py  MCP shell (stdio JSON-RPC, zero dependencies)
 ```
 
@@ -284,7 +294,7 @@ The same class of task should not need a fresh model exploration of the page eve
 ```bash
 python3 mkt.py workflow learn hn-reply --trace trace.json      # one observed run → draft (never auto-approved)
 python3 mkt.py workflow approve hn-reply --by "operator" --days 30
-python3 mkt.py workflow replay hn-reply --var item=123 --var text="…"          # dry-run: resolve locators only
+python3 mkt.py workflow replay hn-reply --var item=123 --var text="…" --dry-run   # dry-run: resolve locators only
 python3 mkt.py workflow replay hn-reply --cdp-url http://127.0.0.1:9222 … --go  # execute
 python3 mkt.py workflow runs
 python3 mkt.py workflow reconcile --run <id> --outcome not_sent --note "checked the platform" --by "operator"

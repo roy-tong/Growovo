@@ -1,0 +1,55 @@
+{
+  "schema": "growovo.growth-goal/1",
+  "mode": "autopilot",
+  "product": {
+    "name": "ovo family",
+    "url": "https://github.com/roy-tong/Growovo",
+    "what": "Open-source research, execution and verification tools for agent-era products"
+  },
+  "window": {
+    "start": "2026-11-23T22:00:00+08:00",
+    "end": "2026-11-24T07:00:00+08:00"
+  },
+  "outcomes": [
+    {
+      "id": "activation",
+      "role": "primary",
+      "metric": "activated_users",
+      "target": 1
+    },
+    {
+      "id": "stars",
+      "role": "secondary",
+      "metric": "github_stars",
+      "target_delta": 3
+    },
+    {
+      "id": "followers",
+      "role": "secondary",
+      "metric": "x_followers",
+      "target_delta": 3
+    }
+  ],
+  "execution_intent": "live_with_manual_fallback",
+  "on_channel_blocked": "manual_handoff",
+  "constraints": {
+    "human_minutes": 120,
+    "channels": ["x", "github"],
+    "no_paid_procurement": true
+  },
+  "audience": {
+    "id": "agent-builders",
+    "role": "Agent developers",
+    "trigger": "Cannot tell whether agent activity produced a real user result"
+  },
+  "assets": [
+    {
+      "id": "growovo-demo",
+      "kind": "reproducible_demo",
+      "url": "https://github.com/roy-tong/Growovo",
+      "cta": "run_demo",
+      "reproduced": false,
+      "sha256": ""
+    }
+  ]
+}

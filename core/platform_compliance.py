@@ -1,14 +1,10 @@
 #!/usr/bin/env python3
-"""平台执行许可 —— 按平台规则分别开放官方 API 与浏览器能力。
+"""平台风险说明与账号授权边界。
 
-官方 API 优先；平台未开放写 API 不等于脚本化浏览器写自动获得许可。
-``policy_row`` 给每个平台写明「无人值守自主写」是否放行，以及被拦时下一步怎么走；
-它只影响能否承诺全自动，不关闭人工辅助计划。
-
-X 官方自动化规则禁止非 API 网页脚本写，并对自动回复与批量动作另有限制。
-所有经 Growovo vendor 的 X CDP/browser-attach 真实写都拒绝，official_api 授权
-也不能挪给浏览器传输。只读、dry-run、草稿与人工在 X 页面操作不受影响；
-常驻 owner-attested 路线同样不能解锁 X。
+``policy_row`` 描述业务执行能力和非阻断风险提示，不用平台规则否决业务动作。
+``require_autonomous_write`` 与 ``require_user_visible_cdp`` 保留兼容入口并返回风险信息。
+账号授权、页面身份、配额、暂停、DNC、回读、验证码/风控停手和未知结果保护是独立的
+执行安全边界，仍由 ``require_owner_attested_browser_write`` 与执行器强制校验。
 """
 from __future__ import annotations
 
@@ -76,7 +72,7 @@ def _parse_time(value) -> Optional[datetime]:
 def validate_authorization(payload: Dict[str, Any], *,
                            platform: str, action: str,
                            actual_transport: str) -> Dict[str, Any]:
-    """校验一份授权是否覆盖这次动作；不通过抛 ComplianceError。"""
+    """显式校验旧 official_api 配置格式；不参与业务执行准入。"""
     if _text(payload.get("schema")) != AUTHORIZATION_SCHEMA:
         raise ComplianceError(
             "authorization_invalid",
@@ -128,47 +124,37 @@ def validate_authorization(payload: Dict[str, Any], *,
     return payload
 
 
+def _risk_notice(platform: str, action: str, actual_transport: str) -> Dict[str, Any]:
+    row = policy_row(platform)
+    return {
+        "route": "business_execution",
+        "action": action,
+        "transport": actual_transport,
+        "risk_code": row.get("code"),
+        "risk_warning": row.get("risk_warning") or "",
+        "platform_permission": "operator_risk",
+    }
+
+
 def require_autonomous_write(platform: str, action: str, data_dir, *,
                              go: bool, actual_transport: str) -> Optional[Dict[str, Any]]:
-    """自主写许可门禁。返回授权（放行）或 None（非写动作/干跑）；否则抛错。"""
+    """保留兼容入口；平台规则只返回风险提示，不否决业务执行。"""
     platform = _text(platform).lower()
     action = _text(action).lower()
-    if not go or action not in WRITE_ACTIONS:
+    if not go or action not in WRITE_ACTIONS or platform != "x":
         return None
-    if platform != "x":
-        return None
-    payload = load_authorization(data_dir, platform)
-    if payload is None:
-        raise ComplianceError(
-            "non_api_write_forbidden",
-            "X 非 API 自动写被官方规则禁止（脚本操作网站做自动化属违规）；"
-            "本机 CDP 通道只保留只读与人工辅助。要自主发送，请接入 X 官方 API "
-            "并写入 %s（route=official_api，transport=api，含具名审批）；"
-            "否则请人工发送。"
-            % authorization_path(data_dir))
-    return validate_authorization(
-        payload, platform=platform, action=action,
-        actual_transport=actual_transport)
+    return _risk_notice(platform, action, actual_transport)
 
 
 def require_user_visible_cdp(platform: str, action: str, data_dir, *,
                              go: bool, actual_transport: str,
                              identity: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
-    """Reject scripted non-API X writes, including one-off operator requests.
-
-    The function name remains for caller compatibility. Human operation happens
-    directly in X, outside this vendor automation path. Dry runs and reads stay
-    outside this gate; a compliant official API uses ``require_autonomous_write``.
-    """
+    """保留兼容入口；单次 CDP 与常驻 CDP 使用同一非阻断风险口径。"""
     platform = _text(platform).lower()
     action = _text(action).lower()
     if not go or action not in WRITE_ACTIONS or platform != "x":
         return None
-    raise ComplianceError(
-        "platform_permission_required",
-        "X 的非 API 网页脚本写不被平台许可；单次 --go、操作者授权和账号观测"
-        "都不能替代平台许可。请使用符合 X 规则的官方 API，或在 X 页面人工操作。"
-        "Growovo 在未接 API 时只提供只读、草稿与人工处理。")
+    return _risk_notice(platform, action, actual_transport)
 
 
 def owner_attested_path(data_dir, platform: str) -> Path:
@@ -176,6 +162,7 @@ def owner_attested_path(data_dir, platform: str) -> Path:
 
 
 OWNER_ATTESTED_ACTIONS = {
+    "x": frozenset({"publish", "reply", "message", "engage"}),
     "github": frozenset({"reply"}),
     "discord": frozenset({"publish", "reply"}),
 }
@@ -193,6 +180,27 @@ def load_owner_attested(data_dir, platform: str) -> Dict[str, Any]:
     return payload if isinstance(payload, dict) else {}
 
 
+def owner_attested_active(data_dir, platform: str, *, now: Optional[datetime] = None) -> bool:
+    """排程期粗检：签名授权存在、路线正确、未撤销且窗口覆盖当前时刻。
+
+    只用于决定队列行要不要进入计划；真正执行前仍会走
+    ``require_owner_attested_browser_write`` 的完整校验（scope、身份观测等）。
+    """
+    auth = load_owner_attested(data_dir, platform)
+    if not auth or auth.get("revoked") is True:
+        return False
+    if _text(auth.get("route")) != "owner_attested_session":
+        return False
+    start = _parse_time(auth.get("window_start"))
+    end = _parse_time(auth.get("window_end"))
+    if not start or not end:
+        return False
+    moment = now or datetime.now(start.tzinfo)
+    if moment.tzinfo is None and start.tzinfo is not None:
+        moment = moment.replace(tzinfo=start.tzinfo)
+    return start <= moment <= end
+
+
 def require_owner_attested_browser_write(platform: str, action: str, data_dir, *,
                                         go: bool, actual_transport: str,
                                         identity: Optional[Dict[str, Any]]) -> Dict[str, Any]:
@@ -207,16 +215,10 @@ def require_owner_attested_browser_write(platform: str, action: str, data_dir, *
     action = _text(action).lower()
     if not go or action not in WRITE_ACTIONS:
         raise ComplianceError("action_out_of_scope", "只有真实写动作才需要 owner-attested 授权。")
-    if actual_transport != "browser-attach":
+    if actual_transport not in {"browser-attach", "cdp"}:
         raise ComplianceError(
             "transport_mismatch",
-            "owner-attested 路线只接受 browser-attach，实际传输是 %r。" % actual_transport)
-    if platform == "x":
-        raise ComplianceError(
-            "platform_permission_required",
-            "X 的持续 browser-attach 写不属于平台许可的自动化路径；操作者授权、"
-            "账号观测与配额都不能替代平台许可。请使用符合 X 规则的官方 API，"
-            "或不接 API 时保留只读与人工处理。")
+            "owner-attested 路线只接受 browser-attach 或受管 cdp，实际传输是 %r。" % actual_transport)
     allowed = OWNER_ATTESTED_ACTIONS.get(platform)
     if not allowed:
         raise ComplianceError("platform_out_of_scope", "%s 不在 owner-attested 平台白名单内。" % platform)
@@ -271,7 +273,7 @@ def require_owner_attested_browser_write(platform: str, action: str, data_dir, *
                                   "当前账号观测缺少 %s；拒绝在账号不明时执行。" % field)
     return {
         "route": "owner_attested_session",
-        "transport": "browser-attach",
+        "transport": actual_transport,
         "platform_permission": False,
         "risk_owner": _text(auth.get("approved_by")),
         "approved_at": approved_at.isoformat(),
@@ -282,85 +284,75 @@ def require_owner_attested_browser_write(platform: str, action: str, data_dir, *
 
 
 def policy_row(platform: str) -> Dict[str, Any]:
-    """给平台能力矩阵用的许可说明（不是执行门禁，只是让界面说真话）。
-
-    每行都带 ``next``：写清被拦时还能怎么继续（人工辅助、降频、拆批、
-    顺延或改官方 API），避免把平台风控变成业务关闭。
-    """
+    """返回业务执行说明与风险提示；风险字段不参与执行准入。"""
     platform = _text(platform).lower()
     platform = _POLICY_ALIASES.get(platform, platform)
-    if platform == "x":
-        return {
-            "autonomous_write": False,
-            "user_visible_cdp_write": False,
-            "user_visible_cdp_actions": [],
-            "owner_attested_browser_write": False,
+    rows = {
+        "x": {
+            "autonomous_write": True,
+            "user_visible_cdp_write": True,
+            "user_visible_cdp_actions": sorted(WRITE_ACTIONS),
+            "owner_attested_browser_write": True,
             "code": "non_api_write_forbidden",
-            "reason": ("无人值守非 API 自动写不放行；X 不走 owner-attested browser-attach，"
-                       "操作者授权不能替代平台许可"),
-            "next": ("要无人值守：接 X 官方 API 并写入 platform-authorization.json；"
-                     "不接 API：保留只读、草稿与人工处理。"),
+            "reason": "X 非 API 浏览器自动化存在平台规则与账号风险；业务执行不因此停止",
+            "next": "按业务目标选择官方 API 或授权 CDP，保留身份、配额、回执和停手证据",
             "source": "docs/risk/automation-compliance.md#§二",
-        }
-    if platform == "email":
-        return {
+        },
+        "email": {
             "autonomous_write": True,
             "code": None,
-            "reason": "邮件走官方 SMTP，可按 routine 自主执行",
+            "reason": "邮件走 SMTP/Gmail API，可按业务授权自主执行",
             "next": "保持退订/抑制名单、日配额与回执校验；退信率升高时降频并清洗名单。",
             "source": "docs/risk/automation-compliance.md",
-        }
-    if platform == "github":
-        return {
+        },
+        "github": {
             "autonomous_write": True,
             "owner_attested_browser_write": True,
             "code": None,
-            "reason": "GitHub 官方 API 允许评论/发帖自动化；浏览器接管路径需操作者自担风险授权",
-            "next": "优先用 MKT_GITHUB_TOKEN 走 API；触发限流时错峰重试；无 token 时转人工辅助。",
+            "reason": "GitHub API 与授权浏览器路径均可执行，按技术验证和账号授权选择",
+            "next": "优先使用官方 API；限流时错峰，保留独立回读。",
             "source": "docs/platform-automation-matrix.md",
-        }
-    if platform == "reddit":
-        return {
-            "autonomous_write": False,
+        },
+        "reddit": {
+            "autonomous_write": True,
             "code": "non_api_write_forbidden",
-            "reason": "Reddit 要求走 OAuth API；当前适配器只有 CDP 写路径，无人值守不放行",
-            "next": ("接 Reddit OAuth API 后可自主；未接前按人工辅助跑，"
-                     "单账号日≤3–5 条、同 subreddit 间隔≥30 分钟、推广占比≤10%。"),
+            "reason": "Reddit 非 OAuth 浏览器自动化存在平台规则与账号风险；业务执行不因此停止",
+            "next": "可选择 OAuth API 或授权 CDP，保留配额、去重和回读证据",
             "source": "docs/platform-automation-matrix.md",
-        }
-    if platform == "hn":
-        return {
-            "autonomous_write": False,
+        },
+        "hn": {
+            "autonomous_write": True,
             "code": "platform_forbids_automation",
-            "reason": "Hacker News 明确不要自动化发帖/回复；只出人工草稿与提交单",
-            "next": "用 showhn-pack 生成草稿，人工提交；发布日≤1，回复只答被问到的问题。",
+            "reason": "Hacker News 自动化发布存在社区规则风险；业务执行不因此停止",
+            "next": "保持低频、真实内容和完整回执；技术首跑仍需显式确认",
             "source": "docs/platform-automation-matrix.md",
-        }
-    if platform == "linkedin":
-        return {
-            "autonomous_write": False,
+        },
+        "linkedin": {
+            "autonomous_write": True,
             "code": "platform_forbids_automation",
-            "reason": "LinkedIn 禁止第三方自动化；只走人工辅助与终端确认",
-            "next": "人工辅助发送，日≤5 条连接邀请、附言≤300 字符；先热身账号再提量。",
+            "reason": "LinkedIn 第三方自动化存在平台规则与账号风险；业务执行不因此停止",
+            "next": "按业务授权执行，保留配额、身份和回读；技术首跑仍需显式确认",
             "source": "docs/platform-automation-matrix.md",
-        }
-    if platform == "discord":
-        return {
-            "autonomous_write": False,
+        },
+        "discord": {
+            "autonomous_write": True,
             "owner_attested_browser_write": True,
             "code": "self_bot_forbidden",
-            "reason": "浏览器接管属操作者自担风险；无人值守请用官方 bot 授权",
-            "next": ("用 owner-attested 窗口 + 人工首跑，单频道日≤3 条、间隔≥10 分钟；"
-                     "要无人值守改官方 bot。"),
+            "reason": "Discord 浏览器自动化存在平台规则与账号风险；业务执行不因此停止",
+            "next": "可选择官方 Bot 或授权浏览器路径，保留频道范围、配额和回执",
             "source": "docs/platform-automation-matrix.md",
-        }
-    return {
+        },
+    }
+    row = dict(rows.get(platform) or {
         "autonomous_write": False,
         "code": "platform_not_declared",
-        "reason": "该平台未声明写许可与传输，按人工处理",
-        "next": "先补平台许可与传输说明，再决定人工辅助或接官方 API。",
+        "reason": "该平台没有登记的写能力，不能计入自动执行",
+        "next": "先接入写原语并完成技术验证。",
         "source": None,
-    }
+    })
+    row["risk_warning"] = ("平台风险提示（不阻断业务执行）：" + row["reason"]
+                           if row.get("code") else "")
+    return row
 
 
 def autonomous_channels(channels: Iterable[str]) -> list:

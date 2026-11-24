@@ -1,9 +1,4 @@
-"""G-14：X 非 API 自动写必须是执行门禁，不是提示。
-
-官方规则：脚本操作网站做非 API 自动化属违规，AI 自动回复需书面批准。
-因此 CDP 写通道只能只读/人工用，自主写（go=True）默认拒绝。
-"""
-import json
+"""平台规则只提示风险；账号授权与执行安全仍然是独立硬边界。"""
 import tempfile
 import unittest
 from pathlib import Path
@@ -12,100 +7,40 @@ from unittest import mock
 from channels.x import adapter
 from core import platform_caps, platform_compliance, platform_strategy
 
-AUTH_SCHEMA = platform_compliance.AUTHORIZATION_SCHEMA
 
-
-def _write_auth(root: Path, **overrides):
-    payload = {
-        "schema": AUTH_SCHEMA,
-        "platform": "x",
-        "route": "official_api",
-        "transport": "api",
-        "approved_by": "roy",
-        "approved_at": "2026-11-18T09:00:00+08:00",
-        "scopes": ["reply", "publish", "message"],
-        "recipient_consent_policy": "仅联系公开表示愿意接收私信的人；每封含退订方式",
-        "opt_out_path": "回复 stop 即加入不重试名单",
-        "automated_reply_approval_ref": "x-approval-2026-11-18",
-    }
-    payload.update(overrides)
-    path = root / platform_compliance.AUTHORIZATION_NAME
-    path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
-    return path
-
-
-class GateTests(unittest.TestCase):
-    def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory()
-        self.addCleanup(self.tmp.cleanup)
-        self.root = Path(self.tmp.name)
-
-    def gate(self, action="reply", go=True, transport="cdp"):
-        return platform_compliance.require_autonomous_write(
-            "x", action, self.root, go=go, actual_transport=transport)
-
-    def test_dry_run_and_reads_are_not_gated(self):
-        self.assertIsNone(self.gate(go=False))
-        self.assertIsNone(self.gate(action="search"))
-
-    def test_missing_authorization_blocks_real_write(self):
-        with self.assertRaises(platform_compliance.ComplianceError) as ctx:
-            self.gate()
-        self.assertEqual("non_api_write_forbidden", ctx.exception.code)
-        self.assertIn("官方 API", str(ctx.exception))
-
-    def test_api_authorization_cannot_run_on_cdp(self):
-        _write_auth(self.root)
-        with self.assertRaises(platform_compliance.ComplianceError) as ctx:
-            self.gate(transport="cdp")
-        self.assertEqual("transport_mismatch", ctx.exception.code)
-
-    def test_browser_route_is_never_authorizable(self):
-        _write_auth(self.root, route="browser")
-        with self.assertRaises(platform_compliance.ComplianceError) as ctx:
-            self.gate(transport="api")
-        self.assertEqual("non_official_route", ctx.exception.code)
-
-    def test_dm_needs_consent_and_opt_out(self):
-        for field in ("recipient_consent_policy", "opt_out_path"):
-            with self.subTest(field=field):
-                _write_auth(self.root, **{field: ""})
-                with self.assertRaises(platform_compliance.ComplianceError) as ctx:
-                    self.gate(action="message", transport="api")
-                self.assertEqual("consent_missing", ctx.exception.code)
-
-    def test_automated_reply_needs_x_written_approval(self):
-        _write_auth(self.root, automated_reply_approval_ref="")
-        with self.assertRaises(platform_compliance.ComplianceError) as ctx:
-            self.gate(action="reply", transport="api")
-        self.assertEqual("approval_missing", ctx.exception.code)
-
-    def test_action_must_be_in_scope(self):
-        _write_auth(self.root, scopes=["publish"])
-        with self.assertRaises(platform_compliance.ComplianceError) as ctx:
-            self.gate(action="reply", transport="api")
-        self.assertEqual("action_out_of_scope", ctx.exception.code)
-
-    def test_complete_official_api_authorization_passes(self):
-        _write_auth(self.root)
-        payload = self.gate(transport="api")
-        self.assertEqual("roy", payload["approved_by"])
-
-
-class AdapterGateTests(unittest.TestCase):
-    """门禁必须在触碰 vendor 之前生效：拒绝时不起子进程。"""
-
-    def test_real_x_write_refused_before_vendor(self):
+class RiskNoticeTests(unittest.TestCase):
+    def test_dry_run_and_reads_do_not_emit_risk(self):
         with tempfile.TemporaryDirectory() as tmp:
-            with mock.patch.object(adapter.subprocess, "run") as runner:
-                with self.assertRaises(SystemExit) as ctx:
-                    adapter.run("reply", ["--tweet-url", "https://x.com/a/status/1",
-                                          "--text", "hi"],
-                                go=True, adhoc=True, campaign="c", data_dir=tmp,
-                                log=lambda *_a, **_k: None)
-        self.assertIn("平台许可", str(ctx.exception))
-        self.assertFalse(runner.called, "被平台规则拒绝时不得启动 vendor")
+            self.assertIsNone(platform_compliance.require_autonomous_write(
+                "x", "reply", tmp, go=False, actual_transport="cdp"))
+            self.assertIsNone(platform_compliance.require_autonomous_write(
+                "x", "search", tmp, go=True, actual_transport="cdp"))
 
+    def test_cdp_write_returns_risk_without_platform_authorization_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            for action in ("publish", "reply", "message", "engage"):
+                with self.subTest(action=action):
+                    got = platform_compliance.require_autonomous_write(
+                        "x", action, tmp, go=True, actual_transport="cdp")
+                    self.assertEqual("non_api_write_forbidden", got["risk_code"])
+                    self.assertIn("不阻断", got["risk_warning"])
+                    self.assertEqual("cdp", got["transport"])
+
+    def test_user_visible_cdp_returns_the_same_non_blocking_risk(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            got = platform_compliance.require_user_visible_cdp(
+                "x", "publish", tmp, go=True, actual_transport="cdp", identity=None)
+            self.assertEqual("non_api_write_forbidden", got["risk_code"])
+            self.assertIn("不阻断", got["risk_warning"])
+
+    def test_x_strategy_gate_is_warning_not_error(self):
+        gates = [g for g in platform_strategy.gates("x", scope="execution")
+                 if g["code"] == "non_api_write"]
+        self.assertEqual(1, len(gates))
+        self.assertEqual("warning", gates[0]["level"])
+
+
+class AdapterRiskTests(unittest.TestCase):
     @staticmethod
     def observed_identity():
         return {
@@ -116,28 +51,17 @@ class AdapterGateTests(unittest.TestCase):
             "observed_at": "2026-11-18T12:00:00+00:00",
         }
 
-    def test_scripted_cdp_write_is_refused_regardless_of_identity_or_action(self):
+    def test_user_visible_cdp_reaches_vendor_with_other_approval(self):
         with tempfile.TemporaryDirectory() as tmp:
-            for action in ("publish", "reply", "message", "engage"):
-                with self.subTest(action=action):
-                    with self.assertRaises(platform_compliance.ComplianceError) as ctx:
-                        platform_compliance.require_user_visible_cdp(
-                            "x", action, tmp, go=True, actual_transport="cdp",
-                            identity=self.observed_identity())
-                    self.assertEqual("platform_permission_required", ctx.exception.code)
-
-    def test_observed_identity_cannot_make_scripted_cdp_reach_vendor(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            with mock.patch.object(adapter.subprocess, "run") as runner:
-                with self.assertRaises(SystemExit) as ctx:
-                    adapter.run("reply", ["--tweet-url", "https://x.com/a/status/1",
-                                          "--text", "synthetic only"],
-                                go=True, adhoc=True, campaign="c", data_dir=tmp,
-                                identity=self.observed_identity(),
-                                execution_mode="user_visible_cdp",
-                                log=lambda *_a, **_k: None)
-        self.assertIn("platform_permission_required", str(ctx.exception))
-        self.assertFalse(runner.called, "平台规则拒绝时不得启动 X vendor")
+            proc = mock.Mock(returncode=0)
+            with mock.patch.object(adapter.subprocess, "run", return_value=proc) as runner:
+                adapter.run("reply", ["--tweet-url", "https://x.com/a/status/1",
+                                      "--text", "synthetic only"],
+                            go=True, adhoc=True, campaign="c", data_dir=tmp,
+                            identity=self.observed_identity(),
+                            execution_mode="user_visible_cdp",
+                            log=lambda *_a, **_k: None)
+        self.assertTrue(runner.called)
 
     def test_dry_run_still_reaches_vendor(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -147,51 +71,57 @@ class AdapterGateTests(unittest.TestCase):
                                       "--text", "hi"],
                             go=False, campaign="c", data_dir=tmp,
                             log=lambda *_a, **_k: None)
-        argv = runner.call_args.args[0]
-        self.assertIn("--dry-run", argv)
+        self.assertIn("--dry-run", runner.call_args.args[0])
 
-    def test_mcp_x_write_is_refused_before_vendor(self):
-        import mcp_server
-        request = {"jsonrpc": "2.0", "id": 1, "method": "tools/call",
-                   "params": {"name": "mkt_action", "arguments": {
-                       "channel": "x", "action": "reply",
-                       "target": "https://x.com/a/status/1", "text": "synthetic only",
-                       "go": True}}}
+
+class LinkedInBusinessExecutionTests(unittest.TestCase):
+    def test_live_linkedin_send_does_not_require_env_unlock_or_terminal_input(self):
+        from channels import linkedin
+        page = mock.Mock()
+        page.locator.return_value.first.click = mock.Mock()
+        pipe = mock.Mock()
+        pipe.run_one.side_effect = lambda _item, **kwargs: kwargs["send"]({}) or {"result": "committed"}
         with tempfile.TemporaryDirectory() as tmp, \
-                mock.patch.object(mcp_server, "DATA", Path(tmp)), \
-                mock.patch("core.action_runner.gate_account_identity",
-                           return_value=self.observed_identity()), \
+                mock.patch("channels.linkedin.cdp.connect", return_value=(mock.Mock(), page)), \
+                mock.patch("channels.linkedin.cdp.release_page"), \
+                mock.patch("channels.linkedin.standard_pipeline", return_value=pipe), \
+                mock.patch("channels.linkedin.Throttle.daily_allows", return_value=True), \
+                mock.patch("channels.linkedin.Throttle.daily_used", return_value=0), \
+                mock.patch("builtins.input", side_effect=AssertionError("不应再要求终端确认")):
+            got = linkedin.message("https://www.linkedin.com/in/example", "hello",
+                                   go=True, adhoc=True, data_dir=tmp, log=lambda *_: None)
+        self.assertEqual("committed", got["result"])
+        page.locator.return_value.first.click.assert_called_once_with()
+
+
+class ActionRunnerLinkedInTests(unittest.TestCase):
+    def test_action_runner_does_not_reintroduce_env_lock(self):
+        from core import action_runner
+        with tempfile.TemporaryDirectory() as tmp, \
+                mock.patch.dict("os.environ", {}, clear=True), \
                 mock.patch("core.action_runner.precheck", return_value="plan"), \
-                mock.patch.object(adapter.subprocess, "run") as runner:
-            response = mcp_server.handle(request)
-        text = response["result"]["content"][0]["text"]
-        self.assertIn("平台", text)
-        self.assertFalse(runner.called, "MCP 被平台规则拒绝时不得启动 X vendor")
+                mock.patch("channels.linkedin.message", return_value={"result": "committed"}) as send:
+            got = action_runner._dispatch_action_inner(
+                channel="linkedin", action="message", data_dir=tmp, campaign="c",
+                go=True, allow_unverified=True, target="https://www.linkedin.com/in/example",
+                text="hello")
+        self.assertEqual("committed", got["result"])
+        self.assertTrue(send.call_args.kwargs["go"])
 
 
 class PolicyMetadataTests(unittest.TestCase):
-    def test_matrix_marks_x_autonomous_write_as_forbidden(self):
+    def test_matrix_separates_business_capability_from_risk(self):
         row = platform_caps.classify("x")
-        self.assertFalse(row["policy"]["autonomous_write"])
+        self.assertTrue(row["policy"]["autonomous_write"])
         self.assertEqual("non_api_write_forbidden", row["policy"]["code"])
+        self.assertTrue(row["policy"]["user_visible_cdp_write"])
+        self.assertIn("不阻断", row["policy"]["risk_warning"])
         self.assertTrue(platform_caps.classify("email")["policy"]["autonomous_write"])
-
-    def test_matrix_disables_x_scripted_browser_writes(self):
-        row = platform_compliance.policy_row("x")
-        self.assertFalse(row["owner_attested_browser_write"])
-        self.assertFalse(row["user_visible_cdp_write"])
-        self.assertEqual(row["user_visible_cdp_actions"], [])
 
     def test_discord_reply_has_independent_unverified_maturity(self):
         from channels import REGISTRY
         self.assertEqual("PROVEN", REGISTRY["discord"]["status"])
         self.assertEqual("UNVERIFIED", REGISTRY["discord"]["action_status"]["reply"])
-
-    def test_x_gate_in_strategy_is_error_level(self):
-        gates = [g for g in platform_strategy.gates("x", scope="execution")
-                 if g["code"] == "non_api_write"]
-        self.assertEqual(1, len(gates))
-        self.assertEqual("error", gates[0]["level"])
 
 
 if __name__ == "__main__":
