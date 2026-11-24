@@ -8,9 +8,11 @@
 - Risk-tiered authorization: `growth authorize grant|revoke|list` and `growth policy explain` cover action class, scope, quota, expiry and revocation. Routine replies and outreach require grants; public statements and money/contract actions require named review and cannot be standing grants.
 - Observable growth cycle: `growth cycle request|propose|execute|status|list` records `growth.cycle-request/1` → `growth.cycle-proposal/1`, applies the risk policy to every proposal, refuses missing grants/quota/DNC/expired cycles, and routes accepted actions through the existing execution gateway. The worker reports due cycles but never captures or sends on its own.
 - GEO experiments and agent readiness: `mkt geo experiment create|report|status` requires a pre-registered baseline/intervention/control design and writes `inconclusive` when the sample is too small. `mkt geo agent-check` compares entity facts with `llms.txt`/MCP/AGENTS and reports crawler/usage counts as a lower bound.
+- Account-level daily caps: `core/throttle.py` resolves `data/policies/account-quotas.json` by platform plus account id/handle. X Premium's 500 posts/day is an owner account fact, not a global default; unknown accounts keep the conservative budget.
 
 ### Changed
 
+- Result cards now lead with the business goal, confirmed actions, target-audience interactions, activation/payment status, platform estimates and plain-language next steps. Execution receipts, L1/L2/L3 codes, attribution, evidence coverage and replay boundaries remain in the appendix with unchanged calculations and no inference from actions to conversion.
 - Channel actions can no longer be marked `completed` without a completion type. `verified` needs a receipt (`action_id`, `channel`, `sent_at`, `idempotency_key`, `readback`); `attested_manual` needs a named operator and a reason. Metrics split into `completed_verified` / `completed_attested` / `completed_declared`, and downstream actions resting on a manual attestation are marked `dependency_quality: attested`.
 - `growth evaluate` records per-metric provenance and adds `primary_verified` next to `primary_success`. Bare numbers stay `owner_declared`; only same-definition observed or independently verified pairs can be `primary_verified`, and unverified numbers no longer trigger a "repeat" recommendation.
 
@@ -20,7 +22,7 @@
 
 ### Verification
 
-- 2526 offline tests and the zero-network demo pass; new coverage includes lease takeover, completion-type enforcement, provenance, GEO scoring/reproducibility, SEO fixtures, risk grants and cycle refusal paths. A wheel installed into an empty venv exposes `mkt geo`, `mkt seo` and `mkt demo`.
+- 2526 offline tests and the zero-network demo pass; new coverage includes lease takeover, completion-type enforcement, provenance, GEO scoring/reproducibility, SEO fixtures, risk grants, cycle refusal paths, account-level quota resolution and business-first result cards. A wheel installed into an empty venv exposes `mkt geo`, `mkt seo` and `mkt demo`.
 
 ## 0.21.0 — 2026-11-24
 

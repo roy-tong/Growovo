@@ -72,6 +72,28 @@ class BuildCardTests(TmpDir):
         self.assertIn("退信", text)
         self.assertIn("不等于业务转化", text)  # 边界声明必须在
 
+    def test_business_results_precede_execution_and_evidence_codes(self):
+        self._seed()
+        card = result_card.build(self.dir, self._run(), "2026-11-01", "2026-11-07")
+        text = result_card.render(card)
+
+        self.assertTrue(text.startswith("# 结果单："), text[:120])
+        main = text.split("## 附录：", 1)[0]
+        self.assertIn("## 业务结论", main)
+        self.assertIn("主目标", main)
+        self.assertIn("已确认完成 20 次运营动作", main)
+        self.assertIn("新增粉丝 33", main)
+        self.assertIn("还不能判断激活或付费", main)
+        self.assertIn("## 下一步怎么推进", main)
+        self.assertIn("平台估计", main)
+        for token in (
+            "committed", "L1", "L2", "L3", "approximated", "causal_credit",
+            "direct_receipt", "证据覆盖", "UNVERIFIED",
+        ):
+            self.assertNotIn(token, main)
+        self.assertIn("committed", text)
+        self.assertIn("证据覆盖与盲点", text)
+
     def test_campaign_prefix_does_not_leak_across_runs(self):
         ledger = Ledger(self.dir / "ledger.jsonl")
         for campaign in ("g1-w1", "g1", "g10-w1", "g100-w1"):
