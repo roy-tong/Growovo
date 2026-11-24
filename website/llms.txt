@@ -1,6 +1,6 @@
 # Growovo site
 
-> Give Growovo the product facts, audience and actions you authorize. It checks drafts, queues approved work and records receipts. An uncertain email send stops the batch for review. Track replies, activation and sales from their own records.
+> Set the goal and guardrails. Growovo keeps growth work moving: it finds opportunities, prepares content, executes authorized actions, follows up replies, and records receipts and business outcomes separately. Routine work runs within its approved scope; new permissions, high-impact statements and irreversible commitments escalate.
 
 Pages: / (Chinese landing: three verifiable promises, a worked demo of one successful delivery plus three gate-stopped runs, FAQ, 30-second zero-network verification, agent interfaces) · /en.html (English mirror of the same page, FAQ included) · /guides/launch-autopsy.html (Chinese guide: the launch autopsy as a layered-results lesson — 73 posts, 0 new stars, followers and conversion never measured; publication ≠ reach ≠ followers ≠ business outcome; the night bypassed Growovo's own ledger) · /guides/launch-autopsy.en.html (English translation of the same guide, same numbers and limits).
 
