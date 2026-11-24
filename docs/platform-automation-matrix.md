@@ -38,6 +38,7 @@ Growovo 以业务交付为核心，分别判断三件事：
 - 失效页重绑，使用结束只释放引用，不 `page.close()`；
 - Playwright 只复用页面，不得自行 `new_page()`；
 - 身份必须来自当前页面；owner-attested 是操作者账号授权事实和风险提示，不是平台官方许可；
+- 所有平台共用 `data/policies/account-quotas.json` 的账号等级与日额度记录，由 `core/throttle.py` 按平台和实际账号读取；该策略跨会话生效，不是 X 专用配置。没有账号证据的等级保持 `unknown`；
 - 未授权账号、身份不符、验证码、挑战、429、封禁或风控信号停止对应渠道，不换页、换号或代理规避。
 
 ## 4. Action Resolution
