@@ -4,8 +4,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from . import (geo_capture, geo_entity, geo_facts, geo_questions, geo_report, geo_runs,
-               geo_score)
+from . import (geo_agent, geo_capture, geo_entity, geo_experiment, geo_facts,
+               geo_questions, geo_report, geo_runs, geo_score)
 
 
 def _read_json(path):
@@ -110,6 +110,27 @@ def register(parser):
     item.add_argument("--repo", required=True)
     item.add_argument("--site", default="")
     item.add_argument("--json", action="store_true")
+
+    experiment = sub.add_parser("experiment", help="GEO 对照实验")
+    esub = experiment.add_subparsers(dest="experiment_action", required=True)
+    item = esub.add_parser("create", help="建立预注册实验")
+    item.add_argument("--service", required=True)
+    item.add_argument("--file", required=True)
+    item.add_argument("--json", action="store_true")
+    item = esub.add_parser("report", help="按基线/干预/对照生成报告")
+    item.add_argument("--service", required=True)
+    item.add_argument("--experiment", required=True)
+    item.add_argument("--json", action="store_true")
+    item = esub.add_parser("status", help="查看实验")
+    item.add_argument("--service", required=True)
+    item.add_argument("--experiment", required=True)
+    item.add_argument("--json", action="store_true")
+
+    item = sub.add_parser("agent-check", help="Agent 可读性与抓取/调用下限")
+    item.add_argument("--repo", required=True)
+    item.add_argument("--logs", default="")
+    item.add_argument("--usage", default="")
+    item.add_argument("--json", action="store_true")
     return geo
 
 
@@ -189,6 +210,19 @@ def handle(args, data_dir):
                 return _emit(result, True)
             print(geo_facts.render(result))
             return 0
+    if action == "agent-check":
+        return _emit(geo_agent.check(data_dir, args.repo, logs=args.logs,
+                                     usage=args.usage), as_json)
+    if action == "experiment":
+        if args.experiment_action == "create":
+            return _emit(geo_experiment.create(
+                data_dir, args.service, _read_json(args.file)), as_json)
+        if args.experiment_action == "report":
+            return _emit(geo_experiment.report(
+                data_dir, args.service, args.experiment), as_json)
+        if args.experiment_action == "status":
+            return _emit(geo_experiment.status(
+                data_dir, args.service, args.experiment), as_json)
     if action == "score":
         return _emit(geo_score.score(data_dir, args.run), as_json)
     if action == "report":
