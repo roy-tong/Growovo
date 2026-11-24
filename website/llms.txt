@@ -7,6 +7,9 @@ Pages: / (Chinese landing: three verifiable promises, a worked demo of one succe
 Canonical repo and full agent entry: https://github.com/roy-tong/Growovo (see repo-root llms.txt for interfaces, promise discipline and launch autopsy). Synthetic demo proves loop structure only — never reach, conversion or business outcomes. All scripted non-API X browser writes are refused; X stays read-only with drafts and manual handoff until a compliant official API is connected.
 
 - [Replay a supervised offline batch and inspect each action receipt](https://roy-tong.github.io/Growovo/examples/controlled-run.en.html)
+- [Growovo technical blog](https://roy-tong.github.io/Growovo/blog/): execution reliability, recovery and scheduler engineering
+- [Exactly-once execution is the wrong goal](https://roy-tong.github.io/Growovo/blog/02-growovo-exactly-once-is-the-wrong-goal.html): approval fingerprints, attempt leases, durable ingress and independent readback
+- [A scheduler that knows when not to send](https://roy-tong.github.io/Growovo/blog/05-growovo-a-scheduler-that-knows-when-not-to-send.html): eligibility, action identity, UTC budgets, stale drafts and channel recovery
 
 - [OVO Discord community](https://discord.gg/UqrM8MCXb)
 - [OVO product updates on X](https://x.com/elliwoodtong)
