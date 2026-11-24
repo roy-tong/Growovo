@@ -164,6 +164,25 @@ class AttemptedSendReadbackTest(unittest.TestCase):
         self.assertEqual(rows[-1]["result"], "failed")
 
 
+class AccountQuotaProfileTest(unittest.TestCase):
+    def test_throttle_uses_the_observed_x_account_handle(self):
+        fake = mock.Mock()
+        fake.ensure_managed_tab.return_value = 11
+        fake.probe_visibility.return_value = "visible"
+        fake.observe_identity.return_value = {"handle": "owner"}
+        with tempfile.TemporaryDirectory() as tmp, \
+                mock.patch.object(browser_write, "BrowserAttach", return_value=fake), \
+                mock.patch.object(browser_write, "require_owner_attested_browser_write",
+                                  return_value={"route": "test"}), \
+                mock.patch("core.throttle.Throttle") as throttle_class, \
+                mock.patch.object(browser_write.x_engine, "original",
+                                  return_value={"ok": True, "status": {"id": "456"}}):
+            browser_write.execute("x", "publish", Path(tmp), text="hello world",
+                                  go=True, log=lambda *_: None)
+
+        throttle_class.assert_called_once_with(Path(tmp) / "state", account="owner")
+
+
 class StatusBindingTest(unittest.TestCase):
     """X 发送成功即绑定 status id；只有页面给不出来时才扫 profile。"""
 

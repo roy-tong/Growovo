@@ -239,6 +239,31 @@ CSV 导入：
 - `work-action` 只生成既有 plan/queue，`plan.provenance` 参与执行审批指纹；真实发送仍走 `plan approve`、`pipeline`、`action_runner` 与 `queue_runner`。
 - KPI 计数/比率按 MetricVersion、去重键、过滤器和 scope 重算；分母 0 与未成熟窗口均返回 `value=null`，不回退全历史。
 
+## 账号级日额度（2026-11-25）
+
+`policies/account-quotas.json` 持久保存账号等级与账号级日预算。`Throttle` 每次读取该文件，不依赖进程或会话内记忆：
+
+```json
+{
+  "version": 1,
+  "accounts": [{
+    "account_id": "x-example",
+    "platform": "x",
+    "handle": "@example",
+    "account_tier": "premium",
+    "subscription_tier": "premium",
+    "daily_caps": {"publish": 500},
+    "source": "owner_declared",
+    "updated_at": "2026-11-25"
+  }]
+}
+```
+
+- 该配置覆盖所有已接入写平台：`x`、`discord`、`email`、`github`、`reddit`、`hn`、`linkedin`。`account_tier` 是通用等级字段；有订阅产品的平台可再加 `subscription_tier`。未知等级写 `unknown`，不得由 Agent 猜测。
+- 浏览器写路径传入实际观测到的 `handle`；计划、报表等无身份上下文的路径只在该平台恰有一个账号配置时采用它。其他执行入口通过同一 `Throttle.policy()` 读取，不能另建平台专用额度记忆。
+- 未匹配、同平台多账号但未指定身份、或动作没有 `daily_caps` 配置时，保留 `core/throttle.py` 的保守默认值；非法日额度显式报错。
+- `daily_caps` 只覆盖日额度，不提高单次、小时或夜间目标，也不绕过授权、内容和平台停止条件。`source=owner_declared` 表示账号所有者提供的口径，不伪称平台回读。
+
 ## 按需编排与 routine policy（v0.9）
 
 `mkt orchestrate` 输出 `growovo.workstream_candidate/1`：`selection`（最小岗位及原因）、`workstream`（WorkOrder DAG 与 Handoff）、`content_plan`（每份交付物的 required_content、表达、语气、渠道规则）和 `validation`。它是候选方案，不是执行批准。

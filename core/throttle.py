@@ -2,7 +2,7 @@
 """节流（架构文档 §5）——随机间隔 + 单次硬上限 + 日预算。
 
 数值来源：x-ops-automation 实测纪律（发布 45-90s、DM 75-150s、follow/like 单次 ≤10、
-每日上限检测）+ Reddit/LinkedIn 风控红线（03 渠道文档）。只保守，不放松。
+每日上限检测）+ Reddit/LinkedIn 风控红线（03 渠道文档）。默认保守；账号级日预算由持久配置覆盖。
 """
 import json
 import random
@@ -26,12 +26,12 @@ def _now():
     return datetime.now(timezone.utc)
 
 # (min_s, max_s, run_cap, daily_cap)；None = 不设
-# 预算口径 = 我们自己的运营预算，一律低于平台官方上限（OFFICIAL_LIMITS），只保守不放松
+# 默认预算低于平台官方参考上限；账号级日预算只由 account-quotas.json 显式覆盖
 INTERVALS = {
     # X 官方（help.x.com 2026-05 版，06 文档§2）：未验证账号 50 原创+200 回复/日、DM 500/日、
     # 关注 400/日；页面残留旧"2400/日"字样属历史口径，按新表执行
-    ("x", "publish"): (45, 90, 50, 48),       # 官方 50 原创/日 → 预算 48 留余量
-    ("x", "reply"): (60, 120, 30, 180),       # 官方 200 回复/日 → 预算 180 留余量
+    ("x", "publish"): (45, 90, 50, 48),       # 免费账号默认 48；Premium 由账号配置覆盖
+    ("x", "reply"): (60, 120, 30, 180),       # 回复计入同一 500 帖/日额度，本地预算 180 留余量
     ("x", "message"): (75, 150, 15, 30),       # 官方 500 DM/日 → 预算 30（节奏比上限更重要）
     ("x", "engage"): (6, 12, 10, 40),          # 官方关注 400/日 → 预算 40
     ("x", "search"): (5, 10, None, None),
@@ -65,14 +65,14 @@ INTERVALS = {
 }
 FALLBACK = (60, 120, 10, 30)  # 未知渠道动作一律走保守缺省
 
-# 平台官方上限参考（证据分级见 06 文档；供人/规划层对照，代码只信 INTERVALS 预算）
+# 平台上限参考（证据分级见 06 文档）；执行默认信 INTERVALS，账号日预算由持久配置覆盖
 OFFICIAL_LIMITS = {
     # X（官方 help.x.com x-limits，2026-05 版；档位细目未公开=UNPUBLISHED）
     ("x", "publish", "free/unverified"): {"daily": "50 原创 + 200 回复", "grade": "官方"},
     ("x", "message", "free/unverified"): {"daily": 500, "grade": "官方"},
     ("x", "engage", "free/unverified"): {"daily_follow": 400, "total_follow": "5000 后按粉丝比例", "grade": "官方"},
-    ("x", "publish", "premium"): {"daily": "未公开（社区传 1 万帖/月）", "grade": "未公开"},
-    ("x", "reply", "premium"): {"daily": "未公开（官方未单列 premium 回复上限；社区传 1 万帖/月含回复）", "grade": "未公开"},
+    ("x", "publish", "premium"): {"daily": 500, "grade": "Owner 2026-11-25 账号口径"},
+    ("x", "reply", "premium"): {"daily": "计入同一 500 帖/日额度（Owner 2026-11-25 账号口径）", "grade": "Owner 口径"},
     # Gmail（官方 support.google.com）
     ("email", "*", "gmail-free"): {"daily": 500, "grade": "官方"},
     ("email", "*", "workspace"): {"daily": 2000, "grade": "官方"},
@@ -95,12 +95,43 @@ class ThrottleError(Exception):
 
 
 class Throttle:
-    def __init__(self, state_dir, day_boundary=None):
+    def __init__(self, state_dir, day_boundary=None, account=""):
         self.state_dir = Path(state_dir)
         self.day_boundary = day_boundary or DAY_BOUNDARY
+        self.account = str(account or "").strip().lstrip("@").lower()
+
+    def _account_daily_cap(self, channel, action):
+        path = self.state_dir.parent / "policies" / "account-quotas.json"
+        if not path.is_file():
+            return None
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            accounts = payload.get("accounts")
+            if not isinstance(accounts, list):
+                raise ValueError("accounts 必须是数组")
+        except (OSError, ValueError, TypeError, json.JSONDecodeError) as exc:
+            raise ThrottleError(f"账号额度配置无效：{path}：{exc}") from exc
+        candidates = [row for row in accounts if isinstance(row, dict)
+                      and str(row.get("platform") or "").strip().lower() == channel]
+        if self.account:
+            candidates = [row for row in candidates if self.account in {
+                str(row.get(field) or "").strip().lstrip("@").lower()
+                for field in ("account_id", "handle")
+            }]
+        if len(candidates) != 1:
+            return None
+        cap = (candidates[0].get("daily_caps") or {}).get(action)
+        if cap is None:
+            return None
+        if type(cap) is not int or cap < 0:
+            raise ThrottleError(
+                f"账号额度配置无效：{channel}/{action} 的 daily_cap 必须是非负整数")
+        return cap
 
     def policy(self, channel, action):
-        return INTERVALS.get((channel, action), FALLBACK)
+        lo, hi, run_cap, daily_cap = INTERVALS.get((channel, action), FALLBACK)
+        account_cap = self._account_daily_cap(channel, action)
+        return lo, hi, run_cap, daily_cap if account_cap is None else account_cap
 
     def interval(self, channel, action, override=0):
         """下一条之间的等待秒数。override>0 用固定值（人类显式指定优先）。"""
