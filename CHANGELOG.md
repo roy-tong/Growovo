@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.23.0 — 2026-11-26
+
+### Added
+
+- Persistent lifecycle projections for contacts, conversations, opportunities, activation, retention and follow-up queues, with explicit cross-source identity maps and shared suppression. Product feedback exports require named classification and exact source quotes without becoming canonical demand evidence.
+- Explicit Host Agent wake/proposal contracts, bounded execution-feedback cycles, controlled local Agent discovery/install/first-success runs, shared experiment exports, channel efficiency and business-first period reports.
+- Opportunity freshness contracts keep expired or unknown-freshness records visible but out of execution and lifecycle follow-up queues.
+
+### Fixed
+
+- Retention requires a verified event and an earlier verified activation; unverified or unsupported events stay visible without advancing lifecycle state.
+- Period reports assign execution/results by `executed_at` rather than backdating cross-midnight work to cycle creation. Result-unknown and missing-grant cycles expose reconciliation or incremental-permission next actions without automatic retry.
+
+### Verification
+
+- 2598 offline tests and the zero-network demo pass. Isolated wheel chains preserve the boundary between committed actions, interactions, activation, retention and causal growth; no production continuous worker or external business outcome is implied.
+
 ## 0.22.0 — 2026-11-25
 
 ### Added

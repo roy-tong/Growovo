@@ -221,6 +221,23 @@ def list_cycles(data_dir, service_id, limit=50):
     return rows[:limit]
 
 
+def execute_proposed(data_dir, service_id, *, by):
+    if not str(by or "").strip():
+        raise ValueError("execute_proposed 需要具名操作者")
+    results = []
+    for cycle in list_cycles(data_dir, service_id, limit=500):
+        if cycle.get("status") != "proposed":
+            continue
+        try:
+            result = execute(data_dir, service_id, cycle["cycle_id"], by=by)
+        except (ValueError, OSError, KeyError) as exc:
+            result = {"cycle_id": cycle["cycle_id"], "status": "blocked",
+                      "error": str(exc)[:300]}
+        results.append(result)
+    return {"status": "observed", "executed_cycles": len(results),
+            "executed_by": str(by).strip(), "results": results}
+
+
 def due(data_dir, service_id):
     rows = []
     for cycle in list_cycles(data_dir, service_id, limit=500):

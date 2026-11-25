@@ -231,13 +231,16 @@ TOOLS = [
     },
     {
         "name": "mkt_growth",
-        "description": "AI Growth Service：目标编译、持久服务、下一动作、资产、入站、执行与结果评估。"
+        "description": "AI Growth Service：目标编译、持久服务、下一动作、资产、入站、生命周期、周期汇报、渠道投入效率、单轮 cycle wake、cycle 问题解决投影、执行与结果评估。"
                        "action 使用 growth CLI 同名子命令；默认 live，preview 仅在目标合同或 dry_run 中显式指定。",
         "inputSchema": {
             "type": "object",
             "properties": {
                 "action": {"type": "string"},
                 "action_id": {"type": "string", "description": "growth run/reconcile 的动作 ID，避免与子命令 action 冲突"},
+                "cycle_action": {"type": "string", "description": "cycle: request/propose/wake/status/resolution/execute/list"},
+                "cycle": {"type": "string", "description": "cycle id for status/resolution/wake/execute"},
+                "adapter": {"type": "string", "description": "cycle wake: authorized local host-adapter JSON"},
                 "service_id": {"type": "string"},
                 "repo": {"type": "string"},
                 "account": {"type": "string", "default": "default"},
@@ -263,7 +266,10 @@ TOOLS = [
                 "experiment": {"type": "string"},
                 "secondary_targets": {"type": "string"},
                 "manual": {"type": "string"},
-                "assisted": {"type": "string"}
+                "assisted": {"type": "string"},
+                "start": {"type": "string", "description": "report: ISO-8601 inclusive window start"},
+                "end": {"type": "string", "description": "report: ISO-8601 exclusive window end"},
+                "identity_map": {"type": "string", "description": "lifecycle/report: optional explicit identity-map JSON path"}
             },
             "required": ["action"]
         }
@@ -525,6 +531,21 @@ TOOLS = [
 ]
 
 
+TOOLS.append({
+    "name": "mkt_agent_adoption",
+    "description": "运行单轮本地 Agent discover/install/first_success 黑盒测试；拒绝允许外部写的 suite，不启动长驻服务。",
+    "inputSchema": {
+        "type": "object",
+        "properties": {
+            "suite": {"type": "string"},
+            "workdir": {"type": "string"},
+            "out": {"type": "string", "description": "new evidence directory"},
+        },
+        "required": ["suite", "workdir", "out"],
+    },
+})
+
+
 def _text(obj):
     return {"content": [{"type": "text", "text": json.dumps(obj, ensure_ascii=False, indent=1)}]}
 
@@ -738,6 +759,17 @@ def _call_tool(name, args):
         report["next"] = camp.next_step(DATA, Ledger(DATA / "ledger.jsonl"), cid)
         return _text(report)
 
+    if name == "mkt_agent_adoption":
+        from core import agent_adoption
+        try:
+            suite = json.loads(Path(args["suite"]).read_text(encoding="utf-8"))
+            if (suite.get("authorization") or {}).get("external_writes_allowed") is True:
+                return _err("允许外部写的 Agent Adoption suite 只能在具名操作者的本地 CLI 中运行")
+            result = agent_adoption.run(suite, args["workdir"], args["out"])
+            return _text(result)
+        except (OSError, ValueError, json.JSONDecodeError) as exc:
+            return _err("Agent Adoption 运行失败：%s" % str(exc)[:300])
+
     if name == "mkt_growth":
         import contextlib
         import io
@@ -746,6 +778,8 @@ def _call_tool(name, args):
         if args["action"] in {"capability-upsert", "github-webhook-serve", "operator-serve"}:
             return _err("该动作只能在具名操作者的本地 CLI 中执行；MCP 不得自行登记能力或启动长驻服务")
         namespace = SimpleNamespace(**dict(args, growth_action=args["action"]))
+        if args["action"] == "report":
+            namespace.format = "json"
         if args.get("action_id"):
             namespace.action = args["action_id"]
         buffer = io.StringIO()

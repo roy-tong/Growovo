@@ -6,9 +6,15 @@ import sys
 from pathlib import Path
 
 from . import action_resolution, growth_assets, growth_engagement, growth_execution, growth_experiments, growth_intake, growth_learning, growth_metrics, growth_opportunities, growth_service
+from . import experiment_export
+from . import growth_lifecycle
+from . import growth_feedback
+from . import growth_period_report
 from . import execution_capabilities, github_app, github_events, growth_runtime
 from . import gmail_api, gmail_events, growth_worker, live_acceptance
-from . import growth_cycle, risk_policy
+from . import growth_cycle, risk_policy, growth_host
+from . import growth_cycle_resolution
+from . import growth_efficiency
 from .growth_goals import compile_goal
 
 
@@ -60,6 +66,8 @@ def register(parser):
     item.add_argument("--once", action="store_true")
     item.add_argument("--max-cycles", type=int, default=None)
     item.add_argument("--webhook-port", type=int, default=0)
+    item.add_argument("--host-adapter", default="")
+    item.add_argument("--execute-accepted-by", default="")
     item = sub.add_parser("worker-status")
     item.add_argument("service_id")
     item.add_argument("--account", default="default")
@@ -100,6 +108,9 @@ def register(parser):
     item.add_argument("--metrics", required=True)
     item.add_argument("--by", required=True)
     item.add_argument("--json", action="store_true")
+    item = sub.add_parser("efficiency", help="各渠道人工/成本投入、观察互动与已核验激活效率")
+    item.add_argument("service_id")
+    item.add_argument("--file", required=True, help="growovo.channel-investment/1 JSON")
     item = sub.add_parser("resolve")
     item.add_argument("service_id")
     item.add_argument("--action", required=True)
@@ -108,6 +119,11 @@ def register(parser):
     item = sub.add_parser("opportunity-import")
     item.add_argument("service_id")
     item.add_argument("--file", required=True)
+    item = sub.add_parser("feedback-export", help="具名产品反馈分类与原会话逐字引用；只写新文件")
+    item.add_argument("service_id")
+    item.add_argument("--file", required=True, help="feedback review JSON array")
+    item.add_argument("--by", required=True, help="named product-feedback reviewer")
+    item.add_argument("--out", required=True, help="new feedback JSON")
     item = sub.add_parser("inbox-import")
     item.add_argument("service_id")
     item.add_argument("--file", required=True)
@@ -156,6 +172,22 @@ def register(parser):
     item.add_argument("service_id")
     item.add_argument("--experiment", required=True)
     item.add_argument("--secondary-targets", default="{}")
+    item = sub.add_parser("experiment-export")
+    item.add_argument("service_id")
+    item.add_argument("--experiment", required=True)
+    item.add_argument("--design", required=True)
+    item.add_argument("--out", required=True)
+    item = sub.add_parser("lifecycle")
+    item.add_argument("service_id")
+    item.add_argument("--identity-map", default="")
+    item.add_argument("--now", default="")
+    item.add_argument("--stale-minutes", type=int, default=60)
+    item = sub.add_parser("report", help="周期性执行、当前业务观察与待用户决定事项")
+    item.add_argument("service_id")
+    item.add_argument("--start", required=True)
+    item.add_argument("--end", required=True)
+    item.add_argument("--identity-map", default="")
+    item.add_argument("--format", choices=("json", "md"), default="json")
     item = sub.add_parser("plan")
     item.add_argument("service_id")
     item.add_argument("--minutes", type=int, default=0)
@@ -219,7 +251,14 @@ def register(parser):
     a.add_argument("service_id")
     a.add_argument("--cycle", required=True)
     a.add_argument("--file", required=True)
+    a = csub.add_parser("wake")
+    a.add_argument("service_id")
+    a.add_argument("--cycle", required=True)
+    a.add_argument("--adapter", required=True)
     a = csub.add_parser("status")
+    a.add_argument("service_id")
+    a.add_argument("--cycle", required=True)
+    a = csub.add_parser("resolution", help="project a cycle problem into ovo.problem-resolution/1; read-only")
     a.add_argument("service_id")
     a.add_argument("--cycle", required=True)
     a = csub.add_parser("execute")
@@ -248,12 +287,13 @@ def handle(args, data_dir):
     defaults = {
         "out": "", "evidence": "", "channels": "{}", "text": "", "target": "",
         "metrics": "", "asset": "", "secondary_targets": "{}", "now": "",
-        "stale_minutes": 60, "minutes": 0, "note": "",
+        "stale_minutes": 60, "minutes": 0, "note": "", "identity_map": "",
         "read_metrics": False, "execution_intent": "live_with_manual_fallback",
         "repo": "", "host": "127.0.0.1", "port": 8765, "x": False, "x_action": "publish",
         "account": "default", "platform": "", "topic": "", "subscription": "",
         "watch_topic": "", "pubsub_subscription": "", "interval_seconds": 300,
         "once": False, "max_cycles": None, "webhook_port": 0, "gmail_sync": False, "thread_id": "", "wave": "",
+        "format": "json", "start": "", "end": "",
     }
     for name, value in defaults.items():
         if not hasattr(args, name):
@@ -303,7 +343,9 @@ def handle(args, data_dir):
                 pubsub_subscription=args.pubsub_subscription or None,
                 account=args.account, interval_seconds=args.interval_seconds,
                 once=args.once, webhook_port=args.webhook_port, max_cycles=args.max_cycles,
-                wave_id=args.wave or None, on_cycle=_emit)
+                wave_id=args.wave or None, on_cycle=_emit,
+                host_adapter=args.host_adapter or None,
+                execute_accepted_by=args.execute_accepted_by or None)
         elif args.growth_action == "worker-status":
             _emit(growth_worker.status(data_dir, args.service_id, account=args.account))
         elif args.growth_action == "worker-history":
@@ -344,6 +386,8 @@ def handle(args, data_dir):
         elif args.growth_action == "evaluate":
             _emit(growth_service.evaluate(
                 data_dir, args.service_id, _read(args.metrics), by=args.by))
+        elif args.growth_action == "efficiency":
+            _emit(growth_efficiency.build(data_dir, args.service_id, _read(args.file)))
         elif args.growth_action == "resolve":
             service = growth_service.load(data_dir, args.service_id)
             action = next((row for row in service["actions"] if row["id"] == args.action), None)
@@ -353,6 +397,13 @@ def handle(args, data_dir):
         elif args.growth_action == "opportunity-import":
             _emit(growth_opportunities.import_opportunities(
                 data_dir, args.service_id, _read(args.file)))
+        elif args.growth_action == "feedback-export":
+            document = growth_feedback.build(
+                data_dir, args.service_id, _read(args.file), reviewed_by=args.by)
+            out = growth_feedback.write_new(document, args.out)
+            _emit({"status": "exported", "schema": document["schema"],
+                   "feedback": len(document["feedback"]), "path": str(out),
+                   "source_state_mutated": False, "external_actions": 0})
         elif args.growth_action == "inbox-import":
             _emit(growth_engagement.import_interactions(
                 data_dir, args.service_id, _read(args.file)))
@@ -391,6 +442,28 @@ def handle(args, data_dir):
             _emit(growth_experiments.diagnose(
                 data_dir, args.service_id, args.experiment,
                 secondary_targets=json.loads(args.secondary_targets)))
+        elif args.growth_action == "experiment-export":
+            document = experiment_export.from_growth_experiment(
+                data_dir, args.service_id, args.experiment, _read(args.design),
+                experiment_export.product_version())
+            out = experiment_export.write_new(document, args.out)
+            _emit({"status": "exported", "schema": document["schema"],
+                   "experiment_id": document["experiment_id"],
+                   "observations": len(document["observations"]),
+                   "outcome": document["outcome"]["status"], "path": str(out)})
+        elif args.growth_action == "lifecycle":
+            identity_map = _read(args.identity_map) if args.identity_map else {}
+            _emit(growth_lifecycle.project(
+                data_dir, args.service_id, now=args.now or None,
+                stale_minutes=args.stale_minutes, identity_map=identity_map))
+        elif args.growth_action == "report":
+            report = growth_period_report.build(
+                data_dir, args.service_id, start=args.start, end=args.end,
+                identity_map=_read(args.identity_map) if args.identity_map else {})
+            if args.format == "md":
+                print(growth_period_report.render(report), end="")
+            else:
+                _emit(report)
         elif args.growth_action == "plan":
             _emit(growth_learning.allocate(
                 data_dir, args.service_id, human_minutes=args.minutes,
@@ -445,8 +518,14 @@ def handle(args, data_dir):
             elif args.cycle_action == "propose":
                 _emit(growth_cycle.propose(
                     data_dir, args.service_id, args.cycle, _read(args.file)))
+            elif args.cycle_action == "wake":
+                _emit(growth_host.wake(
+                    data_dir, args.service_id, args.cycle, args.adapter))
             elif args.cycle_action == "status":
                 _emit(growth_cycle.status(data_dir, args.service_id, args.cycle))
+            elif args.cycle_action == "resolution":
+                cycle = growth_cycle.status(data_dir, args.service_id, args.cycle)
+                _emit(growth_cycle_resolution.from_cycle(cycle))
             elif args.cycle_action == "execute":
                 _emit(growth_cycle.execute(
                     data_dir, args.service_id, args.cycle, by=args.by))
