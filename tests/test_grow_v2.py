@@ -223,6 +223,14 @@ class TickTests(unittest.TestCase):
         self.assertIn("日结果", text)
         self.assertIn("continue", text)
         self.assertIn("optimize", text)
+        main = text.split("## 附录：", 1)[0]
+        self.assertIn("## 业务结论", main)
+        self.assertIn("已确认完成 1 次运营动作", main)
+        self.assertIn("还不能判断互动、激活或付费", main)
+        self.assertIn("## 下一步怎么推进", main)
+        for token in ("committed", "L1", "L2", "L3", "UNKNOWN", "UNVERIFIED", "direct_receipt"):
+            self.assertNotIn(token, main)
+        self.assertIn("## 三层结果", text)
 
 
 class WeeklyTests(unittest.TestCase):

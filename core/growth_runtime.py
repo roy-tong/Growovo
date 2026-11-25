@@ -88,6 +88,13 @@ CREATE TABLE IF NOT EXISTS execution_leases (
     route TEXT NOT NULL,
     owner TEXT NOT NULL,
     expires_at INTEGER NOT NULL,
+    fence INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY(account, route)
+);
+CREATE TABLE IF NOT EXISTS execution_fence_counters (
+    account TEXT NOT NULL,
+    route TEXT NOT NULL,
+    fence INTEGER NOT NULL,
     PRIMARY KEY(account, route)
 );
 CREATE TABLE IF NOT EXISTS domain_states (
@@ -160,9 +167,15 @@ def _initialize_schema(data_dir):
             fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
             connection = sqlite3.connect(str(path), timeout=5)
             try:
+                connection.row_factory = sqlite3.Row
                 connection.execute("PRAGMA busy_timeout=5000")
                 connection.execute("PRAGMA journal_mode=WAL")
                 connection.executescript(SCHEMA)
+                columns = {row["name"] for row in connection.execute(
+                    "PRAGMA table_info(execution_leases)").fetchall()}
+                if "fence" not in columns:
+                    connection.execute(
+                        "ALTER TABLE execution_leases ADD COLUMN fence INTEGER NOT NULL DEFAULT 0")
             finally:
                 connection.close()
         _SCHEMA_READY.add(key)
@@ -686,12 +699,33 @@ def conversation_message_count(data_dir, service_id):
         return int(row["count"])
 
 
+def _next_fence(connection, account, route):
+    row = connection.execute(
+        "SELECT fence FROM execution_fence_counters WHERE account = ? AND route = ?",
+        (account, route)).fetchone()
+    if row is None:
+        connection.execute(
+            "INSERT INTO execution_fence_counters(account, route, fence) VALUES (?, ?, 1)",
+            (account, route))
+        return 1
+    fence = int(row["fence"]) + 1
+    connection.execute(
+        "UPDATE execution_fence_counters SET fence = ? WHERE account = ? AND route = ?",
+        (fence, account, route))
+    return fence
+
+
 def try_acquire_execution_lane(data_dir, account, route, owner, lease_seconds=300):
+    """获取或续租执行租约。
+
+    每次新的获取都递增 lane 级 fence；fence 不加在旧行上，而是由独立计数器
+    持久保存，因此 release 之后再次获取也不会回到 1。
+    """
     now = _epoch()
     with _transaction(data_dir) as connection:
         connection.execute("DELETE FROM execution_leases WHERE expires_at <= ?", (now,))
         existing = connection.execute(
-            "SELECT owner FROM execution_leases WHERE account = ? AND route = ?",
+            "SELECT owner, fence FROM execution_leases WHERE account = ? AND route = ?",
             (account, route)).fetchone()
         if existing is not None:
             if existing["owner"] != owner:
@@ -700,10 +734,24 @@ def try_acquire_execution_lane(data_dir, account, route, owner, lease_seconds=30
                 "UPDATE execution_leases SET expires_at = ? WHERE account = ? AND route = ? AND owner = ?",
                 (now + int(lease_seconds), account, route, owner))
             return True
+        fence = _next_fence(connection, account, route)
         changed = connection.execute(
-            "INSERT INTO execution_leases(account, route, owner, expires_at) VALUES (?, ?, ?, ?)",
-            (account, route, owner, now + int(lease_seconds))).rowcount
+            "INSERT INTO execution_leases(account, route, owner, expires_at, fence) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (account, route, owner, now + int(lease_seconds), fence)).rowcount
         return changed == 1
+
+
+def execution_lane_state(data_dir, account="default", route="unknown"):
+    """当前租约快照；没有租约时返回 None。"""
+    with _connection(data_dir) as connection:
+        row = connection.execute(
+            "SELECT owner, fence, expires_at FROM execution_leases "
+            "WHERE account = ? AND route = ?", (account, route)).fetchone()
+    if row is None:
+        return None
+    return {"owner": row["owner"], "fence": int(row["fence"]),
+            "expires_at": int(row["expires_at"])}
 
 
 def release_execution_lane(data_dir, account, route, owner):

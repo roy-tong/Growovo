@@ -5,7 +5,8 @@ import os
 import threading
 import uuid
 
-from . import engagement_cycle, github_app, github_events, gmail_api, gmail_events, growth_engagement, growth_runtime
+from . import (engagement_cycle, github_app, github_events, gmail_api, gmail_events,
+               growth_cycle, growth_engagement, growth_runtime)
 
 
 def _now():
@@ -37,6 +38,7 @@ def run_once(data_dir, service_id, github_repo=None, gmail_sync=False, watch_top
                                 "detail": str(exc)[:200]}
 
     capture("recovery", lambda: growth_runtime.recover_expired(data_dir))
+    capture("cycle", lambda: growth_cycle.due(data_dir, service_id))
     if wave_id:
         capture("legacy_wave", lambda: engagement_cycle.run(data_dir, go=True, wave_id=wave_id))
     if github_repo:

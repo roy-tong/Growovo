@@ -211,6 +211,79 @@ class TestThrottle(TmpDir):
         self.assertIn("45-90s", th.advice("x", "publish", 3))
 
 
+class TestAccountQuotaProfiles(TmpDir):
+    def setUp(self):
+        super().setUp()
+        self.data = self.dir / "data"
+        self.state = self.data / "state"
+
+    def write_profiles(self, accounts):
+        path = self.data / "policies" / "account-quotas.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps({"version": 1, "accounts": accounts}), encoding="utf-8")
+
+    def premium_profile(self, **overrides):
+        profile = {
+            "platform": "x", "handle": "@elliwoodtong",
+            "subscription_tier": "premium", "daily_caps": {"publish": 500},
+            "source": "owner_declared", "updated_at": "2026-11-25",
+        }
+        profile.update(overrides)
+        return profile
+
+    def test_premium_profile_raises_x_publish_daily_cap_to_500(self):
+        self.write_profiles([self.premium_profile()])
+        th = Throttle(self.state, account="@elliwoodtong")
+
+        self.assertEqual(th.policy("x", "publish")[3], 500)
+        th.daily_charge("x", "publish", 48)
+        self.assertEqual(th.remaining("x", "publish"), 452)
+        self.assertEqual(Throttle(self.state, account="elliwoodtong").remaining(
+            "x", "publish"), 452)
+        th.daily_charge("x", "publish", 451)
+        self.assertEqual(th.reserve("x", "publish"), 500)
+        with self.assertRaises(ThrottleError):
+            th.reserve("x", "publish")
+
+    def test_single_x_profile_applies_without_session_specific_constructor_argument(self):
+        self.write_profiles([self.premium_profile()])
+
+        self.assertEqual(Throttle(self.state).policy("x", "publish")[3], 500)
+
+    def test_daily_caps_apply_to_every_connected_platform(self):
+        actions = {}
+        for (channel, action), rule in throttle.INTERVALS.items():
+            if rule[3] is not None:
+                actions.setdefault(channel, {})[action] = rule[3] + 1000
+        profiles = [{
+            "account_id": "%s-default" % channel,
+            "platform": channel,
+            "account_tier": "unknown",
+            "daily_caps": caps,
+        } for channel, caps in actions.items()]
+        self.write_profiles(profiles)
+
+        for channel, caps in actions.items():
+            for action, expected in caps.items():
+                with self.subTest(platform=channel, action=action):
+                    by_identity = Throttle(self.state, account="%s-default" % channel)
+                    by_single_profile = Throttle(self.state)
+                    self.assertEqual(by_identity.policy(channel, action)[3], expected)
+                    self.assertEqual(by_single_profile.policy(channel, action)[3], expected)
+
+    def test_unmatched_or_ambiguous_account_keeps_conservative_default(self):
+        self.write_profiles([
+            self.premium_profile(),
+            self.premium_profile(handle="@other", daily_caps={"publish": 300}),
+        ])
+
+        self.assertEqual(Throttle(self.state).policy("x", "publish")[3], 48)
+        self.assertEqual(Throttle(self.state, account="@missing").policy(
+            "x", "publish")[3], 48)
+        self.assertEqual(Throttle(self.state, account="@other").policy(
+            "x", "publish")[3], 300)
+
+
 class TestBudgetDayBoundary(TmpDir):
     """夜间窗口 19:00→次日 07:00 跨本地 0 点：预算日界不能把一晚切成两段。"""
 
@@ -250,12 +323,13 @@ class TestBudgetDayBoundary(TmpDir):
 
     def test_old_local_day_file_is_inherited_without_resetting_quota(self):
         th = Throttle(self.dir)
+        cap = th.policy("x", "publish")[3]
         now = datetime(2026, 11, 22, 11, 0, tzinfo=timezone.utc)
         local_day = now.astimezone().date().isoformat()
         (self.dir / f"mkt-daily-{local_day}.json").write_text(
-            json.dumps({"x/publish": 48}), encoding="utf-8")
+            json.dumps({"x/publish": cap}), encoding="utf-8")
         with mock.patch.object(throttle, "_now", return_value=now):
-            self.assertEqual(th.daily_used("x", "publish"), 48)
+            self.assertEqual(th.daily_used("x", "publish"), cap)
             with self.assertRaises(ThrottleError):
                 th.reserve("x", "publish")
 
@@ -272,8 +346,9 @@ class TestBudgetDayBoundary(TmpDir):
 
     def test_cap_resets_after_boundary(self):
         th = Throttle(self.dir)
+        cap = th.policy("x", "publish")[3]
         with self._at(2026, 11, 22, 15, 30):
-            for _ in range(48):
+            for _ in range(cap):
                 th.reserve("x", "publish")
             with self.assertRaises(ThrottleError):
                 th.reserve("x", "publish")

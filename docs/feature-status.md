@@ -1,5 +1,22 @@
 # Growovo: implementation status
 
+## GEO, risk cycles and business-first cards (v0.22.0, 2026-11-25)
+
+- `mkt geo` stores a canonical entity fact table, frozen question sets, tiered observations, Wilson intervals, explicit `not_run` rows and content-bound reports. `mkt seo audit` checks robots, sitemap, canonical, hreflang, JSON-LD, near-duplicate and city-doorway risk without modifying the site.
+- `growth authorize` adds risk-tiered standing grants with scope, quota, expiry and revocation; public statements and money/contract actions require named review. `growth cycle` records request → proposal → policy check → execution receipt and refuses missing grants, quota, DNC or expired cycles. The worker reports due cycles but never captures or sends by itself.
+- GEO experiments require a pre-registered baseline/intervention/control design and report `inconclusive` when the sample is too small. `agent-check` compares entity facts with `llms.txt`/MCP/AGENTS and marks crawler/usage counts as a lower bound.
+- `core/throttle.py` resolves per-account daily caps from `data/policies/account-quotas.json`; X Premium's owner-stated 500 posts/day is account-scoped, never a global default.
+- Result cards lead with the business goal, confirmed actions, interactions, activation/payment status and next steps; execution/evidence detail stays in the appendix.
+- **Verification:** 2542 offline tests and `mkt demo` pass; a wheel installed into an empty venv exposes `mkt geo`, `mkt seo` and `mkt demo`.
+
+
+## R3 P0 hardening (2026-11-24)
+
+- A channel action can no longer be marked `completed` without a completion type. `verified` requires a receipt with `action_id`, `channel`, `sent_at`, `idempotency_key` and `readback`; `attested_manual` requires a named operator and a reason. `declared` completions are rejected. Metrics report `completed_verified` / `completed_attested` / `completed_declared`, and downstream actions are marked `dependency_quality: attested` when they rest on a manual attestation.
+- `growth evaluate` now carries provenance per metric (`owner_declared` < `observed` < `independently_verified`, plus window and definition hash). `primary_success` answers "did the number reach the target"; `primary_verified` answers "was it measured on the same basis". Bare numbers stay `owner_declared` and can never produce `primary_verified`.
+- Execution leases carry a monotonic fence kept in `execution_fence_counters`. The heartbeat marks its `LeaseState` lost when renewal is refused, and `run_action` re-checks the lease at entry and again right before dispatch. A lost lease returns `lease_lost` with `retryable: false` and the dispatch never happens.
+- **Verification:** 2476 offline tests pass, including the new `tests/test_execution_lease.py` (6 cases), completion-type, provenance, mixed-source and legacy-completion tests; `mkt demo` still passes.
+
 ## Final release review hardening (v0.21.0, 2026-11-24)
 
 - Capability records reject credential-shaped keys recursively, including `client_secret`, `api_key`, `password` and private-key paths; verification evidence remains a reference rather than a secret store.
@@ -16,7 +33,7 @@
 ## Native real-task case gate (2026-11-24)
 
 - `mkt case list|show|incidents|index|validate|replay|verify` delegates to the shared `ovo-acceptance` runtime. The default registry supplies the family workspace root, so commands also work from this repository. `OVO_ACCEPTANCE_HOME` overrides the shared runtime location and `OVO_CASE_REGISTRY` overrides the registry for isolated tests; `OVO_CASE_ROOT` explicitly overrides the evidence root.
-- `task_rerun` and `evidence_only` remain separate. External-write cases are evidence-only and never resend, pay or sign. The runtime and 24-case registry passed validation; all 24 cases passed, with no blocked cases. Seven scoped original-scenario journeys are registered. See `../../../ai输出/ovo-真实任务资产库/README.md` and `../../../ai输出/ovo-真实任务资产库/GOLDEN_JOURNEYS.md`.
+- `task_rerun` and `evidence_only` remain separate. External-write cases are evidence-only and never resend, pay or sign. The 2026-11-24 run recorded 24 passed / 0 failed / 0 blocked, split into 13 `task_rerun` and 11 `evidence_only`; the headline does not mean 24 tasks were re-run. Seven scoped original-scenario journeys are registered. See `../../../ai输出/ovo-真实任务资产库/README.md` and `../../../ai输出/ovo-真实任务资产库/GOLDEN_JOURNEYS.md`.
 
 ## Original-scenario delivery fixes (2026-11-24)
 

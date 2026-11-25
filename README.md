@@ -71,8 +71,8 @@ python3 mkt.py grow launch g1 --facts facts.json \
 python3 mkt.py grow arm g1             # 确认策略和授权后开启真实执行
 python3 mkt.py grow daemon g1          # 当前终端常驻运行；Ctrl-C 停止
 # macOS 后台：grow install g1 --load，再用 grow doctor g1 核对新心跳
-python3 mkt.py grow daily g1           # 每天一屏：发布/读数/供给/护栏
-python3 mkt.py grow review g1 --days 7 # 近 7 天复盘，决定继续还是优化
+python3 mkt.py grow daily g1           # 每天一屏：业务结果/风险/下一步；技术明细在附录
+python3 mkt.py grow review g1 --days 7 # 近 7 天业务结果复盘，决定继续还是优化
 python3 mkt.py grow prospects g1 --query "你的垂直问题" --koc-only  # 找 KOC 账号与帖子
 python3 mkt.py grow learn g1          # 按公式/人群归因，给次日调参建议
 python3 mkt.py grow agent g1          # 已有任务可用此命令启用 Codex 写作

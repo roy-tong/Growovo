@@ -67,6 +67,7 @@ python3 mkt.py growth brief SERVICE_ID
 - `waiting_manual`：需要负责人处理，不参与自动选择。
 - `waiting_verification`：外部结果未知，先查回执，禁止自动重发。
 - `completed / blocked`：分别表示已满足当前动作验收、明确受阻；业务结果仍单独观察。
+- 渠道动作的 `completed` 必须带完成类型：`verified`（回执含 `action_id/channel/sent_at/idempotency_key/readback`）或 `attested_manual`（具名人工声明并说明原因）。只有 `verified` 计入 `completed_verified`；`attested_manual` 可解除内部依赖，但下游标 `dependency_quality: attested`。没有回执也没有人工声明时，状态层直接拒绝。
 
 ```bash
 python3 mkt.py growth attempts SERVICE_ID

@@ -255,7 +255,8 @@ def execute(channel: str, action: str, data_dir, *, text: str, target: Optional[
 
     from .throttle import Throttle, ThrottleError
     try:
-        Throttle(Path(data_dir) / "state").reserve(channel, action, 1)
+        Throttle(Path(data_dir) / "state",
+                 account=identity.get("handle") or "").reserve(channel, action, 1)
     except ThrottleError as exc:
         raise ActionBlocked("quota_exhausted", str(exc)) from exc
 

@@ -1259,6 +1259,51 @@ class GrowRunV2:
         }
 
     @staticmethod
+    def _daily_business_main(card: Dict[str, Any]) -> List[str]:
+        goal = card.get("goal") or {}
+        published = (card.get("published") or {}).get("total", 0)
+        readings = card.get("readings") or {}
+        layers = card.get("layers") or {}
+        l2 = layers.get("L2") or {}
+        l3 = layers.get("L3") or {}
+        guards = card.get("guardrails") or {}
+        current = goal.get("current") if goal.get("current") is not None else "取不到"
+        lines = [
+            "## 业务结论",
+            "",
+            f"- **主目标进展**：当前 {current}；{goal.get('target_text') or goal.get('metric')}",
+            f"- 已确认完成 {published} 次运营动作；这只说明执行，不代表增长或转化。",
+        ]
+        if any(block.get("state") == "UNKNOWN" for block in (l2, l3)):
+            lines.append("- 还不能判断互动、激活或付费：相关结果尚未接入或仍需核验。")
+        else:
+            if l2.get("text"):
+                lines.append(f"- **目标人群互动**：{l2['text']}")
+            if l3.get("text"):
+                lines.append(f"- **产品使用与转化**：{l3['text']}")
+        lines.extend([
+            "- 平台估计：曝光 %s；关注者 %s。它们用于观察变化，不证明运营动作带来了转化。" % (
+                readings.get("impressions") if readings.get("impressions") is not None else "取不到",
+                readings.get("followers") if readings.get("followers") is not None else "取不到"),
+            "",
+            "## 下一步怎么推进",
+            "",
+        ])
+        if any(block.get("state") == "UNKNOWN" for block in (l2, l3)):
+            lines.append("- 先接入互动、激活和付费结果，再判断今天的运营动作是否有效。")
+        elif current == "取不到":
+            lines.append("- 先补齐平台读数，再判断主目标是否改善。")
+        else:
+            lines.append("- 保持当前节奏，继续观察互动、激活和付费；需要优化时由负责人作出决定。")
+        failed = int(guards.get("failed", 0) or 0)
+        unknown = int(guards.get("indeterminate", 0) or 0)
+        if failed or unknown:
+            lines.extend(["", "## 需要处理的风险", "",
+                          f"- 有 {failed} 次执行失败、{unknown} 次结果未知，需要人工核对后再继续。"])
+        lines.append("")
+        return lines
+
+    @staticmethod
     def render_daily(card: Dict[str, Any]) -> str:
         goal = card.get("goal") or {}
         pub = card.get("published") or {}
@@ -1269,6 +1314,10 @@ class GrowRunV2:
                  f"目标：{goal.get('target_text') or goal.get('metric')}"
                  f"｜当前 {goal.get('current') if goal.get('current') is not None else '取不到'}"
                  f"｜基线 {goal.get('baseline') if goal.get('baseline') is not None else '取不到'}",
+                 ""]
+        lines += GrowRunV2._daily_business_main(card)
+        lines += [
+                 "## 附录：执行与核验明细",
                  "",
                  "| 口径 | 今天 |",
                  "|---|---|",
