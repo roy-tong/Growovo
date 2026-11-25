@@ -6,7 +6,7 @@ import threading
 import uuid
 
 from . import (engagement_cycle, github_app, github_events, gmail_api, gmail_events,
-               growth_cycle, growth_engagement, growth_runtime)
+               growth_cycle, growth_engagement, growth_host, growth_runtime)
 
 
 def _now():
@@ -27,7 +27,8 @@ def history(data_dir, service_id, account="default", limit=100):
 
 def run_once(data_dir, service_id, github_repo=None, gmail_sync=False, watch_topic=None,
              pubsub_subscription=None, account="default", github_client=None, gmail_client=None,
-             wave_id=None, cycle_id=None, cycle=1):
+             wave_id=None, cycle_id=None, cycle=1, host_adapter=None,
+             execute_accepted_by=None):
     components = {}
 
     def capture(name, callback):
@@ -39,6 +40,18 @@ def run_once(data_dir, service_id, github_repo=None, gmail_sync=False, watch_top
 
     capture("recovery", lambda: growth_runtime.recover_expired(data_dir))
     capture("cycle", lambda: growth_cycle.due(data_dir, service_id))
+    if host_adapter:
+        capture("host_wake", lambda: growth_host.wake_due(
+            data_dir, service_id, host_adapter))
+    if execute_accepted_by:
+        capture("cycle_execute", lambda: growth_cycle.execute_proposed(
+            data_dir, service_id, by=execute_accepted_by))
+    if execute_accepted_by and host_adapter:
+        def feedback():
+            report = (components.get("cycle_execute") or {}).get("result") or {}
+            return growth_host.create_followups(
+                data_dir, service_id, report, host_adapter)
+        capture("execution_feedback", feedback)
     if wave_id:
         capture("legacy_wave", lambda: engagement_cycle.run(data_dir, go=True, wave_id=wave_id))
     if github_repo:
@@ -81,7 +94,8 @@ def run_once(data_dir, service_id, github_repo=None, gmail_sync=False, watch_top
 
 def serve(data_dir, service_id, github_repo=None, gmail_sync=False, watch_topic=None,
           pubsub_subscription=None, account="default", interval_seconds=300, once=False,
-          webhook_port=0, max_cycles=None, wave_id=None, on_cycle=None):
+          webhook_port=0, max_cycles=None, wave_id=None, on_cycle=None, host_adapter=None,
+          execute_accepted_by=None):
     stop = threading.Event()
     server = None
     thread = None
@@ -100,7 +114,8 @@ def serve(data_dir, service_id, github_repo=None, gmail_sync=False, watch_topic=
             result = run_once(
                 data_dir, service_id, github_repo=github_repo, gmail_sync=gmail_sync,
                 watch_topic=watch_topic, pubsub_subscription=pubsub_subscription, account=account,
-                wave_id=wave_id, cycle=cycles)
+                wave_id=wave_id, cycle=cycles, host_adapter=host_adapter,
+                execute_accepted_by=execute_accepted_by)
             if on_cycle is not None:
                 on_cycle(result)
             if once or (max_cycles is not None and cycles >= max_cycles):

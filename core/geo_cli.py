@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from . import (geo_agent, geo_capture, geo_entity, geo_experiment, geo_facts,
+from . import (agent_adoption, geo_agent, geo_capture, geo_entity, geo_experiment, geo_facts,
                geo_questions, geo_report, geo_runs, geo_score)
 
 
@@ -131,6 +131,13 @@ def register(parser):
     item.add_argument("--logs", default="")
     item.add_argument("--usage", default="")
     item.add_argument("--json", action="store_true")
+    adoption = sub.add_parser("agent-adoption", help="真实宿主进程的发现/安装/首次成功黑盒测试")
+    adoption_sub = adoption.add_subparsers(dest="adoption_action", required=True)
+    item = adoption_sub.add_parser("run")
+    item.add_argument("--suite", required=True)
+    item.add_argument("--workdir", required=True)
+    item.add_argument("--out", required=True)
+    item.add_argument("--json", action="store_true")
     return geo
 
 
@@ -213,6 +220,11 @@ def handle(args, data_dir):
     if action == "agent-check":
         return _emit(geo_agent.check(data_dir, args.repo, logs=args.logs,
                                      usage=args.usage), as_json)
+    if action == "agent-adoption":
+        result = agent_adoption.run(
+            _read_json(args.suite), args.workdir, args.out)
+        _emit(result, as_json)
+        return 0 if result["outcome"] in ("OBSERVED_SUCCESS", "REAL_SUCCESS") else 1
     if action == "experiment":
         if args.experiment_action == "create":
             return _emit(geo_experiment.create(

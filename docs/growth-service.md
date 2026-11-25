@@ -91,6 +91,8 @@ python3 mkt.py growth capabilities --account default --platform github
 
 接单时服务保存能力缺口快照，重复 `start` 会刷新同一编号的快照。执行时结构化能力记录优先于布尔可用性参数，授权过期、撤权、账号暂停或回读未验证会返回具体缺失原因。MCP 只能读取能力，不允许通过 `capability-upsert` 自行声明实测通过。
 
+可选执行反馈：adapter 同时设置 `feedback_enabled=true` 且 Worker 配置具名执行者时，执行结果会汇总为下一轮 cycle 的 `execution_result` 观察。原 cycle 保存 `feedback_followup`，新 cycle 保存 `parent_cycle_id` 与 `feedback_depth`；默认最大深度 3，可用 `max_feedback_depth` 调整。重复 Worker 轮次不会重复创建同一父 cycle 的反馈，达到深度后停止，防止无限自动循环。反馈只影响后续宿主观察，不直接产生外部写。
+
 ## 2.3 GitHub App Community Operator
 
 覆盖 Issue、Issue Comment、Discussion 和 Discussion Comment。Webhook 先验签并持久化，再在事务中投影到统一入站并标记已处理；重复投递不产生重复会话，并发评论不会覆盖会话，投影失败可从来源事件重放。同一 Issue 或 Discussion 的后续评论分别归并为一个 Conversation，各条互动 ID 分别保留。增量同步用于补齐 Webhook 丢失或服务停机期间的事件。Issue 使用官方 REST，Discussion 使用官方 GraphQL。
@@ -154,9 +156,20 @@ python3 scripts/acceptance_live_x.py --action publish --authorize-by "$USER"
 
 Worker 每个组件独立记录成功或失败，单个渠道故障不阻断其他恢复和同步。心跳保存在同一 SQLite 中。每轮另有独立 `cycle_id` 和持久历史，`worker-history` 可回读，CLI 每轮输出结果；`--max-cycles` 用于有界验收，不把“进程还活着”当成“每轮都正确执行”。120 轮无外部动作 soak 已通过，但不等于真实渠道长期生产通过。`operator-tick` 可在 `cycle jobs-tick` 配置中复用同一 `run_once`。持续 Worker 与 Webhook 只能由具名操作者通过 CLI 启动，MCP 不得启动长驻服务。
 
+可选宿主 Agent 唤醒：
+
+```bash
+python3 mkt.py growth cycle wake SERVICE_ID --cycle CYCLE_ID --adapter host-adapter.json
+python3 mkt.py growth operator-serve SERVICE_ID --host-adapter host-adapter.json
+```
+
+`growovo.host-adapter/1` 声明 adapter/version/producer、受控 argv、最小环境变量透传、超时和具名授权。适配器把 open cycle request 写入私有唤醒目录，运行本地宿主进程，从 `proposal.json` 或 stdout 读取 `growovo.growth-cycle-proposal/1`，再复用现有 `growth_cycle.propose` 风险判定。重复唤醒不重复生成；非法输出保持 open。默认只增加 proposal 环节。只有操作者显式配置 `operator-serve --execute-accepted-by NAME` 或 scheduler 的 `execute_accepted_by`，Worker 才逐 cycle 调用现有 `cycle execute`；拒绝项仍不执行，外部动作继续经过全部授权、额度、DNC、回执和恢复链。
+
 X preflight 和默认验收只走 WebBridge 受管标签页，不调用 `verify_credentials`，不读取 9222/9223 或迁移 profile。预检复用或创建一个受管页面、观测当前账号并核对 owner scope，`writes=0`；真实发布/回复由同一个执行器返回 ID/URL。旧 CDP 只能显式 `--legacy-cdp` 使用，不能作为默认健康检查。
 
 ## 3. 机会与统一入站
+
+新机会必须包含带时区的 `observed_at`。可显式设置 `valid_until`，或以 `freshness_hours`（默认 48 小时）计算有效期；有效期必须晚于观察时间。只读投影把到期机会标为 `expired`，缺时间的历史记录为 `unknown`；两者保留发现证据，但不进入 `next_action` 或生命周期跟进队列。时效门禁不改变评分、授权、DNC 或渠道执行规则。
 
 ```bash
 python3 mkt.py growth opportunity-import SERVICE_ID --file opportunities.json
@@ -192,6 +205,54 @@ python3 mkt.py growth benchmark --manual manual.json --assisted assisted.json
 
 实验按信号、点击、安装、激活、Star/关注分层，区分人群、内容、首次成功和辅助资产问题。人工对照只在工作定义一致时比较人工分钟、验收任务、质量和重大错误；所有因果功劳保持 `not_claimed`。
 
+### 渠道投入效率
+
+```bash
+python3 mkt.py growth efficiency SERVICE_ID --file channel-investment.json
+```
+
+`growovo.channel-investment/1` 显式登记半开窗口、各渠道人工分钟与时间来源，以及可选成本金额、币种和成本来源。`growth efficiency` 将其与窗口内实际会话、满足 verification/source_ref 的激活事件对照，输出单位互动和单位激活的人工/成本投入。
+
+激活事件必须显式携带 `channel` 才进入该渠道分母；缺失或未声明渠道进入 `unassigned_verified_activations`，未合格事件单列。零分母返回 `null`，不跨币种求和。该投影不证明渠道导致激活，不计算 ROI，也不自动建议增减预算。
+
+只读导出共享实验合同：
+
+```bash
+python3 mkt.py growth experiment-export SERVICE_ID \
+  --experiment EXP_ID --design experiment-design.json --out experiment-contract.json
+```
+
+设计文件显式补充证伪条件、分组、主指标、可比性、注册人和外部动作授权。每个事件必须通过 `observation_bindings` 绑定分组、指标、证据等级和资格；缺绑定即拒绝，不把事件自动当成合格证据。默认结果只是 `inconclusive` 与描述性关联，输出不覆盖已有文件。
+
+### 生命周期与跟进投影
+
+```bash
+python3 mkt.py growth lifecycle SERVICE_ID \
+  --identity-map identity-map.json --stale-minutes 60
+```
+
+该命令只读现有机会、会话和实验事件，按来源前缀主体生成 `discovery → engagement → trial → activation → retention → payment` 的最远已观察阶段。跨来源身份只在显式 `identity-map` 中合并；activation/retention/payment 需要 verification method/ref 与 source_ref，retention 还需更早的已核验 activation，未合格事件单列。缺少前序阶段证据时保留缺口，不把单个高阶事件当成完整漏斗。
+
+生命周期中的激活、留存和支付均要求已核验的 method/ref/source_ref；留存还必须有时间更早的已核验激活，否则进入 `unqualified_events`，不能凭一次使用或自述进入留存。`followup_queue` 优先既有用户和开放会话，再列待处理机会；它是候选工作队列，不是触达授权，实际执行仍需 DNC、账号、范围、配额和执行门禁。投影同时复用执行层唯一的 `suppress.txt ∪ contacts DNC/bounced` 抑制源，命中项从可执行队列移到 `suppressed_followups`，不自动解除抑制；抑制源损坏时整个投影 fail closed。
+
+### 产品反馈导出
+
+```bash
+python3 mkt.py growth feedback-export SERVICE_ID \
+  --file feedback-reviews.json --by PRODUCT_REVIEWER --out product-feedback.json
+```
+
+具名复核人按 `bug / feature_request / usability / praise / other` 分类并给摘要和逐字 `evidence_quote`。引文必须来自现有会话正文或消息；稳定反馈 ID 去重，冲突结论拒绝。输出只写新文件，源会话不变，反馈保持 `canonical_evidence=false` 和 `product_decision_status=not_decided`，不自动形成需求或产品决定。CLI 与 MCP 共用该投影。
+
+### 周期业务汇报
+
+```bash
+python3 mkt.py growth report SERVICE_ID \
+  --start 2026-11-24T00:00:00Z --end 2026-11-25T00:00:00Z --format md
+```
+
+`growth report` 将 cycle 创建数按 `created_at`、实际执行分派及结果按 `executed_at` 分别归入半开窗口，跨午夜执行不会回记到创建日。缺少 `executed_at` 的历史执行记录计入 `undated_records`，不猜测所属期间。报告列出待提案、待审核、阻塞执行和跟进事项。互动、激活、留存和支付来自当前生命周期累计记录，单独标记为 `current_lifecycle_records_not_period_delta`，不得解释为本期新增或因果增长。报告只读；任何 cycle JSON 损坏都会终止报告，不会静默减少工作量或失败数。
+
 ## 6. 持久调度
 
 `cycle jobs-tick` 新增正式作业类型：
@@ -219,3 +280,15 @@ python3 mkt.py growth benchmark --manual manual.json --assisted assisted.json
 - GitHub App 已在自有仓库创建 [Issue #41](https://github.com/roy-tong/Growovo/issues/41) 并发表 [canary 评论](https://github.com/roy-tong/Growovo/issues/41#issuecomment-7122950093)。独立 GET 核对通过，重复创建和评论均被拦截，外部匹配对象各为 1。Discussion 写 canary 未执行。
 - Gmail 已在授权测试账号内完成独立线程自测，message/thread ID 均为 `1a20c07fc90af2fa`；独立 GET 的线程、收件人、主题和正文一致，重复提交后 Sent 匹配仍为 1。
 - 一条 X 回复 canary 已在自有账号完成并公开核对：<https://x.com/elliwoodtong/status/2124902346899742875>，账本与 OperationsLog 一致，标签数未增加。重写后的默认验收又完成一条[发布 canary](https://x.com/elliwoodtong/status/2125168278469583248)：公开页面独立回读命中，受管标签数 `2 → 2`，同正文重复提交被 `already_done_content` 拦截且零第二次写入。上述结果只证明对应渠道的受控交付，不证明持续生产 Worker、业务激活或收入。
+
+## 9. Agent Adoption 黑盒实测
+
+```bash
+python3 mkt.py geo agent-adoption run \
+  --suite agent-adoption-suite.json --workdir ./agent-workspace \
+  --out ./agent-adoption-evidence --json
+```
+
+`growovo.agent-adoption-suite/1` 声明产品、宿主名称/模型/argv、最小环境变量透传、具名操作者授权，以及 `discover → install → first_success` 三个自然语言步骤。每步启动全新宿主进程，复用同一测试工作区；成功条件可检查退出码、stdout/stderr 片段和工作区文件。证据目录保存每步输出、耗时、检查和聚合报告，禁止覆盖。
+
+默认不继承宿主凭据环境。该运行器是操作者授权的进程测试，不是网络沙箱；`fresh_process_per_step=true` 不等于已验证的新模型会话。合成/demo 输入全过仅为 `OBSERVED_SUCCESS`；`REAL_SUCCESS` 还要求真实授权输入、无答案提示和具名人工接受。发现、安装和首次成功均不等于留存、支付或业务价值。

@@ -31,6 +31,31 @@ MCP 已提供只读的 `mkt_grow`（platforms/briefs/status/daily/report/stage�
 每日结果由 tick 自动生成并投递；用户据结果决定 `continue` 或 `optimize`，优化只改执行
 参数且带回滚。内容质量由 agent 自闭环（voice/tactic/编辑审稿 + 队列门禁），不承诺爆款。
 
+## 持续运营、生命周期与 Agent Adoption
+
+```bash
+python3 mkt.py growth cycle request SERVICE_ID --actor OWNER
+python3 mkt.py growth cycle wake SERVICE_ID --cycle CYCLE_ID --adapter host-adapter.json
+python3 mkt.py growth cycle resolution SERVICE_ID --cycle CYCLE_ID  # shared problem-resolution projection; read-only
+python3 mkt.py growth lifecycle SERVICE_ID --identity-map identity-map.json
+python3 mkt.py growth feedback-export SERVICE_ID --file feedback-reviews.json --by PRODUCT_REVIEWER --out product-feedback.json
+python3 mkt.py growth report SERVICE_ID --start 2026-11-24T00:00:00Z --end 2026-11-25T00:00:00Z --format md
+python3 mkt.py growth efficiency SERVICE_ID --file channel-investment.json
+python3 mkt.py geo agent-adoption run --suite suite.json --workdir ./agent-work --out ./evidence --json
+```
+
+宿主适配器只把 open cycle request 转成 proposal，仍由原风险策略判定。Worker 默认不执行 proposal；只有具名操作者在 CLI 配置 `execute_accepted_by` 才进入原执行链，可选 `feedback_enabled` 创建有最大深度的执行反馈 cycle。MCP 可调用单轮 `mkt_growth` lifecycle/cycle wake，但不得启动 `operator-serve` 或长驻 Worker。
+
+`growth cycle resolution` 把缺授权、缺动作映射、提案拒绝、执行阻塞、结果未知或过期 cycle 投影为 `ovo.problem-resolution/1`。缺授权只请求缺少的 action class；外部结果未知时先生成对账合同，绝不盲目重试。该投影只读且不执行建议，可用共享 `python3 -m ovo_acceptance resolution FILE` 独立判定下一步。
+
+`growth lifecycle` 只读现有机会、会话与实验事件；跨来源身份必须显式映射，activation/retention/payment 需要 verification，retention 还需更早的已核验 activation；DNC/bounced 命中项进入 suppressed_followups，损坏抑制源 fail closed。跟进队列不是发送许可。`growth feedback-export` 由具名复核人提交分类、摘要和逐字原文引用，绑定现有会话并只写新文件；反馈不是 canonical 需求证据、产品决定、市场普遍性或因果证明。
+
+`growth report` 汇总半开窗口内的 cycle 与执行状态，并把待提案、待审核、阻塞执行和跟进事项集中为用户决策队列。互动、激活、留存和支付来自当前生命周期累计记录，字段 `current_lifecycle_records_not_period_delta` 明确它们不是本期新增或因果增长。报告只读，损坏 cycle JSON 会终止报告。MCP 通过 `mkt_growth` action `report` 返回同一 JSON 投影，不启动 Worker 或执行动作。
+
+`growth efficiency` 读取 `growovo.channel-investment/1` 中逐渠道人工分钟、成本及来源，对照现有会话与已核验激活。激活必须显式带 channel，否则进入 unassigned；未核验事件单列，零分母为 null，不跨币种求和。它只描述单位互动/激活投入，不声称渠道导致激活，也不自动给 ROI 或预算调整建议。
+
+`mkt_agent_adoption` 与 CLI `agent-adoption` 用独立宿主进程检查 discover/install/first_success 并保存证据。合成通过不等于真实采用，新进程不等于新模型会话；MCP 拒绝允许外部写的 suite。发现、安装和首次成功均不是留存或业务结果。
+
 ## v0.8 默认主链：先验收工作，再决定执行
 
 不要把用户需求直接翻译成发帖或群发。先判断 18 个能力域 / 40 个岗位族中的责任位置，再按以下主链：

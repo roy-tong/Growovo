@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import datetime as dt
 import re
 from pathlib import Path
 
@@ -70,6 +71,35 @@ def evaluate(candidate):
     }
 
 
+def _instant(value, label):
+    text = str(value or "").strip()
+    try:
+        parsed = dt.datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise ValueError("%s 必须是 ISO 8601 时间" % label) from exc
+    if parsed.tzinfo is None:
+        raise ValueError("%s 必须包含时区" % label)
+    return parsed
+
+
+def _moment(value=None):
+    return _instant(value, "now") if value else dt.datetime.now().astimezone()
+
+
+def _validity(row):
+    observed = _instant(row.get("observed_at"), "observed_at")
+    if row.get("valid_until"):
+        valid_until = _instant(row["valid_until"], "valid_until")
+    else:
+        hours = row.get("freshness_hours", 48)
+        if isinstance(hours, bool) or not isinstance(hours, (int, float)) or hours <= 0:
+            raise ValueError("freshness_hours 必须是正数")
+        valid_until = observed + dt.timedelta(hours=hours)
+    if valid_until <= observed:
+        raise ValueError("valid_until 必须晚于 observed_at")
+    return valid_until
+
+
 def import_opportunities(data_dir, service_id, rows):
     if not isinstance(rows, list):
         raise ValueError("opportunities 必须是数组")
@@ -85,9 +115,12 @@ def import_opportunities(data_dir, service_id, rows):
             oid = f"opp-{source}-{external}"
             if any(row["id"] == oid for row in payload["opportunities"]):
                 continue
+            _instant(raw.get("observed_at"), "observed_at")
+            valid_until = _validity(raw)
             evaluation = evaluate(raw)
             row = copy.deepcopy(raw)
-            row.update(id=oid, service_id=service_id, status="pending", **evaluation)
+            row.update(id=oid, service_id=service_id, status="pending",
+                       valid_until=valid_until.isoformat(), **evaluation)
             if evaluation["decision"] == "ignore":
                 row["status"] = "ignored"
             payload["opportunities"].append(row)
@@ -99,12 +132,27 @@ def import_opportunities(data_dir, service_id, rows):
         default={"opportunities": []})
 
 
-def list_opportunities(data_dir, service_id):
-    return _load(data_dir, service_id)["opportunities"]
+def list_opportunities(data_dir, service_id, *, now=None):
+    moment = _moment(now)
+    rows = []
+    for stored in _load(data_dir, service_id)["opportunities"]:
+        row = copy.deepcopy(stored)
+        if not row.get("observed_at"):
+            row["freshness_status"] = "unknown"
+        else:
+            valid_until = _instant(row.get("valid_until"), "valid_until") \
+                if row.get("valid_until") else _validity(row)
+            row["valid_until"] = valid_until.isoformat()
+            row["freshness_status"] = "expired" if moment >= valid_until else "current"
+            if row["freshness_status"] == "expired" and row.get("status") == "pending":
+                row["status"] = "expired"
+        rows.append(row)
+    return rows
 
 
-def next_action(data_dir, service_id):
-    rows = [row for row in list_opportunities(data_dir, service_id) if row["status"] == "pending"]
+def next_action(data_dir, service_id, *, now=None):
+    rows = [row for row in list_opportunities(data_dir, service_id, now=now)
+            if row["status"] == "pending" and row.get("freshness_status") == "current"]
     if not rows:
         return None
     row = sorted(rows, key=lambda item: (-item["score"], item["human_minutes"], item["id"]))[0]

@@ -85,7 +85,9 @@ def _default_executor(config_path, data_dir):
                     data_dir, service_id, github_repo=job.get("repo"),
                     gmail_sync=bool(job.get("gmail_sync")), watch_topic=job.get("watch_topic"),
                     pubsub_subscription=job.get("pubsub_subscription"),
-                    account=str(job.get("account") or "default"))
+                    account=str(job.get("account") or "default"),
+                    host_adapter=job.get("host_adapter"),
+                    execute_accepted_by=job.get("execute_accepted_by"))
                 result["ok"] = all(row.get("ok") for row in result["components"].values())
                 return result
             if kind == "goal-compile":

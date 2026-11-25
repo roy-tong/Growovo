@@ -16,6 +16,7 @@ def candidate(external_id="one", **changes):
         "existing_user": False,
         "human_minutes": 5,
         "risk": "low",
+        "observed_at": "2026-11-24T10:00:00Z",
     }
     row.update(changes)
     return row
@@ -43,9 +44,30 @@ class GrowthOpportunityTest(unittest.TestCase):
         growth_opportunities.import_opportunities(self.data, "svc-test", [candidate("high", existing_user=True)])
         growth_opportunities.import_opportunities(self.data, "svc-test", [candidate("high", existing_user=True)])
         self.assertEqual(2, len(growth_opportunities.list_opportunities(self.data, "svc-test")))
-        got = growth_opportunities.next_action(self.data, "svc-test")
+        got = growth_opportunities.next_action(self.data, "svc-test", now="2026-11-25T10:00:00Z")
         self.assertEqual("opp-github-high", got["opportunity_id"])
         self.assertEqual("engage", got["decision"])
+
+    def test_expired_opportunity_is_retained_but_not_actionable(self):
+        growth_opportunities.import_opportunities(self.data, "svc-test", [
+            candidate(valid_until="2026-11-24T12:00:00Z")])
+        rows = growth_opportunities.list_opportunities(
+            self.data, "svc-test", now="2026-11-25T10:00:00Z")
+        self.assertEqual("expired", rows[0]["freshness_status"])
+        self.assertIsNone(growth_opportunities.next_action(
+            self.data, "svc-test", now="2026-11-25T10:00:00Z"))
+
+    def test_explicit_validity_window_keeps_current_opportunity_actionable(self):
+        growth_opportunities.import_opportunities(self.data, "svc-test", [
+            candidate(valid_until="2026-11-26T12:00:00Z")])
+        got = growth_opportunities.next_action(
+            self.data, "svc-test", now="2026-11-25T10:00:00Z")
+        self.assertEqual("current", got["freshness_status"])
+
+    def test_new_opportunity_requires_timezone_aware_observation_time(self):
+        with self.assertRaisesRegex(ValueError, "observed_at"):
+            growth_opportunities.import_opportunities(self.data, "svc-test", [
+                candidate(observed_at="")])
 
     def test_high_risk_candidate_is_not_executed(self):
         got = growth_opportunities.evaluate(candidate(risk="high"))
