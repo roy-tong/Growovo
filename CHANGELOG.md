@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.22.0 — 2026-11-25
 
 ### Added
 
@@ -22,7 +22,7 @@
 
 ### Verification
 
-- 2526 offline tests and the zero-network demo pass; new coverage includes lease takeover, completion-type enforcement, provenance, GEO scoring/reproducibility, SEO fixtures, risk grants, cycle refusal paths, account-level quota resolution and business-first result cards. A wheel installed into an empty venv exposes `mkt geo`, `mkt seo` and `mkt demo`.
+- 2542 offline tests and the zero-network demo pass; new coverage includes lease takeover, completion-type enforcement, provenance, GEO scoring/reproducibility, SEO fixtures, risk grants, cycle refusal paths, account-level quota resolution and business-first result cards. A wheel installed into an empty venv exposes `mkt geo`, `mkt seo` and `mkt demo`.
 
 ## 0.21.0 — 2026-11-24
 

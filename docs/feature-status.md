@@ -1,5 +1,15 @@
 # Growovo: implementation status
 
+## GEO, risk cycles and business-first cards (v0.22.0, 2026-11-25)
+
+- `mkt geo` stores a canonical entity fact table, frozen question sets, tiered observations, Wilson intervals, explicit `not_run` rows and content-bound reports. `mkt seo audit` checks robots, sitemap, canonical, hreflang, JSON-LD, near-duplicate and city-doorway risk without modifying the site.
+- `growth authorize` adds risk-tiered standing grants with scope, quota, expiry and revocation; public statements and money/contract actions require named review. `growth cycle` records request → proposal → policy check → execution receipt and refuses missing grants, quota, DNC or expired cycles. The worker reports due cycles but never captures or sends by itself.
+- GEO experiments require a pre-registered baseline/intervention/control design and report `inconclusive` when the sample is too small. `agent-check` compares entity facts with `llms.txt`/MCP/AGENTS and marks crawler/usage counts as a lower bound.
+- `core/throttle.py` resolves per-account daily caps from `data/policies/account-quotas.json`; X Premium's owner-stated 500 posts/day is account-scoped, never a global default.
+- Result cards lead with the business goal, confirmed actions, interactions, activation/payment status and next steps; execution/evidence detail stays in the appendix.
+- **Verification:** 2542 offline tests and `mkt demo` pass; a wheel installed into an empty venv exposes `mkt geo`, `mkt seo` and `mkt demo`.
+
+
 ## R3 P0 hardening (2026-11-24)
 
 - A channel action can no longer be marked `completed` without a completion type. `verified` requires a receipt with `action_id`, `channel`, `sent_at`, `idempotency_key` and `readback`; `attested_manual` requires a named operator and a reason. `declared` completions are rejected. Metrics report `completed_verified` / `completed_attested` / `completed_declared`, and downstream actions are marked `dependency_quality: attested` when they rest on a manual attestation.
