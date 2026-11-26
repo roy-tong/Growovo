@@ -6472,7 +6472,7 @@ def build_parser():
     register_runtime_commands(sub, runtime_handler=cmd_runtime, outreach_handler=cmd_outreach,
                               validation_handler=cmd_validation)
 
-    sp = sub.add_parser("growth", help="AI Growth Service：目标编译、持久服务、下一动作与结果评估")
+    sp = sub.add_parser("growth", help="AI Growth Service：目标编译、执行策略、备料调度、持久服务与结果评估")
     from core import growth_cli
     growth_cli.register(sp)
     sp.set_defaults(fn=cmd_growth)
