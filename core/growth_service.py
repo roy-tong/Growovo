@@ -16,7 +16,8 @@ STATUSES = {"pending", "in_progress", "waiting_manual", "waiting_verification", 
 
 # R3-G-01：渠道动作的 completed 必须能区分「已验证完成」与「人工声明完成」。
 COMPLETION_KINDS = {"verified", "attested_manual"}
-REQUIRED_RECEIPT_FIELDS = ("action_id", "channel", "sent_at", "idempotency_key", "readback")
+REQUIRED_RECEIPT_FIELDS = ("action_id", "channel", "attempt_id", "account",
+                           "sent_at", "idempotency_key", "readback")
 SATISFIED_STATES = {"verified", "attested_manual", "internal"}
 
 
@@ -82,7 +83,7 @@ def _dependency_state(action):
     return str((action.get("completion") or {}).get("kind") or "declared")
 
 
-def _completion_block(action, completion, *, by, note, data_dir, service_id):
+def _completion_block(action, completion, *, by, note, data_dir, service_id, service_account):
     if action.get("kind") != "channel":
         return {"kind": "internal", "verified": True, "at": _now(), "by": str(by)}
     payload = completion if isinstance(completion, dict) else {}
@@ -103,10 +104,16 @@ def _completion_block(action, completion, *, by, note, data_dir, service_id):
             raise ValueError("verified 回执的 action_id 与动作不一致")
         if str(receipt.get("channel")).strip().lower() != str(action.get("channel") or "").strip().lower():
             raise ValueError("verified 回执的 channel 与动作不一致")
+        if str(receipt.get("account")) != str(service_account):
+            raise ValueError("verified 回执的 account 与服务账号不一致")
         matches = [row for row in Ledger(Path(data_dir) / "ledger.jsonl").all()
                    if row.get("result") == "committed"
                    and str(row.get("campaign") or "") == str(service_id)
                    and str(row.get("channel") or "").lower() == str(receipt.get("channel")).lower()
+                   and str(row.get("growth_action_id") or "") == str(action.get("id"))
+                   and str(row.get("attempt_id") or "") == str(receipt.get("attempt_id"))
+                   and str(row.get("account") or "") == str(service_account)
+                   and str(row.get("target") or "") == str(receipt.get("target") or "")
                    and str(row.get("claim_key") or "") == str(receipt.get("idempotency_key"))
                    and str(row.get("evidence") or "") == str(receipt.get("readback"))]
         if not matches:
@@ -226,7 +233,8 @@ def record_action(data_dir, service_id, action_id, status, by, note="", minutes=
             raise ValueError(f"服务 {service_id} 没有动作 {action_id}")
         block = _completion_block(
             action, completion, by=by, note=note,
-            data_dir=data_dir, service_id=service_id) if status == "completed" else None
+            data_dir=data_dir, service_id=service_id,
+            service_account=str(service.get("account") or "default")) if status == "completed" else None
         action.update(status=status, note=str(note or ""), evidence=copy.deepcopy(evidence))
         if block is not None:
             action["completion"] = block
@@ -295,23 +303,55 @@ def _measurement(entry):
                    "collected_by": "", "evidence_refs": []}
 
 
-def _evidence_valid(provenance):
+def _evidence_valid(provenance, *, metric, account, expected_value):
     refs = provenance.get("evidence_refs") or []
-    if not provenance.get("collected_by") or not refs:
+    if not provenance.get("collected_by") or not refs or expected_value is None:
         return False
     for ref in refs:
         if not isinstance(ref, dict) or not ref.get("path") or not ref.get("sha256"):
             return False
         try:
-            digest = hashlib.sha256(Path(ref["path"]).read_bytes()).hexdigest()
-        except OSError:
+            path = Path(ref["path"])
+            digest = hashlib.sha256(path.read_bytes()).hexdigest()
+            document = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
             return False
-        if digest != str(ref["sha256"]):
+        if digest != str(ref["sha256"]) or document.get("schema") != "growovo.metric-evidence/1":
+            return False
+        if (document.get("metric") != metric or str(document.get("account")) != str(account)
+                or str(document.get("window")) != str(provenance.get("window"))):
+            return False
+        collector = document.get("collector") if isinstance(document.get("collector"), dict) else {}
+        if (collector.get("id") != provenance.get("collected_by")
+                or not str(collector.get("version") or "").strip()):
+            return False
+        calculation = document.get("calculation") if isinstance(document.get("calculation"), dict) else {}
+        if calculation.get("definition_hash") != provenance.get("definition_hash"):
+            return False
+        observations = document.get("raw_observations")
+        if not isinstance(observations, list) or any(not isinstance(row, dict) for row in observations):
+            return False
+        if any(not str(row.get("observed_at") or "").strip() for row in observations):
+            return False
+        operation = calculation.get("operation")
+        field = str(calculation.get("field") or "value")
+        try:
+            if operation == "count_unique":
+                computed = len({str(row.get(field)) for row in observations if row.get(field) not in (None, "")})
+            elif operation == "sum":
+                computed = sum(row[field] for row in observations)
+            elif operation == "last" and observations:
+                computed = observations[-1][field]
+            else:
+                return False
+        except (KeyError, TypeError):
+            return False
+        if document.get("value") != computed or computed != expected_value:
             return False
     return True
 
 
-def _same_basis(baseline_prov, final_prov):
+def _same_basis(baseline_prov, final_prov, *, metric, account, baseline_value, final_value):
     """同源同口径：来源不能是自报，两侧都要有窗口，指标定义必须一致。
 
     baseline 与 final 处于不同时间段是正常的，因此不要求窗口字符串相等。
@@ -322,7 +362,11 @@ def _same_basis(baseline_prov, final_prov):
         return False
     if not baseline_prov["definition_hash"] or not final_prov["definition_hash"]:
         return False
-    if not _evidence_valid(baseline_prov) or not _evidence_valid(final_prov):
+    if not _evidence_valid(baseline_prov, metric=metric, account=account,
+                           expected_value=baseline_value):
+        return False
+    if not _evidence_valid(final_prov, metric=metric, account=account,
+                           expected_value=final_value):
         return False
     return baseline_prov["definition_hash"] == final_prov["definition_hash"]
 
@@ -332,7 +376,7 @@ def _weaker_source(baseline_prov, final_prov):
                key=lambda name: MEASUREMENT_SOURCES[name])
 
 
-def _outcome_result(outcome, baseline, final):
+def _outcome_result(outcome, baseline, final, *, account):
     actual, final_prov = _measurement(final.get(outcome["metric"]))
     before, baseline_prov = _measurement(baseline.get(outcome["metric"]))
     result = {"id": outcome["id"], "metric": outcome["metric"],
@@ -349,7 +393,9 @@ def _outcome_result(outcome, baseline, final):
         result["status"] = "unknown"
     else:
         result["status"] = "achieved" if actual >= outcome["target"] else "not_achieved"
-    same_basis = _same_basis(baseline_prov, final_prov)
+    same_basis = _same_basis(
+        baseline_prov, final_prov, metric=outcome["metric"], account=account,
+        baseline_value=before, final_value=actual)
     grade = _weaker_source(baseline_prov, final_prov) if same_basis else "owner_declared"
     result.update({
         "same_basis": same_basis,
@@ -377,7 +423,9 @@ def evaluate(data_dir, service_id, metrics, by):
         existing = next((row for row in service["evaluations"] if row["id"] == evaluation_id), None)
         if existing:
             return existing
-        outcomes = [_outcome_result(row, baseline, final) for row in service["goal"]["outcomes"]]
+        outcomes = [_outcome_result(row, baseline, final,
+                                    account=str(service.get("account") or "default"))
+                    for row in service["goal"]["outcomes"]]
         primary = next(row for row in outcomes
                        if row["id"] == next(o["id"] for o in service["goal"]["outcomes"]
                                             if o["role"] == "primary"))

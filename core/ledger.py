@@ -19,6 +19,8 @@ result 终态约定（与写路径状态机对齐）：
 """
 import json
 import os
+from contextlib import contextmanager
+from contextvars import ContextVar
 from datetime import datetime
 from pathlib import Path
 
@@ -31,6 +33,18 @@ NO_RETRY_CODES = frozenset({"indeterminate", "no-dm", "bounced", "suppressed",
                             "target_rejected", "unavailable_or_unrenderable"})
 # 目标级不可重试终态：不该再对同一个目标重试，但与渠道健康无关。
 TARGET_BLOCKED = ("target_rejected", "unavailable_or_unrenderable")
+_EXECUTION_IDENTITY = ContextVar("growovo_ledger_execution_identity", default={})
+
+
+@contextmanager
+def bind_execution(*, action_id="", attempt_id="", account=""):
+    identity = {"growth_action_id": str(action_id or ""),
+                "attempt_id": str(attempt_id or ""), "account": str(account or "")}
+    token = _EXECUTION_IDENTITY.set(identity)
+    try:
+        yield
+    finally:
+        _EXECUTION_IDENTITY.reset(token)
 
 
 class LedgerCorruptError(RuntimeError):
@@ -134,6 +148,9 @@ class Ledger:
             "evidence": evidence or "",
             "ref": ref or "",
         }
+        for key, value in _EXECUTION_IDENTITY.get().items():
+            if value:
+                rec[key] = value
         rec.update(extra)
         _append_line(self.path, json.dumps(rec, ensure_ascii=False) + "\n")
         return rec

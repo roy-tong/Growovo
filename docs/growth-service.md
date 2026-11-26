@@ -67,7 +67,7 @@ python3 mkt.py growth brief SERVICE_ID
 - `waiting_manual`：需要负责人处理，不参与自动选择。
 - `waiting_verification`：外部结果未知，先查回执，禁止自动重发。
 - `completed / blocked`：分别表示已满足当前动作验收、明确受阻；业务结果仍单独观察。
-- 渠道动作的 `completed` 必须带完成类型：`verified`（回执含 `action_id/channel/sent_at/idempotency_key/readback`）或 `attested_manual`（具名人工声明并说明原因）。只有 `verified` 计入 `completed_verified`；`attested_manual` 可解除内部依赖，但下游标 `dependency_quality: attested`。没有回执也没有人工声明时，状态层直接拒绝。
+- 渠道动作的 `completed` 必须带完成类型：`verified`（回执含 `action_id/attempt_id/account/target/channel/sent_at/idempotency_key/readback`，且 committed 账本逐项一致）或 `attested_manual`（具名人工声明并说明原因）。只有 `verified` 计入 `completed_verified`；`attested_manual` 可解除内部依赖，但下游标 `dependency_quality: attested`。没有回执也没有人工声明时，状态层直接拒绝。对账使用 Attempt 认领时冻结的 target/text，调用方后续传入的替换值不会生效。
 
 ```bash
 python3 mkt.py growth attempts SERVICE_ID
@@ -76,7 +76,7 @@ python3 mkt.py growth reconcile SERVICE_ID --action github-engage \
   --target issue:owner/repo#7 --text "原始回复正文" --by "$USER"
 ```
 
-外部动作租约过期后进入 `waiting_verification`，本地无副作用动作才重新变为 `pending`。GitHub 对账只读评论：唯一正文匹配且有真实 URL 才完成原动作；零匹配保持待核验，多匹配转人工。定时作业在写兼容状态文件前先保存最终结果，状态文件写盘失败不会导致成功作业再次执行。
+外部动作租约过期后进入 `waiting_verification`，本地无副作用动作才重新变为 `pending`。GitHub 对账只读评论：唯一正文匹配且有真实 URL 才完成原动作；零匹配保持待核验，多匹配转人工。命令中的 `--target/--text` 只用于没有冻结 payload 的旧记录，新 Attempt 一律读取认领时冻结的值。授权额度在动作认领后按 Attempt 预留；明确未执行会释放，已完成或外部结果未知保留，进程崩溃不会自动变成可重试额度。定时作业在写兼容状态文件前先保存最终结果，状态文件写盘失败不会导致成功作业再次执行。
 
 所有外部写都先取 `action_gateway` 的账号/路线执行租约。`action`、队列、周期、workflow 重放和 growth 执行走 `action_gateway → action_runner → pipeline`；仍直接调用原渠道实现的 CLI 快捷入口（`mkt github/hn/reddit/linkedin`、`mkt email`、`mkt x --legacy-cdp/message/engage`）也在执行前取同一把 lease。SQLite `execution_leases` 按账号和执行路线串行化写入，第二个执行者返回 `account_busy`，只读工作不受影响；租约在 `finally` 中释放。夜间波次先用本地队列、停写状态、配额和授权计算可执行集合，显式波次收件在零可执行动作时不打开浏览器；策略配置的常驻观测独立运行，即使零发送也报告私信。
 

@@ -75,11 +75,13 @@ class GrowthCycleTest(unittest.TestCase):
             "proposals": [{"proposal_id": "p1", "action_class": "new_outreach",
                            "action_id": "x-publish", "rationale": "reach users"}]})
         risk_policy.revoke(self.data, self.sid, grant["grant_id"], by="owner")
-        with mock.patch.object(growth_cycle.growth_execution, "run", return_value={"status": "blocked"}) as run:
+        with mock.patch.object(growth_cycle.growth_execution, "run",
+                               side_effect=lambda *args, **kwargs: kwargs["on_claimed"](
+                                   {"attempt_id": "attempt-revoked"})) as run:
             result = growth_cycle.execute(self.data, self.sid, "cycle-test", by="tester")
         self.assertEqual("blocked", result["status"])
         self.assertEqual("authorization_changed", result["executions"][0]["error"])
-        run.assert_not_called()
+        run.assert_called_once()
 
     def test_auto_proposal_cannot_execute_a_channel_action(self):
         growth_cycle.request(self.data, self.sid, actor="tester", cycle_id="cycle-test")
@@ -87,11 +89,13 @@ class GrowthCycleTest(unittest.TestCase):
             "schema": PROPOSAL, "producer_id": "host-agent",
             "proposals": [{"proposal_id": "p1", "action_class": "observe",
                            "action_id": "x-publish", "rationale": "misclassified"}]})
-        with mock.patch.object(growth_cycle.growth_execution, "run", return_value={"status": "blocked"}) as run:
+        with mock.patch.object(growth_cycle.growth_execution, "run",
+                               side_effect=lambda *args, **kwargs: kwargs["on_claimed"](
+                                   {"attempt_id": "attempt-mismatch"})) as run:
             result = growth_cycle.execute(self.data, self.sid, "cycle-test", by="tester")
         self.assertEqual("blocked", result["status"])
         self.assertEqual("action_class_mismatch", result["executions"][0]["error"])
-        run.assert_not_called()
+        run.assert_called_once()
 
     def test_execute_consumes_grant_quota(self):
         grant = risk_policy.grant(self.data, self.sid, action_class="new_outreach",
@@ -101,11 +105,52 @@ class GrowthCycleTest(unittest.TestCase):
             "schema": PROPOSAL, "producer_id": "host-agent",
             "proposals": [{"proposal_id": "p1", "action_class": "new_outreach",
                            "action_id": "x-publish", "rationale": "reach users"}]})
-        with mock.patch.object(growth_cycle.growth_execution, "run", return_value={"status": "blocked"}):
-            growth_cycle.execute(self.data, self.sid, "cycle-test", by="tester")
+        def blocked_run(*args, on_claimed=None, **kwargs):
+            if on_claimed:
+                on_claimed({"attempt_id": "attempt-test"})
+            return {"status": "blocked", "action_id": "x-publish"}
+        with mock.patch.object(growth_cycle.growth_execution, "run", side_effect=blocked_run):
+            result = growth_cycle.execute(self.data, self.sid, "cycle-test", by="tester")
+        current = next(row for row in risk_policy.list_grants(self.data, self.sid)
+                       if row["grant_id"] == grant["grant_id"])
+        self.assertEqual(0, current["used"])
+        self.assertEqual("blocked", result["executions"][0]["execution"])
+        self.assertEqual("blocked", result["status"])
+
+    def test_unknown_external_result_keeps_reserved_quota(self):
+        grant = risk_policy.grant(self.data, self.sid, action_class="new_outreach",
+                                  granted_by="owner", quota=1)
+        growth_cycle.request(self.data, self.sid, actor="tester", cycle_id="cycle-test")
+        growth_cycle.propose(self.data, self.sid, "cycle-test", {
+            "schema": PROPOSAL, "producer_id": "host-agent",
+            "proposals": [{"proposal_id": "p1", "action_class": "new_outreach",
+                           "action_id": "x-publish", "rationale": "reach users"}]})
+        def unknown_run(*args, on_claimed=None, **kwargs):
+            if on_claimed:
+                on_claimed({"attempt_id": "attempt-unknown"})
+            return {"status": "waiting_verification", "action_id": "x-publish"}
+        with mock.patch.object(growth_cycle.growth_execution, "run", side_effect=unknown_run):
+            result = growth_cycle.execute(self.data, self.sid, "cycle-test", by="tester")
         current = next(row for row in risk_policy.list_grants(self.data, self.sid)
                        if row["grant_id"] == grant["grant_id"])
         self.assertEqual(1, current["used"])
+        self.assertEqual("waiting_verification", result["executions"][0]["execution"])
+        self.assertEqual("waiting_verification", result["status"])
+
+    def test_action_already_claimed_does_not_consume_quota(self):
+        grant = risk_policy.grant(self.data, self.sid, action_class="new_outreach",
+                                  granted_by="owner", quota=1)
+        growth_cycle.request(self.data, self.sid, actor="tester", cycle_id="cycle-test")
+        growth_cycle.propose(self.data, self.sid, "cycle-test", {
+            "schema": PROPOSAL, "producer_id": "host-agent",
+            "proposals": [{"proposal_id": "p1", "action_class": "new_outreach",
+                           "action_id": "x-publish", "rationale": "reach users"}]})
+        with mock.patch.object(growth_cycle.growth_execution, "run",
+                               return_value={"status": "in_progress", "action_id": "x-publish"}):
+            growth_cycle.execute(self.data, self.sid, "cycle-test", by="tester")
+        current = next(row for row in risk_policy.list_grants(self.data, self.sid)
+                       if row["grant_id"] == grant["grant_id"])
+        self.assertEqual(0, current["used"])
 
     def test_expired_cycle_refuses_late_proposal(self):
         growth_cycle.request(self.data, self.sid, actor="tester", cycle_id="cycle-test")

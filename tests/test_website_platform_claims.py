@@ -45,8 +45,8 @@ class WebsitePlatformClaimsTest(unittest.TestCase):
 
     def test_product_home_redirects_to_unified_site(self):
         requirements = {
-            "index.html": "https://roy-tong.github.io/ovo/",
-            "en.html": "https://roy-tong.github.io/ovo/en.html",
+            "index.html": "https://roy-tong.github.io/ovo/growovo/",
+            "en.html": "https://roy-tong.github.io/ovo/growovo/en.html",
         }
         for name, destination in requirements.items():
             text = self.page(name)

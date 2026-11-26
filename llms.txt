@@ -23,8 +23,12 @@ A general agent chooses the operating path. Growovo preserves authorization, ide
 ## Entry points
 
 ```bash
-pipx install growovo
-mkt demo
+# Stable
+<!--OVO:growovo-stable-->pipx install growovo==0.23.0
+mkt demo<!--/OVO:growovo-stable-->
+# Preview
+<!--OVO:growovo-preview-->pipx install growovo==0.23.1rc2
+mkt demo<!--/OVO:growovo-preview-->
 
 python3 mkt.py grow platforms
 python3 mkt.py policy enable --actions email:message --by "$USER"

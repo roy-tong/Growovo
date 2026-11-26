@@ -132,7 +132,9 @@ def _risk_notice(platform: str, action: str, actual_transport: str) -> Dict[str,
         "transport": actual_transport,
         "risk_code": row.get("code"),
         "risk_warning": row.get("risk_warning") or "",
-        "platform_permission": "operator_risk",
+        "platform_permission": False,
+        "authorization_scope": "operator_risk",
+        "preferred_route": "official_api",
     }
 
 
@@ -290,6 +292,10 @@ def policy_row(platform: str) -> Dict[str, Any]:
     rows = {
         "x": {
             "autonomous_write": True,
+            "autonomous_write_meaning": "business_capability_not_platform_permission",
+            "preferred_route": "official_api",
+            "platform_permission": False,
+            "owner_risk_opt_in_required": True,
             "user_visible_cdp_write": True,
             "user_visible_cdp_actions": sorted(WRITE_ACTIONS),
             "owner_attested_browser_write": True,

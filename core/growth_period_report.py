@@ -8,8 +8,11 @@ from . import growth_cycle, growth_lifecycle, growth_service
 from .storage import AtomicJSONStore
 
 SCHEMA = "growovo.growth-period-report/1"
-CYCLE_STATES = ("open", "proposed", "executed", "blocked", "expired")
-EXECUTION_STATES = ("executed", "refused", "blocked", "mapping_required")
+CYCLE_STATES = ("open", "proposed", "executed", "waiting_verification",
+                "waiting_manual", "preview", "blocked", "expired")
+EXECUTION_STATES = ("executed", "completed", "waiting_verification", "waiting_manual",
+                    "manual_handoff", "preview", "in_progress", "pending",
+                    "refused", "blocked", "mapping_required")
 
 
 def _instant(value, label):
@@ -103,6 +106,8 @@ def build(data_dir, service_id, *, start, end, identity_map=None):
             if isinstance(result, dict):
                 result_status = str(result.get("status") or "unknown")
                 result_statuses[result_status] = result_statuses.get(result_status, 0) + 1
+    execution_counts["executed"] += sum(execution_counts[state] for state in (
+        "completed", "waiting_verification", "waiting_manual", "manual_handoff", "preview"))
 
     lifecycle = growth_lifecycle.project(
         data_dir, service_id, identity_map=identity_map or {})

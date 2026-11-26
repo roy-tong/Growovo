@@ -18,7 +18,7 @@ Growovo 以业务交付为核心，分别判断三件事：
 
 | 等级 | 平台 | 业务执行方式、验证与风险提示 |
 | --- | --- | --- |
-| ✅ AUTO | **X** | publish/reply 默认通过 WebBridge 受管标签执行（身份观测与执行在同一标签）；routine 也改走 owner-attested，不再默认 routine CDP；message/engage 与显式 `--legacy-cdp` 走调试浏览器 CDP；X 只读默认 WebBridge；官方 X API 写入尚未实现。`non_api_write_forbidden` 仅提示平台与账号风险，不再阻断业务 |
+| ✅ AUTO | **X** | 官方 API 是默认优先路线（当前写入尚未实现）。publish/reply 仅在显式 owner-attested opt-in 窗口通过 WebBridge 受管标签执行（身份观测与执行在同一标签）；message/engage 与显式 `--legacy-cdp` 走调试浏览器 CDP；X 只读默认 WebBridge。`platform_permission=false`，`autonomous_write` 只表示业务技术能力；`non_api_write_forbidden` 提示平台与账号风险，不伪装成平台许可 |
 | ✅ AUTO | **Discord** | publish 可通过授权 WebMonitor 受管页面执行；reply 仍有独立 UNVERIFIED 技术边界。`self_bot_forbidden` 仅提示风险 |
 | ✅ AUTO | **Email** | SMTP / Gmail API + 有效 routine/plan、DNC、配额和未知结果保护。Gmail 授权测试账号自测 canary 已通过；真实 SMTP 验收仍是独立边界 |
 | ⚠️ GATED | **GitHub** | GitHub App 优先，Issue 使用 REST、Discussion 使用 GraphQL。自有仓库 Issue #41 创建与评论 canary 已通过；Discussion 和其他仓库仍需技术验收，当前全局成熟度字段仍待按动作/路线拆分 |

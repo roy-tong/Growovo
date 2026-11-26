@@ -4,6 +4,7 @@ import unittest
 from concurrent.futures import ThreadPoolExecutor
 
 from core import risk_policy
+from core.storage import FileLock
 
 
 class RiskPolicyTest(unittest.TestCase):
@@ -78,6 +79,17 @@ class RiskPolicyTest(unittest.TestCase):
         risk_policy.revoke(self.data, self.sid, grant["grant_id"], by="owner")
         self.assertFalse(risk_policy.explain(
             self.data, self.sid, action_class="new_outreach")["allowed"])
+
+    def test_grant_revoke_and_consume_share_one_lock(self):
+        from unittest import mock
+        with tempfile.TemporaryDirectory() as tmp, mock.patch(
+                "core.risk_policy.FileLock", wraps=FileLock) as lock:
+            grant = risk_policy.grant(
+                tmp, self.sid, action_class="routine_reply", granted_by="owner", quota=1)
+            risk_policy.revoke(tmp, self.sid, grant["grant_id"], by="owner")
+            with self.assertRaises(ValueError):
+                risk_policy.consume(tmp, self.sid, grant["grant_id"])
+        self.assertEqual(3, lock.call_count)
 
     def test_high_risk_classes_cannot_be_standing_grants(self):
         for action_class in ("public_statement", "money_contract"):

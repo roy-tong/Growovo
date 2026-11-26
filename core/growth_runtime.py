@@ -370,6 +370,7 @@ def claim_action(data_dir, service_id, action_id, worker, payload, lease_seconds
              int(action.get("kind") == "channel"), now, now))
         action["status"] = "in_progress"
         action["active_attempt_id"] = attempt_id
+        action["attempt_payload"] = copy.deepcopy(payload or {})
         event = {"kind": "action_claimed", "action_id": action_id, "attempt_id": attempt_id,
                  "worker": str(worker), "intent_sha256": intent, "lease_expires_at": lease_until}
         _save_tx(connection, data_dir, service, version, event)
