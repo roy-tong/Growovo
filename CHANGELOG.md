@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.23.1rc2 — 2026-11-26
+
+### Added
+
+- `grow status --explain` now includes an `ovo.task-result/1` projection with six business states, operational evidence, actionable recovery commands and scoped content/activation-data gaps. Missing product events leave activation unknown without blocking unrelated authorized operations.
+
+### Fixed
+
+- Verified growth completion now binds a committed execution ledger; observed metrics need readable hash-matched evidence. Cycle execution rechecks action class, grant status and scope and atomically consumes quota.
+- Notification delivery requires a non-empty adapter receipt. Empty receipts remain failed and pending instead of being marked delivered.
+- Lifecycle keeps historical furthest stage separate from current relationship health. Agent adoption distinguishes process, fresh-session, accepted first value, external adoption and retention evidence.
+
 ## 0.23.0 — 2026-11-26
 
 ### Added

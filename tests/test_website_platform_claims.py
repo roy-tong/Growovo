@@ -43,26 +43,16 @@ class WebsitePlatformClaimsTest(unittest.TestCase):
                 )
                 self.assertEqual(actual, expected)
 
-    def test_visible_copy_leads_with_growth_value_and_next_action(self):
+    def test_product_home_redirects_to_unified_site(self):
         requirements = {
-            "index.html": (
-                "你定目标和边界，增长运营持续发生",
-                "授权范围内自动，范围之外升级",
-                "先跑零账号 Demo",
-                "docs/platform-automation-matrix.md",
-            ),
-            "en.html": (
-                "Set the goal and guardrails. Growovo keeps growth work moving.",
-                "Automate within the approved scope. Escalate beyond it.",
-                "Run the zero-account demo",
-                "docs/platform-automation-matrix.md",
-            ),
+            "index.html": "https://roy-tong.github.io/ovo/",
+            "en.html": "https://roy-tong.github.io/ovo/en.html",
         }
-        for name, sentences in requirements.items():
+        for name, destination in requirements.items():
             text = self.page(name)
-            for sentence in sentences:
-                with self.subTest(page=name, sentence=sentence):
-                    self.assertIn(sentence, text)
+            with self.subTest(page=name):
+                self.assertIn(f'http-equiv="refresh" content="0;url={destination}"', text)
+                self.assertIn(f'href="{destination}"', text)
 
     def test_readmes_do_not_label_forbidden_x_writes_as_proven(self):
         for name in ("README.md", "README.en.md"):

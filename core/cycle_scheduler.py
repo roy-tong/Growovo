@@ -7,6 +7,13 @@ import json
 from pathlib import Path
 from typing import Any, Dict
 from .job_kernel import JobStateMachine, JobStore, TERMINAL, DEPENDENCY_OK
+from .business_result import build_business_result
+from . import scheduled_scope
+
+
+def _wave_log(message):
+    import sys
+    print(message, file=sys.stderr)
 
 
 def state_path(data_dir) -> Path:
@@ -21,6 +28,15 @@ def _now(value=None):
     return dt.datetime.now().astimezone()
 
 
+def _select_job(rows, job_id):
+    if not job_id:
+        return rows
+    selected = [row for row in rows if row.get("id") == job_id]
+    if not selected:
+        raise ValueError("作业配置中不存在 job_id：%s" % job_id)
+    return selected
+
+
 def _load_config(path) -> Dict[str, Any]:
     payload = json.loads(Path(path).read_text(encoding="utf-8"))
     rows = payload.get("jobs") if isinstance(payload, dict) else None
@@ -29,7 +45,22 @@ def _load_config(path) -> Dict[str, Any]:
     ids = [str(row.get("id") or "") for row in rows if isinstance(row, dict)]
     if len(ids) != len(rows) or any(not value for value in ids) or len(set(ids)) != len(ids):
         raise ValueError("每个作业必须有唯一 id")
+    hourly = payload.get("cadence") == "hourly"
+    base = _now(payload["start_at"]) if hourly and payload.get("start_at") else None
     for row in rows:
+        if hourly and row.get("kind") == "wave":
+            slot = row.get("slot")
+            if type(slot) is not int or slot < 0:
+                raise ValueError("hourly wave 需要非负整数 slot")
+            if base is None and row.get("at"):
+                base = _now(row["at"]) - dt.timedelta(hours=slot)
+            if base is None or base.tzinfo is None:
+                raise ValueError("hourly 模式需要含时区的 start_at 或 at")
+            expected = base + dt.timedelta(hours=slot)
+            when = _now(row["at"]) if row.get("at") else expected
+            if when != expected:
+                raise ValueError("hourly 波次的 at 必须与 slot 的小时间隔一致")
+            row.setdefault("at", when.isoformat())
         when = dt.datetime.fromisoformat(str(row.get("at") or "").replace("Z", "+00:00"))
         if when.tzinfo is None:
             raise ValueError("作业 at 必须包含时区：%s" % row["id"])
@@ -56,10 +87,17 @@ def _default_executor(config_path, data_dir):
         data_dir = Path(data_dir)
         kind = job.get("kind")
         if kind == "wave":
-            return cycle.run(data_dir, go=go,
-                             wave_id=str(job.get("wave") or job["id"]),
-                             budget_sec=int(job.get("budget_sec", 3000)),
-                             session=str(job.get("session") or ""))
+            try:
+                with scheduled_scope.activate(data_dir, config_path, job) as (queue, capacity):
+                    result = cycle.run(data_dir, go=go, queue_path=queue,
+                                     wave_id=str(job.get("wave") or job["id"]),
+                                     budget_sec=int(job.get("budget_sec", 3000)),
+                                     session=str(job.get("session") or ""),
+                                     auto_inbox=False, prefetch=False, log=_wave_log)
+                    return dict(result, accepted=sum(capacity["eligible"].values()),
+                                approved_targets=capacity["targets"])
+            except scheduled_scope.ScopeError as exc:
+                return {"ok": False, "reason": str(exc)}
         if kind == "inbox-update":
             data_dir = Path(job.get("data_dir") or data_dir)
             file = Path(job["file"])
@@ -156,7 +194,24 @@ def _default_executor(config_path, data_dir):
     return execute
 
 
+def _dependencies_ok(job):
+    """依赖只要求上游「跑完并给出结算」（succeeded / completed_with_errors）。
+
+    这里一度收紧成波次必须 succeeded：一条 429 就让第 1 波变成
+    completed_with_errors，后面所有波次整夜 blocked——一次限流废掉整晚。
+    未知结果（needs_reconciliation）仍然拦住下游，因为那需要人工先裁决。
+    """
+    return DEPENDENCY_OK
+
+
 def _record_status(job, result):
+    targets = ((job.get("ovo") or {}).get("business_targets") or result.get("approved_targets")
+               or job.get("targets") or {})
+    if job.get("kind") == "wave" and targets:
+        card = build_business_result(job, result)
+        result = dict(result, target=sum(int(value) for value in targets.values()),
+                      target_shortfall=bool(card["execution"]["gap"]))
+
     return JobStateMachine.transition(str(job.get("kind") or ""), result)
 
 
@@ -167,10 +222,15 @@ def _view(data_dir, config, now):
     for job in config["jobs"]:
         stored = state["jobs"].get(job["id"]) or {}
         status = stored.get("status") or "pending"
+        if stored.get("intent") and stored["intent"] != scheduled_scope.digest(scheduled_scope.job_spec(job)):
+            raise ValueError("已登记作业内容发生变化，请用新的作业 ID 并引用 retry_of：%s" % job["id"])
         when = dt.datetime.fromisoformat(str(job["at"]).replace("Z", "+00:00"))
         if status not in TERMINAL and current < when:
             status = "pending"
-        rows.append(dict(job, status=status, state=stored))
+        row = dict(job, status=status, state=stored)
+        if stored.get("business_result"):
+            row["business_result"] = stored["business_result"]
+        rows.append(row)
     return state, rows
 
 
@@ -182,21 +242,52 @@ def status(data_dir, config_path, *, now=None) -> Dict[str, Any]:
     for row in rows:
         counts[row["status"]] = counts.get(row["status"], 0) + 1
         output.append({key: value for key, value in row.items() if key != "state"})
-    return {"ok": not counts.get("needs_reconciliation"), "counts": counts,
+    due = [row for row in output if row["kind"] == "wave" and _now(row["at"]) <= _now(now)]
+    terminal = [row for row in due if row["status"] in TERMINAL]
+    settled = [row for row in terminal if row.get("business_result")]
+    cards = [row["business_result"]["execution"] for row in settled]
+    # 旧构建写下的终态没有结算卡；不能因此把它算成「还在等」，那会让整晚报告永远失败。
+    settlement = {"due": len(due), "terminal": len(terminal), "settled": len(settled),
+                  "unmeasured": [row["id"] for row in terminal if not row.get("business_result")],
+                  "waiting": [row["id"] for row in due if row["status"] not in TERMINAL],
+                  "target": sum(sum(((row.get("ovo") or {}).get("business_targets") or
+                                     row.get("targets") or {}).values()) or
+                                ((row.get("business_result") or {}).get("execution") or {}).get("target", 0)
+                                for row in due),
+                  "committed": sum(card["committed"] for card in cards),
+                  "indeterminate": sum(card["indeterminate"] for card in cards)}
+    return {"ok": not any(counts.get(key) for key in ("failed", "needs_reconciliation", "expired", "completed_with_errors")), "counts": counts, "settlement": settlement,
+            "notifications": _notifications(data_dir),
             "jobs": output, "state_path": str(state_path(data_dir))}
 
 
-def tick(data_dir, config_path, *, now=None, go: bool = False, executor=None, max_jobs: int = 1):
+def _notifications(data_dir):
+    """未确认投递的作业变化条数；outbox 不可读时如实说不可读，不让报表跟着崩。"""
+    from . import notification_outbox
+    try:
+        return {"pending": len(notification_outbox.pending(data_dir))}
+    except (OSError, ValueError) as exc:
+        return {"pending": None, "error": str(exc)[:200]}
+
+
+def tick(data_dir, config_path, *, now=None, go: bool = False, executor=None, max_jobs: int = 1,
+         job_id: str = ""):
     config = _load_config(config_path)
     current = _now(now)
+    if go:
+        issue = scheduled_scope.schedule_issue(data_dir, config_path, config)
+        if issue:
+            return {"ok": False, "reason": issue, "executed": 0, "jobs": []}
     if not go:
         _, rows = _view(data_dir, config, current)
+        all_rows = rows
+        rows = _select_job(rows, job_id)
         output = []
         for row in rows:
             state = row["status"]
-            if state not in TERMINAL:
-                dependencies = {other["id"]: other["status"] for other in rows}
-                if any(dependencies.get(dep) not in DEPENDENCY_OK for dep in row.get("requires") or []):
+            if state not in TERMINAL and current >= _now(row["at"]):
+                dependencies = {other["id"]: other["status"] for other in all_rows}
+                if any(dependencies.get(dep) not in _dependencies_ok(row) for dep in row.get("requires") or []):
                     state = "blocked"
                 else:
                     state = "dry-run"
@@ -213,9 +304,12 @@ def tick(data_dir, config_path, *, now=None, go: bool = False, executor=None, ma
         return {"ok": False, "reason": "scheduler_already_running", "jobs": [], "executed": 0}
     try:
         state, rows = _view(data_dir, config, current)
+        all_rows = rows
+        rows = _select_job(rows, job_id)
         execute = executor or _default_executor(config_path, data_dir)
         executed = 0
         output = []
+        changes = []
         for row in rows:
             current_status = row["status"]
             if current_status in TERMINAL:
@@ -226,13 +320,13 @@ def tick(data_dir, config_path, *, now=None, go: bool = False, executor=None, ma
                 output.append({key: value for key, value in row.items() if key != "state"})
                 continue
             ttl = row.get("expire_after_sec")
-            if ttl is not None and (current - when).total_seconds() > max(0, int(ttl)):
+            if ttl is not None and (current - when).total_seconds() >= max(0, int(ttl)):
                 current_status = "expired"
                 result = {"ok": False, "reason": "job_expired"}
             else:
-                dependencies = {other["id"]: other["status"] for other in rows}
+                dependencies = {other["id"]: other["status"] for other in all_rows}
                 missing = [dep for dep in row.get("requires") or []
-                           if dependencies.get(dep) not in DEPENDENCY_OK]
+                           if dependencies.get(dep) not in _dependencies_ok(row)]
                 if missing or executed >= max(1, int(max_jobs)):
                     current_status = "blocked" if missing else "deferred"
                     result = {"ok": False, "reason": "dependency_not_succeeded" if missing else "tick_job_limit"}
@@ -241,33 +335,112 @@ def tick(data_dir, config_path, *, now=None, go: bool = False, executor=None, ma
                     ticket = growth_runtime.claim_scheduled_job(
                         data_dir, row, external=row.get("kind") in {"wave", "asset-prepare"})
                     if ticket["execute"]:
-                        result = execute(row, True)
+                        try:
+                            result = execute(row, True)
+                        except Exception as exc:
+                            result = {"ok": False, "reason": "executor_error", "error": str(exc)}
+                            if row.get("kind") == "wave":
+                                result["reason"] = "dispatch_state_unknown"
+                                result["results"] = [{"result": "indeterminate"}]
                         executed += 1
                     else:
                         result = ticket["result"]
                     current_status, reason = _record_status(row, result)
-                    result = dict(result, reason=reason)
+                    result = dict(result, job_status=current_status,
+                                  exit_code=0 if current_status in {"succeeded", "deferred", "blocked"} else 2)
+                    business_result = build_business_result(row, result, data_dir)
+                    result = dict(result, reason=reason, business_result=business_result)
                     if ticket["execute"] and current_status not in {"deferred", "blocked"}:
                         growth_runtime.finish_scheduled_job(data_dir, row, current_status, result)
                     elif ticket["execute"]:
                         growth_runtime.release_scheduled_job(data_dir, row)
+                    row["business_result"] = business_result
+            if "business_result" not in result:
+                result = dict(result, job_status=current_status,
+                              exit_code=0 if current_status in {"succeeded", "deferred", "blocked"} else 2)
+                result["business_result"] = build_business_result(row, result, data_dir)
+                row["business_result"] = result["business_result"]
             stored = dict(state["jobs"].get(row["id"]) or {})
-            stored.update(status=current_status, updated_at=current.isoformat(timespec="seconds"),
-                          reason=str(result.get("reason") or ""))
+            stored.update(intent=scheduled_scope.digest(scheduled_scope.job_spec(row)), status=current_status, updated_at=current.isoformat(timespec="seconds"),
+                          reason=str(result.get("reason") or ""),
+                          business_result=result["business_result"])
             if current_status not in {"blocked", "deferred"} or row["status"] != current_status:
+                change = {"id": row["id"], "status": current_status,
+                          "event_id": "%s@%s" % (row["id"], current.isoformat(timespec="seconds")),
+                          "previous_status": row["status"],
+                          "reason": stored["reason"], "next_action": result["business_result"]["next_action"]}
+                from . import notification_outbox
+                notification_outbox.record(data_dir, change)
+                changes.append(change)
                 stored.setdefault("history", []).append({
                     "at": current.isoformat(timespec="seconds"), "status": current_status,
                     "reason": str(result.get("reason") or ""),
                     "summary_path": str(result.get("summary_path") or ""),
+                    "business_result": result["business_result"],
                 })
             state["jobs"][row["id"]] = stored
             row["status"] = current_status
+            _save_state(data_dir, state)
             row["state"] = stored
             output.append({key: value for key, value in row.items() if key != "state"})
-        _save_state(data_dir, state)
-        return {"ok": all(row["status"] not in {"failed", "needs_reconciliation"} for row in output),
-                "apply": True, "jobs": output, "executed": executed,
+        return {"ok": all(row["status"] not in {
+                    "failed", "needs_reconciliation", "expired", "completed_with_errors"
+                } for row in output),
+                "apply": True, "jobs": output, "executed": executed, "changes": changes,
                 "state_path": str(state_path(data_dir))}
     finally:
         fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
         handle.close()
+
+
+def serve(data_dir, config_path, *, go=True, once=False, poll_sec=5.0, max_jobs=1,
+          executor=None, clock=None, sleeper=None):
+    """Run due jobs without a chat session; external schedulers may still invoke --once."""
+    import time
+    started = time.monotonic()
+
+    def finish(payload):
+        return dict(payload, operations={
+            "host_agent": "not_used", "scheduler_token_usage": 0,
+            "other_token_usage": "not_measured",
+            "elapsed_sec": round(time.monotonic() - started, 3)})
+
+    clock = clock or (lambda: dt.datetime.now().astimezone())
+    sleeper = sleeper or time.sleep
+    poll_sec = float(poll_sec)
+    if poll_sec <= 0:
+        raise ValueError("poll_sec 必须大于 0")
+    if not go:
+        return finish(tick(data_dir, config_path, now=clock(), go=False, executor=executor,
+                           max_jobs=max_jobs))
+    changes = []
+    executed = 0
+    while True:
+        current = clock()
+        got = tick(data_dir, config_path, now=current, go=True, executor=executor,
+                   max_jobs=max_jobs)
+        changes.extend(got.get("changes") or [])
+        executed += int(got.get("executed") or 0)
+        if once:
+            view = status(data_dir, config_path, now=current)
+            finished = all(row["status"] in TERMINAL for row in view["jobs"])
+            return finish(dict(got, reason="schedule_finished" if finished else "tick_finished",
+                               jobs=view["jobs"] if finished else got["jobs"], changes=changes,
+                               executed=executed))
+        if got.get("reason") == "scheduler_already_running":
+            return finish(got)
+        settings = _load_config(config_path)
+        if str(settings.get("plan_status", "")).startswith("STOPPED"):
+            return finish(dict(got, ok=False, reason="schedule_stopped", changes=changes,
+                               executed=executed))
+        view = status(data_dir, config_path, now=current)
+        rows = view["jobs"]
+        if all(row["status"] in TERMINAL for row in rows):
+            return finish(dict(got, ok=view["ok"], reason="schedule_finished", jobs=rows,
+                               changes=changes, executed=executed))
+        blocked = [row for row in rows
+                   if row["status"] == "blocked" and _now(row["at"]) <= current]
+        if blocked and not got.get("executed"):
+            return finish(dict(got, ok=False, reason="no_runnable_jobs", jobs=rows,
+                               changes=changes, executed=executed))
+        sleeper(poll_sec)

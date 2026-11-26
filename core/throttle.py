@@ -95,12 +95,14 @@ class ThrottleError(Exception):
 
 
 class Throttle:
-    def __init__(self, state_dir, day_boundary=None, account=""):
+    def __init__(self, state_dir, day_boundary=None, account="", strict=False):
         self.state_dir = Path(state_dir)
         self.day_boundary = day_boundary or DAY_BOUNDARY
         self.account = str(account or "").strip().lstrip("@").lower()
+        self.strict = bool(strict)
 
-    def _account_daily_cap(self, channel, action):
+    def _account_rows(self, channel):
+        """该平台的全部额度行；无配置文件返回 None（表示沿用系统默认）。"""
         path = self.state_dir.parent / "policies" / "account-quotas.json"
         if not path.is_file():
             return None
@@ -111,26 +113,86 @@ class Throttle:
                 raise ValueError("accounts 必须是数组")
         except (OSError, ValueError, TypeError, json.JSONDecodeError) as exc:
             raise ThrottleError(f"账号额度配置无效：{path}：{exc}") from exc
-        candidates = [row for row in accounts if isinstance(row, dict)
-                      and str(row.get("platform") or "").strip().lower() == channel]
+        return [row for row in accounts if isinstance(row, dict)
+                and str(row.get("platform") or "").strip().lower() == channel]
+
+    @staticmethod
+    def _identity(row):
+        return {str(row.get(field) or "").strip().lstrip("@").lower()
+                for field in ("account_id", "handle")} - {""}
+
+    @classmethod
+    def _is_identity_bound(cls, row):
+        """带 handle 的行绑定具体账号；无 handle 的行是平台级缺省（如 discord-default）。
+
+        平台级缺省行适用于该平台的任何账号，因此不能拿它来拒绝一个观测到的账号——
+        那会让「只配了平台默认额度」的渠道永远发不出去。
+        """
+        return bool(str(row.get("handle") or "").strip())
+
+    def _account_profile(self, channel):
+        rows = self._account_rows(channel)
+        if not rows:
+            return None
         if self.account:
-            candidates = [row for row in candidates if self.account in {
-                str(row.get(field) or "").strip().lstrip("@").lower()
-                for field in ("account_id", "handle")
-            }]
-        if len(candidates) != 1:
-            return None
-        cap = (candidates[0].get("daily_caps") or {}).get(action)
-        if cap is None:
-            return None
-        if type(cap) is not int or cap < 0:
+            matches = [row for row in rows if self.account in self._identity(row)]
+            if len(matches) == 1:
+                return matches[0]
+            if len(matches) > 1:
+                return None
+            defaults = [row for row in rows if not self._is_identity_bound(row)]
+            return defaults[0] if len(defaults) == 1 else None
+        defaults = [row for row in rows if not self._is_identity_bound(row)]
+        if len(defaults) == 1:
+            return defaults[0]
+        return rows[0] if len(rows) == 1 else None
+
+    @staticmethod
+    def _cap(value, channel, action, field="daily_cap"):
+        if type(value) is not int or value < 0:
             raise ThrottleError(
-                f"账号额度配置无效：{channel}/{action} 的 daily_cap 必须是非负整数")
-        return cap
+                f"账号额度配置无效：{channel}/{action} 的 {field} 必须是非负整数")
+        return value
+
+    def _account_daily_cap(self, channel, action):
+        profile = self._account_profile(channel)
+        if profile is None:
+            return None
+        cap = (profile.get("daily_caps") or {}).get(action)
+        return None if cap is None else self._cap(cap, channel, action)
+
+    def _shared_daily_rule(self, channel, action):
+        profile = self._account_profile(channel)
+        if profile is None:
+            return None
+        rules = profile.get("shared_daily_caps") or []
+        if not isinstance(rules, list):
+            raise ThrottleError("账号额度配置无效：shared_daily_caps 必须是数组")
+        matches = []
+        for rule in rules:
+            if not isinstance(rule, dict) or not isinstance(rule.get("actions"), list):
+                raise ThrottleError("账号额度配置无效：每个 shared_daily_caps 都需要 actions 数组")
+            if action in rule["actions"]:
+                matches.append(rule)
+        if len(matches) > 1:
+            raise ThrottleError(f"账号额度配置无效：{channel}/{action} 命中多个共享额度")
+        if not matches:
+            return None
+        rule = matches[0]
+        cap = self._cap(rule.get("cap"), channel, action, "shared_daily_cap")
+        actions = [str(item) for item in rule["actions"]]
+        if not actions:
+            raise ThrottleError("账号额度配置无效：共享 actions 不能为空")
+        return {"actions": actions, "cap": cap}
+
+    def quota_actions(self, channel, action):
+        rule = self._shared_daily_rule(channel, action)
+        return list(rule["actions"]) if rule else [action]
 
     def policy(self, channel, action):
         lo, hi, run_cap, daily_cap = INTERVALS.get((channel, action), FALLBACK)
-        account_cap = self._account_daily_cap(channel, action)
+        shared = self._shared_daily_rule(channel, action)
+        account_cap = shared["cap"] if shared else self._account_daily_cap(channel, action)
         return lo, hi, run_cap, daily_cap if account_cap is None else account_cap
 
     def interval(self, channel, action, override=0):
@@ -268,7 +330,7 @@ class Throttle:
             day += timedelta(days=1)
         return total
 
-    def daily_used(self, channel, action):
+    def _daily_used_one(self, channel, action):
         if self.day_boundary == "rolling_24h":
             return len(self._rolling_events())
         state = self._read_state()
@@ -277,6 +339,12 @@ class Throttle:
         except (TypeError, ValueError):
             current = 0
         return current + self._legacy_local_used(channel, action)
+
+    def daily_used(self, channel, action):
+        if self.day_boundary == "rolling_24h":
+            return len(self._rolling_events())
+        return sum(self._daily_used_one(channel, item)
+                   for item in self.quota_actions(channel, action))
 
     def daily_allows(self, channel, action, n=1):
         _, _, _, daily_cap = self.policy(channel, action)
@@ -295,12 +363,50 @@ class Throttle:
             return None
         return max(0, int(daily_cap) - self.daily_used(channel, action))
 
+    def validate_identity(self, channel, action):
+        """严格模式：只拒绝「换了 owner 声明的身份」和「配置自相矛盾」两种发送。
+
+        其余情况一律回落到更保守的系统默认，不阻断：
+
+        - 没有该平台配置行 / 没覆盖该动作 → 沿用 INTERVALS；缺配置不是风险。
+        - 只有平台级缺省行（无 handle，如 discord-default）→ 任何观测账号都适用。
+        - 只有观测到的账号行（source=account_observed）而实际账号不同 → 回落默认；
+          观测不等于所有者对该账号的声明，不能拿它否决另一账号的发送。
+        """
+        if not self.strict:
+            return
+        rows = self._account_rows(channel)
+        if not rows:
+            return
+        matches = ([row for row in rows if self.account in self._identity(row)]
+                   if self.account else [])
+        if len(matches) > 1:
+            raise ThrottleError(
+                f"account_quota_identity_ambiguous：{channel} 有多行绑定账号 "
+                f"{self.account}，无法判定适用额度，拒绝发送")
+        declared = [row for row in rows
+                    if self._is_identity_bound(row) and row.get("source") == "owner_declared"]
+        if not matches and declared:
+            raise ThrottleError(
+                "account_quota_identity_required：%s 的额度由 owner 声明在账号 %s 上，"
+                "实际观测账号 %s 不符，拒绝发送" % (
+                    channel, "、".join(sorted(str(row.get("handle") or "") for row in declared)),
+                    self.account))
+        if matches:
+            return
+        defaults = [row for row in rows if not self._is_identity_bound(row)]
+        if len(defaults) > 1 or (not defaults and len(rows) > 1):
+            raise ThrottleError(
+                f"account_quota_config_ambiguous：{channel} 有多行额度配置且没有唯一的"
+                "平台缺省行，无法判定适用额度，拒绝发送")
+
     def reserve(self, channel, action, n=1):
         """发送前原子预留额度；额度不足抛 ThrottleError。
 
         预留在发送动作之前完成，因此并发队列也不会同时越过日上限。若后续
         发送异常，额度保持已占用（保守：未知发送不能被当成没发）。
         """
+        self.validate_identity(channel, action)
         _, _, _, daily_cap = self.policy(channel, action)
         if daily_cap is None:
             return self.daily_used(channel, action)
@@ -319,7 +425,8 @@ class Throttle:
                 state = {"schema": "growovo.rolling-24h/1", "events": events}
                 f.write_text(json.dumps(state, ensure_ascii=False, indent=1), encoding="utf-8")
                 return len(self._rolling_events())
-            state[key] = used + n
+            current_used = self._daily_used_one(channel, action)
+            state[key] = current_used + n
             f.write_text(json.dumps(state, ensure_ascii=False, indent=1), encoding="utf-8")
             return state[key]
 

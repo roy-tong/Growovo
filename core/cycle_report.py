@@ -181,7 +181,7 @@ def build_report(data_dir, *, night: str = "", scheduled_only: bool = False) -> 
             report["errors"].append({"path": relative, "error": str(exc)})
             continue
         wave_id = str(payload.get("wave") or path.stem.replace("wave-", "", 1))
-        if scheduled_only and not _scheduled_wave(wave_id):
+        if scheduled_only and not (payload.get("scheduled_job_id") or _scheduled_wave(wave_id)):
             report["auxiliary_wave_count"] += 1
             report["auxiliary_waves"].append(wave_id)
             continue
@@ -200,7 +200,7 @@ def build_report(data_dir, *, night: str = "", scheduled_only: bool = False) -> 
         for key, item in supply.items():
             if not isinstance(item, dict) or "/" not in key:
                 continue
-            target = _integer(item.get("effective", item.get("configured")))
+            target = _integer(item.get("configured", item.get("effective")))
             scheduled = _integer(item.get("scheduled"))
             wave_supply[key] = {"target": target, "scheduled": scheduled}
             row = _key_row(key_rows, key)
@@ -289,9 +289,12 @@ def build_report(data_dir, *, night: str = "", scheduled_only: bool = False) -> 
         expected = wave_target if wave_target else planned
         status = "complete" if not reasons and expected == committed else (
             "failed" if not payload.get("ok", False) else "partial")
+        from .business_result import build_business_result
+        business_result = build_business_result({"id": wave_id}, payload, data_dir)
         report["waves"].append({
             "wave": wave_id,
             "campaign": str(payload.get("campaign") or ""),
+            "business_result": business_result,
             "ok": bool(payload.get("ok", False)),
             "status": status,
             "target": wave_target,

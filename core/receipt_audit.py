@@ -26,7 +26,28 @@ def _evidence_format(record: Dict[str, Any]) -> str:
     return "unsupported_channel_receipt"
 
 
-def live_verify(record: Dict[str, Any], browser=None) -> Dict[str, Any]:
+def live_verify(record: Dict[str, Any], browser=None, data_dir=None) -> Dict[str, Any]:
+    """只读回执核验：绝不与进行中的写入共用标签页。
+
+    先按路线看有没有任何账号在写（写入方可能用默认账号名），再用回执自带的
+    账号名拿同一把租约；两层都过才真正驱动浏览器。
+    """
+    if data_dir is not None:
+        from . import growth_runtime
+        from .action_gateway import AccountBusy, lease
+        channel = str(record.get("channel") or "")
+        account = str(record.get("identity_handle") or record.get("account") or "").strip()
+        if growth_runtime.execution_lane_busy(data_dir, channel)["busy"]:
+            return {"status": "unknown", "detail": "browser_write_in_progress"}
+        try:
+            with lease(data_dir, account=account or "default", route=channel):
+                return _live_verify(record, browser=browser)
+        except AccountBusy:
+            return {"status": "unknown", "detail": "browser_write_in_progress"}
+    return _live_verify(record, browser=browser)
+
+
+def _live_verify(record: Dict[str, Any], browser=None) -> Dict[str, Any]:
     evidence = str(record.get("evidence") or "").strip()
     channel = str(record.get("channel") or "")
     if channel == "github":
@@ -157,7 +178,7 @@ def audit(data_dir, *, night: str, scheduled_only: bool = False, live: bool = Fa
     for path in paths:
         payload = json.loads(path.read_text(encoding="utf-8"))
         wave_id = str(payload.get("wave") or path.stem.replace("wave-", "", 1))
-        if payload.get("dry") or (scheduled_only and not cycle_report._scheduled_wave(wave_id)):
+        if payload.get("dry") or (scheduled_only and not (payload.get("scheduled_job_id") or cycle_report._scheduled_wave(wave_id))):
             continue
         campaign = str(payload.get("campaign") or "")
         results = payload.get("results") if isinstance(payload.get("results"), list) else []
@@ -190,7 +211,7 @@ def audit(data_dir, *, night: str, scheduled_only: bool = False, live: bool = Fa
                         resolution_note=str(record.get("resolution_note") or ""))
             if str(record.get("result") or "") != "committed":
                 if live and str(record.get("result") or "") == "indeterminate":
-                    checked = (verifier or live_verify)(record)
+                    checked = verifier(record) if verifier else live_verify(record, data_dir=data_dir)
                     if checked.get("status") == "verified":
                         base.update(status="verified", detail=str(checked.get("detail") or ""))
                     else:
@@ -213,7 +234,7 @@ def audit(data_dir, *, night: str, scheduled_only: bool = False, live: bool = Fa
                 items.append(base)
                 continue
             if live:
-                checked = (verifier or live_verify)(record)
+                checked = verifier(record) if verifier else live_verify(record, data_dir=data_dir)
                 base.update(status=str(checked.get("status") or "unknown"),
                             detail=str(checked.get("detail") or "")[:300])
             else:

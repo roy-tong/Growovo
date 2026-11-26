@@ -191,6 +191,6 @@ def standard_pipeline(data_dir, ledger, *, adhoc=False, routine=None, account=""
 
     return WritePipeline(
         gate=Gate(ledger, suppress=load_suppressions(data_dir)),
-        ledger=ledger, throttle=Throttle(data_dir / "state"),
+        ledger=ledger, throttle=Throttle(data_dir / "state", account=account, strict=True),
         pause_file=pause_file(data_dir), approval=_approval,
         routine=routine, account=account)

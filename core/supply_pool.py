@@ -257,6 +257,11 @@ def merge(data_dir, rows: Sequence[Dict[str, Any]], *, source: str = "",
                 rejected.append({"index": index, "reason": str(exc),
                                  "target": str((raw or {}).get("target") or "")})
                 continue
+            from .protected_content import is_target_suppressed
+            if is_target_suppressed(data_dir, item["target"]):
+                excluded += 1
+                rejected.append({"target": item["target"], "reason": "protected_account"})
+                continue
             # 只对 person/post 级目标去重：同一频道可以反复发布，
             # 但同一个 issue/推文只回复一次（账本已触达就不再来）。
             if item["action"] == "reply" and (item["channel"], item["target"]) in touched:
@@ -485,6 +490,10 @@ def koc_merge(data_dir, accounts: Sequence[Dict[str, Any]], *, source: str = "",
                 continue
             name = str(raw.get("handle") or raw.get("actor") or "").strip().lstrip("@")
             if not name:
+                rejected += 1
+                continue
+            from .protected_content import is_target_suppressed
+            if is_target_suppressed(data_dir, name):
                 rejected += 1
                 continue
             followers = raw.get("followers")

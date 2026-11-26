@@ -81,7 +81,7 @@ def claim(data_dir: Path, *, key: str) -> Dict[str, Any]:
         raise ClaimError("action claim key must be a sha256 hex digest")
     with _locked(Path(data_dir)):
         existing = [row for row in claims(data_dir) if row.get("key") == key]
-        if existing:
+        if existing and existing[-1].get("status") != "not_dispatched":
             latest = existing[-1]
             state = "indeterminate" if latest.get("status") == "claimed" else str(
                 latest.get("status") or "indeterminate")
@@ -95,9 +95,24 @@ def claim(data_dir: Path, *, key: str) -> Dict[str, Any]:
         return row
 
 
+def phase(data_dir: Path, *, key: str, phase: str) -> Dict[str, Any]:
+    if phase not in {"dispatching", "acknowledged"}:
+        raise ValueError("unsupported action phase: %s" % phase)
+    with _locked(Path(data_dir)):
+        existing = [row for row in claims(data_dir) if row.get("key") == key]
+        if not existing:
+            raise ValueError("action claim is missing")
+        if existing[-1].get("status") != "claimed":
+            raise ValueError("action claim is final")
+        row = {"schema": "growovo.action-claim/1", "key": key, "status": "claimed",
+               "phase": phase, "phase_at": datetime.now(timezone.utc).isoformat()}
+        _append_line(_path(Path(data_dir)), json.dumps(row, ensure_ascii=False) + "\n")
+        return row
+
+
 def finish(data_dir: Path, *, key: str, result: str) -> Dict[str, Any]:
     if result not in ("committed", "failed", "indeterminate", "rejected", "skipped",
-                      "target_rejected", "unavailable_or_unrenderable", "deferred"):
+                      "target_rejected", "unavailable_or_unrenderable", "deferred", "not_dispatched"):
         raise ClaimError("unsupported action claim result: %s" % result)
     row = {"schema": "growovo.action-claim/1", "key": key, "status": result,
            "finished_at": datetime.now(timezone.utc).isoformat()}

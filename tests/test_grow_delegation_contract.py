@@ -77,10 +77,49 @@ class DelegationContractTests(unittest.TestCase):
     def test_paused_run_reports_blocked_and_recovery(self):
         self.run.arm(by="roy")
         self.run.pause()
-        block = self._explain()["delegation"]
+        payload = self._explain()
+        block = payload["delegation"]
         self.assertEqual("BLOCKED", block["task_state"])
         self.assertTrue(block["recovery_entry"])
         self.assertEqual("REVIEW_REQUIRED", block["blocked_reason_code"])
+        self.assertIn("task_result", payload)
+        self.assertEqual("needs_decision", payload["task_result"]["status"])
+        self.assertTrue(payload["task_result"]["user_decision_required"])
+        self.assertTrue(payload["task_result"]["next_actions"][0]["command"])
+
+    def test_task_result_keeps_activation_data_gap_scoped(self):
+        payload = self._explain()
+        self.assertIn("task_result", payload)
+        result = payload["task_result"]
+        self.assertEqual("ovo.task-result/1", result["schema"])
+        self.assertEqual("growovo", result["product"])
+        self.assertEqual("g1", result["task_id"])
+        self.assertEqual("g1", result["resume_ref"])
+        gap = next(row for row in result["missing_conditions"]
+                   if row["code"] == "PRODUCT_EVENT_SOURCE_MISSING")
+        self.assertEqual("activation_retention", gap["scope"])
+        self.assertFalse(gap["blocking"])
+        self.assertNotEqual("unable_to_complete", result["status"])
+
+    def test_ready_to_arm_requires_a_user_decision(self):
+        self.assertTrue(hasattr(rb, "task_result_block"))
+        result = rb.task_result_block(
+            run_id="g-ready", canonical_status="ready_to_arm", next_actor="human",
+            next_action="review and arm", next_command="mkt grow arm g-ready",
+            blocked_code="AUTH_REQUIRED", artifacts=["grow/g-ready.json"])
+        self.assertEqual("needs_decision", result["status"])
+        self.assertTrue(result["user_decision_required"])
+        self.assertEqual("mkt grow arm g-ready", result["next_actions"][0]["command"])
+
+    def test_cancelled_run_is_unable_to_complete_with_a_recovery_entry(self):
+        self.assertTrue(hasattr(rb, "task_result_block"))
+        result = rb.task_result_block(
+            run_id="g-cancelled", canonical_status="cancelled", next_actor="human",
+            next_action="create a new run", next_command="mkt grow status g-cancelled",
+            blocked_code="POLICY_DENIED", artifacts=[])
+        self.assertEqual("unable_to_complete", result["status"])
+        self.assertFalse(result["user_decision_required"])
+        self.assertTrue(result["next_actions"])
 
 
 if __name__ == "__main__":

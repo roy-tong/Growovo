@@ -224,7 +224,9 @@ def handle(args, data_dir):
         result = agent_adoption.run(
             _read_json(args.suite), args.workdir, args.out)
         _emit(result, as_json)
-        return 0 if result["outcome"] in ("OBSERVED_SUCCESS", "REAL_SUCCESS") else 1
+        return 0 if result["outcome"] in (
+            "PROCESS_PASS", "AGENT_SESSION_PASS", "FIRST_VALUE_ACCEPTED",
+            "EXTERNAL_ADOPTION", "RETAINED") else 1
     if action == "experiment":
         if args.experiment_action == "create":
             return _emit(geo_experiment.create(

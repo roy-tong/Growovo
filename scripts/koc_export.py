@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """把 koc-registry.json 导出成人看的 Markdown / CSV。
 
-- KOC 定义：粉丝 1,000–50,000
+- KOC 定义：粉丝 500–5,000
 - relevant：bio/近期内容命中三产品话题（verovo/growovo/askovo）或 agent+builder
 - 其他档位（nano/micro/mid/macro）全保留，单列
 """
@@ -40,12 +40,12 @@ def main() -> int:
 
     lines = ["# KOC / KOL 名册（X）", "",
              f"- 总账号：{len(acc)}",
-             "- KOC（1k–50k）：{}（其中相关 {}）".format(
+             "- KOC（500–5k）：{}（其中相关 {}）".format(
                  sum(1 for r in acc if r.get("tier") == "koc"),
                  sum(1 for r in acc if r.get("tier") == "koc" and r["relevant"])),
              "- 分档：" + "、".join(f"{k} {v}" for k, v in sorted(counts.items())),
              "- 口径：粉丝为 2026-11-16 主页读数；relevant 只是 bio/近期内容的关键词命中，**不等于已核验**。",
-             "", "## KOC（1k–50k，相关优先）", "",
+             "", "## KOC（500–5k，相关优先）", "",
              "| handle | 粉丝 | 相关 | 命中 | bio | 最近帖子 |",
              "| --- | --- | --- | --- | --- | --- |"]
     for r in acc:

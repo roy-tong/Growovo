@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 
 from . import action_resolution, growth_assets, growth_experiments, growth_runtime, growth_service
+from .ledger import Ledger
 
 
 def _finish(data_dir, service_id, action_id, status, by, evidence, completion=None):
@@ -32,15 +33,23 @@ def _channel_completion(action, record):
             "reason": "transport committed without a readback reference"}
 
 
-def _reconcile_completion(action, receipt_ref, observed_at=""):
-    """对账读回的唯一外部记录：回执身份即去重依据。"""
+def _reconcile_completion(data_dir, service_id, action, receipt_ref, observed_at=""):
+    """Persist the unique external readback before deriving verified completion."""
     receipt_ref = str(receipt_ref or "").strip()
+    stamp = observed_at or dt.datetime.now().astimezone().isoformat(timespec="seconds")
+    claim = "readback:" + receipt_ref
+    Ledger(Path(data_dir) / "ledger.jsonl").append(
+        channel=action.get("channel"), action=action.get("action"),
+        target=action.get("target") or "", result="committed", campaign=service_id,
+        transport="independent-readback", evidence=receipt_ref,
+        ref="readback-" + hashlib.sha256(receipt_ref.encode("utf-8")).hexdigest(),
+        claim_key=claim, finished_at=stamp)
     return {"kind": "verified", "receipt": {
         "action_id": action.get("id"),
         "channel": action.get("channel"),
-        "sent_at": observed_at or dt.datetime.now().astimezone().isoformat(timespec="seconds"),
+        "sent_at": stamp,
         "sent_at_basis": "readback_observed_at" if not observed_at else "readback_reported_at",
-        "idempotency_key": "readback:" + receipt_ref,
+        "idempotency_key": claim,
         "readback": receipt_ref,
     }}
 
@@ -283,7 +292,8 @@ def reconcile(data_dir, service_id, action_id, by, payload=None):
                         "message_id": matches[0]["id"], "thread_id": thread_id,
                         "verification": "independent_sent_readback"}
             completion = _reconcile_completion(
-                action, evidence["receipt"], observed_at=str(matches[0].get("date") or ""))
+                data_dir, service_id, action, evidence["receipt"],
+                observed_at=str(matches[0].get("date") or ""))
             _finish(data_dir, service_id, action_id, "completed", by, evidence,
                     completion=completion)
             return {"status": "completed", "action_id": action_id, "evidence": evidence}
@@ -317,7 +327,7 @@ def reconcile(data_dir, service_id, action_id, by, payload=None):
         evidence = {"receipt": matches[0][receipt_key], "comment_id": matches[0].get("id"),
                     "verification": "independent_comment_readback"}
         completion = _reconcile_completion(
-            action, evidence["receipt"],
+            data_dir, service_id, action, evidence["receipt"],
             observed_at=str(matches[0].get("created_at") or ""))
         _finish(data_dir, service_id, action_id, "completed", by, evidence,
                 completion=completion)

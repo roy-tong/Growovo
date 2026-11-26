@@ -2499,7 +2499,7 @@ def cmd_grow(args):
             print(f"  搜索词：{'；'.join(result.get('queries') or [])}")
             print(f"  KOC 名单已更新：{result.get('watchlist')}")
             if result.get("koc_only"):
-                print("筛选：只看 KOC（1k–50k）；要放宽加 --all-accounts")
+                print("筛选：只看 KOC（500–5k）；要放宽加 --all-accounts")
             if result.get("near_misses"):
                 print("本轮没筛到 KOC；接近的账号：")
                 for row in result["near_misses"]:
@@ -3426,7 +3426,28 @@ def cmd_cycle(args):
     if args.action == "quota":
         return _emit(cycle.quota_snapshot(DATA, now=_when()))
 
+    if args.action == "notifications":
+        from core import notification_outbox
+        items = notification_outbox.pending(DATA)
+        _emit({"ok": True, "pending": len(items), "items": items,
+               "outbox": str(DATA / "state" / "notification-outbox.jsonl")})
+        return 0
+    if args.action == "ack-rate-limit":
+        try:
+            _emit(cycle.acknowledge_rate_limit(DATA, args.night, args.channel,
+                                              by=args.by, evidence=args.evidence))
+        except (RuntimeError, ValueError) as exc:
+            _emit({"ok": False, "reason": str(exc)})
+            return 2
+        return 0
     if args.action == "report":
+        if getattr(args, "file", ""):
+            from core import cycle_scheduler
+            got = cycle_scheduler.status(DATA, args.file)
+            _emit(got)
+            return 0 if got["settlement"]["due"] == got["settlement"]["terminal"] and all(
+                row["status"] == "succeeded" for row in got["jobs"]
+                if row["kind"] == "wave" and cycle_scheduler._now(row["at"]) <= _when()) else 2
         from core import cycle_report
         got = cycle_report.build_report(
             DATA, night=str(getattr(args, "night", "") or ""),
@@ -3451,11 +3472,54 @@ def cmd_cycle(args):
         _emit(got)
         return 0
 
+    if args.action in ("jobs-approve", "jobs-preview"):
+        from core import scheduled_scope
+        try:
+            _emit(scheduled_scope.approve(DATA, args.file, by=getattr(args, "by", ""),
+                                          preview=args.action == "jobs-preview"))
+        except (ValueError, OSError, RuntimeError) as exc:
+            _emit({"ok": False, "reason": str(exc)})
+            return 2
+        return 0
+
+    if args.action == "jobs-serve":
+        from core import cycle_scheduler
+        go = _execution_go(args)
+        if go:
+            from core import scheduled_build, scheduled_scope
+            try:
+                build = scheduled_scope.pinned_build(DATA, args.file)
+                if build:
+                    exit_code = scheduled_build.tick(DATA, args.file, build, args)
+                    if exit_code is not None:
+                        return exit_code
+            except (ValueError, OSError) as exc:
+                _emit({"ok": False, "reason": str(exc), "executed": 0})
+                return 2
+        got = cycle_scheduler.serve(
+            DATA, args.file, go=go, once=bool(args.once), poll_sec=float(args.poll_sec),
+            max_jobs=int(args.max_jobs or 1))
+        _emit(got)
+        return 0 if got.get("ok") else 2
+
     if args.action in ("jobs-tick", "jobs-status"):
         from core import cycle_scheduler
         if args.action == "jobs-tick":
-            got = cycle_scheduler.tick(DATA, args.file, now=_when(), go=_execution_go(args),
-                                       max_jobs=int(args.max_jobs or 1))
+            go = _execution_go(args)
+            if go:
+                from core import scheduled_build, scheduled_scope
+                try:
+                    build = scheduled_scope.pinned_build(DATA, args.file)
+                    if build:
+                        exit_code = scheduled_build.tick(DATA, args.file, build, args)
+                        if exit_code is not None:
+                            return exit_code
+                except (ValueError, OSError) as exc:
+                    _emit({"ok": False, "reason": str(exc), "executed": 0})
+                    return 2
+            got = cycle_scheduler.tick(DATA, args.file, now=_when(), go=go,
+                                       max_jobs=int(args.max_jobs or 1),
+                                       job_id=str(getattr(args, "job_id", "") or ""))
         else:
             got = cycle_scheduler.status(DATA, args.file, now=_when())
         _emit(got)
@@ -6269,7 +6333,14 @@ def build_parser():
     cysub.add_parser("smoke", help="离线自检窗口、间隔与空队列计划")
     a = cysub.add_parser("quota", help="今夜与近一小时已用额度")
     a.add_argument("--now", default="", help="模拟当前时间，ISO 格式")
+    cysub.add_parser("notifications", help="列出尚未确认投递的作业状态变化（只读）")
+    a = cysub.add_parser("ack-rate-limit", help="记录人工核验后的限流处置；不启动任务")
+    a.add_argument("--night", required=True)
+    a.add_argument("--channel", required=True, choices=["x", "github", "discord"])
+    a.add_argument("--by", required=True)
+    a.add_argument("--evidence", required=True)
     a = cysub.add_parser("report", help="按持久化波次确定性汇总目标、排程、回执与缺口（只读）")
+    a.add_argument("--file", help="按指定定时合同结算，含未启动、过期和无波次文件的作业")
     a.add_argument("--night", default="", help="夜间起始日 YYYY-MM-DD；不填报最新有波次的一夜")
     a.add_argument("--scheduled-only", action="store_true",
                    help="只汇总定时波次；补发等辅助波次单独计数，不混入定时任务完成率")
@@ -6283,11 +6354,24 @@ def build_parser():
     a.add_argument("--phase", required=True, choices=["baseline", "final"])
     a.add_argument("--by", required=True)
     a.add_argument("--apply", action="store_true")
+    a = cysub.add_parser("jobs-preview", help="按当前账本和账号额度推演逐波缺口")
+    a.add_argument("--file", required=True)
+    a = cysub.add_parser("jobs-approve", help="绑定指定波次的队列内容、账号、窗口和当前构建")
+    a.add_argument("--file", required=True)
+    a.add_argument("--by", required=True)
+    a = cysub.add_parser("jobs-serve", help="由 Growovo 持续等待并执行到期作业，不依赖聊天会话")
+    a.add_argument("--file", required=True, help="作业配置 JSON")
+    a.add_argument("--now", default="", help=argparse.SUPPRESS)
+    add_execution_arguments(a)
+    a.add_argument("--max-jobs", type=int, default=1)
+    a.add_argument("--poll-sec", type=float, default=5.0)
+    a.add_argument("--once", action="store_true", help="只执行当前 tick，便于外部调度器或离线验收")
     a = cysub.add_parser("jobs-tick", help="执行持久作业配置中的到期作业；默认 live，--dry-run 预览")
     a.add_argument("--file", required=True, help="作业配置 JSON")
     a.add_argument("--now", default="", help="模拟 tick 时间，ISO 格式")
     add_execution_arguments(a)
     a.add_argument("--max-jobs", type=int, default=1)
+    a.add_argument("--job-id", default="", help="只执行指定作业，避免定时触发误跑其他到期作业")
     a = cysub.add_parser("jobs-status", help="查看持久作业与依赖状态（只读）")
     a.add_argument("--file", required=True, help="作业配置 JSON")
     a.add_argument("--now", default="", help="模拟状态时间，ISO 格式")
@@ -6925,7 +7009,7 @@ def build_parser():
     a.add_argument("--min-likes", type=int, default=0)
     a.add_argument("--pages", type=int, default=1)
     a.add_argument("--no-enrich", action="store_true", help="不读作者主页（快，但账号分弱）")
-    a.add_argument("--koc-only", action="store_true", help="只看 KOC（1k–50k 粉丝）")
+    a.add_argument("--koc-only", action="store_true", help="只看 KOC（500–5k 粉丝）")
     a.add_argument("--all-accounts", action="store_true", help="不限 KOC，按总契合度排序")
     a.add_argument("--include-engaged", action="store_true",
                    help="包含已触达账号（默认排除，避免重复打扰）")

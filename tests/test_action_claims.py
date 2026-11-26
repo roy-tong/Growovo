@@ -44,6 +44,19 @@ class ActionClaimTests(unittest.TestCase):
         claims = action_claims.claims(self.data)
         self.assertEqual(1, len(claims))
 
+    def test_dispatch_phase_survives_and_still_blocks_replay(self):
+        key = action_claims.stable_key("x", "publish", "", "body", "owner")
+        action_claims.claim(self.data, key=key)
+        self.assertTrue(hasattr(action_claims, "phase"))
+        action_claims.phase(self.data, key=key, phase="dispatching")
+        action_claims.phase(self.data, key=key, phase="acknowledged")
+        rows = action_claims.claims(self.data)
+        self.assertEqual(["dispatching", "acknowledged"],
+                         [row["phase"] for row in rows if row.get("phase")])
+        action_claims.finish(self.data, key=key, result="indeterminate")
+        with self.assertRaisesRegex(ValueError, "final"):
+            action_claims.phase(self.data, key=key, phase="acknowledged")
+
     def test_pipeline_send_crash_cannot_send_twice(self):
         calls = []
         ledger = Ledger(self.data / "ledger.jsonl")

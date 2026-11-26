@@ -165,6 +165,23 @@ class CycleReportTests(unittest.TestCase):
         self.assertEqual(3, everything["totals"]["target"])
         self.assertEqual(2, everything["totals"]["committed"])
 
+    def test_report_includes_the_same_action_level_business_result(self):
+        payload = wave(
+            "01-1905", planned=4, supply={"x/publish": (2, 2), "x/reply": (2, 2)},
+            results=[result("x", "publish", "committed", "p1"),
+                     result("x", "publish", "failed", "p2"),
+                     result("x", "reply", "committed", "r1")])
+        payload["skipped"] = [{"channel": "x", "action": "reply", "reason": "text_empty"}]
+        self.write_wave("01-1905", payload)
+        got = cycle_report.build_report(self.data, night="2026-11-22")
+        card = got["waves"][0]["business_result"]
+        self.assertEqual(2, card["actions"]["x/publish"]["attempted"])
+        self.assertEqual(1, card["actions"]["x/publish"]["committed"])
+        self.assertEqual(1, card["actions"]["x/publish"]["failed"])
+        self.assertEqual(1, card["actions"]["x/reply"]["committed"])
+        self.assertEqual(1, card["actions"]["x/reply"]["skipped"])
+        self.assertIn("X 原创：执行 2，发送成功 1，失败 1", card["headline"])
+
     def test_malformed_wave_is_an_explicit_report_error(self):
         (self.directory / "wave-broken.json").write_text("{", encoding="utf-8")
         got = cycle_report.build_report(self.data, night="2026-11-22")

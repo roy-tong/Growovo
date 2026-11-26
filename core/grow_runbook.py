@@ -1411,6 +1411,93 @@ def delegation_block(*, run_id, canonical_status, next_actor, next_action,
     }
 
 
+def task_result_block(*, run_id, canonical_status, next_actor, next_action,
+                      next_command, blocked_code, artifacts, goal_status=None,
+                      data_coverage=None, gaps=0, quota_remaining=None):
+    """Project shared business status while keeping operational and outcome gaps separate."""
+    canonical = _text(canonical_status)
+    if canonical == "completed":
+        status = "completed"
+    elif canonical == "cancelled":
+        status = "unable_to_complete"
+    elif canonical == "draft":
+        status = "waiting_external"
+    elif canonical in ("ready_to_arm", "paused", "needs_attention"):
+        status = "needs_decision"
+    elif blocked_code in ("REVIEW_REQUIRED", "INDETERMINATE_EXTERNAL_ACTION"):
+        status = "needs_decision"
+    elif blocked_code in ("AUTH_REQUIRED", "INPUT_REQUIRED", "RATE_LIMITED", "STALE_SOURCE"):
+        status = "waiting_external"
+    elif blocked_code:
+        status = "unable_to_complete"
+    elif int(gaps or 0):
+        status = "partial_result"
+    else:
+        status = "running"
+
+    completed = []
+    used = int((quota_remaining or {}).get("used") or 0)
+    if used:
+        completed.append(
+            "Confirmed %d operational action(s); this does not establish growth or activation." % used)
+    if len(artifacts) > 1:
+        completed.append("Operational result artifacts are available for review.")
+    if canonical == "completed":
+        completed.append("The growth run completed; business outcomes remain separately observed.")
+    observations = ["Current growth-run state: %s." % (canonical or "unknown")]
+    coverage = data_coverage if isinstance(data_coverage, dict) else {}
+    if coverage.get("note"):
+        observations.append(str(coverage["note"]))
+    goal = goal_status if isinstance(goal_status, dict) else {}
+    if goal.get("note"):
+        observations.append(str(goal["note"]))
+
+    missing = []
+    if blocked_code:
+        missing.append({
+            "code": str(blocked_code),
+            "detail": str(next_action or "Resolve the operations blocker."),
+            "scope": "external_action" if blocked_code == "INDETERMINATE_EXTERNAL_ACTION"
+                     else "operations",
+            "blocking": True,
+        })
+    if coverage and not coverage.get("product_event_source"):
+        missing.append({
+            "code": "PRODUCT_EVENT_SOURCE_MISSING",
+            "detail": str(coverage.get("note") or
+                          "Product events are unavailable; activation and retention stay unknown."),
+            "scope": "activation_retention",
+            "blocking": False,
+        })
+    if int(gaps or 0):
+        missing.append({
+            "code": "CONTENT_SUPPLY_GAP",
+            "detail": "%d content supply gap(s) remain; stale content is not reused automatically." % int(gaps),
+            "scope": "content_supply",
+            "blocking": False,
+        })
+    action = {
+        "kind": "command" if _text(next_command) else "instruction",
+        "description": str(next_action or "Inspect the growth run status."),
+        "requires_user": next_actor == "human" or status == "needs_decision",
+    }
+    if _text(next_command):
+        action["command"] = _text(next_command)
+    return {
+        "schema": "ovo.task-result/1",
+        "task_id": str(run_id or ""),
+        "product": "growovo",
+        "status": status,
+        "completed": completed,
+        "observations": observations,
+        "evidence_refs": list(artifacts),
+        "missing_conditions": missing,
+        "next_actions": [action],
+        "user_decision_required": status == "needs_decision",
+        "resume_ref": str(run_id or ""),
+    }
+
+
 def explain_status(data_dir, run_path=None, *, run_id: str = "",
                    on: Optional[str] = None,
                    login_probe: Optional[Callable[[str], Dict[str, Any]]] = None,
@@ -1500,6 +1587,9 @@ def explain_status(data_dir, run_path=None, *, run_id: str = "",
         else:
             next_action = status
             next_command = f"mkt grow status {run_id}"
+    coverage = _data_coverage(data_dir, data)
+    quota = _quota_remaining(data_dir, data, on)
+    supply_gaps = len((data.get("supply_state") or {}).get("gap_reasons") or [])
     return {
         "schema": "growovo.status-explain/1",
         "run": run_id,
@@ -1519,19 +1609,24 @@ def explain_status(data_dir, run_path=None, *, run_id: str = "",
                    "account_id": str((data.get("guards") or {}).get("account_id") or "")},
             recovery_entry=(next_command if status in ("paused", "needs_attention", "cancelled")
                             else None),
-            gaps=len((data.get("supply_state") or {}).get("gap_reasons") or [])),
+            gaps=supply_gaps),
+        "task_result": task_result_block(
+            run_id=run_id, canonical_status=status, next_actor=next_actor,
+            next_action=next_action, next_command=next_command, blocked_code=blocked_code,
+            artifacts=artifacts, goal_status=goal_status, data_coverage=coverage,
+            gaps=supply_gaps, quota_remaining=quota),
         "last_updated_at": _last_updated(data, run.path),
         "has_pending_external_effect": bool(pending),
         "artifact_refs": artifacts,
         "goal_status": goal_status,
-        "quota_remaining": _quota_remaining(data_dir, data, on),
+        "quota_remaining": quota,
         "observation_window": {
             "start": (data.get("goal") or {}).get("starts"),
             "end": (data.get("goal") or {}).get("ends"),
             "days": (data.get("goal") or {}).get("window_days"),
             "days_observed": len((data.get("telemetry") or {}).get("days") or {}),
         },
-        "data_coverage": _data_coverage(data_dir, data),
+        "data_coverage": coverage,
         "incidents": incidents,
         "faults": scan["rows"],
         "checks": [{"name": row["code"], "state": row["state"],

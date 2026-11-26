@@ -43,7 +43,7 @@ def _is_suppressed(suppressions, source, actor, canonical, *refs):
 def _contact(contacts, canonical, raw):
     row = contacts.setdefault(canonical, {
         "subject_id": canonical, "aliases": set(), "evidence": [],
-        "unqualified_events": [], "followups": [],
+        "unqualified_events": [], "followups": [], "suppressed": False,
     })
     row["aliases"].update((canonical, raw))
     return row
@@ -57,7 +57,33 @@ def _qualify_event(event, stage):
     return True, ""
 
 
-def project(data_dir, service_id, *, now=None, stale_minutes=60, identity_map=None):
+def _relationship_state(row, evidence, moment, *, risk_days, churn_days):
+    if row.get("suppressed"):
+        return "do_not_contact"
+    if any(item.get("next_step") != "suppressed" for item in row.get("followups") or []):
+        return "follow_up_due"
+    if not evidence:
+        return "unknown"
+    latest = evidence[-1]
+    observed_at = growth_engagement._instant(latest["at"])
+    age_days = (moment - observed_at).total_seconds() / 86400
+    historical = max((item["stage"] for item in evidence), key=lambda name: RANK[name])
+    activated = RANK[historical] >= RANK["activation"]
+    if latest["stage"] == "retention" and len(evidence) > 1:
+        previous_at = growth_engagement._instant(evidence[-2]["at"])
+        if (observed_at - previous_at).total_seconds() / 86400 > risk_days:
+            return "reactivated"
+    if age_days > churn_days:
+        return "churned" if activated else "silent"
+    if age_days > risk_days:
+        return "churn_risk" if activated else "silent"
+    return "active" if activated else "engaged"
+
+
+def project(data_dir, service_id, *, now=None, stale_minutes=60, identity_map=None,
+            relationship_risk_days=7, relationship_churn_days=30):
+    if relationship_risk_days <= 0 or relationship_churn_days <= relationship_risk_days:
+        raise ValueError("relationship churn days must exceed positive risk days")
     moment = _now(now)
     suppressions = gates.load_suppressions(data_dir)
     contacts = {}
@@ -87,6 +113,7 @@ def project(data_dir, service_id, *, now=None, stale_minutes=60, identity_map=No
                 suppressions, source, actor, canonical,
                 opportunity.get("target"), opportunity.get("url"))
             if suppressed:
+                contact["suppressed"] = True
                 item["next_step"] = "suppressed"
                 item["suppression_reason"] = "do_not_contact_or_bounced"
             contact["followups"].append(item)
@@ -114,6 +141,7 @@ def project(data_dir, service_id, *, now=None, stale_minutes=60, identity_map=No
             suppressed = _is_suppressed(
                 suppressions, source, actor, canonical, conversation.get("url"))
             if suppressed:
+                contact["suppressed"] = True
                 item["next_step"] = "suppressed"
                 item["suppression_reason"] = "do_not_contact_or_bounced"
             contact["followups"].append(item)
@@ -148,6 +176,7 @@ def project(data_dir, service_id, *, now=None, stale_minutes=60, identity_map=No
 
     rendered = []
     counts = {stage: 0 for stage in STAGES}
+    relationship_counts = {}
     for canonical in sorted(contacts):
         row = contacts[canonical]
         activation_times = [growth_engagement._instant(item["at"])
@@ -176,10 +205,16 @@ def project(data_dir, service_id, *, now=None, stale_minutes=60, identity_map=No
         observed_stages = {item["stage"] for item in evidence}
         missing = [name for name in STAGES[1:RANK[stage]] if name not in observed_stages] \
             if stage != "unknown" else []
+        relationship = _relationship_state(
+            row, evidence, moment, risk_days=relationship_risk_days,
+            churn_days=relationship_churn_days)
         rendered.append({
             "subject_id": canonical,
             "aliases": sorted(row["aliases"]),
             "stage": stage,
+            "historical_lifecycle": stage,
+            "current_relationship_state": relationship,
+            "last_observed_at": evidence[-1]["at"] if evidence else "",
             "stage_basis": basis,
             "missing_prior_stage_evidence": missing,
             "evidence": evidence,
@@ -187,6 +222,7 @@ def project(data_dir, service_id, *, now=None, stale_minutes=60, identity_map=No
             "followups": sorted(row["followups"], key=lambda item: (item["kind"], item["ref"])),
         })
         counts[stage] += 1
+        relationship_counts[relationship] = relationship_counts.get(relationship, 0) + 1
     priority = {"existing_user": 0, "conversation": 1, "opportunity": 2}
     queue.sort(key=lambda item: (priority[item["priority_class"]], item.get("due_at") or "9999", item["ref"]))
     suppressed_queue.sort(key=lambda item: (
@@ -198,6 +234,9 @@ def project(data_dir, service_id, *, now=None, stale_minutes=60, identity_map=No
         "service_id": service_id,
         "as_of": moment.isoformat(timespec="seconds"),
         "stale_minutes": int(stale_minutes),
+        "relationship_windows_days": {"risk": relationship_risk_days,
+                                      "churn": relationship_churn_days},
+        "relationship_counts": relationship_counts,
         "contacts": rendered,
         "counts": counts,
         "followup_queue": queue,
@@ -205,5 +244,5 @@ def project(data_dir, service_id, *, now=None, stale_minutes=60, identity_map=No
         "suppression_rule": "suppress.txt plus contacts DNC/bounced via the shared execution suppression loader; damaged sources fail closed",
         "identity_rule": "source-prefixed identities merge only through an explicit identity_map",
         "qualification_rule": "activation/retention/payment need verified method/ref and source_ref; retention also needs an earlier verified activation",
-        "boundary": "Descriptive furthest observed stage, not a completed funnel or causal growth result. Follow-up candidates still require DNC, account, scope and execution checks.",
+        "boundary": "Historical furthest stage is separate from current relationship health. Follow-up candidates still require DNC, account, scope and execution checks; no causal growth result is claimed.",
     }

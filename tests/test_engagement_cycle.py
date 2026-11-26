@@ -21,6 +21,7 @@ from core import browser_write
 from core import engagement_cycle as cycle
 from core import platform_compliance
 from core.ledger import Ledger
+from core.throttle import Throttle
 from core import supply_pool
 
 TZ = dt.timezone(dt.timedelta(hours=8))
@@ -61,6 +62,17 @@ class WindowTest(unittest.TestCase):
     def test_daytime_is_outside_window(self):
         self.assertIsNone(cycle.night_start(at("2026-11-20T12:00:00+08:00"),
                                            cycle.DEFAULT_POLICY))
+
+    def test_multiple_windows_cover_afternoon_and_night(self):
+        policy = json.loads(json.dumps(cycle.DEFAULT_POLICY))
+        policy["window"] = {"windows": [
+            {"start_hour": 15, "end_hour": 18},
+            {"start_hour": 20, "end_hour": 8},
+        ]}
+        self.assertEqual(cycle.night_start(at("2026-11-20T16:00:00+08:00"), policy).hour, 15)
+        self.assertEqual(cycle.night_start(at("2026-11-20T21:00:00+08:00"), policy).hour, 20)
+        self.assertEqual(cycle.night_start(at("2026-11-21T07:30:00+08:00"), policy).hour, 20)
+        self.assertIsNone(cycle.night_start(at("2026-11-20T12:00:00+08:00"), policy))
 
     def test_morning_boundary_is_exclusive(self):
         self.assertIsNotNone(cycle.night_start(at("2026-11-21T06:59:00+08:00"),
@@ -308,6 +320,33 @@ class PlanTest(unittest.TestCase):
         throttle.remaining.return_value = 0
         got = self.plan([row("x", "publish")], throttle=throttle)
         self.assertEqual(got["scheduled"], [])
+        self.assertEqual([s["reason"] for s in got["skipped"]],
+                         ["daily_quota_exhausted"])
+
+    def test_shared_daily_cap_also_subtracts_other_action_types(self):
+        policies = self.data / "policies"
+        policies.mkdir()
+        (policies / "account-quotas.json").write_text(json.dumps({
+            "version": 1,
+            "accounts": [{
+                "platform": "x", "handle": "@elliwoodtong",
+                "subscription_tier": "premium",
+                "daily_caps": {"publish": 500},
+                "shared_daily_caps": [{"actions": ["publish", "reply"], "cap": 500}],
+            }],
+        }), encoding="utf-8")
+        th = Throttle(self.data / "state", account="@elliwoodtong")
+        th.daily_charge("x", "publish", 480)
+        rows = [row("x", "reply", "https://x.com/a/status/%d" % i,
+                    actor="u%d" % i) for i in range(21)]
+
+        policy = json.loads(json.dumps(cycle.DEFAULT_POLICY))
+        policy["platforms"]["x"]["reply"]["per_hour"] = 999
+        policy["platforms"]["x"]["reply"]["per_night"] = 999
+        policy["supply"]["wave_targets"]["x/reply"] = 999
+        got = self.plan(rows, policy=policy, throttle=th)
+
+        self.assertEqual(len(got["scheduled"]), 20)
         self.assertEqual([s["reason"] for s in got["skipped"]],
                          ["daily_quota_exhausted"])
 

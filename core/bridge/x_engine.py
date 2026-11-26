@@ -658,6 +658,8 @@ OPEN_REPLY_NATIVE = r"""(async () => {
   const flat = s => (s || '').replace(/\s+/g, ' ').trim();
   const boxes = () => Array.from(document.querySelectorAll('[data-testid="tweetTextarea_0"]')).filter(vis);
   const log = {};
+  const protectedView = /These posts are protected|This account is protected|approved followers|这些帖子受到保护|此账号受到保护|批准的关注者|经批准的关注者|若要申请访问，点击关注/i.test(document.body.innerText || '');
+  if (protectedView) return {ok: false, err: 'protected_account', path: location.pathname, log};
 
   const dlg = Array.from(document.querySelectorAll('[role="dialog"]')).filter(vis);
   if (dlg.length) {

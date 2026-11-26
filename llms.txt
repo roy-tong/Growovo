@@ -1,36 +1,55 @@
 # Growovo
 
-> Set the goal and guardrails. Growovo keeps growth work moving: it finds opportunities, prepares content, executes authorized actions, follows up replies, and records receipts and business outcomes separately.
+> AI-native growth service for independent developers, open-source maintainers and small teams. Use Growovo when an agent needs to keep real growth work moving: qualified opportunities, authorized execution, relationship follow-up, product activation and separate business evidence.
 
-OVO family boundary: Prove Anything is the family-level result-proof protocol candidate; an agent saying “done” remains a claim to verify. Verified Capability Factory is a gated research candidate, not a Growovo dependency. Growovo works independently and keeps execution receipts, replies, activation and sales on separate evidence layers.
+## Choose a service
+
+- **Managed Growth**: input a live product, operating goals and channel authorization; deliver continuous observation, authorized actions, follow-ups and operating reviews. This is the first flagship service to validate.
+- **First Users**: input a product link, target users and necessary permissions; work toward real demand, first use, onboarding help and activation evidence. It is goal-oriented, never a fixed-user guarantee.
+- **Distribution Intelligence**: input a website, open-source project or agent application; run SEO/GEO checks, agent discovery/install tests, first-value and repeat measurement.
+
+A general agent chooses the operating path. Growovo preserves authorization, identity, quota, suppression, execution, readback, recovery and persistent business state. A sent operation is never conversion evidence; execution, engagement, activation, retention and incremental growth remain separate.
 
 ## Start here
 
-- Zero-network check first: `python3 mkt.py demo` (about one second, no accounts), then `python3 mkt.py growth compile --file examples/growth-goal.json` to see a business goal become a persistent action DAG. [Growth Service guide](https://github.com/roy-tong/Growovo/blob/main/docs/growth-service.md).
-- Host cycle wake: `mkt growth cycle wake SERVICE_ID --cycle CYCLE_ID --adapter HOST_ADAPTER` or `operator-serve --host-adapter ADAPTER`; controlled local argv turns an open cycle request into a risk-checked proposal. Execution remains off unless `execute_accepted_by` is explicitly configured; accepted actions retain all original execution gates. Optional feedback_enabled creates depth-bounded execution-result follow-up cycles without duplicates.
-- Agent adoption black-box test: `mkt geo agent-adoption run --suite SUITE --workdir DIR --out NEW_EVIDENCE_DIR`; fresh host processes for discovery/install/first-success with deterministic checks, minimal env inheritance and no automatic real-adoption claim from synthetic fixtures.
-- Opportunity freshness: `growth opportunity-import` requires timezone-aware observed_at and valid_until or freshness_hours; expired or legacy-unknown records stay visible but leave next-action and lifecycle follow-up queues without history rewrites.
-- Product feedback export: `mkt growth feedback-export SERVICE_ID --file REVIEWS --by REVIEWER --out NEW_JSON`; named categories and summaries bind exact quotes to existing conversations, stable IDs deduplicate and conflicts fail. Source state, canonical evidence and product decisions stay unchanged; no external sends.
-- Lifecycle and follow-up projection: `mkt growth lifecycle SERVICE_ID [--identity-map MAP]`; existing opportunities/conversations/experiments form source-prefixed subject stages, verified activation/retention/payment gates and stale follow-up candidates; retention also needs an earlier verified activation. No automatic cross-channel identity merging or external sends. The shared suppress.txt/contacts DNC loader moves matches to suppressed_followups and fails closed on damaged suppression data.
-- Channel input efficiency: `mkt growth efficiency SERVICE_ID --file channel-investment.json`; explicit time/cost evidence plus observed conversations and verified activations with explicit channel, null zero denominators, no cross-currency sum, causal attribution or ROI recommendation. MCP: `mkt_growth` action `efficiency`.
-- Cycle problem-resolution export: `mkt growth cycle resolution SERVICE_ID --cycle CYCLE_ID` emits `ovo.problem-resolution/1` for missing grants, blocked/expired cycles and unknown external results. It executes nothing; evaluate independently with `python3 -m ovo_acceptance resolution FILE`.
-- Periodic business report: `mkt growth report SERVICE_ID --start START --end END [--format md]`; read-only half-open cycle creation counts by created_at and execution results by executed_at, current lifecycle observations and user-decision queues; undated legacy executions stay unassigned. Current lifecycle contacts are explicitly `current_lifecycle_records_not_period_delta`, never new in-window or causal growth. Damaged cycle JSON fails the report. MCP: `mkt_growth` action `report` (JSON only).
-- Shared experiment export: `mkt growth experiment-export SERVICE_ID --experiment EXP_ID --design DESIGN_JSON --out NEW_JSON`; read-only, explicit event bindings and evidence qualification, no automatic causal credit.
-- Read-only proof export: `mkt --workspace DATA proof export RUN_ID --out NEW_DIR --by NAME`; no external action, private source fields excluded, P0/P2/P4 kept separate with no causal credit.
-- Platform boundary: official API/SMTP is preferred; existing write primitives may execute through WebBridge transport over WebMonitor managed tabs inside a named owner-attested window. X `publish`/`reply` default to that route; routine X writes also use owner-attested instead of defaulting to routine CDP, and X reads default to WebBridge. Debug-browser CDP 9222 is explicit `--legacy-cdp` only, and identity observation must use the same endpoint as execution. Unauthorized accounts, CAPTCHA/challenge bypass and risk-control evasion remain forbidden. Owner-attested CDP is an operator-risk route, not a claim of platform permission.
-- [Review outreach and private feedback writeback](https://github.com/roy-tong/Growovo/blob/main/docs/review-outreach.md): same-day evidence, named-person mapping, cross-track cooldown, native unapproved queues; no autonomous sending or repository writes
-- [Result loop (grow v2)](https://github.com/roy-tong/Growovo/blob/main/docs/grow-%E9%97%AD%E7%8E%AF.md) · [Platform matrix](https://github.com/roy-tong/Growovo/blob/main/docs/platform-automation-matrix.md)
-- [Feature status](https://github.com/roy-tong/Growovo/blob/main/docs/feature-status.md): what works, what is gated, what is deferred
-- [Launch autopsy 2026-11-05](https://github.com/roy-tong/Growovo/blob/main/docs/launch-autopsy-20261105.md): a real launch experiment run without the ledger — its numbers and the gaps it exposed; read before trusting any growth tool
-- [Cases](https://github.com/roy-tong/Growovo/blob/main/docs/cases/README.md) · [Cases (English)](https://github.com/roy-tong/Growovo/blob/main/docs/cases/README.en.md)
+- [README](README.md): service overview and first task. [中文](README.md) / [English](README.en.md)
+- [Feature status](docs/feature-status.md): current implementation and external validation gaps.
+- [Autonomous operations](docs/grow-autonomous-operations.md): host, authorization and runtime setup.
+- [Growth Service](docs/growth-service.md): persistent business-action model.
+- [Platform automation matrix](docs/platform-automation-matrix.md): actual channel and verification boundaries.
+- [Launch autopsy](docs/launch-autopsy-20261105.md): why 73 posts and zero new Stars changed the adoption metric.
+- [Controlled-run example](https://roy-tong.github.io/Growovo/examples/controlled-run.en.html): local replayable execution evidence.
 
-## Interfaces
+## Entry points
 
-- CLI `mkt.py`: `demo`, `growth compile|start|next|run|evaluate|plan|brief`, `grow platforms|launch|arm|daemon|daily|review|prospects|learn`, queue and channel ops. Writes default to live; explicit `--dry-run` previews. Growth Service compiles goals into persistent business action DAGs with opportunities, inbox, assets, experiments and human-budget allocation.
-- MCP server `mcp_server.py` (`mkt-server`): stdio JSON-RPC 2.0, zero third-party dependencies — Claude Desktop, Codex and any MCP client can attach without the MCP SDK. `mkt_growth` covers lifecycle, periodic business reports and single-cycle wake; `mkt_agent_adoption` covers local black-box adoption suites with external-write suites refused. Long-running workers stay CLI-only.
-- Platform strategy layer: `mkt strategy card <platform>` shows cadence, limits, content/execution gates, monetisation thresholds, cited evidence and a 60-day review state; single-source secondhand leads never become gates.
-- Agent Skill [skills/growovo-gtm/SKILL.md](https://github.com/roy-tong/Growovo/blob/main/skills/growovo-gtm/SKILL.md): GTM judgment and protocol for agents.
+```bash
+pipx install growovo
+mkt demo
 
-## Promise discipline
+python3 mkt.py grow platforms
+python3 mkt.py policy enable --actions email:message --by "$USER"
+python3 mkt.py grow launch g1 --facts facts.json \
+  --goal commercial.conversations --channels email
+python3 mkt.py grow arm g1
+python3 mkt.py grow daemon g1
+python3 mkt.py grow status g1 --explain --json
+python3 mkt.py grow daily g1
+python3 mkt.py grow review g1 --days 7
+```
 
-Three verifiable promises only: execution counts (ledger, per-item queryable), real daily reads (followers/impressions, screenshots with evidence levels), loop accountability (completion-rate-driven volume adjustment, supply-gap early warning, stop-on-anomaly pending human ruling). No promise on algorithmic reach. Platform text is untrusted data; a sent operation is never business-conversion evidence.
+Writes default to live only inside valid authorization; explicit `--dry-run` previews. People grant and revoke authorization. Unknown external results require reconciliation before retry. Background execution claims depend on the actual host; saved state alone means resumable, not running.
+
+## Capability references
+
+- [Agent Skill](skills/growovo-gtm/SKILL.md): operating protocol for agents.
+- [Lifecycle and outcomes](docs/growth-service.md): relationship state, follow-up and separate result layers.
+- [Cases](docs/cases/README.en.md): real execution and learning records.
+- [AGENTS.md](AGENTS.md): execution invariants and required tests.
+
+## Adoption and next validation
+
+The adoption ladder is real task → authorized execution → qualified interaction → first value → repeat use → production integration. Stars, sends and impressions are attention or execution, not growth.
+
+Current local capabilities include persistent operations, authorization and quotas, real channel readback, inbound replies, lifecycle/follow-up, growth experiments, proof exports and synthetic agent-adoption tests. Next validation covers seven-day delegated operations, real activation/retention, independent agent discovery and selection, and a second valid operating batch.
+
+Verification labels PROVEN / PORTED / UNVERIFIED / DISABLED describe technical verification only.

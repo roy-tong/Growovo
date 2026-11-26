@@ -180,6 +180,32 @@ class NightStabilityMatrixTest(unittest.TestCase):
         self.assertTrue(got["ok"])
         self.assertEqual(30, writer.call_args.kwargs["job"]["candidates"])
 
+    def test_browser_receipt_read_does_not_navigate_during_an_active_write(self):
+        from core import action_gateway
+        for write_account in ("default", "elliwoodtong"):
+            with self.subTest(write_account=write_account), \
+                    tempfile.TemporaryDirectory() as data:
+                browser = mock.Mock()
+                # 写入方用默认账号名或真实账号名都要挡住回读：只看路线。
+                with action_gateway.lease(data, account=write_account, route="x"):
+                    got = receipt_audit.live_verify(
+                        {"channel": "x", "evidence": "123", "identity_handle": "owner"},
+                        browser=browser, data_dir=data)
+                self.assertEqual("unknown", got["status"])
+                self.assertEqual("browser_write_in_progress", got["detail"])
+                browser.attach_site.assert_not_called()
+
+    def test_browser_write_is_refused_while_a_receipt_read_holds_the_lane(self):
+        from core import action_gateway
+        with tempfile.TemporaryDirectory() as data:
+            with action_gateway.lease(data, account="owner", route="x"):
+                got = action_gateway.execute(
+                    channel="x", action="reply", data_dir=data, text="t",
+                    target="tweet:https://x.com/a/1", go=True,
+                    transport="browser-attach")
+        self.assertEqual("account_busy", got["result"])
+        self.assertFalse(got["ok"])
+
     def test_discord_live_verifier_checks_real_message_id_and_content(self):
         evidence = str({"serverId": "1574426907913752730",
                         "content": "Keep the counter-evidence in the same document."})

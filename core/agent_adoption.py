@@ -151,27 +151,43 @@ def run(spec, workspace, out_dir):
             stopped = True
     all_passed = all(row["status"] == "PASS" for row in records)
     review = spec.get("human_review") if isinstance(spec.get("human_review"), dict) else {}
-    real_success = (all_passed and spec["input_class"] == "real_authorized"
-                    and review.get("accepted") is True
-                    and bool(str(review.get("reviewed_by") or "").strip())
-                    and spec.get("solution_hints_provided") is not True)
-    outcome = ("REAL_SUCCESS" if real_success else
-               "OBSERVED_SUCCESS" if all_passed else "FAILED")
+    session = spec.get("agent_session") if isinstance(spec.get("agent_session"), dict) else {}
+    fresh_session = bool(all_passed and session.get("fresh_session_verified") is True
+                         and str(session.get("session_ref") or "").strip())
+    first_value = bool(fresh_session and spec["input_class"] == "real_authorized"
+                       and review.get("accepted") is True
+                       and str(review.get("reviewed_by") or "").strip()
+                       and spec.get("solution_hints_provided") is not True)
+    external = spec.get("external_result") if isinstance(spec.get("external_result"), dict) else {}
+    external_adoption = bool(first_value and external.get("observed") is True
+                             and external.get("independent_user") is True
+                             and str(external.get("evidence_ref") or "").strip())
+    retention = spec.get("retention") if isinstance(spec.get("retention"), dict) else {}
+    retained = bool(external_adoption and retention.get("observed") is True
+                    and str(retention.get("evidence_ref") or "").strip())
+    outcome = ("RETAINED" if retained else
+               "EXTERNAL_ADOPTION" if external_adoption else
+               "FIRST_VALUE_ACCEPTED" if first_value else
+               "AGENT_SESSION_PASS" if fresh_session else
+               "PROCESS_PASS" if all_passed else "FAILED")
     report = {
         "schema": RESULT_SCHEMA,
         "suite_id": spec["suite_id"],
         "outcome": outcome,
-        "real_success_eligible": real_success,
+        "real_success_eligible": first_value,
         "input_class": spec["input_class"],
         "product": copy.deepcopy(spec["product"]),
         "agent": {"host": spec["host"]["name"], "model": spec["host"]["model"]},
         "fresh_process_per_step": True,
-        "fresh_model_session_verified": False,
+        "fresh_model_session_verified": fresh_session,
+        "agent_session": copy.deepcopy(session),
         "solution_hints_provided": spec.get("solution_hints_provided") is True,
         "steps": records,
         "human_review": review,
         "authorization": copy.deepcopy(spec["authorization"]),
-        "external_result_observed": False,
+        "external_result_observed": external_adoption,
+        "external_result": copy.deepcopy(external),
+        "retention": copy.deepcopy(retention),
         "evidence_boundary": "Operator-authorized host processes, not a network sandbox. Discovery/install/first-success observations are not retention, payment or causal product value.",
         "started_at": records[0].get("started_at") if records else _now(),
         "finished_at": _now(),

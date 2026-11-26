@@ -101,7 +101,7 @@ class NewGrowthMcpTest(unittest.TestCase):
             "out": str(self.root / "evidence"),
         })
         payload = json.loads(response["result"]["content"][0]["text"])
-        self.assertEqual("OBSERVED_SUCCESS", payload["outcome"])
+        self.assertEqual("PROCESS_PASS", payload["outcome"])
 
     def test_mcp_agent_adoption_rejects_external_write_suite(self):
         suite = self.root / "suite.json"

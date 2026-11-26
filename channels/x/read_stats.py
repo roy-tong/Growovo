@@ -84,6 +84,22 @@ def read(handle: str, out_dir, *, cdp_url: Optional[str] = None,
     handle = handle.lstrip("@").strip()
     if not handle:
         raise ValueError("需要提供 handle（如 --handle verovo）")
+    from core.protected_content import is_target_suppressed
+    if is_target_suppressed(data_dir or out_dir, handle):
+        result = {
+            "schema": "growovo.x-stats/1", "handle": handle,
+            "read_at": datetime.now().isoformat(timespec="seconds"),
+            "followers": None, "impressions_yesterday": None,
+            "impressions_note": "protected_account：已永久跳过，不再访问",
+            "impressions_window": (date.today() - timedelta(days=1)).isoformat(),
+            "screenshots": [], "verification": "UNVERIFIED：受保护账号不读取",
+            "login_status": "protected_account",
+        }
+        Path(out_dir).mkdir(parents=True, exist_ok=True)
+        path = Path(out_dir) / ("stats-protected-%s.json" % handle)
+        path.write_text(json.dumps(result, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
+        result["saved"] = str(path)
+        return result
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")

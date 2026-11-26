@@ -1,7 +1,9 @@
+import hashlib
 import tempfile
 import threading
 import unittest
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 from unittest import mock
 
 from core import growth_service
@@ -15,6 +17,10 @@ class GrowthServiceTest(unittest.TestCase):
         self.data = self.tmp.name
         self.service = growth_service.start(self.data, goal())
         self.sid = self.service["id"]
+        evidence = Path(self.data) / "metric-evidence.json"
+        evidence.write_text('{"observed": true}\n', encoding="utf-8")
+        self.metric_evidence = {"path": str(evidence),
+                                "sha256": hashlib.sha256(evidence.read_bytes()).hexdigest()}
 
     def complete(self, action_id, minutes=0):
         return growth_service.record_action(
@@ -106,7 +112,8 @@ class GrowthServiceTest(unittest.TestCase):
     def test_evaluation_uses_delta_and_does_not_hide_secondary_miss(self):
         def observed(value, window):
             return {"value": value, "source": "observed", "window": window,
-                    "definition_hash": "metric-def-1", "collected_by": "mkt metrics"}
+                    "definition_hash": "metric-def-1", "collected_by": "mkt metrics",
+                    "evidence_refs": [self.metric_evidence]}
 
         baseline_window = "2026-11-17/2026-11-23"
         final_window = "2026-11-24/2026-11-30"
@@ -138,6 +145,19 @@ class GrowthServiceTest(unittest.TestCase):
         self.assertFalse(got["verification"]["same_basis"])
         self.assertEqual("verify_measurement", got["recommendation"]["kind"])
 
+    def test_observed_metric_without_verifiable_evidence_is_not_verified(self):
+        def observed(value, window):
+            return {"value": value, "source": "observed", "window": window,
+                    "definition_hash": "metric-def-1", "collected_by": "tester"}
+        got = growth_service.evaluate(
+            self.data, self.sid,
+            {"baseline": {"activated_users": observed(0, "2026-11-17/2026-11-23")},
+             "final": {"activated_users": observed(1, "2026-11-24/2026-11-30")}},
+            by="tester")
+        self.assertTrue(got["primary_success"])
+        self.assertFalse(got["primary_verified"])
+        self.assertFalse(got["verification"]["same_basis"])
+
     def test_mixed_source_baseline_and_final_is_not_verified(self):
         got = growth_service.evaluate(
             self.data, self.sid,
@@ -167,12 +187,17 @@ class GrowthServiceCompletionTest(unittest.TestCase):
                 "idempotency_key": "claim-1", "readback": "https://example.test/1"}
 
     def complete_both_channels(self, completion):
-        growth_service.record_action(
-            self.data, self.sid, "x-publish", "completed", by="tester",
-            completion=completion("x-publish", "x"))
-        growth_service.record_action(
-            self.data, self.sid, "github-engage", "completed", by="tester",
-            completion=completion("github-engage", "github"))
+        from core.ledger import Ledger
+        for action_id, channel in (("x-publish", "x"), ("github-engage", "github")):
+            block = completion(action_id, channel)
+            if block.get("kind") == "verified":
+                receipt = block["receipt"]
+                Ledger(Path(self.data) / "ledger.jsonl").append(
+                    channel=channel, action="publish", target="target", result="committed",
+                    campaign=self.sid, evidence=receipt["readback"],
+                    ref="ledger-" + action_id, claim_key=receipt["idempotency_key"])
+            growth_service.record_action(
+                self.data, self.sid, action_id, "completed", by="tester", completion=block)
 
     def test_channel_completion_requires_explicit_kind(self):
         with self.assertRaisesRegex(ValueError, "completion.kind"):
@@ -208,6 +233,12 @@ class GrowthServiceCompletionTest(unittest.TestCase):
         nxt = growth_service.next_action(self.data, self.sid)
         self.assertEqual("final-observe", nxt["id"])
         self.assertNotIn("dependency_quality", nxt)
+
+    def test_verified_completion_rejects_receipt_absent_from_ledger(self):
+        with self.assertRaisesRegex(ValueError, "账本"):
+            growth_service.record_action(
+                self.data, self.sid, "x-publish", "completed", by="tester",
+                completion={"kind": "verified", "receipt": self.receipt()})
 
     def test_legacy_completion_without_kind_is_not_trusted(self):
         from core import growth_runtime
