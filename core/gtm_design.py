@@ -430,6 +430,8 @@ def normalize_constraints(raw: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     connected_raw = raw.get("data_connected") or []
     if isinstance(connected_raw, str):
         connected_raw = [connected_raw]
+    if not isinstance(connected_raw, list):
+        raise GTMDesignError("data_connected 必须是已声明数据源的名称或名称数组")
     connected = [str(item).strip() for item in connected_raw if str(item).strip()]
     not_declared = [item for item in connected if item not in sources]
     if not_declared:

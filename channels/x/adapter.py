@@ -343,11 +343,10 @@ def run(action, extra_args, *, go=False, adhoc=False, campaign=None, ledger=None
                         "未知执行模式 %r；拒绝执行。" % execution_mode)
             except ComplianceError as exc:
                 raise SystemExit(f"平台许可拒绝（{exc.code}）：{exc}")
-        from core.gates import load_suppressions
-        suppressed = load_suppressions(data_root)
+        from core.protected_content import is_target_suppressed
         for raw in extra_args:
             value = str(raw).strip()
-            if value in suppressed or value.lstrip("@") in suppressed:
+            if is_target_suppressed(data_root, value):
                 raise SystemExit(f"目标在抑制名单（DNC/bounced/suppressed）: {value}")
         if go:
             mode = enforce_approval(data_root, campaign or "", adhoc=adhoc)

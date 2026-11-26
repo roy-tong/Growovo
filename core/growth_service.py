@@ -8,6 +8,7 @@ from pathlib import Path
 
 from . import execution_capabilities, growth_runtime
 from .growth_goals import compile_goal
+from .ledger import Ledger
 from .storage import AppendOnlyJSONL, AtomicJSONStore
 
 
@@ -81,7 +82,7 @@ def _dependency_state(action):
     return str((action.get("completion") or {}).get("kind") or "declared")
 
 
-def _completion_block(action, completion, *, by, note):
+def _completion_block(action, completion, *, by, note, data_dir, service_id):
     if action.get("kind") != "channel":
         return {"kind": "internal", "verified": True, "at": _now(), "by": str(by)}
     payload = completion if isinstance(completion, dict) else {}
@@ -102,8 +103,18 @@ def _completion_block(action, completion, *, by, note):
             raise ValueError("verified 回执的 action_id 与动作不一致")
         if str(receipt.get("channel")).strip().lower() != str(action.get("channel") or "").strip().lower():
             raise ValueError("verified 回执的 channel 与动作不一致")
+        matches = [row for row in Ledger(Path(data_dir) / "ledger.jsonl").all()
+                   if row.get("result") == "committed"
+                   and str(row.get("campaign") or "") == str(service_id)
+                   and str(row.get("channel") or "").lower() == str(receipt.get("channel")).lower()
+                   and str(row.get("claim_key") or "") == str(receipt.get("idempotency_key"))
+                   and str(row.get("evidence") or "") == str(receipt.get("readback"))]
+        if not matches:
+            raise ValueError("verified 回执未绑定同一动作的 committed 执行账本")
+        bound_receipt = copy.deepcopy(receipt)
+        bound_receipt["ledger_ref"] = str(matches[-1].get("ref") or "")
         return {"kind": "verified", "verified": True,
-                "receipt": copy.deepcopy(receipt), "at": _now(), "by": str(by)}
+                "receipt": bound_receipt, "at": _now(), "by": str(by)}
     reason = str(payload.get("reason") or note or "").strip()
     if not reason:
         raise ValueError("attested_manual 完成需要说明人工完成原因")
@@ -213,7 +224,9 @@ def record_action(data_dir, service_id, action_id, status, by, note="", minutes=
         action = next((row for row in service["actions"] if row["id"] == action_id), None)
         if action is None:
             raise ValueError(f"服务 {service_id} 没有动作 {action_id}")
-        block = _completion_block(action, completion, by=by, note=note) if status == "completed" else None
+        block = _completion_block(
+            action, completion, by=by, note=note,
+            data_dir=data_dir, service_id=service_id) if status == "completed" else None
         action.update(status=status, note=str(note or ""), evidence=copy.deepcopy(evidence))
         if block is not None:
             action["completion"] = block
@@ -282,6 +295,22 @@ def _measurement(entry):
                    "collected_by": "", "evidence_refs": []}
 
 
+def _evidence_valid(provenance):
+    refs = provenance.get("evidence_refs") or []
+    if not provenance.get("collected_by") or not refs:
+        return False
+    for ref in refs:
+        if not isinstance(ref, dict) or not ref.get("path") or not ref.get("sha256"):
+            return False
+        try:
+            digest = hashlib.sha256(Path(ref["path"]).read_bytes()).hexdigest()
+        except OSError:
+            return False
+        if digest != str(ref["sha256"]):
+            return False
+    return True
+
+
 def _same_basis(baseline_prov, final_prov):
     """同源同口径：来源不能是自报，两侧都要有窗口，指标定义必须一致。
 
@@ -292,6 +321,8 @@ def _same_basis(baseline_prov, final_prov):
     if not baseline_prov["window"] or not final_prov["window"]:
         return False
     if not baseline_prov["definition_hash"] or not final_prov["definition_hash"]:
+        return False
+    if not _evidence_valid(baseline_prov) or not _evidence_valid(final_prov):
         return False
     return baseline_prov["definition_hash"] == final_prov["definition_hash"]
 

@@ -28,6 +28,8 @@ agent 不做：`arm`（人工开闸）、`resume`（人工裁决）、`decide`�
 agent 可以做：读 `briefs`、`status`、`daily`、`report`，按需求单生产内容并 `stage`。
 MCP 已提供只读的 `mkt_grow`（platforms/briefs/status/daily/report/stage），没有 arm/resume。
 
+`grow status --explain` 的 `task_result` 使用 `ovo.task-result/1`：等待外部条件与需要用户决定分开，局部内容/激活数据缺口不阻断其他已授权运营；下一步保留真实恢复命令，`resume_ref` 用于跨会话续查。运营动作和结果卡仍不代表激活或增长。
+
 每日结果由 tick 自动生成并投递；用户据结果决定 `continue` 或 `optimize`，优化只改执行
 参数且带回滚。内容质量由 agent 自闭环（voice/tactic/编辑审稿 + 队列门禁），不承诺爆款。
 
@@ -48,13 +50,13 @@ python3 mkt.py geo agent-adoption run --suite suite.json --workdir ./agent-work 
 
 `growth cycle resolution` 把缺授权、缺动作映射、提案拒绝、执行阻塞、结果未知或过期 cycle 投影为 `ovo.problem-resolution/1`。缺授权只请求缺少的 action class；外部结果未知时先生成对账合同，绝不盲目重试。该投影只读且不执行建议，可用共享 `python3 -m ovo_acceptance resolution FILE` 独立判定下一步。
 
-`growth lifecycle` 只读现有机会、会话与实验事件；跨来源身份必须显式映射，activation/retention/payment 需要 verification，retention 还需更早的已核验 activation；DNC/bounced 命中项进入 suppressed_followups，损坏抑制源 fail closed。跟进队列不是发送许可。`growth feedback-export` 由具名复核人提交分类、摘要和逐字原文引用，绑定现有会话并只写新文件；反馈不是 canonical 需求证据、产品决定、市场普遍性或因果证明。
+`growth lifecycle` 只读现有机会、会话与实验事件；历史最高阶段与当前关系状态分开，沉默/流失风险按显式时间窗计算。跨来源身份必须显式映射，activation/retention/payment 需要 verification，retention 还需更早的已核验 activation；DNC/bounced 命中项进入 suppressed_followups，损坏抑制源 fail closed。跟进队列不是发送许可。`growth feedback-export` 由具名复核人提交分类、摘要和逐字原文引用，绑定现有会话并只写新文件；反馈不是 canonical 需求证据、产品决定、市场普遍性或因果证明。
 
 `growth report` 汇总半开窗口内的 cycle 与执行状态，并把待提案、待审核、阻塞执行和跟进事项集中为用户决策队列。互动、激活、留存和支付来自当前生命周期累计记录，字段 `current_lifecycle_records_not_period_delta` 明确它们不是本期新增或因果增长。报告只读，损坏 cycle JSON 会终止报告。MCP 通过 `mkt_growth` action `report` 返回同一 JSON 投影，不启动 Worker 或执行动作。
 
 `growth efficiency` 读取 `growovo.channel-investment/1` 中逐渠道人工分钟、成本及来源，对照现有会话与已核验激活。激活必须显式带 channel，否则进入 unassigned；未核验事件单列，零分母为 null，不跨币种求和。它只描述单位互动/激活投入，不声称渠道导致激活，也不自动给 ROI 或预算调整建议。
 
-`mkt_agent_adoption` 与 CLI `agent-adoption` 用独立宿主进程检查 discover/install/first_success 并保存证据。合成通过不等于真实采用，新进程不等于新模型会话；MCP 拒绝允许外部写的 suite。发现、安装和首次成功均不是留存或业务结果。
+`mkt_agent_adoption` 与 CLI `agent-adoption` 用独立宿主进程检查 discover/install/first_success 并保存证据。结果分为 PROCESS_PASS、AGENT_SESSION_PASS、FIRST_VALUE_ACCEPTED、EXTERNAL_ADOPTION、RETAINED；新进程不等于新模型会话，具名验收不等于外部采用，外部采用不等于留存。MCP 拒绝允许外部写的 suite。
 
 ## v0.8 默认主链：先验收工作，再决定执行
 

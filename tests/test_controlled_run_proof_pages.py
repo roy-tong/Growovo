@@ -18,9 +18,13 @@ class ControlledRunProofPagesTest(unittest.TestCase):
             self.assertEqual(1, text.count('<script type="application/ld+json">'))
 
     def test_homepages_link_family_story_and_controlled_run(self):
-        for relative in ("index.html", "en.html"):
+        requirements = {
+            "index.html": "https://roy-tong.github.io/ovo/",
+            "en.html": "https://roy-tong.github.io/ovo/en.html",
+        }
+        for relative, destination in requirements.items():
             text = (ROOT / "website" / relative).read_text(encoding="utf-8")
-            self.assertIn("Generate Anything. Prove What Matters.", text)
+            self.assertIn(f'http-equiv="refresh" content="0;url={destination}"', text)
             self.assertIn("examples/controlled-run", text)
 
 

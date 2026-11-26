@@ -445,7 +445,7 @@ def mark_source_event_processed(data_dir, service_id, source_event_id, source="g
 
 
 def _scheduled_job_intent(job):
-    value = {key: copy.deepcopy(val) for key, val in job.items() if key not in {"status", "state"}}
+    value = {key: copy.deepcopy(val) for key, val in job.items() if key not in {"status", "state", "business_result"}}
     return hashlib.sha256(json.dumps(
         value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str,
     ).encode("utf-8")).hexdigest()
@@ -715,11 +715,31 @@ def _next_fence(connection, account, route):
     return fence
 
 
+def execution_lane_busy(data_dir, route):
+    """该路线是否有任何账号在持有执行租约（忽略账号维度）。
+
+    只读回执要独占同一个受管标签页，按路线判断才可靠：调用方未必知道写入
+    时用的是哪个账号名（``action_gateway.execute`` 的默认账号是 ``default``），
+    按账号比对会漏掉正在进行的写入。
+    """
+    now = _epoch()
+    with _connection(data_dir) as connection:
+        row = connection.execute(
+            "SELECT owner FROM execution_leases WHERE route = ? AND expires_at > ? LIMIT 1",
+            (route, now)).fetchone()
+    return {"busy": row is not None, "owner": row["owner"] if row is not None else ""}
+
+
 def try_acquire_execution_lane(data_dir, account, route, owner, lease_seconds=300):
     """获取或续租执行租约。
 
     每次新的获取都递增 lane 级 fence；fence 不加在旧行上，而是由独立计数器
     持久保存，因此 release 之后再次获取也不会回到 1。
+
+    同一路线（同一条渠道的受管标签页）在一个数据目录里只能有一个持有者：
+    写入方与只读回读方对账号名的理解可能不同（``action_gateway.execute``
+    未指定账号时用 ``default``），只按（账号, 路线）比对会漏掉正在进行的
+    写入，把同一个标签页开出两条租约。
     """
     now = _epoch()
     with _transaction(data_dir) as connection:
@@ -734,6 +754,11 @@ def try_acquire_execution_lane(data_dir, account, route, owner, lease_seconds=30
                 "UPDATE execution_leases SET expires_at = ? WHERE account = ? AND route = ? AND owner = ?",
                 (now + int(lease_seconds), account, route, owner))
             return True
+        other = connection.execute(
+            "SELECT owner FROM execution_leases WHERE route = ? AND expires_at > ? LIMIT 1",
+            (route, now)).fetchone()
+        if other is not None and other["owner"] != owner:
+            return False
         fence = _next_fence(connection, account, route)
         changed = connection.execute(
             "INSERT INTO execution_leases(account, route, owner, expires_at, fence) "

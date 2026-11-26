@@ -12,7 +12,7 @@ import json
 import re
 from pathlib import Path
 
-from .storage import AtomicJSONStore
+from .storage import AtomicJSONStore, FileLock, StorageError
 
 
 VERSION = 1
@@ -204,19 +204,32 @@ def explain(data_dir, service_id, *, action_class, scope=None, now=None):
             "grant": active[-1], "requires": "grant"}
 
 
-def consume(data_dir, service_id, grant_id, *, amount=1):
+def consume(data_dir, service_id, grant_id, *, amount=1, action_class=None, scope=None, now=None):
     if isinstance(amount, bool) or not isinstance(amount, int) or amount < 1:
         raise ValueError("amount 必须是正整数")
-    payload = _load(data_dir, service_id)
-    for item in payload.get("grants") or []:
-        if item.get("grant_id") != grant_id:
-            continue
-        quota = item.get("quota")
-        used = int(item.get("used") or 0)
-        if quota is not None and used + amount > int(quota):
-            raise ValueError("授权配额不足：%s/%s" % (used, quota))
-        item["used"] = used + amount
-        item["last_used_at"] = _now().isoformat(timespec="seconds")
-        _save(data_dir, service_id, payload)
-        return item
+    try:
+        with FileLock(path(data_dir, service_id).with_suffix(".lock")):
+            payload = _load(data_dir, service_id)
+            for item in payload.get("grants") or []:
+                if item.get("grant_id") != grant_id:
+                    continue
+                if item.get("revoked_at"):
+                    raise ValueError("授权已撤销")
+                current = now or _now()
+                if item.get("expires_at") and current >= _instant(item["expires_at"], "expires_at"):
+                    raise ValueError("授权已过期")
+                if action_class is not None and item.get("action_class") != action_class:
+                    raise ValueError("授权类别不匹配")
+                if not _match_scope(item.get("scope") or {}, scope or {}):
+                    raise ValueError("授权范围不匹配")
+                quota = item.get("quota")
+                used = int(item.get("used") or 0)
+                if quota is not None and used + amount > int(quota):
+                    raise ValueError("授权配额不足：%s/%s" % (used, quota))
+                item["used"] = used + amount
+                item["last_used_at"] = current.isoformat(timespec="seconds")
+                _save(data_dir, service_id, payload)
+                return item
+    except StorageError as exc:
+        raise ValueError("授权锁不可用：%s" % exc) from exc
     raise ValueError("没有授权 %s" % grant_id)

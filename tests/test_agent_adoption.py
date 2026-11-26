@@ -59,7 +59,7 @@ class AgentAdoptionTest(unittest.TestCase):
     def test_three_steps_run_in_fresh_processes_and_keep_workspace_state(self):
         result = agent_adoption.run(
             self.suite(), self.root / "workspace", self.root / "evidence")
-        self.assertEqual("OBSERVED_SUCCESS", result["outcome"])
+        self.assertEqual("PROCESS_PASS", result["outcome"])
         self.assertEqual(["PASS"] * 3, [row["status"] for row in result["steps"]])
         stderr_refs = [row["stderr_ref"] for row in result["steps"]]
         contents = [(self.root / "evidence" / ref).read_text().strip() for ref in stderr_refs]
@@ -81,14 +81,19 @@ class AgentAdoptionTest(unittest.TestCase):
         spec["input_class"] = "real_authorized"
         result = agent_adoption.run(
             spec, self.root / "workspace", self.root / "evidence")
-        self.assertEqual("OBSERVED_SUCCESS", result["outcome"])
+        self.assertEqual("PROCESS_PASS", result["outcome"])
         spec = self.suite()
         spec["input_class"] = "real_authorized"
         spec["human_review"] = {"reviewed_by": "buyer-owner", "accepted": True,
                                 "reviewed_at": "2026-11-25T00:00:00Z"}
         result = agent_adoption.run(
             spec, self.root / "workspace-2", self.root / "evidence-2")
-        self.assertEqual("REAL_SUCCESS", result["outcome"])
+        self.assertEqual("PROCESS_PASS", result["outcome"])
+        spec["agent_session"] = {"fresh_session_verified": True,
+                                 "session_ref": "session-evidence-1"}
+        result = agent_adoption.run(
+            spec, self.root / "workspace-3", self.root / "evidence-3")
+        self.assertEqual("FIRST_VALUE_ACCEPTED", result["outcome"])
 
     def test_cli_executes_suite_and_writes_new_evidence_directory(self):
         suite_path = self.root / "suite.json"
@@ -101,7 +106,7 @@ class AgentAdoptionTest(unittest.TestCase):
         result = subprocess.run(argv, cwd=ROOT, text=True, capture_output=True)
         self.assertEqual(0, result.returncode, result.stderr + result.stdout)
         payload = json.loads(result.stdout)
-        self.assertEqual("OBSERVED_SUCCESS", payload["outcome"])
+        self.assertEqual("PROCESS_PASS", payload["outcome"])
         second = subprocess.run(argv, cwd=ROOT, text=True, capture_output=True)
         self.assertNotEqual(0, second.returncode)
 

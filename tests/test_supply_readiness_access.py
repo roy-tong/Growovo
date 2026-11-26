@@ -45,6 +45,11 @@ def reply(target, text="answer", actor="a"):
 
 
 class SupplyReadinessTests(unittest.TestCase):
+    def setUp(self):
+        gate = mock.patch("core.platform_compliance.owner_attested_active", return_value=True)
+        gate.start()
+        self.addCleanup(gate.stop)
+
     def test_candidate_draft_and_eligible_depth_are_different(self):
         with tempfile.TemporaryDirectory() as tmp:
             data = Path(tmp)

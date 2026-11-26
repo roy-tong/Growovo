@@ -283,6 +283,82 @@ class TestAccountQuotaProfiles(TmpDir):
         self.assertEqual(Throttle(self.state, account="@other").policy(
             "x", "publish")[3], 300)
 
+    def test_shared_daily_cap_counts_publish_and_reply_together(self):
+        self.write_profiles([self.premium_profile(
+            shared_daily_caps=[{"actions": ["publish", "reply"], "cap": 500}])])
+        th = Throttle(self.state, account="@elliwoodtong")
+
+        self.assertEqual(th.policy("x", "reply")[3], 500)
+        th.daily_charge("x", "publish", 480)
+        self.assertEqual(th.remaining("x", "reply"), 20)
+        self.assertTrue(th.daily_allows("x", "reply", 20))
+        self.assertFalse(th.daily_allows("x", "reply", 21))
+        th.reserve("x", "reply", 20)
+        self.assertEqual(th.remaining("x", "publish"), 0)
+        with self.assertRaises(ThrottleError):
+            th.reserve("x", "publish")
+
+    def test_standard_pipeline_uses_the_explicit_account_profile(self):
+        self.write_profiles([
+            self.premium_profile(),
+            self.premium_profile(handle="@other", daily_caps={"publish": 300}),
+        ])
+        pipe = standard_pipeline(self.data, Ledger(self.data / "ledger.jsonl"),
+                                 account="@other")
+
+        self.assertEqual(pipe.throttle.policy("x", "publish")[3], 300)
+
+    def test_strict_write_requires_unambiguous_account(self):
+        self.write_profiles([
+            self.premium_profile(),
+            self.premium_profile(handle="@other", daily_caps={"publish": 300}),
+        ])
+        pipe = standard_pipeline(self.data, Ledger(self.data / "ledger.jsonl"))
+        with self.assertRaises(ThrottleError):
+            pipe.throttle.reserve("x", "publish")
+
+        premium = standard_pipeline(self.data, Ledger(self.data / "ledger.jsonl"),
+                                    account="@elliwoodtong")
+        # 账号配置没覆盖 reply 时回落系统默认（180），不因缺一条覆盖就封掉整个动作。
+        self.assertEqual(premium.throttle.policy("x", "reply")[3], 180)
+        premium.throttle.reserve("x", "reply")
+
+    def test_platform_default_rows_apply_to_any_observed_account(self):
+        """生产配置里 discord/hn/reddit/linkedin/email 只有「<platform>-default」行。
+
+        这些行没有 handle，是平台级缺省额度，必须对任何观测到的账号生效；
+        否则严格模式会让这几个渠道整体发不出去（产品给自己加的约束）。
+        """
+        self.write_profiles([
+            self.premium_profile(),
+            {"account_id": "discord-default", "platform": "discord",
+             "daily_caps": {"publish": 120, "reply": 60}, "source": "system_default"},
+            {"account_id": "github-roy-tong", "platform": "github", "handle": "@roy-tong",
+             "daily_caps": {"reply": 110}, "source": "account_observed"},
+        ])
+
+        for channel, action, handle, expected in (
+                ("discord", "publish", "tongroy", 120),
+                ("discord", "reply", "tongroy", 60),
+                ("github", "reply", "roy-tong", 110),
+                ("github", "reply", "another-account", 110),   # 观测行不否决别的账号
+        ):
+            with self.subTest(platform=channel, handle=handle):
+                th = Throttle(self.state, account=handle, strict=True)
+                th.validate_identity(channel, action)
+                self.assertEqual(th.policy(channel, action)[3], expected)
+
+    def test_owner_declared_identity_still_blocks_a_different_observed_account(self):
+        self.write_profiles([self.premium_profile()])
+        th = Throttle(self.state, account="@someoneelse", strict=True)
+        with self.assertRaisesRegex(ThrottleError, "account_quota_identity_required"):
+            th.validate_identity("x", "publish")
+
+    def test_missing_policy_file_falls_back_to_system_defaults(self):
+        th = Throttle(self.state, account="tongroy", strict=True)
+        th.validate_identity("x", "publish")
+        self.assertEqual(th.policy("x", "publish")[3], 48)
+
 
 class TestBudgetDayBoundary(TmpDir):
     """夜间窗口 19:00→次日 07:00 跨本地 0 点：预算日界不能把一晚切成两段。"""

@@ -1,6 +1,7 @@
 import datetime as dt
 import tempfile
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 
 from core import risk_policy
 
@@ -30,6 +31,29 @@ class RiskPolicyTest(unittest.TestCase):
         second = risk_policy.explain(self.data, self.sid, action_class="routine_reply")
         self.assertFalse(second["allowed"])
         self.assertEqual("no_active_grant", second["reason"])
+
+    def test_consume_rechecks_revocation(self):
+        grant = risk_policy.grant(
+            self.data, self.sid, action_class="routine_reply",
+            granted_by="owner", quota=1)
+        risk_policy.revoke(self.data, self.sid, grant["grant_id"], by="owner")
+        with self.assertRaisesRegex(ValueError, "撤销"):
+            risk_policy.consume(self.data, self.sid, grant["grant_id"])
+
+    def test_two_consumers_cannot_spend_the_last_quota_twice(self):
+        grant = risk_policy.grant(
+            self.data, self.sid, action_class="routine_reply",
+            granted_by="owner", quota=1)
+        def consume(_):
+            try:
+                risk_policy.consume(self.data, self.sid, grant["grant_id"])
+                return True
+            except ValueError:
+                return False
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            results = list(pool.map(consume, range(2)))
+        self.assertEqual([False, True], sorted(results))
+        self.assertEqual(1, risk_policy.list_grants(self.data, self.sid)[0]["used"])
 
     def test_scope_must_match(self):
         risk_policy.grant(self.data, self.sid, action_class="new_outreach",

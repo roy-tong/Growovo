@@ -1,5 +1,6 @@
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 from core import growth_cycle, growth_service, risk_policy
@@ -64,6 +65,47 @@ class GrowthCycleTest(unittest.TestCase):
         growth_cycle.propose(self.data, self.sid, "cycle-test", payload)
         with self.assertRaises(ValueError):
             growth_cycle.propose(self.data, self.sid, "cycle-test", payload)
+
+    def test_revoked_grant_after_proposal_blocks_execution(self):
+        grant = risk_policy.grant(self.data, self.sid, action_class="new_outreach",
+                                  granted_by="owner", quota=1)
+        growth_cycle.request(self.data, self.sid, actor="tester", cycle_id="cycle-test")
+        growth_cycle.propose(self.data, self.sid, "cycle-test", {
+            "schema": PROPOSAL, "producer_id": "host-agent",
+            "proposals": [{"proposal_id": "p1", "action_class": "new_outreach",
+                           "action_id": "x-publish", "rationale": "reach users"}]})
+        risk_policy.revoke(self.data, self.sid, grant["grant_id"], by="owner")
+        with mock.patch.object(growth_cycle.growth_execution, "run", return_value={"status": "blocked"}) as run:
+            result = growth_cycle.execute(self.data, self.sid, "cycle-test", by="tester")
+        self.assertEqual("blocked", result["status"])
+        self.assertEqual("authorization_changed", result["executions"][0]["error"])
+        run.assert_not_called()
+
+    def test_auto_proposal_cannot_execute_a_channel_action(self):
+        growth_cycle.request(self.data, self.sid, actor="tester", cycle_id="cycle-test")
+        growth_cycle.propose(self.data, self.sid, "cycle-test", {
+            "schema": PROPOSAL, "producer_id": "host-agent",
+            "proposals": [{"proposal_id": "p1", "action_class": "observe",
+                           "action_id": "x-publish", "rationale": "misclassified"}]})
+        with mock.patch.object(growth_cycle.growth_execution, "run", return_value={"status": "blocked"}) as run:
+            result = growth_cycle.execute(self.data, self.sid, "cycle-test", by="tester")
+        self.assertEqual("blocked", result["status"])
+        self.assertEqual("action_class_mismatch", result["executions"][0]["error"])
+        run.assert_not_called()
+
+    def test_execute_consumes_grant_quota(self):
+        grant = risk_policy.grant(self.data, self.sid, action_class="new_outreach",
+                                  granted_by="owner", quota=1)
+        growth_cycle.request(self.data, self.sid, actor="tester", cycle_id="cycle-test")
+        growth_cycle.propose(self.data, self.sid, "cycle-test", {
+            "schema": PROPOSAL, "producer_id": "host-agent",
+            "proposals": [{"proposal_id": "p1", "action_class": "new_outreach",
+                           "action_id": "x-publish", "rationale": "reach users"}]})
+        with mock.patch.object(growth_cycle.growth_execution, "run", return_value={"status": "blocked"}):
+            growth_cycle.execute(self.data, self.sid, "cycle-test", by="tester")
+        current = next(row for row in risk_policy.list_grants(self.data, self.sid)
+                       if row["grant_id"] == grant["grant_id"])
+        self.assertEqual(1, current["used"])
 
     def test_expired_cycle_refuses_late_proposal(self):
         growth_cycle.request(self.data, self.sid, actor="tester", cycle_id="cycle-test")

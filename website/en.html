@@ -1,174 +1,29 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Growovo | Authorized growth work that keeps moving</title>
-<meta name="description" content="Set the goal and guardrails. Growovo finds opportunities, prepares content, executes authorized actions, follows up replies, and records receipts and business outcomes separately.">
-<link rel="canonical" href="https://roy-tong.github.io/Growovo/en.html">
-<meta name="theme-color" content="#fafbfc">
-<meta name="growovo:auto-channels" content="x,email,discord">
-<!-- GSC/Bing verification meta goes on the line below this comment -->
-<meta property="og:type" content="website">
-<meta property="og:site_name" content="Growovo">
-<meta property="og:title" content="Growovo | Authorized growth work that keeps moving">
-<meta property="og:description" content="Set the goal and guardrails. Execute authorized work, follow up replies, and record what happened.">
-<meta property="og:url" content="https://roy-tong.github.io/Growovo/en.html">
-<meta property="og:image" content="https://roy-tong.github.io/Growovo/assets/social-preview.png">
-<meta property="og:image:width" content="1200">
-<meta property="og:image:height" content="630">
-<meta property="og:image:alt" content="Growovo: authorized growth work that keeps moving">
-<meta property="og:locale" content="en_US">
-<meta property="og:locale:alternate" content="zh_CN">
-<meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="Growovo | Authorized growth work that keeps moving">
-<meta name="twitter:description" content="Set the goal and guardrails. Execute authorized work, follow up replies, and record what happened.">
-<meta name="twitter:image" content="https://roy-tong.github.io/Growovo/assets/social-preview.png">
-<link rel="alternate" hreflang="en" href="https://roy-tong.github.io/Growovo/en.html">
-<link rel="alternate" hreflang="zh-CN" href="https://roy-tong.github.io/Growovo/">
-<link rel="alternate" hreflang="x-default" href="https://roy-tong.github.io/Growovo/">
-<script type="application/ld+json">
-{
-  "@context": "https://schema.org",
-  "@type": "SoftwareApplication",
-  "name": "Growovo",
-  "applicationCategory": "BusinessApplication",
-  "operatingSystem": "macOS, Linux, Windows",
-  "description": "Set the goal and guardrails. Growovo finds opportunities, prepares content, executes authorized actions, follows up replies, and records receipts and business outcomes separately.",
-  "url": "https://roy-tong.github.io/Growovo/en.html",
-  "codeRepository": "https://github.com/roy-tong/Growovo",
-  "license": "https://opensource.org/license/mit",
-  "author": { "@type": "Person", "name": "Roy Tong", "url": "https://github.com/roy-tong" },
-  "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" }
-}
-</script>
-<script type="application/ld+json">
-{
-  "@context": "https://schema.org",
-  "@type": "FAQPage",
-  "mainEntity": [
-    { "@type": "Question", "name": "Which actions run automatically?", "acceptedAnswer": { "@type": "Answer", "text": "Feedback search, metric observation, content generation and opportunity analysis can run automatically, along with routine replies inside existing authorization. New-customer outreach follows audience, channel and quota limits; high-impact statements, new permissions and irreversible commitments escalate." } },
-    { "@type": "Question", "name": "Does live by default mean everything publishes immediately?", "acceptedAnswer": { "@type": "Answer", "text": "No. Live by default only means an authorized write does not silently fall back to a preview. Account, action, audience, quota and risk policies still apply; unclear policies escalate. Use explicit --dry-run to preview at any time." } },
-    { "@type": "Question", "name": "How is this different from a scheduling tool?", "acceptedAnswer": { "@type": "Answer", "text": "A scheduler publishes content you already wrote. Growovo keeps goals, opportunities, assets, conversations, authorization, execution, receipts and recovery in one persistent runtime, then follows up replies while keeping sends, activation and sales separate." } },
-    { "@type": "Question", "name": "How do I verify the results?", "acceptedAnswer": { "@type": "Answer", "text": "Every action is recorded in the ledger; business readings are graded owner_declared, observed or independently_verified; unknown results never auto-resend. mkt demo reproduces authorization, offline receipts and blocked paths without network or accounts." } },
-    { "@type": "Question", "name": "Which channels are supported?", "acceptedAnswer": { "@type": "Answer", "text": "Channel readiness and account authorization are reported separately. Official APIs and SMTP are preferred; managed WebBridge/CDP requires a named owner-attested window and never claims platform permission. Check the platform automation matrix and feature status for current coverage." } },
-    { "@type": "Question", "name": "Does it cost money?", "acceptedAnswer": { "@type": "Answer", "text": "The tool is MIT open source. Local compute, model usage and third-party services are billed by your own environment." } }
-  ]
-}
-</script>
-<style>
-:root{--ink:#1a1d21;--mut:#5b6470;--line:#e4e7ec;--bg:#fafbfc;--accent:#0d6b3f;--warn:#8a5a00}
-*{box-sizing:border-box;margin:0;padding:0}
-body{font:16px/1.75 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:var(--ink);background:#fff}
-main{max-width:760px;margin:0 auto;padding:48px 20px 80px}
-h1{font-size:30px;line-height:1.3;letter-spacing:-.5px}
-h2{font-size:20px;margin:44px 0 12px}
-h3{font-size:16px;margin:22px 0 6px}
-p{margin:10px 0}
-a{color:var(--accent)}
-.tagline{font-size:18px;color:var(--mut);margin-top:10px}
-.badge{display:inline-block;font-size:13px;border:1px solid var(--line);border-radius:20px;padding:1px 12px;margin:14px 8px 0 0;color:var(--mut);background:var(--bg)}
-table{width:100%;border-collapse:collapse;margin:14px 0;font-size:15px}
-th,td{text-align:left;padding:9px 10px;border-bottom:1px solid var(--line);vertical-align:top}
-th{font-weight:600;background:var(--bg)}
-code,pre{font:13.5px/1.6 ui-monospace,SFMono-Regular,Menlo,monospace}
-code{background:var(--bg);border:1px solid var(--line);border-radius:4px;padding:1px 5px}
-pre{background:var(--ink);color:#e8edf2;border-radius:8px;padding:14px 16px;overflow-x:auto;margin:14px 0}
-pre code{background:none;border:none;color:inherit;padding:0}
-.note{border-left:3px solid var(--warn);background:#fffaf0;padding:10px 14px;border-radius:0 6px 6px 0;margin:14px 0;font-size:15px}
-footer{border-top:1px solid var(--line);margin-top:56px;padding-top:18px;color:var(--mut);font-size:14px}
-</style>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Growovo is now part of the unified OVO website</title>
+  <meta http-equiv="refresh" content="0;url=https://roy-tong.github.io/ovo/en.html">
+  <meta name="description" content="Growovo is now part of the unified OVO website. Explore products, cases, the engineering journal and real-task entry.">
+  <meta name="growovo:auto-channels" content="x,email,discord">
+  <link rel="canonical" href="https://roy-tong.github.io/ovo/en.html">
+  <link rel="alternate" hreflang="zh-CN" href="https://roy-tong.github.io/ovo/">
+  <link rel="alternate" hreflang="en" href="https://roy-tong.github.io/ovo/en.html">
+  <link rel="alternate" hreflang="x-default" href="https://roy-tong.github.io/ovo/">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="OVO">
+  <meta property="og:title" content="Growovo is now part of the unified OVO website">
+  <meta property="og:description" content="Three products, one AI-native business-delivery experience.">
+  <meta property="og:url" content="https://roy-tong.github.io/ovo/en.html">
+  <meta property="og:image" content="https://roy-tong.github.io/ovo/assets/social-preview.png">
+  <meta name="twitter:card" content="summary_large_image">
 </head>
 <body>
-<main>
-<h1>Set the goal and guardrails. Growovo keeps growth work moving.</h1>
-<p class="tagline">From opportunities and content to authorized execution, reply follow-up and outcome readback. Spend less time watching the workflow and more time making the decisions that matter.</p>
-<p><strong>Generate Anything. Prove What Matters.</strong> Keep generation, execution and business outcomes on separate evidence.</p>
-<p><a href="#demo">Run the zero-account demo →</a></p>
-<span class="badge">MIT open source</span><span class="badge">CLI / MCP / Agent Skill</span><span class="badge">v0.21.0</span>
-<p><a href="./examples/controlled-run.en.html">Open the replayable controlled-run proof →</a></p>
-
-<h2>Automate within the approved scope. Escalate beyond it.</h2>
-<p>Give Growovo the product facts, audience and scope you authorize. It finds opportunities, prepares content, executes authorized actions, follows up replies, and keeps receipts, activation and sales in separate records.</p>
-<table>
-<tr><th>Business action</th><th>Default execution</th></tr>
-<tr><td>Search feedback and observe metrics</td><td>Automatic</td></tr>
-<tr><td>Generate content and analyze opportunities</td><td>Automatic</td></tr>
-<tr><td>Routine replies within existing authorization</td><td>Automatic</td></tr>
-<tr><td>New-customer outreach</td><td>Authorized audience, channel and quota</td></tr>
-<tr><td>High-impact public statements</td><td>Risk review</td></tr>
-<tr><td>New accounts, permissions or channels</td><td>First-use authorization</td></tr>
-<tr><td>Money, contracts or irreversible commitments</td><td>Separate approval</td></tr>
-</table>
-<p>When the policy is unclear, Growovo escalates instead of defaulting to publish. Explicit <code>--dry-run</code> previews an action; it is not the only authorization mechanism. See the <a href="https://github.com/roy-tong/Growovo/blob/main/docs/platform-automation-matrix.md">platform automation matrix</a> for current channel readiness.</p>
-
-<h2>More than a scheduler</h2>
-<table>
-<tr><th>Capability</th><th>Business value</th></tr>
-<tr><td>Persistent business state</td><td>Goals, opportunities, assets, conversations, attempts, events and recovery stay consistent across CLI, MCP and scheduled jobs</td></tr>
-<tr><td>Follow-up after execution</td><td>GitHub Issue/Discussion and Gmail conversations continue in the same workflow</td></tr>
-<tr><td>Separate outcomes</td><td>Send receipts, meaningful replies, activation and sales remain distinct; unknown results never auto-resend</td></tr>
-<tr><td>Learn from failure</td><td>The public 73 tweets, 0 new stars autopsy remains a warning against using volume as growth proof</td></tr>
-</table>
-
-<h2 id="demo">One concrete task: one successful delivery, and three runs stopped by the gate</h2>
-<p>The input is a plan (demo-p0), one campaign and four sample actions. Three executable items form the approved queue; the placeholder sample stays outside that approval and is checked separately. Below is the real <code>mkt demo</code> output — zero network, zero accounts; the sandbox is rebuilt on every run and the whole thing is reproducible locally in about a second:</p>
-<table>
-<tr><th>Step</th><th>What happened</th><th>Result</th></tr>
-<tr><td>Plan check</td><td>schema, beachhead, capability matrix, daily kernel budget</td><td>PASS (3 approved items against a 100/day budget)</td></tr>
-<tr><td>Human gate</td><td>the campaign belongs to plan demo-p0 with <code>human_approved=false</code></td><td><strong>Refused and stopped</strong> — human approval is a precondition</td></tr>
-<tr><td>Simulated approval</td><td><code>mkt plan approve</code>: signature, plan fingerprint and an approval event set <code>human_approved=true</code></td><td>Released; the write path below still runs in the sandbox, not as a real authorization</td></tr>
-<tr><td>Successful delivery</td><td>d-000 passes the gates → read-back matches → offline send (<code>demo-memory</code>, in-process memory) → committed; one L1 receipt is added</td><td>1 committed row, inspectable line by line</td></tr>
-<tr><td>Three blocked runs</td><td>d-001 dry-run, nothing sent; d-002 rejected for placeholder text; d-003 failed on read-back mismatch</td><td>1 dry-run · 1 rejected · 1 failed, all recorded</td></tr>
-<tr><td>Ledger and daily card</td><td>4 terminal states match expectations; the daily result card reads only the ledger and the receipt layers</td><td>published 1 (planned 1); L1 observed; L2/L3 UNKNOWN, never written as 0</td></tr>
-</table>
-<p class="note">The example shows both what it delivers and where it stops: one complete success path (gate → read-back → offline send → committed → daily result card) and three blocked runs (approval missing, placeholders present, read-back inconsistent). The send is an in-process memory simulation (<code>demo-memory</code>) — nothing was sent externally; committed here only proves that the offline adapter recorded the action, not conversion or a platform receipt; the daily card keeps L2/L3 UNKNOWN instead of writing the unknown as 0. <code>tests/test_demo.py</code> pins "success + three blocked paths + rerunnable" as a regression test.</p>
-
-<h2>Install and verify</h2>
-<pre><code>pipx install growovo
-mkt demo</code></pre>
-<p>The content check rejects placeholders and drafts that miss required audience or product facts before handoff. Human review still decides whether a draft is fit to send. An uncertain SMTP receipt halts the batch for reconciliation.</p>
-<p><a href="https://github.com/roy-tong/Growovo/releases/latest">Release notes</a> · <a href="https://pypi.org/project/growovo/">PyPI</a> · <a href="https://github.com/roy-tong/Growovo/blob/main/docs/grow-autonomous-operations.md">Autonomous operations config</a></p>
-
-<h2>Verify from source (demo is zero-network, zero-account)</h2>
-<pre><code>git clone https://github.com/roy-tong/Growovo.git &amp;&amp; cd Growovo
-python3 mkt.py demo                 # returns in about a second, no accounts
-python3 mkt.py grow platforms       # what phase one can fully automate</code></pre>
-<p class="note">See the receipts before deciding whether to trust it: <a href="https://github.com/roy-tong/Growovo/blob/main/docs/launch-autopsy-20261105.md">Launch autopsy: 73 tweets in 11 hours, 0 new stars</a> — a real GTM launch experiment that did not use Growovo's ledger (progress lived in throwaway scripts), the numbers it produced, and the ledger gap it exposed.</p>
-<p>New to growth as an engineer? Start with <a href="https://github.com/roy-tong/Growovo/blob/main/docs/growth-for-engineers.en.md">Growth is now your job</a>. Why not write your own script or use a general automation platform? <a href="https://github.com/roy-tong/Growovo/blob/main/docs/compare.md">How Growovo compares</a> says where it loses and where it wins.</p>
-
-<h2>Agent interfaces</h2>
-<table>
-<tr><th>Entry</th><th>Notes</th></tr>
-<tr><td>CLI <code>mkt.py</code></td><td><code>demo</code> / <code>grow launch·arm·daily·review</code> / <code>policy enable</code>, authorization gates + dry-run</td></tr>
-<tr><td>MCP <code>mcp_server.py</code></td><td>stdio JSON-RPC 2.0, zero third-party dependencies, Claude Desktop / Codex can connect directly</td></tr>
-<tr><td>Agent Skill</td><td><a href="https://github.com/roy-tong/Growovo/blob/main/skills/growovo-gtm/SKILL.md">growovo-gtm</a>: GTM judgment and protocols</td></tr>
-</table>
-
-<h2 id="faq">FAQ</h2>
-<h3>Which actions run automatically?</h3>
-<p>Feedback search, metric observation, content generation and opportunity analysis can run automatically, along with routine replies inside existing authorization. New-customer outreach follows audience, channel and quota limits; high-impact statements, new permissions and irreversible commitments escalate.</p>
-<h3>Does live by default mean everything publishes immediately?</h3>
-<p>No. Live by default only means an authorized write does not silently fall back to a preview. Account, action, audience, quota and risk policies still apply; unclear policies escalate. Use explicit <code>--dry-run</code> to preview at any time.</p>
-<h3>How is this different from a scheduling tool?</h3>
-<p>A scheduler publishes content you already wrote. Growovo keeps goals, opportunities, assets, conversations, authorization, execution, receipts and recovery in one persistent runtime, then follows up replies while keeping sends, activation and sales separate.</p>
-<h3>How do I verify the results?</h3>
-<p>Every action is recorded in the ledger; business readings are graded <code>owner_declared / observed / independently_verified</code>; unknown results never auto-resend. <code>mkt demo</code> reproduces authorization, offline receipts and blocked paths without network or accounts.</p>
-<h3>Which channels are supported?</h3>
-<p>Channel readiness and account authorization are reported separately. Official APIs and SMTP are preferred; managed WebBridge/CDP requires a named owner-attested window and never claims platform permission. Check the <a href="https://github.com/roy-tong/Growovo/blob/main/docs/platform-automation-matrix.md">platform automation matrix</a> and <a href="https://github.com/roy-tong/Growovo/blob/main/docs/feature-status.md">feature status</a> for current coverage.</p>
-<h3>Does it cost money?</h3>
-<p>The tool is MIT open source. Local compute, model usage and third-party services are billed by your own environment.</p>
-
-<h2>Links</h2>
-<ul>
-<li>Repo and docs: <a href="https://github.com/roy-tong/Growovo">GitHub roy-tong/Growovo</a> (<a href="https://github.com/roy-tong/Growovo/blob/main/README.md">中文 README</a> · <a href="https://github.com/roy-tong/Growovo/blob/main/docs/feature-status.md">feature status</a> · <a href="https://github.com/roy-tong/Growovo/blob/main/docs/platform-automation-matrix.md">platform automation matrix</a>)</li>
-<li>Growth post-mortem: <a href="./guides/launch-autopsy.en.html">73 posts in one night, 0 new stars</a> (English) · <a href="./guides/launch-autopsy.html" hreflang="zh-CN">中文版</a> — the full failure record and what changed</li>
-<li>LLM entry: <a href="https://roy-tong.github.io/Growovo/llms.txt">/llms.txt</a> · <a href="https://raw.githubusercontent.com/roy-tong/Growovo/main/llms.txt">repo llms.txt</a> · <a href="./" hreflang="zh-CN">中文页面</a></li>
-<li>ovo family: research layer <a href="https://roy-tong.github.io/Askovo/">Askovo</a> (<a href="https://github.com/roy-tong/Askovo">repo</a>) · verification layer <a href="https://roy-tong.github.io/Verovo/">Verovo</a> (<a href="https://github.com/roy-tong/Verovo">repo</a>)</li>
-</ul>
-
-<footer>Growovo · MIT License · Execution volume, honest readings, closed-loop responsibility — only what can be verified.<br>
-ovo family: research <a href="https://roy-tong.github.io/Askovo/">Askovo</a> → execution Growovo → verification <a href="https://roy-tong.github.io/Verovo/">Verovo</a> · <a href="./">中文</a><br>Community &amp; updates: <a href="https://discord.gg/UqrM8MCXb">OVO Discord</a> · <a href="https://x.com/elliwoodtong">X / @elliwoodtong</a></footer>
-</main>
+  <main>
+    <h1>Growovo is now part of the unified OVO website</h1>
+    <p>You are being redirected to the unified products, cases, journal and task entry. If nothing happens, <a href="https://roy-tong.github.io/ovo/en.html">open the OVO website</a>.</p>
+    <p>Growovo’s <a href="./examples/controlled-run.en.html">controlled-run example</a>, <a href="./guides/launch-autopsy.en.html">launch autopsy</a> and <a href="https://github.com/roy-tong/Growovo">repository documentation</a> remain available.</p>
+  </main>
 </body>
 </html>

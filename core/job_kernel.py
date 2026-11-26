@@ -28,7 +28,8 @@ class JobStateMachine:
         if result.get("ok"):
             if result.get("rejected"):
                 return "failed", "draft_update_rejected"
-            if int(result.get("target") or 0) > 0 and not results:
+            if result.get("target_shortfall") or int(result.get("target") or 0) > int(
+                    result.get("committed", states.count("committed")) or 0):
                 return "completed_with_errors", "target_shortfall"
             if any(state != "committed" for state in states):
                 return "completed_with_errors", "non_committed_results"

@@ -224,7 +224,7 @@ def run_queue(queue_path, *, data_dir=None, go=False, allow_unverified=False,
                      routine=True, account=account, **routine_kwargs)
         else:
             precheck(channel, action, data, campaign, go, allow_unverified)
-        throttle = Throttle(data / "state")
+        throttle = Throttle(data / "state", account=account, strict=True)
         # 限额不再整队拒跑：超出单次上限或当日剩余额度的部分切成 deferred，
         # 能跑的照常跑；平台风控的节奏建议随 deferred 一起返回。
         requested = len(items)

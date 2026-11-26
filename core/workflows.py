@@ -466,7 +466,7 @@ def replay(data_dir: Path, workflow: Dict[str, Any], *, page: Any = None,
     values = dict(values or {})
     run_id = f"{workflow['id']}-{datetime.now().strftime('%Y%m%dT%H%M%S')}"
     ledger = Ledger(data_dir / "ledger.jsonl") if go else None
-    throttle = Throttle(data_dir / "state") if go else None
+    throttle = Throttle(data_dir / "state", strict=True) if go else None
 
     def commit_hook(phase: str, step: Dict[str, Any], current: Dict[str, Any]) -> None:
         """UI commit steps obey pause, the daily budget and the ledger like channel writes."""

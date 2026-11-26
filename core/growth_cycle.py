@@ -164,6 +164,43 @@ def propose(data_dir, service_id, cycle_id, proposal):
             "refused": [row for row in decisions if not row["allowed"]]}
 
 
+def _expected_action_class(action):
+    kind = action.get("kind")
+    if kind == "channel":
+        return "routine_reply" if action.get("action") in ("reply", "message", "engage") else "new_outreach"
+    if kind == "asset":
+        return "draft"
+    if kind in ("evaluate", "experiment"):
+        return "analyze"
+    return "observe"
+
+
+def _recheck_and_consume(data_dir, service_id, decision, proposal):
+    service = growth_service.load(data_dir, service_id)
+    action = next((row for row in service["actions"]
+                   if row["id"] == decision.get("action_id")), None)
+    if action is None:
+        raise ValueError("authorization_changed")
+    expected = _expected_action_class(action)
+    if decision.get("action_class") != expected:
+        raise ValueError("action_class_mismatch")
+    scope = proposal.get("scope") if isinstance(proposal.get("scope"), dict) else {}
+    if scope.get("channel") and str(scope["channel"]) != str(action.get("channel")):
+        raise ValueError("authorization_scope_mismatch")
+    actual_target = proposal.get("target") or action.get("target") or ""
+    if scope.get("target") and str(scope["target"]) != str(actual_target):
+        raise ValueError("authorization_scope_mismatch")
+    current = risk_policy.explain(
+        data_dir, service_id, action_class=expected, scope=scope)
+    grant = current.get("grant") or {}
+    if not current.get("allowed") or str(grant.get("grant_id") or "") != str(decision.get("grant_id") or ""):
+        raise ValueError("authorization_changed")
+    if grant.get("grant_id"):
+        risk_policy.consume(
+            data_dir, service_id, grant["grant_id"],
+            action_class=expected, scope=scope)
+
+
 def execute(data_dir, service_id, cycle_id, *, by):
     cycle = _expire_if_needed(_load(data_dir, service_id, cycle_id))
     if cycle["status"] == "expired":
@@ -189,6 +226,7 @@ def execute(data_dir, service_id, cycle_id, *, by):
             if key in proposal:
                 payload[key] = proposal[key]
         try:
+            _recheck_and_consume(data_dir, service_id, decision, proposal)
             result = growth_execution.run(data_dir, service_id, action_id, by=by,
                                           payload=payload)
             results.append(dict(decision, execution="executed", result=result))

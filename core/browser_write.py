@@ -17,7 +17,7 @@ from typing import Any, Dict, Optional
 
 from .browser_attach import BridgeError, BrowserAttach
 from .bridge import discord_engine, gh_post, x_engine
-from .gates import load_suppressions
+from .protected_content import is_target_suppressed, mark_protected
 from .ledger import Ledger, TARGET_BLOCKED
 from .platform_compliance import (
     ComplianceError, load_owner_attested, require_owner_attested_browser_write,
@@ -72,9 +72,7 @@ def _hit_stop_word(channel: str, text: str) -> str:
 
 
 def _suppressed(data_dir, target: str) -> bool:
-    suppressed = load_suppressions(data_dir)
-    value = str(target or "").strip()
-    return any(v in suppressed for v in {value, value.lstrip("@"), "@" + value.lstrip("@")})
+    return is_target_suppressed(data_dir, target)
 
 
 def _ledger(data_dir) -> Ledger:
@@ -82,8 +80,10 @@ def _ledger(data_dir) -> Ledger:
 
 
 def _parse_gh_target(target: str):
-    """接受 'owner/repo#123' 或 issue/PR 的网页 URL。"""
+    """接受 'issue:owner/repo#123'、'owner/repo#123' 或 issue/PR 的网页 URL。"""
     text = str(target or "").strip()
+    if text.startswith("issue:"):
+        text = text[len("issue:"):]
     m = re.match(r"^([\w.-]+/[\w.-]+)#(\d+)$", text)
     if m:
         return m.group(1), int(m.group(2))
@@ -246,6 +246,11 @@ def execute(channel: str, action: str, data_dir, *, text: str, target: Optional[
                     "本条不发送、不占额度" % visibility)
             focus["used"] = True
     identity = attach.observe_identity(channel, tab)
+    from . import scheduled_scope
+    try:
+        scheduled_scope.check_identity(channel, identity.get("handle"))
+    except scheduled_scope.ScopeError as exc:
+        raise ActionBlocked(str(exc), str(exc)) from exc
     try:
         permit = require_owner_attested_browser_write(
             channel, action, data_dir, go=True,
@@ -253,27 +258,30 @@ def execute(channel: str, action: str, data_dir, *, text: str, target: Optional[
     except ComplianceError as exc:
         raise ActionBlocked(exc.code, str(exc)) from exc
 
-    from .throttle import Throttle, ThrottleError
-    try:
-        Throttle(Path(data_dir) / "state",
-                 account=identity.get("handle") or "").reserve(channel, action, 1)
-    except ThrottleError as exc:
-        raise ActionBlocked("quota_exhausted", str(exc)) from exc
-
     from . import action_claims
     claim_key = action_claims.stable_key(channel, action, target, text, identity["handle"])
     try:
         action_claims.claim(data_dir, key=claim_key)
     except action_claims.DuplicateAction as exc:
         return {"ok": False, "channel": channel, "action": action, "target": target,
-                "ref": ref, "result": exc.state, "ledger_result": exc.state,
+                "ref": ref, "result": "rejected", "ledger_result": "rejected",
+                "previous_claim_state": exc.state, "dispatched": False,
                 "reason": "action_claim_exists", "claim_key": claim_key}
+
+    from .throttle import Throttle, ThrottleError
+    try:
+        Throttle(Path(data_dir) / "state",
+                 account=identity.get("handle") or "", strict=True).reserve(channel, action, 1)
+    except ThrottleError as exc:
+        action_claims.finish(data_dir, key=claim_key, result="not_dispatched")
+        raise ActionBlocked("quota_exhausted", str(exc)) from exc
 
     result: Dict[str, Any] = {"ok": False, "channel": channel, "action": action,
                               "target": target, "ref": ref, "identity": identity,
                               "identity_handle": identity["handle"],
                               "authorization": permit, "focus_emulation": focus}
     written = ""
+    action_claims.phase(data_dir, key=claim_key, phase="dispatching")
     try:
         if channel == "x" and action == "reply":
             out = x_engine.reply_native(tab, str(target), text)
@@ -351,6 +359,7 @@ def execute(channel: str, action: str, data_dir, *, text: str, target: Optional[
                 if result["ok"] and server_id.isdigit():
                     # serverId 是回读到的消息 snowflake；没有完整证据时不编造 permalink。
                     result["receipt"] = {"id": server_id}
+        action_claims.phase(data_dir, key=claim_key, phase="acknowledged")
         if channel == "discord" and result["ok"]:
             actual_author = str(out.get("author") or "").strip().lstrip("@").casefold()
             expected_author = str(identity["handle"] or "").strip().lstrip("@").casefold()
@@ -370,21 +379,25 @@ def execute(channel: str, action: str, data_dir, *, text: str, target: Optional[
                       campaign=campaign, target=str(target or "-"), result="rejected",
                       ref=ref, detail="平台风控信号：%s" % exc,
                       identity_handle=identity["handle"], actor=actor)
+        action_claims.finish(data_dir, key=claim_key, result="rejected")
         raise StopChannel(channel, str(exc)) from exc
     except BridgeError as exc:
-        result["error"] = str(exc)
-        if exc.code in ("bridge_unavailable", "tab_not_found", "tab_open_timeout"):
-            ledger.append(channel=channel, transport="browser-attach", action=action,
-                          campaign=campaign, target=str(target or "-"), result="rejected",
-                          ref=ref, detail=str(exc), actor=actor)
-        raise
+        # The adapter has been called. Losing its response cannot prove no write.
+        result.update(error=str(exc), dispatch_unknown=True)
     except ActionBlocked:
+        action_claims.finish(data_dir, key=claim_key, result="not_dispatched")
         raise
     except Exception as exc:  # 引擎内部异常：结果未知，记 indeterminate
-        result["error"] = "%s: %s" % (type(exc).__name__, str(exc)[:300])
+        result.update(error="%s: %s" % (type(exc).__name__, str(exc)[:300]), dispatch_unknown=True)
     finally:
         if focus["used"]:
             attach.focus_emulation(tab, False)
+
+    if channel == "x" and str((result.get("engine") or {}).get("err") or "") == "protected_account":
+        mark_protected(data_dir, str(target), evidence="protected_account")
+        action_claims.finish(data_dir, key=claim_key, result="skipped")
+        return dict(result, ok=True, skipped=True, reason="protected_account",
+                    result="skipped", ledger_result="skipped")
 
     engine_text = json.dumps(result.get("engine") or {}, ensure_ascii=False)
     stop_word = _hit_stop_word(channel, engine_text if not result["ok"] else "")
@@ -405,15 +418,16 @@ def execute(channel: str, action: str, data_dir, *, text: str, target: Optional[
             result["error"] = ("本目标 GitHub 422（正文被拒或目标不可评论），当夜不再重试；"
                                "窗口内不同目标失败 %d 个" % bump["distinct"])
             log("[%s/%s] target_rejected %s" % (channel, action, result["error"]))
+            action_claims.finish(data_dir, key=claim_key, result="target_rejected")
             if bump["distinct"] >= CHANNEL_STOP_DISTINCT:
                 raise StopChannel(channel, "窗口内 %d 个不同目标连续 422，判定平台拒绝整批写"
                                   % bump["distinct"])
-            action_claims.finish(data_dir, key=claim_key, result="failed")
             return result
         ledger.append(channel=channel, transport="browser-attach", action=action,
                       campaign=campaign, target=str(target or "-"), result="rejected",
                       ref=ref, detail=detail,
                       identity_handle=identity["handle"], actor=actor)
+        action_claims.finish(data_dir, key=claim_key, result="rejected")
         raise StopChannel(channel, "页面出现 %r" % stop_word)
 
     engine = result.get("engine") or {}
@@ -423,14 +437,13 @@ def execute(channel: str, action: str, data_dir, *, text: str, target: Optional[
     if result["ok"]:
         state = "committed"
         _clear_fail(data_dir, channel)
+    elif result.get("dispatch_unknown") or written or engine.get("ok") or _send_attempted(channel, engine):
+        state = "indeterminate"
     elif render_lost:
         # 目标本身打不开（推文已删/客户端渲染失败）：换正文也不会成功，当夜隔离。
         state = "unavailable_or_unrenderable"
         result["target_isolated"] = True
         result["gone"] = True
-    elif written or engine.get("ok") or _send_attempted(channel, engine):
-        # 点击发送后回读失败不能证明未发送；消费队列并等待人工核查，绝不自动重试。
-        state = "indeterminate"
     else:
         state = "failed"
     detail = (result.get("error") or engine.get("err") or "") if not result["ok"] else ""

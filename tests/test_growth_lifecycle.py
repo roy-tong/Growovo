@@ -93,6 +93,23 @@ class GrowthLifecycleTest(unittest.TestCase):
         self.assertEqual("activation", contact["stage"])
         self.assertIn("product:u1", contact["aliases"])
 
+    def test_historical_activation_and_current_churn_risk_are_separate(self):
+        self.add_experiment_event({
+            "id": "activation-1", "type": "activation", "subject": "u1",
+            "source": "product", "at": "2026-11-24T09:30:00Z",
+            "source_ref": "product://events/activation-1",
+            "verification": {"status": "verified", "method": "product_database_export",
+                             "ref": "buyer-controlled-export-1"},
+        })
+        got = growth_lifecycle.project(self.data, self.service, now="2026-12-10T09:30:00Z")
+        contact = got["contacts"][0]
+        self.assertEqual("activation", contact["stage"])
+        self.assertIn("current_relationship_state", contact)
+        self.assertEqual("churn_risk", contact["current_relationship_state"])
+        got = growth_lifecycle.project(self.data, self.service, now="2027-01-15T09:30:00Z")
+        self.assertEqual("activation", got["contacts"][0]["stage"])
+        self.assertEqual("churned", got["contacts"][0]["current_relationship_state"])
+
     def test_retention_needs_verified_event_and_earlier_verified_activation(self):
         self.add_experiment_event({
             "id": "retention-unverified", "type": "retention", "subject": "u1",

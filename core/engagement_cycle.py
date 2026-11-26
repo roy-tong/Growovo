@@ -125,6 +125,18 @@ def _use_session(session: str) -> str:
 
 def night_start(now: _dt.datetime, policy: Dict[str, Any]) -> Optional[_dt.datetime]:
     """当前时段所属夜间的开始时间；不在窗口内返回 None。"""
+    window = policy.get("window") or {}
+    if window.get("start_at") or window.get("end_at"):
+        start = _parse(window.get("start_at"), now.tzinfo)
+        end = _parse(window.get("end_at"), now.tzinfo)
+        if not start or not end or end <= start:
+            return None
+        return start if start <= now < end else None
+    windows = window.get("windows")
+    if windows:
+        starts = [night_start(now, {"window": row}) for row in windows]
+        valid = [value for value in starts if value is not None]
+        return max(valid) if valid else None
     start_hour = int((policy.get("window") or {}).get("start_hour", 22))
     end_hour = int((policy.get("window") or {}).get("end_hour", 7))
     today = now.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -494,7 +506,7 @@ def _channel_holds(policy: Dict[str, Any]) -> Dict[str, _dt.datetime]:
 
 def plan(queue: List[Dict[str, Any]], policy: Dict[str, Any], *, ledger: Ledger,
          now: _dt.datetime, budget_sec: int = 3000, max_actions: int = 0,
-         campaign: str = "", throttle=None, data_dir=None) -> Dict[str, Any]:
+         campaign: str = "", throttle=None, data_dir=None, accounts=None, runtime_gates=False) -> Dict[str, Any]:
     """把候选队列排成带 scheduled_at 的执行计划；纯计算，无副作用。
 
     throttle 传 Throttle 实例时，日预算不足的行在计划阶段就判
@@ -584,7 +596,36 @@ def plan(queue: List[Dict[str, Any]], policy: Dict[str, Any], *, ledger: Ledger,
                     mixed.append(buckets[key].pop(0))
         return mixed
 
+    from . import platform_compliance, scheduled_scope
+    from .throttle import ThrottleError
+    channel_accounts = accounts or {}
+    scoped_throttles = {}
+    runtime_blockers = {}
+    if runtime_gates and data_dir is not None:
+        for channel in policy.get("platforms", {}):
+            if start is None:
+                runtime_blockers[channel] = "outside_window"
+            elif stop_state(data_dir, night_key(start), channel, now=now,
+                            cooldown=int((policy.get("wave_stops") or {}).get("cooldown_sec", STOP_COOLDOWN_SEC))) == "open":
+                runtime_blockers[channel] = "channel_stopped"
+            elif not platform_compliance.owner_attested_active(data_dir, channel, now=now):
+                runtime_blockers[channel] = "account_authorization_required"
     for row in _candidate_rows():
+        channel = row["channel"]
+        if channel in runtime_blockers:
+            _reject(row, runtime_blockers[channel])
+            continue
+        account = channel_accounts.get(channel) or scheduled_scope.account(channel)
+        row_throttle = throttle
+        if account and data_dir is not None:
+            if channel not in scoped_throttles:
+                scoped_throttles[channel] = Throttle(Path(data_dir) / "state", account=account, strict=True)
+            row_throttle = scoped_throttles[channel]
+            try:
+                row_throttle.validate_identity(channel, row["action"])
+            except ThrottleError as exc:
+                _reject(row, str(exc).split("：")[0])
+                continue
         hold_until = holds.get(row["channel"])
         if hold_until and now < hold_until:
             _reject(row, "channel_hold")
@@ -592,6 +633,11 @@ def plan(queue: List[Dict[str, Any]], policy: Dict[str, Any], *, ledger: Ledger,
         if _stale(row, tz=now.tzinfo, now=now, limit_sec=_stale_limit(policy)):
             _reject(row, "stale_row")
             continue
+        if data_dir is not None and channel == "x" and row["target"]:
+            from .protected_content import is_target_suppressed
+            if is_target_suppressed(data_dir, row["target"]):
+                _reject(row, "protected_account")
+                continue
         spec = action_spec(policy, row["channel"], row["action"])
         if not spec:
             _reject(row, "unsupported")
@@ -627,16 +673,24 @@ def plan(queue: List[Dict[str, Any]], policy: Dict[str, Any], *, ledger: Ledger,
             _reject(row, "already_done")
             continue
         night_used = used["night"].get(lookup, 0) + planned.get(lookup, 0)
-        if enforced and night_used >= int(spec.get("per_night") or 0):
+        if (enforced or account) and night_used >= int(spec.get("per_night") or 0):
             _reject(row, "night_quota_exhausted")
             continue
         hour_used = used["hour"].get(lookup, 0) + planned.get(lookup, 0)
-        if enforced and hour_used >= int(spec.get("per_hour") or 0):
+        if (enforced or account) and hour_used >= int(spec.get("per_hour") or 0):
             _reject(row, "hour_quota_exhausted")
             continue
-        if enforced and throttle is not None:
-            left = throttle.remaining(row["channel"], row["action"])
-            if left is not None and left - planned.get(lookup, 0) <= 0:
+        if (enforced or account) and row_throttle is not None:
+            left = row_throttle.remaining(row["channel"], row["action"])
+            quota_actions = getattr(row_throttle, "quota_actions", None)
+            shared_actions = (quota_actions(row["channel"], row["action"])
+                              if callable(quota_actions) else [row["action"]])
+            if not isinstance(shared_actions, (list, tuple, set)):
+                shared_actions = [row["action"]]
+            planned_shared = sum(
+                planned.get("%s/%s" % (row["channel"], item), 0)
+                for item in shared_actions)
+            if left is not None and left - planned_shared <= 0:
                 _reject(row, "daily_quota_exhausted")
                 continue
         safety_row = safety.get(lookup) or {"status": "missing", "left": None}
@@ -665,6 +719,9 @@ def plan(queue: List[Dict[str, Any]], policy: Dict[str, Any], *, ledger: Ledger,
         earliest = max(now.timestamp(), last_at.get(row["channel"], 0.0) + gap)
         if global_gap:
             earliest = max(earliest, last_any + global_gap)
+        if runtime_gates and not night_start(_dt.datetime.fromtimestamp(earliest, tz=now.tzinfo), policy):
+            _reject(row, "outside_window")
+            continue
         if earliest - now.timestamp() > budget_sec:
             _reject(row, "wave_budget")
             continue
@@ -729,6 +786,11 @@ def plan(queue: List[Dict[str, Any]], policy: Dict[str, Any], *, ledger: Ledger,
             _reject(row, "content_gate_blocked")
         scheduled = []
         planned = {}
+        for key, item in supply.items():
+            item.update(scheduled=0, gap=item["effective"], configured_gap=item["configured"],
+                        unscheduled=item["queued"])
+            if item["queued"]:
+                item["reasons"] = sorted(set(item["reasons"]) | {"content_gate_blocked"})
     for key, row in safety.items():
         allocated = int(planned.get(key, 0))
         row["planned"] = allocated
@@ -1077,6 +1139,12 @@ def stop_record(data_dir, night: str, channel: str) -> Optional[Dict[str, Any]]:
     return payload if isinstance(payload, dict) else {}
 
 
+def _rate_limit_open(record):
+    if "manual_resume_required" in record:
+        return bool(record["manual_resume_required"])
+    return bool(re.search(r"\b429\b", str(record.get("reason") or "")))
+
+
 def stop_state(data_dir, night: str, channel: str, *, now: Optional[_dt.datetime] = None,
                cooldown: int = STOP_COOLDOWN_SEC) -> str:
     """closed=没停过；open=仍在冷却；half_open=冷却已过，可放一条试探。
@@ -1084,9 +1152,29 @@ def stop_state(data_dir, night: str, channel: str, *, now: Optional[_dt.datetime
     停止文件没有可读时间戳时按 open 处理：无法证明冷却已过就继续停，
     宁可少发，不拿真账号试错。
     """
+    # Outstanding unknown writes survive the calendar boundary, including legacy records.
+    from . import scheduled_scope
+    account = scheduled_scope.account(channel)
+    history = stop_path(data_dir, night, channel).parent
+    for previous in sorted(history.glob("????-??-??-%s.json" % channel)):
+        previous_night = previous.name[:10]
+        if previous_night >= night:
+            continue
+        older = stop_record(data_dir, previous_night, channel)
+        if older and account and older.get("account") not in {None, account}:
+            continue
+        if older and _rate_limit_open(older):
+            return "open"
+        if older and older.get("requires_human_resolution"):
+            ref = older.get("unresolved_ref")
+            if not ref or not any(row.get("ref") == ref and row.get("result") in {"committed", "failed", "rejected"}
+                                  for row in Ledger(Path(data_dir) / "ledger.jsonl").results()):
+                return "open"
     record = stop_record(data_dir, night, channel)
-    if record is None:
+    if record is None or (account and record.get("account") not in {None, account}):
         return "closed"
+    if _rate_limit_open(record):
+        return "open"
     if record.get("requires_human_resolution"):
         ref = str(record.get("unresolved_ref") or "")
         if not ref:
@@ -1102,6 +1190,21 @@ def stop_state(data_dir, night: str, channel: str, *, now: Optional[_dt.datetime
     if (when - at).total_seconds() >= max(0, int(cooldown)):
         return "half_open"
     return "open"
+
+
+def acknowledge_rate_limit(data_dir, night, channel, *, by, evidence):
+    _dt.date.fromisoformat(night)
+    if channel not in {"x", "github", "discord"} or not by.strip() or not evidence.strip():
+        raise ValueError("需要原停止日期、渠道、负责人和账号恢复证据")
+    from .storage import FileLock
+    with FileLock(_lock_path(data_dir)):
+        record = stop_record(data_dir, night, channel) or {}
+        if record.get("requires_human_resolution") or not _rate_limit_open(record):
+            raise ValueError("只能处置具名限流记录，未知回执需另行裁决")
+        record.update(manual_resume_required=False, resumed_by=by, resume_evidence=evidence,
+                      resumed_at=_now().isoformat())
+        _atomic_write_text(stop_path(data_dir, night, channel), json.dumps(record, ensure_ascii=False))
+    return {"ok": True, "writes": 0, "channel": channel, "night": night}
 
 
 def clear_stopped(data_dir, night: str, channel: str) -> bool:
@@ -1120,10 +1223,15 @@ def mark_stopped(data_dir, night: str, channel: str, reason: str,
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = {"channel": channel, "night": night, "reason": reason,
                "at": _now().isoformat(timespec="seconds")}
+    from . import scheduled_scope
+    if scheduled_scope.account(channel):
+        payload["account"] = scheduled_scope.account(channel)
+    if re.search(r"\b429\b", reason):
+        payload["manual_resume_required"] = True
     if requires_human_resolution:
         payload["requires_human_resolution"] = True
         payload["unresolved_ref"] = unresolved_ref
-    path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+    _atomic_write_text(path, json.dumps(payload, ensure_ascii=False))
     return path
 
 
@@ -1173,7 +1281,10 @@ def _run(data_dir, *, go: bool = False, queue_path=None, max_actions: int = 0,
     from . import inbox_tracking
 
     data_dir = Path(data_dir)
-    policy = load_policy(data_dir)
+    from . import scheduled_scope
+    policy = scheduled_scope.effective_policy(data_dir)
+    if scheduled_scope.targets():
+        policy.setdefault("supply", {})["wave_targets"] = scheduled_scope.targets()
     used_session = _use_session(session or bridge_session(policy))
     now = now or _now()
     start = night_start(now, policy)
@@ -1193,6 +1304,8 @@ def _run(data_dir, *, go: bool = False, queue_path=None, max_actions: int = 0,
     context = RunContext.create(data_dir, campaign, wave, now=now,
                                 metadata={"bridge_session": used_session})
     queue_file = queue_path or (data_dir / "state" / "engagement-queue.json")
+    if go and scheduled_scope.requires_job(data_dir, queue_file):
+        return {"ok": False, "reason": "scheduled_queue_requires_job"}
     if go and bool((policy.get("business") or {}).get("require_baseline", False)):
         from . import business_observations
         if not business_observations.has_baseline(data_dir, night):
@@ -1220,7 +1333,8 @@ def _run(data_dir, *, go: bool = False, queue_path=None, max_actions: int = 0,
     readiness_plan = plan(
         readiness_eligible, policy, ledger=Ledger(data_dir / "ledger.jsonl"), now=now,
         budget_sec=budget_sec, max_actions=max_actions, campaign=campaign,
-        throttle=Throttle(data_dir / "state"), data_dir=data_dir)
+        throttle=Throttle(data_dir / "state"), data_dir=data_dir,
+        runtime_gates=bool(scheduled_scope.targets()))
     ready_preview = bool(readiness_plan["scheduled"])
     inbox_config = policy.get("inbox") or {}
     standing_observation = auto_inbox is None and bool(inbox_config.get("auto_collect", False))
@@ -1313,12 +1427,13 @@ def _run(data_dir, *, go: bool = False, queue_path=None, max_actions: int = 0,
     prepared = plan(eligible,
                     policy, ledger=ledger, now=now, budget_sec=budget_sec,
                     max_actions=max_actions, campaign=campaign,
-                    throttle=Throttle(data_dir / "state"), data_dir=data_dir)
+                    throttle=Throttle(data_dir / "state"), data_dir=data_dir,
+        runtime_gates=bool(scheduled_scope.targets()))
     prepared["skipped"].extend(platform_skipped)
     summary: Dict[str, Any] = {
         "ok": True, "wave": wave, "campaign": campaign, "night": night,
         "run_context": context.correlation(),
-        "dry": not go, "bridge_session": used_session,
+        "dry": not go, "scheduled_job_id": scheduled_scope.job_id(), "bridge_session": used_session,
         "planned": len(prepared["scheduled"]),
         "skipped": prepared["skipped"], "results": [], "stopped": {},
         "deferred": [], "deferred_channels": [],
@@ -1471,6 +1586,14 @@ def _run(data_dir, *, go: bool = False, queue_path=None, max_actions: int = 0,
                 decision, started_at=_dt.datetime.fromtimestamp(
                     started, tz=now.tzinfo).isoformat(timespec="seconds")))
             try:
+                try:
+                    scheduled_scope.check_item(row)
+                except scheduled_scope.ScopeError as exc:
+                    summary.update(ok=False, reason=str(exc))
+                    _defer(row, str(exc))
+                    for outstanding in pending:
+                        _defer(outstanding, str(exc))
+                    break
                 got = run_action(
                     channel=row["channel"], action=row["action"], data_dir=data_dir,
                     text=row["text"], target=row["target"], go=True, campaign=campaign,
@@ -1499,6 +1622,9 @@ def _run(data_dir, *, go: bool = False, queue_path=None, max_actions: int = 0,
                                            "gone": gone,
                                            "ok": bool(got.get("ok")),
                                            "ref": got.get("ref") or "",
+                                           "reason": got.get("reason") or "",
+                                           "dispatch_state": ("not_dispatched" if got.get("dispatched") is False
+                                                              else ledger_state),
                                            "queue_item_id": str(row.get("id") or ""),
                                            "run_id": context.run_id, "attempt_id": context.attempt_id,
                                            "action_id": str(row.get("id") or ""),

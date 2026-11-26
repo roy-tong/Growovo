@@ -257,6 +257,8 @@ def enrich(args) -> int:
         wanted = [line.strip().lstrip("@") for line in
                   Path(args.handles_file).read_text(encoding="utf-8").splitlines() if line.strip()]
         todo = [known[h] for h in wanted if h in known]
+    from core.protected_content import is_target_suppressed
+    todo = [row for row in todo if not is_target_suppressed(DATA, row["handle"])]
     todo = todo[: args.top]
     if not todo:
         print("没有待补账号")

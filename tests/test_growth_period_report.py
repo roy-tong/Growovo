@@ -81,6 +81,9 @@ class GrowthPeriodReportTest(unittest.TestCase):
             "proposals": [{"proposal_id": "p1", "action_class": "observe",
                            "action_id": "diagnose-product", "rationale": "diagnose"}]})
         growth_cycle.execute(self.data, self.sid, "cycle-cross-day", by="tester")
+        executed = growth_cycle.status(self.data, self.sid, "cycle-cross-day")
+        executed["executed_at"] = "2026-11-25T00:05:00+00:00"
+        AtomicJSONStore(growth_cycle.path(self.data, self.sid, "cycle-cross-day")).save(executed)
         yesterday = growth_period_report.build(
             self.data, self.sid, start="2026-11-24T00:00:00Z", end="2026-11-25T00:00:00Z")
         today = growth_period_report.build(

@@ -1,7 +1,6 @@
 """Read-only projection of drafted and currently eligible engagement supply."""
 from __future__ import annotations
 
-import copy
 import datetime as dt
 from collections import Counter, defaultdict
 from pathlib import Path
@@ -19,7 +18,8 @@ def _start(policy: Dict[str, Any], now: dt.datetime) -> tuple:
     return candidate, True
 
 
-def assess(data_dir, policy: Dict[str, Any], *, now=None, waves: int = 3) -> Dict[str, Any]:
+def assess(data_dir, policy: Dict[str, Any], *, now=None, waves: int = 3, queue_path=None, budget_sec=3000,
+           accounts=None, runtime_gates=True) -> Dict[str, Any]:
     from . import engagement_cycle as cycle
     from . import supply_pool
     from .ledger import Ledger
@@ -28,21 +28,19 @@ def assess(data_dir, policy: Dict[str, Any], *, now=None, waves: int = 3) -> Dic
     current = now or cycle._now()
     start, assumed = _start(policy, current)
     count = max(1, int(waves))
-    queue_path = data_dir / "state" / "engagement-queue.json"
+    queue_path = Path(queue_path) if queue_path else data_dir / "state" / "engagement-queue.json"
     initial = cycle.load_queue(queue_path)
     remaining = [dict(row) for row in initial]
     ledger = Ledger(data_dir / "ledger.jsonl")
-    simulation = copy.deepcopy(policy)
-    section = dict(simulation.get("content_rules") or {})
-    section["enforce"] = False
-    simulation["content_rules"] = section
+    simulation = policy
     targets = (simulation.get("supply") or {}).get("wave_targets") or {}
     eligible = {key: [] for key in targets}
     blockers = defaultdict(Counter)
     for wave_index in range(count):
         when = start + dt.timedelta(hours=wave_index)
         prepared = cycle.plan(remaining, simulation, ledger=ledger, now=when,
-                              budget_sec=1000000, throttle=Throttle(data_dir / "state"),
+                              budget_sec=budget_sec, accounts=accounts, runtime_gates=runtime_gates,
+                              throttle=Throttle(data_dir / "state"),
                               data_dir=data_dir)
         if wave_index == 0:
             for skipped in prepared["skipped"]:

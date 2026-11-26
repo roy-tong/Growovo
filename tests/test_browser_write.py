@@ -19,6 +19,10 @@ from core import browser_write
 
 
 class XPlatformPermissionTest(unittest.TestCase):
+    def test_issue_prefixed_github_target_is_accepted(self):
+        self.assertEqual(browser_write._parse_gh_target("issue:awiseguy88/AgentWiseAI#148"),
+                         ("awiseguy88/AgentWiseAI", 148))
+
     def test_revoked_owner_attestation_cannot_reach_engine_or_committed_ledger(self):
         fake = mock.Mock()
         fake.ensure_managed_tab.return_value = 11
@@ -180,7 +184,7 @@ class AccountQuotaProfileTest(unittest.TestCase):
             browser_write.execute("x", "publish", Path(tmp), text="hello world",
                                   go=True, log=lambda *_: None)
 
-        throttle_class.assert_called_once_with(Path(tmp) / "state", account="owner")
+        throttle_class.assert_called_once_with(Path(tmp) / "state", account="owner", strict=True)
 
 
 class StatusBindingTest(unittest.TestCase):
@@ -234,6 +238,28 @@ class StatusBindingTest(unittest.TestCase):
 
 class ChannelTargetFailureTest(unittest.TestCase):
     """渠道内去重、422 目标隔离与 X 渲染失败的单目标隔离。"""
+
+    def test_protected_account_is_skipped_and_persistent(self):
+        fake = mock.Mock()
+        fake.ensure_managed_tab.return_value = 11
+        fake.probe_visibility.return_value = "visible"
+        fake.observe_identity.return_value = {"handle": "owner"}
+        with tempfile.TemporaryDirectory() as tmp, \
+                mock.patch.object(browser_write, "BrowserAttach", return_value=fake), \
+                mock.patch.object(browser_write, "require_owner_attested_browser_write",
+                                  return_value={"route": "test"}), \
+                mock.patch("core.throttle.Throttle.reserve", return_value=None), \
+                mock.patch.object(browser_write.x_engine, "reply_native",
+                                  return_value={"ok": False, "err": "protected_account"}):
+            got = browser_write.execute(
+                "x", "reply", Path(tmp), text="hello",
+                target="https://x.com/Toscane/status/123", go=True, log=lambda *_: None)
+            self.assertTrue(got["ok"])
+            self.assertTrue(got["skipped"])
+            self.assertEqual("protected_account", got["reason"])
+            from core import protected_content
+            self.assertTrue(protected_content.is_target_suppressed(
+                Path(tmp), "https://x.com/Toscane/status/456"))
 
     def test_discord_same_channel_three_texts_all_execute(self):
         fake = mock.Mock()
