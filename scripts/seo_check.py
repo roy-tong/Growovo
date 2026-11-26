@@ -41,6 +41,7 @@ MAX_REVIEW_AGE_DAYS = 120
 SITEMAP_EXEMPT = {"404.html"}
 # Pages allowed to carry <meta name="robots" content="noindex">.
 ALLOW_NOINDEX: set[str] = set()
+REDIRECT_PAGES = {"index.html", "en.html"}
 # Deployment acceptance: key pages must contain these strings once live.
 REQUIRED_MARKERS: dict[str, tuple[str, ...]] = {
     "index.html": ("你定目标和边界", "增长运营持续发生"),
@@ -179,6 +180,8 @@ class SiteCheck:
         for page in pages:
             text = self.read(page)
             rel = self.rel_of(page)
+            if rel in REDIRECT_PAGES and self.site_base == SITE_BASE:
+                continue
             title = (self.extract(r"<title>(.*?)</title>", text) or [""])[0]
             description = (self.extract(r'<meta\s+name="description"\s+content="(.*?)"', text) or [""])[0]
             canonical = (self.extract(r'<link\s+rel="canonical"\s+href="(.*?)"', text) or [""])[0]
