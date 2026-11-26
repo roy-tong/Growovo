@@ -321,5 +321,14 @@ class PagesWorkflowTests(unittest.TestCase):
         self.assertIn("-X DELETE", text)
 
 
+class ReleaseWorkflowTests(unittest.TestCase):
+    def test_release_uploads_python_distributions_and_checks_exact_pypi_version(self):
+        text = (ROOT / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8")
+        self.assertIn("python3 -m build", text)
+        self.assertIn("python3 -m twine check dist/*", text)
+        self.assertIn('gh release upload "$TAG" dist/*.whl dist/*.tar.gz --clobber', text)
+        self.assertIn("https://pypi.org/pypi/growovo/${VER}/json", text)
+
+
 if __name__ == "__main__":
     unittest.main()
