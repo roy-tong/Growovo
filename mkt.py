@@ -3067,9 +3067,13 @@ def cmd_voice(args):
         print()
         print(f"长度：{d['length']}｜别这么写：" + "；".join(d["taboos"]))
     elif args.action == "lint":
-        text = args.text or ""
+        text = args.text or getattr(args, "body", "") or ""
         if args.file:
             text = Path(args.file).read_text(encoding="utf-8")
+        if not text.strip():
+            print("需要正文：用 --text 或位置参数传要检查的文字；空文本不能当作通过",
+                  file=sys.stderr)
+            return 2
         problems = voice.lint(args.platform, text)
         if not problems:
             print("这条可以用。")
@@ -3080,9 +3084,13 @@ def cmd_voice(args):
         return 2
     elif args.action == "plain":
         from core import expression
-        text = args.text or ""
+        text = args.text or getattr(args, "body", "") or ""
         if args.file:
             text = Path(args.file).read_text(encoding="utf-8")
+        if not text.strip():
+            print("需要正文：用 --text 或位置参数传要检查的文字；空文本不能当作通过",
+                  file=sys.stderr)
+            return 2
         if args.fix:
             fixed, _hits = expression.fix(text)
             print(fixed)
@@ -6219,8 +6227,11 @@ def build_parser():
     a.add_argument("platform")
     a.add_argument("--hook", default=""); a.add_argument("--what", default=""); a.add_argument("--ask", default="")
     a = vsub.add_parser("lint", help="检查一段文字会不会被当成广告")
-    a.add_argument("platform"); a.add_argument("--text", default=""); a.add_argument("--file", default="")
+    a.add_argument("platform")
+    a.add_argument("body", nargs="?", default="", help="要检查的正文（也可用 --text）")
+    a.add_argument("--text", default=""); a.add_argument("--file", default="")
     a = vsub.add_parser("plain", help="检查有没有生造词：普通人第一次看到能不能看懂")
+    a.add_argument("body", nargs="?", default="", help="要检查的正文（也可用 --text）")
     a.add_argument("--text", default=""); a.add_argument("--file", default="")
     a.add_argument("--json", action="store_true"); a.add_argument("--fix", action="store_true")
     sp.set_defaults(fn=cmd_voice)

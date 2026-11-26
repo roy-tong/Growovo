@@ -8,6 +8,8 @@
 - Verified metrics require `growovo.metric-evidence/1` with matching identity, collector version, raw observations and recomputed results; unrelated hash-matched files no longer qualify.
 - Grant, revoke, consume and settlement share one lock. Quota is reserved only after an action claim and settled by actual outcome; preview, manual handoff and definite blocks release while completed or externally unknown attempts retain consumption. Execution states no longer collapse into `executed`.
 - X policy now exposes official API as the preferred route, explicit owner opt-in and `platform_permission=false`; `autonomous_write` is documented as business capability, not platform approval.
+- `mkt voice lint` rejects empty text instead of reporting "这条可以用", and `voice lint` / `voice plain` accept positional text instead of silently ignoring it. The marketing gate now also catches English promotion and traffic-driving phrases (buy now, limited time, N% off, click the link, link in bio, …); previously only Chinese marketing words were checked.
+- Suppression reads `state/protected-accounts.json` in addition to `suppress.txt`, so a protected account stays skipped when only one of the two records survives. A damaged protected record fails closed like `contacts.jsonl`.
 
 ## 0.23.1rc2 — 2026-11-26
 

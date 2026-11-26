@@ -101,6 +101,16 @@ class CliTests(unittest.TestCase):
         proc = self._run("--text", "先把发布前的准备做完")
         self.assertEqual(proc.returncode, 0)
 
+    def test_exits_2_without_text(self):
+        proc = self._run()
+        self.assertEqual(proc.returncode, 2)
+        self.assertIn("需要正文", proc.stderr)
+
+    def test_accepts_positional_text(self):
+        proc = self._run("先做发射开关")
+        self.assertEqual(proc.returncode, 2)
+        self.assertIn("生造词", proc.stdout)
+
     def test_json_output(self):
         proc = self._run("--text", "发射点", "--json")
         payload = json.loads(proc.stdout)
