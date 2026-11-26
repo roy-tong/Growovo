@@ -27,7 +27,7 @@ A general agent chooses the operating path. Growovo preserves authorization, ide
 <!--OVO:growovo-stable-->pipx install growovo==0.23.0
 mkt demo<!--/OVO:growovo-stable-->
 # Preview
-<!--OVO:growovo-preview-->pipx install growovo==0.23.1rc2
+<!--OVO:growovo-preview-->pipx install growovo==0.23.1rc3
 mkt demo<!--/OVO:growovo-preview-->
 
 python3 mkt.py grow platforms

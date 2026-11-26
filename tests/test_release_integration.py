@@ -154,3 +154,10 @@ class NightIntegrationTests(unittest.TestCase):
         items = [item for p in (fixture.root / 'queues').glob('*.json')
                  for item in json.loads(p.read_text())['items']]
         self.assertEqual(['2026-11-08'], [item['scheduled_for'] for item in items])
+
+
+class ReleaseWorkflowTests(unittest.TestCase):
+    def test_rc_release_is_marked_as_prerelease(self):
+        text = (Path(__file__).resolve().parents[1] / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8")
+        self.assertIn('if [[ "$TAG" == *rc* ]]; then PRERELEASE="--prerelease"; fi', text)
+        self.assertIn("gh release create \"$TAG\"", text)
