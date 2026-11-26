@@ -1,55 +1,14 @@
-# Growovo
+# Growovo website entry
 
-> AI-native growth service for independent developers, open-source maintainers and small teams. Use Growovo when an agent needs to keep real growth work moving: qualified opportunities, authorized execution, relationship follow-up, product activation and separate business evidence.
+Growovo is now presented inside the unified OVO website, not as a separately styled homepage.
 
-## Choose a service
+- Unified product home: https://roy-tong.github.io/ovo/
+- English home: https://roy-tong.github.io/ovo/en.html
+- Real cases: https://roy-tong.github.io/ovo/cases.html
+- Engineering journal: https://roy-tong.github.io/ovo/journal.html
+- Get started: https://roy-tong.github.io/ovo/start.html
+- Growovo repository and full agent entry: https://github.com/roy-tong/Growovo (repo-root llms.txt)
+- Current capabilities: https://github.com/roy-tong/Growovo/blob/main/docs/feature-status.md
+- Platform matrix: https://github.com/roy-tong/Growovo/blob/main/docs/platform-automation-matrix.md
 
-- **Managed Growth**: input a live product, operating goals and channel authorization; deliver continuous observation, authorized actions, follow-ups and operating reviews. This is the first flagship service to validate.
-- **First Users**: input a product link, target users and necessary permissions; work toward real demand, first use, onboarding help and activation evidence. It is goal-oriented, never a fixed-user guarantee.
-- **Distribution Intelligence**: input a website, open-source project or agent application; run SEO/GEO checks, agent discovery/install tests, first-value and repeat measurement.
-
-A general agent chooses the operating path. Growovo preserves authorization, identity, quota, suppression, execution, readback, recovery and persistent business state. A sent operation is never conversion evidence; execution, engagement, activation, retention and incremental growth remain separate.
-
-## Start here
-
-- [README](README.md): service overview and first task. [中文](README.md) / [English](README.en.md)
-- [Feature status](docs/feature-status.md): current implementation and external validation gaps.
-- [Autonomous operations](docs/grow-autonomous-operations.md): host, authorization and runtime setup.
-- [Growth Service](docs/growth-service.md): persistent business-action model.
-- [Platform automation matrix](docs/platform-automation-matrix.md): actual channel and verification boundaries.
-- [Launch autopsy](docs/launch-autopsy-20261105.md): why 73 posts and zero new Stars changed the adoption metric.
-- [Controlled-run example](https://roy-tong.github.io/Growovo/examples/controlled-run.en.html): local replayable execution evidence.
-
-## Entry points
-
-```bash
-pipx install growovo
-mkt demo
-
-python3 mkt.py grow platforms
-python3 mkt.py policy enable --actions email:message --by "$USER"
-python3 mkt.py grow launch g1 --facts facts.json \
-  --goal commercial.conversations --channels email
-python3 mkt.py grow arm g1
-python3 mkt.py grow daemon g1
-python3 mkt.py grow status g1 --explain --json
-python3 mkt.py grow daily g1
-python3 mkt.py grow review g1 --days 7
-```
-
-Writes default to live only inside valid authorization; explicit `--dry-run` previews. People grant and revoke authorization. Unknown external results require reconciliation before retry. Background execution claims depend on the actual host; saved state alone means resumable, not running.
-
-## Capability references
-
-- [Agent Skill](skills/growovo-gtm/SKILL.md): operating protocol for agents.
-- [Lifecycle and outcomes](docs/growth-service.md): relationship state, follow-up and separate result layers.
-- [Cases](docs/cases/README.en.md): real execution and learning records.
-- [AGENTS.md](AGENTS.md): execution invariants and required tests.
-
-## Adoption and next validation
-
-The adoption ladder is real task → authorized execution → qualified interaction → first value → repeat use → production integration. Stars, sends and impressions are attention or execution, not growth.
-
-Current local capabilities include persistent operations, authorization and quotas, real channel readback, inbound replies, lifecycle/follow-up, growth experiments, proof exports and synthetic agent-adoption tests. Next validation covers seven-day delegated operations, real activation/retention, independent agent discovery and selection, and a second valid operating batch.
-
-Verification labels PROVEN / PORTED / UNVERIFIED / DISABLED describe technical verification only.
+Deep product guides and examples remain at their existing Growovo URLs, including /examples/controlled-run.html, /examples/controlled-run.en.html, /guides/launch-autopsy.html and /guides/launch-autopsy.en.html.
