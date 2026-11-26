@@ -119,6 +119,10 @@ class PreparationRuntimeTest(unittest.TestCase):
             runner=lambda *args: self.fail("齐备时必须停止备料"), max_tasks=2)
         self.assertEqual("waiting_wave_approval", result["wave_status"])
         self.assertEqual(30, len(result["snapshot"]["items"]))
+        first = result["snapshot"]["items"][0]
+        self.assertIsInstance(first["target"], str)
+        self.assertTrue(first["text"])
+        self.assertTrue(first["actor"])
 
     def test_unknown_receipt_cannot_be_marked_reconciled(self):
         result = preparation_runtime.mark_wave_reconciled(

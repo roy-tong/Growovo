@@ -259,6 +259,13 @@ def approve(data, config, *, by="", preview=False):
             "capacity": capacities}
 
 
+def _frozen_build_matches(data, record):
+    from . import scheduled_build
+    current_root = Path(__file__).resolve().parents[1]
+    expected_root = (Path(data).resolve() / "state" / "scheduled-builds" / record["build"]).resolve()
+    return current_root == expected_root and scheduled_build.fingerprint(current_root) == record["build"]
+
+
 @contextmanager
 def activate(data, config, job):
     path = _queue(config, job)
@@ -278,7 +285,10 @@ def activate(data, config, job):
     if record["workspace"] != str(Path(data).resolve()):
         raise ScopeError("scheduled_workspace_changed")
     if source_fingerprint(Path(__file__).resolve().parents[1])["sha256"] != record["source"]:
-        raise ScopeError("source_version_changed")
+        from . import scheduled_build
+        if not _frozen_build_matches(data, record):
+            raise ScopeError("source_version_changed")
+        scheduled_build.verify(data, record["build"])
     from .engagement_cycle import load_queue
     rows = load_queue(path)
     items = {row["id"]: _signature(row) for row in rows}
@@ -365,6 +375,23 @@ def pinned_build(data, config):
     if path.is_file():
         return json.loads(path.read_text()).get("build")
     return None
+
+def has_approval(data, config, job):
+    try:
+        path = _queue(config, job)
+        approval_path = _record(data, config)
+        if not approval_path.is_file():
+            return False
+        record = json.loads(approval_path.read_text())
+        scope = record.get("jobs", {}).get(job.get("id")) or {}
+        return bool(scope and scope.get("job") == digest(job_spec(job))
+                    and scope.get("queue") == str(path)
+                    and record.get("workspace") == str(Path(data).resolve())
+                    and record.get("source") == source_fingerprint(
+                        Path(__file__).resolve().parents[1])["sha256"])
+    except (OSError, ValueError, KeyError, json.JSONDecodeError):
+        return False
+
 
 def schedule_issue(data, config, settings):
     path = _record(data, config)

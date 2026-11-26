@@ -89,6 +89,22 @@ class PreparationSchedulerTest(unittest.TestCase):
             status.assert_called_once()
             self.assertEqual("preparing", got["preparation"]["wave_status"])
 
+    def test_waiting_wave_approval_with_valid_approval_executes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            config = self.config(tmp, at="2029-01-01T20:00:00+08:00")
+            result = {"ok": True, "planned": 1, "committed": 1, "failed": 0,
+                      "indeterminate": 0, "results": [{"result": "committed",
+                      "channel": "x", "action": "publish"}]}
+            with mock.patch("core.cycle_scheduler.preparation_runtime.advance",
+                            return_value={"executed": 0, "external_writes": 0,
+                                          "wave_status": "waiting_wave_approval", "wave_id": "w01"}), \
+                 mock.patch("core.cycle_scheduler.scheduled_scope.has_approval", return_value=True), \
+                 mock.patch("core.cycle_scheduler.preparation_runtime.mark_wave_sent"), \
+                 mock.patch("core.cycle_scheduler.preparation_runtime.mark_wave_reconciled"):
+                got = cycle_scheduler.tick(tmp, config, now="2029-01-01T20:00:00+08:00",
+                                           go=True, executor=mock.Mock(return_value=result))
+            self.assertEqual("succeeded", got["jobs"][0]["status"])
+
     def test_successful_wave_marks_preparation_reconciled(self):
         with tempfile.TemporaryDirectory() as tmp:
             config = self.config(tmp, at="2029-01-01T20:00:00+08:00")

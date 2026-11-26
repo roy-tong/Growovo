@@ -355,7 +355,8 @@ def tick(data_dir, config_path, *, now=None, go: bool = False, executor=None, ma
                 supply_blocked = (row.get("kind") == "wave" and config.get("strategy")
                                   and preparation_status == "preparing")
                 approval_blocked = (row.get("kind") == "wave" and config.get("strategy")
-                                    and preparation_status == "waiting_wave_approval")
+                                    and preparation_status == "waiting_wave_approval"
+                                    and not scheduled_scope.has_approval(data_dir, config_path, row))
                 if supply_blocked or approval_blocked:
                     current_status = "blocked"
                     result = {"ok": False, "reason": ("supply_not_ready" if supply_blocked

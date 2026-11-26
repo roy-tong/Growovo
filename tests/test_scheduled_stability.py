@@ -375,6 +375,17 @@ class ScheduledStabilityTests(unittest.TestCase):
         self.assertEqual("succeeded", got["jobs"][0]["status"])
         self.assertEqual(6, got["jobs"][0]["business_result"]["execution"]["committed"])
 
+    def test_matching_frozen_build_can_activate_with_subset_manifest(self):
+        self.approve()
+        record = json.loads(scheduled_scope._record(self.data, self.config).read_text())
+        frozen_root = self.data / "state" / "scheduled-builds" / record["build"]
+        with patch("core.scheduled_scope.source_fingerprint", return_value={"sha256": "subset-manifest"}), \
+             patch("core.scheduled_scope._frozen_build_matches", return_value=True), \
+             patch("core.scheduled_build.verify", return_value=frozen_root) as verify:
+            with scheduled_scope.activate(self.data, self.config, self.job):
+                pass
+        verify.assert_called_once_with(self.data, record["build"])
+
     def test_pin_and_pre_dispatch_build_integrity(self):
         self.approve()
         sha = scheduled_scope.pinned_build(self.data, self.config)

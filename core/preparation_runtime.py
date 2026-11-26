@@ -114,8 +114,27 @@ def _shortfall(strategy, state, wave_id):
     return gaps
 
 
+def _queue_row(item):
+    row = copy.deepcopy(item)
+    target = item.get("target") or {}
+    content = item.get("content") or {}
+    action = item.get("action")
+    if action == "message":
+        destination = target.get("handle") or target.get("url") or ""
+    else:
+        destination = target.get("url") or target.get("handle") or target.get("audience") or ""
+    row["strategy_target"] = copy.deepcopy(target)
+    row["target"] = str(destination)
+    row["text"] = str(content.get("text") or "")
+    row["actor"] = str(target.get("handle") or target.get("actor") or target.get("audience") or "")
+    row["their_text"] = str(target.get("context") or "")
+    row["source"] = "execution-strategy"
+    row["queued_at"] = dt.datetime.now().astimezone().isoformat()
+    return row
+
+
 def _freeze(data_dir, strategy, state, wave_id):
-    items = _eligible_items(strategy, state, wave_id)
+    items = [_queue_row(item) for item in _eligible_items(strategy, state, wave_id)]
     snapshot = {
         "schema": "growovo.wave-supply-snapshot/1",
         "campaign_id": strategy["campaign"]["id"],
