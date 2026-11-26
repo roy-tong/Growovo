@@ -269,6 +269,55 @@ python3 mkt.py growth report SERVICE_ID \
 
 它们复用既有依赖、锁、过期、失败和人工未决语义。旧的 `wave / inbox-update / inbox-collect / receipts / readiness` 继续可用。
 
+## 6.1 引导式执行策略与备料波次
+
+用户不需要先理解完整 schema。可以从只含产品名的草稿开始，由 `output-guide` 每次询问一个问题；每个问题说明用途、给示例和建议默认值。`--set` 以 JSON 合并一个答案并立即保存，`--interactive` 逐题交互；两种入口使用同一问题顺序。
+
+```bash
+mkt growth output-guide --file draft.json
+mkt growth output-guide --file draft.json \
+  --set product.url --value '"https://github.com/roy-tong/Askovo"'
+mkt growth output-guide --file draft.json --interactive
+```
+
+完整输入编译为 `growovo.execution-strategy/1`，分别给出业务目标、动作拆解、平台波次、备料 TODO、对象与正文、验收事件。JSON 供调度和审批使用，Markdown 供人复核。蓝图可以先有配额而没有合格素材；`readiness` 分开记录 `required / materialized / eligible / missing`，候选数不抵扣对象、上下文、正文或审查缺口。
+
+```bash
+mkt growth output-plan --file campaign.json --out execution-plan.json
+mkt growth output-plan --file campaign.json --format md --out execution-plan.md
+mkt growth output-lint --file execution-plan.json --require-ready
+mkt growth preparation-status --file execution-plan.json --wave w01
+```
+
+`examples/execution-strategy-300.json` 是数据样例：10 波共 300 条，X 原创 30、X 回帖 180、GitHub 回帖 60、X 私信 30。编译器不内置 OVO 产品名或这组数量。
+
+备料任务分三条支线，独立根任务可以在首波前启动：
+
+- 原创：生成标题 → 生成正文 → `my-voice` 审查当前正文哈希 → 冻结素材。
+- 回帖：挖掘话题与 KOC → 资格判断 → 生成回复 → 回复策略审查 → 冻结素材。
+- 私信：挖掘对象 → 核验 DM 资格与整夜去重 → 生成邀请 → 内容审查 → 冻结素材。
+
+`local`、`miner`、`host_adapter`、`manual` 是不同任务执行方式。host adapter 使用受控 argv、最小环境变量透传、超时和 `growovo.preparation-result/1`；缺少 adapter 或人工输入时保持等待，不伪装完成。同一 attempt 的已完成 host 结果在恢复时复用，不重复执行。
+
+策略调度文件在顶层声明 `strategy` 和 `preparation`，每个 wave 继承策略引用。`strategy_sha256` 同时进入波次审批；队列 item IDs、正文哈希、账号、窗口继续沿用现有批准范围。没有策略引用的旧作业行为不变。
+
+```json
+{
+  "strategy": "execution-plan.json",
+  "strategy_sha256": "<编译输出的完整 SHA-256>",
+  "preparation": {"enabled": true, "max_tasks_per_tick": 2},
+  "jobs": [{
+    "id": "w01", "kind": "wave", "at": "2030-01-01T20:00:00+08:00",
+    "queue": "w01-reviewed.json", "accounts": {"x": "owner"},
+    "targets": {"x/publish": 3, "x/reply": 18, "x/message": 3, "github/reply": 6}
+  }]
+}
+```
+
+`jobs-serve` 在 tick 间有界推进备料。波次缺料时只推进缺失支线并返回 `supply_not_ready`；合格后冻结独立快照，默认等待 `jobs-approve` 的精确范围批准。发送和回读完成后恢复后续备料。dry-run 只读显示备料状态，不运行 miner 或 adapter。429、撤权、验证码、身份异常、未知回执和安全停止优先于备料循环，不能用继续挖掘掩盖执行故障。
+
+当前实现不证明任何特定外部 miner、X DM 写路线、内容生成器或 my-voice reviewer 已完成生产验收。真实活动仍需分别核验 adapter、账号动作能力、合格素材和实际回执。
+
 ## 7. MCP
 
 `mkt_growth` 使用与 CLI 相同的子命令和参数，并共享同一工作区状态。调用 `run` 或 `reconcile` 时，MCP 用 `action` 指定子命令、用 `action_id` 指定增长动作，避免参数冲突。CLI 的 `compile/start/status/next/attempts/recover/reconcile/transition/evaluate/resolve/run/plan/advise/brief/benchmark` 及 GitHub、机会、入站、资产、实验子命令均可通过该入口调用；`github-webhook-serve` 是长驻命令，不适合由请求响应式 MCP 调用。

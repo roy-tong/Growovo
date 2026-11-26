@@ -9,6 +9,7 @@ from typing import Any, Dict
 from .job_kernel import JobStateMachine, JobStore, TERMINAL, DEPENDENCY_OK
 from .business_result import build_business_result
 from . import scheduled_scope
+from . import preparation_runtime
 
 
 def _wave_log(message):
@@ -48,6 +49,10 @@ def _load_config(path) -> Dict[str, Any]:
     hourly = payload.get("cadence") == "hourly"
     base = _now(payload["start_at"]) if hourly and payload.get("start_at") else None
     for row in rows:
+        if payload.get("strategy") and row.get("kind") == "wave":
+            row.setdefault("strategy", payload["strategy"])
+            if payload.get("strategy_sha256"):
+                row.setdefault("strategy_sha256", payload["strategy_sha256"])
         if hourly and row.get("kind") == "wave":
             slot = row.get("slot")
             if type(slot) is not int or slot < 0:
@@ -270,6 +275,19 @@ def _notifications(data_dir):
         return {"pending": None, "error": str(exc)[:200]}
 
 
+def _advance_preparation(data_dir, config_path, config, current):
+    if not config.get("strategy"):
+        return None
+    settings = config.get("preparation") or {}
+    if not settings.get("enabled"):
+        return None
+    path = Path(config_path).parent / config["strategy"]
+    strategy = json.loads(path.read_text(encoding="utf-8"))
+    return preparation_runtime.advance(
+        data_dir, strategy, current,
+        max_tasks=max(1, int(settings.get("max_tasks_per_tick") or 2)))
+
+
 def tick(data_dir, config_path, *, now=None, go: bool = False, executor=None, max_jobs: int = 1,
          job_id: str = ""):
     config = _load_config(config_path)
@@ -279,6 +297,10 @@ def tick(data_dir, config_path, *, now=None, go: bool = False, executor=None, ma
         if issue:
             return {"ok": False, "reason": issue, "executed": 0, "jobs": []}
     if not go:
+        preparation = None
+        if config.get("strategy") and (config.get("preparation") or {}).get("enabled"):
+            strategy = json.loads((Path(config_path).parent / config["strategy"]).read_text(encoding="utf-8"))
+            preparation = preparation_runtime.status(data_dir, strategy)
         _, rows = _view(data_dir, config, current)
         all_rows = rows
         rows = _select_job(rows, job_id)
@@ -292,7 +314,8 @@ def tick(data_dir, config_path, *, now=None, go: bool = False, executor=None, ma
                 else:
                     state = "dry-run"
             output.append({key: value for key, value in dict(row, status=state).items() if key != "state"})
-        return {"ok": True, "apply": False, "jobs": output, "executed": 0}
+        return {"ok": True, "apply": False, "jobs": output, "executed": 0,
+                "preparation": preparation}
 
     lock_file = Path(data_dir) / "state" / "cycle-scheduler.lock"
     lock_file.parent.mkdir(parents=True, exist_ok=True)
@@ -303,6 +326,7 @@ def tick(data_dir, config_path, *, now=None, go: bool = False, executor=None, ma
         handle.close()
         return {"ok": False, "reason": "scheduler_already_running", "jobs": [], "executed": 0}
     try:
+        preparation = _advance_preparation(data_dir, config_path, config, current)
         state, rows = _view(data_dir, config, current)
         all_rows = rows
         rows = _select_job(rows, job_id)
@@ -327,7 +351,16 @@ def tick(data_dir, config_path, *, now=None, go: bool = False, executor=None, ma
                 dependencies = {other["id"]: other["status"] for other in all_rows}
                 missing = [dep for dep in row.get("requires") or []
                            if dependencies.get(dep) not in _dependencies_ok(row)]
-                if missing or executed >= max(1, int(max_jobs)):
+                preparation_status = str((preparation or {}).get("wave_status") or "")
+                supply_blocked = (row.get("kind") == "wave" and config.get("strategy")
+                                  and preparation_status == "preparing")
+                approval_blocked = (row.get("kind") == "wave" and config.get("strategy")
+                                    and preparation_status == "waiting_wave_approval")
+                if supply_blocked or approval_blocked:
+                    current_status = "blocked"
+                    result = {"ok": False, "reason": ("supply_not_ready" if supply_blocked
+                                                       else "wave_approval_required")}
+                elif missing or executed >= max(1, int(max_jobs)):
                     current_status = "blocked" if missing else "deferred"
                     result = {"ok": False, "reason": "dependency_not_succeeded" if missing else "tick_job_limit"}
                 else:
@@ -345,6 +378,17 @@ def tick(data_dir, config_path, *, now=None, go: bool = False, executor=None, ma
                         executed += 1
                     else:
                         result = ticket["result"]
+                    if row.get("kind") == "wave" and config.get("strategy") and ticket["execute"]:
+                        strategy = json.loads((Path(config_path).parent / config["strategy"]).read_text(encoding="utf-8"))
+                        unknown = bool(result.get("indeterminate")) or any(
+                            isinstance(item, dict) and item.get("result") == "indeterminate"
+                            for item in result.get("results") or [])
+                        if result.get("ok") or unknown:
+                            preparation_runtime.mark_wave_sent(
+                                data_dir, strategy, str(row.get("wave") or row["id"]), unknown=unknown)
+                            if not unknown:
+                                preparation_runtime.mark_wave_reconciled(
+                                    data_dir, strategy, str(row.get("wave") or row["id"]))
                     current_status, reason = _record_status(row, result)
                     result = dict(result, job_status=current_status,
                                   exit_code=0 if current_status in {"succeeded", "deferred", "blocked"} else 2)
@@ -387,6 +431,7 @@ def tick(data_dir, config_path, *, now=None, go: bool = False, executor=None, ma
                     "failed", "needs_reconciliation", "expired", "completed_with_errors"
                 } for row in output),
                 "apply": True, "jobs": output, "executed": executed, "changes": changes,
+                "preparation": preparation,
                 "state_path": str(state_path(data_dir))}
     finally:
         fcntl.flock(handle.fileno(), fcntl.LOCK_UN)

@@ -7,6 +7,15 @@
 - **Distribution Intelligence**: SEO/GEO checks, agent discovery and installation tests, first value and repeat measurement.
 - The host agent chooses the operating path. Growovo preserves authorization, identity, quota, suppression, execution, readback, recovery and persistent business state. Sends are not conversion; execution, engagement, activation, retention and incremental growth remain separate.
 
+## Guided execution strategy and preparation scheduling (working tree, 2026-11-26)
+
+- `growth output-guide` turns a partial product draft into one question at a time, with purpose, example, suggested default, and structured JSON output. Answers persist without discarding existing fields.
+- `growth output-plan` compiles `growovo.execution-strategy/1`: goal decomposition, platform/wave allocation, preparation TODOs, concrete targets/content, and measurement events. JSON and Markdown share the same contract. `output-lint --require-ready` rejects blueprint quotas without reviewed material.
+- Preparation covers original titles/content/my-voice review, reply topic/KOC mining and reply-strategy review, and DM prospect mining/qualification/content review. Independent roots start before the first wave; missing branches advance with a per-tick bound.
+- `preparation_runtime` persists attempts, supports controlled host-result recovery, freezes exact wave snapshots, and resumes later preparation after wave reconciliation. Strategy changes invalidate state; stale reviews and candidate counts do not become ready supply.
+- Top-level scheduler strategy references propagate into wave approval. Strategy SHA-256 joins existing job, queue, item, account, and window binding. Short supply returns `supply_not_ready` without dispatch; legacy jobs without strategy are unchanged.
+- **Verification:** 2730 tests, `mkt demo`, and `git diff --check` pass with no real account sends. `examples/execution-strategy-300.json` closes at ten waves and 300 configured actions, while its unmaterialized supply remains an explicit gap. External miners, content generators, my-voice reviewers, X DM writes, production workers, and business growth still require independent real acceptance.
+
 ## Scheduled batch stability hardening (working tree, 2026-11-26)
 
 - Signed `policy_overrides` bind exact execution windows, channel cadence, content rules, queue freshness and inbox actor limits to the approved job. The same overrides drive preview and execution. Unknown fields and safety-stop/quota layers cannot be overridden through this route. Six X originals with source links have an end-to-end offline regression outside the daily window.

@@ -44,3 +44,9 @@ jobs-tick 的 changes 提供本次新增的状态变化、阻断原因和下一�
 每次状态变化先写入持久 notification outbox，再保存作业状态；`cycle notifications` 只读列出尚未确认投递的事件。投递适配器必须返回回执，异常保留待投递。动作 claim 另外记录 dispatching 和 acknowledged（仅表示适配器返回），回读与写入使用同一账号/渠道路线租约，避免写入中导航同一浏览器路线。适配器返回或独立回读都不自动等同于业务结果。
 
 外部写后断线进入只读裁决，历史记录保留。发现 429 后，维护者核验具名账号恢复情况，用 cycle ack-rate-limit --night 原停止日期 --channel 渠道 --by 负责人 --evidence 核验记录引用 登记处置。此命令不发送内容，也不恢复旧定时任务。未知回执仍走原 ledger resolve 流程。
+
+## 策略驱动的备料波次
+
+需要目标拆解、对象和正文级策略时，在调度文件顶层增加 `strategy`、`strategy_sha256` 和 `preparation`。每个 wave 自动继承策略引用，审批同时校验策略哈希、波次 item IDs 和原有队列正文哈希。备料在首波前即可开始，缺料波次保持 `blocked / supply_not_ready`，不会进入发送器；快照齐备后仍需 `jobs-approve` 的精确范围批准。成功发送和回读后，后续波次继续备料。
+
+`preparation.enabled=false` 或没有 `strategy` 时保持原有作业行为。`jobs-tick` dry-run 只读返回备料状态，不运行 miner 或 host adapter。具体引导命令、三条备料支线、host 结果合同和生产验收边界见 `docs/growth-service.md` 第 6.1 节。

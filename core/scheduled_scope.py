@@ -48,6 +48,31 @@ def _signature(row):
     return digest([item[k] for k in ("id", "channel", "action", "target", "text", "actor")])
 
 
+def strategy_binding(config, job):
+    if not job.get("strategy"):
+        return None
+    from . import output_strategy
+    path = (Path(config).parent / job["strategy"]).resolve()
+    if not path.is_file():
+        raise ScopeError("strategy_missing")
+    document = json.loads(path.read_text(encoding="utf-8"))
+    if document.get("schema") != output_strategy.SCHEMA:
+        raise ScopeError("strategy_invalid")
+    actual = output_strategy.strategy_digest({key: value for key, value in document.items()
+                                               if key != "strategy_sha256"})
+    if actual != job.get("strategy_sha256"):
+        raise ScopeError("strategy_changed")
+    wave_id = str(job.get("wave") or job.get("id") or "")
+    item_ids = [str(item.get("id")) for item in document.get("items") or []
+                if str(item.get("wave_id") or "") == wave_id]
+    if job.get("strategy_item_ids") is not None:
+        requested = [str(value) for value in job["strategy_item_ids"]]
+        if set(requested) != set(item_ids):
+            raise ScopeError("strategy_item_scope_changed")
+        item_ids = requested
+    return {"path": str(path), "sha256": actual, "item_ids": item_ids}
+
+
 def _handle(value):
     return str(value or "").strip().lstrip("@").casefold()
 
@@ -114,6 +139,7 @@ def approve(data, config, *, by="", preview=False):
             continue
         path = _queue(config, job)
         rows = [_normalize(row) for row in load_queue(path)]
+        binding = strategy_binding(config, job)
         if any(row["channel"] == "github" for row in rows):
             import os
             import shutil
@@ -150,6 +176,8 @@ def approve(data, config, *, by="", preview=False):
         items = {row["id"]: _signature(row) for row in rows}
         if len(items) != len(rows):
             raise ScopeError("duplicate_queue_item_id")
+        if binding and set(items) != set(binding["item_ids"]):
+            raise ScopeError("strategy_item_mismatch")
         if int(job.get("expire_after_sec", job.get("budget_sec", 3000))) <= 0:
             raise ScopeError("positive_window_required")
         from . import engagement_cycle as cycle
@@ -217,6 +245,7 @@ def approve(data, config, *, by="", preview=False):
                                  accounts=accounts, plan_id=job.get("plan_id"), plan_sha256=plan_fp,
                                  capacity=capacities[job["id"]], plan_spec=plan_spec,
                                  policy_overrides=overrides,
+                                 strategy_sha256=(binding or {}).get("sha256"),
                                  start=when.isoformat(), end=end.isoformat())
     if preview:
         return {"ok": True, "writes": 0, "capacity": capacities}
@@ -243,6 +272,9 @@ def activate(data, config, job):
     scope = record["jobs"].get(job["id"])
     if not scope or scope["job"] != digest(job_spec(job)) or scope["queue"] != str(path):
         raise ScopeError("scheduled_job_changed")
+    binding = strategy_binding(config, job)
+    if binding and scope.get("strategy_sha256") != binding["sha256"]:
+        raise ScopeError("strategy_changed")
     if record["workspace"] != str(Path(data).resolve()):
         raise ScopeError("scheduled_workspace_changed")
     if source_fingerprint(Path(__file__).resolve().parents[1])["sha256"] != record["source"]:
@@ -260,6 +292,8 @@ def activate(data, config, job):
     if len(items) != len(rows) or missing - consumed or any(
             scope["items"].get(key) != value for key, value in items.items()):
         raise ScopeError("scheduled_item_changed")
+    if binding and set(scope["items"]) != set(binding["item_ids"]):
+        raise ScopeError("strategy_item_mismatch")
     start = datetime.fromisoformat(job["at"].replace("Z", "+00:00"))
     end = start + timedelta(seconds=int(job.get("expire_after_sec", job.get("budget_sec", 3000))))
     token = _active.set(dict(scope, job_id=job["id"], start=start, end=end, data=data, config=config, record=approval_path,
