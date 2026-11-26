@@ -12,8 +12,13 @@ Growovo is an AI-native growth service for independent developers, open-source m
 [OVO unified website](https://roy-tong.github.io/ovo/en.html) · [Controlled-run example](https://roy-tong.github.io/Growovo/examples/controlled-run.en.html) · [Current capabilities](docs/feature-status.md) · [中文 README](README.md)
 
 ```bash
-pipx install growovo
-mkt demo    # Zero network and accounts: authorization, offline receipts, three refusals and a result card; writes ./data/demo
+# Stable
+<!--OVO:growovo-stable-->pipx install growovo==0.23.0
+mkt demo<!--/OVO:growovo-stable-->
+# Preview
+<!--OVO:growovo-preview-->pipx install growovo==0.23.1rc2
+mkt demo<!--/OVO:growovo-preview-->
+# Zero network and accounts: authorization, offline receipts, three refusals and a result card; writes ./data/demo
 ```
 
 ## A general agent can write the strategy. Growovo handles the daily work.

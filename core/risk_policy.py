@@ -110,41 +110,43 @@ def grant(data_dir, service_id, *, action_class, granted_by, scope=None, quota=N
     current = now or _now()
     if days is not None and (isinstance(days, bool) or not isinstance(days, int) or days <= 0):
         raise ValueError("days 必须是正整数或 None")
-    record = {
-        "grant_id": "grant-" + current.strftime("%Y%m%d-%H%M%S") + "-" + str(len(_load(data_dir, service_id).get("grants") or []) + 1),
-        "action_class": action_class,
-        "scope": scope or {},
-        "quota": quota,
-        "used": 0,
-        "granted_by": str(granted_by).strip(),
-        "granted_at": current.isoformat(timespec="seconds"),
-        "expires_at": ((current + dt.timedelta(days=days)).isoformat(timespec="seconds")
-                       if days is not None else ""),
-        "revoked_at": "",
-    }
-    errors = _validate_grant(record)
-    if errors:
-        raise ValueError("授权无效：" + "；".join(errors))
-    payload = _load(data_dir, service_id)
-    payload.setdefault("schema", "growovo.risk-authorizations/1")
-    payload.setdefault("service_id", service_id)
-    payload.setdefault("grants", []).append(record)
-    _save(data_dir, service_id, payload)
-    return record
+    with FileLock(path(data_dir, service_id).with_suffix(".lock")):
+        payload = _load(data_dir, service_id)
+        record = {
+            "grant_id": "grant-" + current.strftime("%Y%m%d-%H%M%S") + "-" + str(len(payload.get("grants") or []) + 1),
+            "action_class": action_class,
+            "scope": scope or {},
+            "quota": quota,
+            "used": 0,
+            "granted_by": str(granted_by).strip(),
+            "granted_at": current.isoformat(timespec="seconds"),
+            "expires_at": ((current + dt.timedelta(days=days)).isoformat(timespec="seconds")
+                           if days is not None else ""),
+            "revoked_at": "",
+        }
+        errors = _validate_grant(record)
+        if errors:
+            raise ValueError("授权无效：" + "；".join(errors))
+        payload.setdefault("schema", "growovo.risk-authorizations/1")
+        payload.setdefault("service_id", service_id)
+        payload.setdefault("grants", []).append(record)
+        _save(data_dir, service_id, payload)
+        return record
 
 
 def revoke(data_dir, service_id, grant_id, *, by):
     if not str(by or "").strip():
         raise ValueError("撤销必须署名")
-    payload = _load(data_dir, service_id)
-    for item in payload.get("grants") or []:
-        if item.get("grant_id") == grant_id:
-            if item.get("revoked_at"):
-                return {"status": "unchanged", "grant": item}
-            item["revoked_at"] = _now().isoformat(timespec="seconds")
-            item["revoked_by"] = str(by).strip()
-            _save(data_dir, service_id, payload)
-            return {"status": "revoked", "grant": item}
+    with FileLock(path(data_dir, service_id).with_suffix(".lock")):
+        payload = _load(data_dir, service_id)
+        for item in payload.get("grants") or []:
+            if item.get("grant_id") == grant_id:
+                if item.get("revoked_at"):
+                    return {"status": "unchanged", "grant": item}
+                item["revoked_at"] = _now().isoformat(timespec="seconds")
+                item["revoked_by"] = str(by).strip()
+                _save(data_dir, service_id, payload)
+                return {"status": "revoked", "grant": item}
     raise ValueError("没有授权 %s" % grant_id)
 
 
@@ -204,7 +206,8 @@ def explain(data_dir, service_id, *, action_class, scope=None, now=None):
             "grant": active[-1], "requires": "grant"}
 
 
-def consume(data_dir, service_id, grant_id, *, amount=1, action_class=None, scope=None, now=None):
+def consume(data_dir, service_id, grant_id, *, amount=1, action_class=None, scope=None, now=None,
+            reservation_id=""):
     if isinstance(amount, bool) or not isinstance(amount, int) or amount < 1:
         raise ValueError("amount 必须是正整数")
     try:
@@ -222,14 +225,44 @@ def consume(data_dir, service_id, grant_id, *, amount=1, action_class=None, scop
                     raise ValueError("授权类别不匹配")
                 if not _match_scope(item.get("scope") or {}, scope or {}):
                     raise ValueError("授权范围不匹配")
+                reservations = item.setdefault("quota_reservations", [])
+                if reservation_id and any(row.get("attempt_id") == reservation_id for row in reservations):
+                    return item
                 quota = item.get("quota")
                 used = int(item.get("used") or 0)
                 if quota is not None and used + amount > int(quota):
                     raise ValueError("授权配额不足：%s/%s" % (used, quota))
                 item["used"] = used + amount
                 item["last_used_at"] = current.isoformat(timespec="seconds")
+                if reservation_id:
+                    reservations.append({"attempt_id": reservation_id, "amount": amount,
+                                         "state": "reserved", "at": current.isoformat(timespec="seconds")})
                 _save(data_dir, service_id, payload)
                 return item
     except StorageError as exc:
         raise ValueError("授权锁不可用：%s" % exc) from exc
     raise ValueError("没有授权 %s" % grant_id)
+
+
+
+def settle(data_dir, service_id, grant_id, *, reservation_id, outcome, now=None):
+    if outcome not in {"released", "settled", "unknown"}:
+        raise ValueError("未知额度结算结果")
+    current = now or _now()
+    with FileLock(path(data_dir, service_id).with_suffix(".lock")):
+        payload = _load(data_dir, service_id)
+        for item in payload.get("grants") or []:
+            if item.get("grant_id") != grant_id:
+                continue
+            for reservation in item.get("quota_reservations") or []:
+                if reservation.get("attempt_id") != reservation_id:
+                    continue
+                if reservation.get("state") != "reserved":
+                    return reservation
+                if outcome == "released":
+                    item["used"] = max(0, int(item.get("used") or 0) - int(reservation.get("amount") or 1))
+                reservation["state"] = outcome
+                reservation["settled_at"] = current.isoformat(timespec="seconds")
+                _save(data_dir, service_id, payload)
+                return reservation
+        raise ValueError("没有对应的额度预留")

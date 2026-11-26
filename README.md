@@ -12,8 +12,13 @@ Growovo 是一项 AI Native 增长服务，面向独立开发者、开源维护�
 [OVO 统一官网](https://roy-tong.github.io/ovo/) · [受控执行示例](https://roy-tong.github.io/Growovo/examples/controlled-run.html) · [当前能力](docs/feature-status.md) · [English README](README.en.md)
 
 ```bash
-pipx install growovo
-mkt demo    # 零网络零账号：授权、离线回执、三次拦截和结果卡；写入 ./data/demo
+# 稳定版
+<!--OVO:growovo-stable-->pipx install growovo==0.23.0
+mkt demo<!--/OVO:growovo-stable-->
+# 预发行验收版
+<!--OVO:growovo-preview-->pipx install growovo==0.23.1rc2
+mkt demo<!--/OVO:growovo-preview-->
+# 零网络零账号：授权、离线回执、三次拦截和结果卡；写入 ./data/demo
 ```
 
 ## 通用 Agent 能写策略，Growovo 把日常工作接过去
@@ -90,7 +95,7 @@ python3 mkt.py grow daily g1
 python3 mkt.py grow review g1 --days 7
 ```
 
-官方 API / SMTP 优先；已有写原语可在具名 owner-attested 窗口内通过 WebMonitor 受管标签组执行。未授权账号、验证码/挑战和风控对抗继续禁止。详见[平台自动执行矩阵](docs/platform-automation-matrix.md)。
+官方 API / SMTP 是默认优先路线；已有浏览器写原语只能在显式具名 owner-attested 窗口内通过 WebMonitor 受管标签组执行。`autonomous_write` 只表示业务技术能力，X 策略固定 `platform_permission=false`，账号所有者授权不等于平台许可。未授权账号、验证码/挑战和风控对抗继续禁止。详见[平台自动执行矩阵](docs/platform-automation-matrix.md)。
 
 ## 当前证据与下一步
 

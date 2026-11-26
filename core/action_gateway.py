@@ -153,7 +153,11 @@ def execute(**kwargs):
     state = LeaseState(data_dir, account, route, owner, lane.get("fence") or 0)
     heartbeat = _start_heartbeat(data_dir, account, route, owner, state=state)
     try:
-        return run_action(lease_guard=state, **kwargs)
+        from .ledger import bind_execution
+        action_id = str(kwargs.pop("growth_action_id", "") or "")
+        with bind_execution(action_id=action_id,
+                            attempt_id=str(kwargs.get("attempt_id") or ""), account=account):
+            return run_action(lease_guard=state, **kwargs)
     except Exception as exc:
         if getattr(exc, "code", "") == "lease_lost":
             return {"ok": False, "result": "lease_lost", "retryable": False,

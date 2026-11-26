@@ -307,5 +307,19 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual("dry-run", json.loads(dry.stdout)["status"])
 
 
+class PagesWorkflowTests(unittest.TestCase):
+    def test_rerun_cleans_only_current_run_pages_artifact_before_upload(self):
+        text = (ROOT / ".github" / "workflows" / "pages.yml").read_text(encoding="utf-8")
+        self.assertIn("actions: write", text)
+        cleanup = text.index("Remove stale Pages artifacts from this run")
+        upload = text.index("actions/upload-pages-artifact@v3")
+        deploy = text.index("actions/deploy-pages@v4")
+        self.assertLess(cleanup, upload)
+        self.assertLess(upload, deploy)
+        self.assertIn("github.run_id", text)
+        self.assertIn('select(.name == "github-pages")', text)
+        self.assertIn("-X DELETE", text)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -113,6 +113,21 @@ class GrowthExecutionTest(unittest.TestCase):
         self.assertEqual("completed", attempts[0]["status"])
         self.assertEqual(comment["html_url"], attempts[0]["evidence"]["receipt"])
 
+    def test_reconcile_uses_frozen_attempt_payload_not_caller_replacement(self):
+        original = {"target": "issue:owner/repo#1", "text": "Original answer",
+                    "channels": {"github": {"api": True}}}
+        with mock.patch("core.action_runner.run_action",
+                        return_value={"result": "indeterminate", "evidence": ""}):
+            growth_execution.run(self.data, self.sid, "github-engage", by="worker-a", payload=original)
+        comment = {"id": 9, "body": original["text"],
+                   "html_url": "https://github.com/owner/repo/issues/1#issuecomment-9"}
+        replacement = {"target": "issue:attacker/repo#99", "text": "Replacement",
+                       "channels": original["channels"]}
+        with mock.patch("channels.github.find_replies", return_value=[comment]) as find:
+            growth_execution.reconcile(
+                self.data, self.sid, "github-engage", by="tester", payload=replacement)
+        find.assert_called_once_with("owner/repo", 1, original["text"], token=None)
+
     def test_reconcile_discussion_comment_uses_graphql_reader(self):
         payload = {"target": "discussion:owner/repo#8", "text": "A specific answer",
                    "channels": {"github": {"api": True}}}

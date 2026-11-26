@@ -175,7 +175,7 @@ def _expected_action_class(action):
     return "observe"
 
 
-def _recheck_and_consume(data_dir, service_id, decision, proposal):
+def _recheck_and_consume(data_dir, service_id, decision, proposal, *, attempt_id):
     service = growth_service.load(data_dir, service_id)
     action = next((row for row in service["actions"]
                    if row["id"] == decision.get("action_id")), None)
@@ -198,7 +198,8 @@ def _recheck_and_consume(data_dir, service_id, decision, proposal):
     if grant.get("grant_id"):
         risk_policy.consume(
             data_dir, service_id, grant["grant_id"],
-            action_class=expected, scope=scope)
+            action_class=expected, scope=scope, reservation_id=attempt_id)
+    return grant
 
 
 def execute(data_dir, service_id, cycle_id, *, by):
@@ -225,15 +226,47 @@ def execute(data_dir, service_id, cycle_id, *, by):
         for key in ("text", "target", "channels", "asset", "metrics"):
             if key in proposal:
                 payload[key] = proposal[key]
+        reservation = {}
         try:
-            _recheck_and_consume(data_dir, service_id, decision, proposal)
+            def on_claimed(claim):
+                grant = _recheck_and_consume(
+                    data_dir, service_id, decision, proposal,
+                    attempt_id=claim["attempt_id"])
+                if grant.get("grant_id"):
+                    reservation.update(grant_id=grant["grant_id"],
+                                       attempt_id=claim["attempt_id"])
             result = growth_execution.run(data_dir, service_id, action_id, by=by,
-                                          payload=payload)
-            results.append(dict(decision, execution="executed", result=result))
+                                          payload=payload, on_claimed=on_claimed)
+            result_status = str(result.get("status") or "blocked")
+            execution = result_status if result_status in {
+                "completed", "waiting_verification", "waiting_manual", "manual_handoff",
+                "preview", "in_progress", "pending"} else "blocked"
+            if reservation:
+                outcome = ("released" if execution in {
+                    "blocked", "preview", "manual_handoff", "waiting_manual",
+                    "in_progress", "pending"} else "settled")
+                risk_policy.settle(data_dir, service_id, reservation["grant_id"],
+                                   reservation_id=reservation["attempt_id"], outcome=outcome)
+            row = dict(decision, execution=execution, result=result)
+            if execution == "blocked":
+                record = result.get("record") if isinstance(result.get("record"), dict) else {}
+                row["error"] = str(record.get("detail") or result.get("error")
+                                   or record.get("code") or "execution_blocked")[:300]
+            results.append(row)
         except (ValueError, OSError, KeyError) as exc:
             results.append(dict(decision, execution="blocked", error=str(exc)[:300]))
     cycle["executions"] = results
-    cycle["status"] = "executed" if any(row["execution"] == "executed" for row in results) else "blocked"
+    states = {row["execution"] for row in results}
+    if "waiting_verification" in states:
+        cycle["status"] = "waiting_verification"
+    elif "completed" in states:
+        cycle["status"] = "executed"
+    elif "manual_handoff" in states or "waiting_manual" in states:
+        cycle["status"] = "waiting_manual"
+    elif "preview" in states:
+        cycle["status"] = "preview"
+    else:
+        cycle["status"] = "blocked"
     cycle["executed_at"] = _now().isoformat(timespec="seconds")
     cycle["executed_by"] = str(by).strip()
     _save(data_dir, service_id, cycle)

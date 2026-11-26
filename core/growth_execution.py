@@ -25,6 +25,9 @@ def _channel_completion(action, record):
         return {"kind": "verified", "receipt": {
             "action_id": action["id"],
             "channel": action.get("channel"),
+            "attempt_id": str(record.get("attempt_id") or ""),
+            "account": str(record.get("account") or ""),
+            "target": str(record.get("target") or ""),
             "sent_at": sent_at,
             "idempotency_key": claim,
             "readback": readback,
@@ -33,20 +36,26 @@ def _channel_completion(action, record):
             "reason": "transport committed without a readback reference"}
 
 
-def _reconcile_completion(data_dir, service_id, action, receipt_ref, observed_at=""):
+def _reconcile_completion(data_dir, service_id, action, receipt_ref, observed_at="", *,
+                          account="", attempt_id="", target=None):
     """Persist the unique external readback before deriving verified completion."""
     receipt_ref = str(receipt_ref or "").strip()
     stamp = observed_at or dt.datetime.now().astimezone().isoformat(timespec="seconds")
     claim = "readback:" + receipt_ref
+    bound_target = action.get("target") or "" if target is None else str(target)
     Ledger(Path(data_dir) / "ledger.jsonl").append(
         channel=action.get("channel"), action=action.get("action"),
-        target=action.get("target") or "", result="committed", campaign=service_id,
+        target=bound_target, result="committed", campaign=service_id,
         transport="independent-readback", evidence=receipt_ref,
         ref="readback-" + hashlib.sha256(receipt_ref.encode("utf-8")).hexdigest(),
-        claim_key=claim, finished_at=stamp)
+        claim_key=claim, finished_at=stamp, growth_action_id=action.get("id"),
+        attempt_id=attempt_id, account=account)
     return {"kind": "verified", "receipt": {
         "action_id": action.get("id"),
         "channel": action.get("channel"),
+        "attempt_id": attempt_id,
+        "account": account,
+        "target": bound_target,
         "sent_at": stamp,
         "sent_at_basis": "readback_observed_at" if not observed_at else "readback_reported_at",
         "idempotency_key": claim,
@@ -106,6 +115,7 @@ def _run_channel(data_dir, service, action, by, payload):
     record = action_gateway.execute(
         channel=action["channel"], action=action["action"], data_dir=data_dir,
         campaign=service["id"], go=True, target=target, text=text, account=account,
+        growth_action_id=action["id"], attempt_id=str(payload.get("_attempt_id") or ""),
         transport=("gmail-api" if mode == "gmail_api"
                    else "browser-attach" if mode == "cdp" else ""),
         title=payload.get("title"), url=payload.get("url"), github_token=github_token,
@@ -221,7 +231,7 @@ def _execute(data_dir, service_id, action_id, by, payload=None):
     raise ValueError(f"不支持的动作类型 {kind}")
 
 
-def run(data_dir, service_id, action_id, by, payload=None):
+def run(data_dir, service_id, action_id, by, payload=None, *, on_claimed=None):
     if not str(by or "").strip():
         raise ValueError("by 必填")
     payload = payload or {}
@@ -230,8 +240,18 @@ def run(data_dir, service_id, action_id, by, payload=None):
         data_dir, service_id, action_id, worker=by, payload=payload)
     if claim["status"] != "claimed":
         return dict(claim)
+    if on_claimed is not None:
+        try:
+            on_claimed(claim)
+        except (ValueError, OSError, KeyError) as exc:
+            evidence = {"code": "authorization_changed", "detail": str(exc)[:300],
+                        "attempt_id": claim["attempt_id"]}
+            _finish(data_dir, service_id, action_id, "pending", by, evidence)
+            return {"status": "blocked", "action_id": action_id,
+                    "attempt_id": claim["attempt_id"], "record": evidence}
     try:
-        result = _execute(data_dir, service_id, action_id, by, payload)
+        result = _execute(data_dir, service_id, action_id, by,
+                          dict(payload, _attempt_id=claim["attempt_id"]))
     except Exception as exc:
         from .action_runner import ActionError
         from .browser_write import ActionBlocked
@@ -272,13 +292,15 @@ def run(data_dir, service_id, action_id, by, payload=None):
 def reconcile(data_dir, service_id, action_id, by, payload=None):
     if not str(by or "").strip():
         raise ValueError("by 必填")
-    payload = payload or {}
     service = growth_service.load(data_dir, service_id)
     action = next((row for row in service["actions"] if row["id"] == action_id), None)
     if action is None:
         raise ValueError(f"服务 {service_id} 没有动作 {action_id}")
     if action.get("status") != "waiting_verification":
         return {"status": action.get("status"), "action_id": action_id}
+    frozen = action.get("attempt_payload")
+    payload = dict(frozen) if isinstance(frozen, dict) else (payload or {})
+    attempt_id = str(action.get("last_attempt_id") or action.get("active_attempt_id") or "")
     if action.get("channel") == "email":
         thread_id = str(payload.get("thread_id") or "")
         recipient = str(payload.get("target") or "")
@@ -293,7 +315,9 @@ def reconcile(data_dir, service_id, action_id, by, payload=None):
                         "verification": "independent_sent_readback"}
             completion = _reconcile_completion(
                 data_dir, service_id, action, evidence["receipt"],
-                observed_at=str(matches[0].get("date") or ""))
+                observed_at=str(matches[0].get("date") or ""),
+                account=str(service.get("account") or "default"), attempt_id=attempt_id,
+                target=recipient)
             _finish(data_dir, service_id, action_id, "completed", by, evidence,
                     completion=completion)
             return {"status": "completed", "action_id": action_id, "evidence": evidence}
@@ -328,7 +352,9 @@ def reconcile(data_dir, service_id, action_id, by, payload=None):
                     "verification": "independent_comment_readback"}
         completion = _reconcile_completion(
             data_dir, service_id, action, evidence["receipt"],
-            observed_at=str(matches[0].get("created_at") or ""))
+            observed_at=str(matches[0].get("created_at") or ""),
+            account=str(service.get("account") or "default"), attempt_id=attempt_id,
+            target=str(target or ""))
         _finish(data_dir, service_id, action_id, "completed", by, evidence,
                 completion=completion)
         return {"status": "completed", "action_id": action_id, "evidence": evidence}

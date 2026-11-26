@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- Verified completion now binds action, attempt, account, target, channel, claim and readback through the unified ledger. Reconciliation restores the frozen attempt payload instead of accepting replacement targets or text.
+- Verified metrics require `growovo.metric-evidence/1` with matching identity, collector version, raw observations and recomputed results; unrelated hash-matched files no longer qualify.
+- Grant, revoke, consume and settlement share one lock. Quota is reserved only after an action claim and settled by actual outcome; preview, manual handoff and definite blocks release while completed or externally unknown attempts retain consumption. Execution states no longer collapse into `executed`.
+- X policy now exposes official API as the preferred route, explicit owner opt-in and `platform_permission=false`; `autonomous_write` is documented as business capability, not platform approval.
+
 ## 0.23.1rc2 — 2026-11-26
 
 ### Added

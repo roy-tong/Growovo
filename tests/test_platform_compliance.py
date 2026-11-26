@@ -25,6 +25,8 @@ class RiskNoticeTests(unittest.TestCase):
                     self.assertEqual("non_api_write_forbidden", got["risk_code"])
                     self.assertIn("不阻断", got["risk_warning"])
                     self.assertEqual("cdp", got["transport"])
+                    self.assertIs(False, got["platform_permission"])
+                    self.assertEqual("operator_risk", got["authorization_scope"])
 
     def test_user_visible_cdp_returns_the_same_non_blocking_risk(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -113,6 +115,11 @@ class PolicyMetadataTests(unittest.TestCase):
     def test_matrix_separates_business_capability_from_risk(self):
         row = platform_caps.classify("x")
         self.assertTrue(row["policy"]["autonomous_write"])
+        self.assertEqual("business_capability_not_platform_permission",
+                         row["policy"]["autonomous_write_meaning"])
+        self.assertEqual("official_api", row["policy"]["preferred_route"])
+        self.assertIs(False, row["policy"]["platform_permission"])
+        self.assertTrue(row["policy"]["owner_risk_opt_in_required"])
         self.assertEqual("non_api_write_forbidden", row["policy"]["code"])
         self.assertTrue(row["policy"]["user_visible_cdp_write"])
         self.assertIn("不阻断", row["policy"]["risk_warning"])
