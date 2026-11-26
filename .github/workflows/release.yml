@@ -49,10 +49,12 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           TAG="${GITHUB_REF_NAME}"
+          PRERELEASE=""
+          if [[ "$TAG" == *rc* ]]; then PRERELEASE="--prerelease"; fi
           if gh release view "$TAG" --json tagName >/dev/null 2>&1; then
-            gh release edit "$TAG" --notes-file /tmp/notes.md
+            gh release edit "$TAG" --notes-file /tmp/notes.md $PRERELEASE
           else
-            gh release create "$TAG" --title "Growovo ${TAG#v}" --notes-file /tmp/notes.md
+            gh release create "$TAG" --title "Growovo ${TAG#v}" --notes-file /tmp/notes.md $PRERELEASE
           fi
 
   # ── PyPI: `pipx install growovo` ──

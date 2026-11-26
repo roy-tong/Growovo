@@ -16,7 +16,7 @@ Growovo is an AI-native growth service for independent developers, open-source m
 <!--OVO:growovo-stable-->pipx install growovo==0.23.0
 mkt demo<!--/OVO:growovo-stable-->
 # Preview
-<!--OVO:growovo-preview-->pipx install growovo==0.23.1rc2
+<!--OVO:growovo-preview-->pipx install growovo==0.23.1rc3
 mkt demo<!--/OVO:growovo-preview-->
 # Zero network and accounts: authorization, offline receipts, three refusals and a result card; writes ./data/demo
 ```
