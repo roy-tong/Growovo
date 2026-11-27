@@ -11,6 +11,8 @@ Growovo 是一项 AI Native 增长服务，面向独立开发者、开源维护�
 
 [OVO 统一官网](https://roy-tong.github.io/ovo/) · [受控执行示例](https://roy-tong.github.io/Growovo/examples/controlled-run.html) · [当前能力](docs/feature-status.md) · [English README](README.en.md)
 
+**关注进展：** [X @elliwoodtong](https://x.com/elliwoodtong) · [加入 OVO Discord](https://discord.gg/UqrM8MCXb)
+
 ```bash
 # 稳定版
 <!--OVO:growovo-stable-->pipx install growovo==1.0.0
