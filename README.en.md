@@ -11,6 +11,8 @@ Growovo is an AI-native growth service for independent developers, open-source m
 
 [OVO unified website](https://roy-tong.github.io/ovo/en.html) · [Controlled-run example](https://roy-tong.github.io/Growovo/examples/controlled-run.en.html) · [Current capabilities](docs/feature-status.md) · [中文 README](README.md)
 
+**Follow the build:** [X @elliwoodtong](https://x.com/elliwoodtong) · [Join the OVO Discord](https://discord.gg/UqrM8MCXb)
+
 ```bash
 # Stable
 <!--OVO:growovo-stable-->pipx install growovo==1.0.0
