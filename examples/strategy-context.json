@@ -1,0 +1,11 @@
+{
+  "intent": "scale",
+  "stage": "early",
+  "channels": ["x", "github"],
+  "quality_score": 82,
+  "accepted_results": 0,
+  "existing_users": 0,
+  "product_assets": ["demo", "fixture"],
+  "paid_allowed": false,
+  "note": "离线合成上下文，不代表真实用户或业务结果"
+}

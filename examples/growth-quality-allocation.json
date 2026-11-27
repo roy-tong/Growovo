@@ -1,0 +1,34 @@
+{
+  "total_actions": 100,
+  "min_quality_score": 70,
+  "explore_ratio": 0.2,
+  "candidates": [
+    {
+      "id": "verovo-billing-maintainers",
+      "product": "verovo",
+      "persona": "AI 网关维护者",
+      "hook": "recalculate_together",
+      "asset": "billing-conformance-fixture",
+      "quality_score": 85,
+      "evidence": {"actions": 10, "qualified_interactions": 2, "first_runs": 1, "accepted_results": 1}
+    },
+    {
+      "id": "askovo-decision-review-new",
+      "product": "askovo",
+      "persona": "需要复审决定的产品经理",
+      "hook": "review_offer",
+      "asset": "decision-replay-demo",
+      "quality_score": 80,
+      "evidence": {"actions": 20}
+    },
+    {
+      "id": "generic-ai-news",
+      "product": "growovo",
+      "persona": "泛 AI 读者",
+      "hook": "task_offer",
+      "asset": "mkt-demo",
+      "quality_score": 50,
+      "evidence": {}
+    }
+  ]
+}

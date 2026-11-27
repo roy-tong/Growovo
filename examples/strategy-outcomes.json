@@ -1,0 +1,8 @@
+{
+  "actions": 100,
+  "qualified_interactions": 8,
+  "first_runs": 4,
+  "accepted_results": 2,
+  "second_use": 1,
+  "note": "离线合成结果，用于验证接受结果与第二任务同时出现时放大当前机制"
+}
