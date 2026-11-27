@@ -126,6 +126,11 @@ def build_business_result(job, result, data_dir=None):
     for channel, why in stopped.items():
         key = "%s:%s" % (channel, why)
         blockers[key] = blockers.get(key, 0) + 1
+    deferred = result.get("deferred") if isinstance(result.get("deferred"), list) else []
+    for row in deferred:
+        if isinstance(row, dict) and row.get("reason"):
+            key = str(row["reason"])
+            blockers[key] = blockers.get(key, 0) + 1
     action_blocked = False
     for row in rows:
         if not isinstance(row, dict):
@@ -201,7 +206,7 @@ def build_business_result(job, result, data_dir=None):
         "execution": {
             "target": sum(row["target"] for row in actions.values()),
             "accepted": result.get("accepted"), "planned": planned, "attempted": len(rows), "committed": committed, "failed": failed,
-            "indeterminate": indeterminate, "skipped": len(skipped),
+            "indeterminate": indeterminate, "skipped": len(skipped), "deferred": len(deferred),
             "attainment_rate": (round(committed / sum(row["target"] for row in actions.values()), 4)
                                 if sum(row["target"] for row in actions.values()) else None),
             "gap": sum(row["gap"] for row in actions.values()),

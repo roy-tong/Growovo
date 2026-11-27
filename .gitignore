@@ -1,6 +1,8 @@
 # 数据与凭据一律不入库
 data/*
 !data/schemas.md
+# 运行态：ManagedTabs 等持久化状态；data/state 之外的裸 state/ 同样不入库
+state/
 profiles/
 logs/
 shots/

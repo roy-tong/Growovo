@@ -86,5 +86,67 @@ class VoiceTests(unittest.TestCase):
         self.assertIn("别这么写", md)
 
 
+class EnglishMarketingTests(unittest.TestCase):
+    """中文词表管不到英文帖；英文促销/导流表达必须同样被拦。"""
+
+    def test_lint_blocks_english_promotion(self):
+        problems = voice.lint(
+            "x", "Buy now! Limited time 50% off, click the link in bio")
+        self.assertTrue(problems)
+        self.assertTrue(any("英文促销" in p for p in problems))
+
+    def test_lint_blocks_each_english_pattern_family(self):
+        cases = [
+            "Order now and get yours today",
+            "Don't miss out on this drop",
+            "Half price for the first 100 users",
+            "Swipe up to see the offer",
+            "DM me for the discount code",
+            "Sign up today, risk-free",
+        ]
+        for text in cases:
+            with self.subTest(text=text):
+                self.assertTrue(voice.lint("linkedin", text), text)
+
+    def test_lint_keeps_plain_english_engineering_copy(self):
+        texts = [
+            "Agent said done. Nobody could replay it. We exported a proof bundle with the run trace.",
+            "We ran the same prompt through five providers; three double-count on retry.",
+            "The average reply latency dropped from 900 ms to 240 ms after the change.",
+        ]
+        for text in texts:
+            with self.subTest(text=text):
+                self.assertEqual([], voice.lint("x", text), text)
+
+
+class EmptyTextTests(unittest.TestCase):
+    """空正文曾返回「这条可以用」；调用方漏传正文时会拿到假通过。"""
+
+    def test_lint_rejects_empty_text(self):
+        for text in ("", "   ", "\n\t"):
+            with self.subTest(text=repr(text)):
+                problems = voice.lint("x", text)
+                self.assertTrue(problems)
+                self.assertIn("正文为空", problems[0])
+
+    def test_lint_cli_exits_2_without_text(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            proc = subprocess.run(
+                [sys.executable, str(ROOT / "mkt.py"), "--workspace", tmp,
+                 "voice", "lint", "x"],
+                cwd=ROOT, text=True, capture_output=True)
+        self.assertEqual(2, proc.returncode)
+        self.assertIn("需要正文", proc.stderr)
+
+    def test_lint_cli_accepts_positional_body(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            proc = subprocess.run(
+                [sys.executable, str(ROOT / "mkt.py"), "--workspace", tmp,
+                 "voice", "lint", "x", "Buy now! Limited time offer"],
+                cwd=ROOT, text=True, capture_output=True)
+        self.assertEqual(2, proc.returncode, msg=proc.stderr)
+        self.assertIn("英文促销", proc.stdout)
+
+
 if __name__ == "__main__":
     unittest.main()

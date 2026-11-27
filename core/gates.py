@@ -150,10 +150,55 @@ def load_contact_suppressions(data_dir):
     return out
 
 
+def load_protected_suppressions(data_dir):
+    """受保护账号的持久抑制：state/protected-accounts.json 里的 handle。
+
+    `mark_protected` 会同时写 protected-accounts.json 与 suppress.txt，但发送门禁
+    此前只读后者。人工清理、迁移或只复制其中一份时，抑制会悄悄失效
+    （2026-11-26 全量回归发现）。两处记录是同一事实的两份拷贝，这里都读。
+    解析失败按 fail closed 处理，与 contacts.jsonl 一致。
+    """
+    path = Path(data_dir) / "state" / "protected-accounts.json"
+    try:
+        text = path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return set()
+    except UnicodeDecodeError as exc:
+        raise SuppressionIntegrityError(
+            "protected-accounts.json 不是合法 UTF-8（%s）；无法确认受保护账号，"
+            "中止受影响的发送。" % exc) from exc
+    try:
+        payload = json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise SuppressionIntegrityError(
+            "protected-accounts.json 不是合法 JSON（%s）；受保护账号会被静默"
+            "放行，必须修复后重试。" % exc) from exc
+    if not isinstance(payload, dict):
+        raise SuppressionIntegrityError(
+            "protected-accounts.json 顶层不是对象（得到 %s）；无法判读受保护账号。"
+            % type(payload).__name__)
+    accounts = payload.get("accounts")
+    if accounts is not None and not isinstance(accounts, dict):
+        raise SuppressionIntegrityError(
+            "protected-accounts.json 的 accounts 不是对象（得到 %s）；"
+            "无法判读受保护账号。" % type(accounts).__name__)
+    out = set()
+    for key, row in (accounts or {}).items():
+        handle = str((row or {}).get("handle") or key or "").strip() if isinstance(row, dict) \
+            else str(key or "").strip()
+        if not handle:
+            continue
+        out.add(handle)
+        out.add("@" + handle.lstrip("@"))
+    return out
+
+
 def load_suppressions(data_dir):
-    """发送门禁的唯一抑制集合：suppress.txt ∪ contacts 中 DNC/bounced 身份。"""
+    """发送门禁的唯一抑制集合：suppress.txt ∪ contacts DNC/bounced ∪ 受保护账号。"""
     data = Path(data_dir)
-    return load_suppress(data / "suppress.txt") | load_contact_suppressions(data)
+    return (load_suppress(data / "suppress.txt")
+            | load_contact_suppressions(data)
+            | load_protected_suppressions(data))
 
 
 class Gate:

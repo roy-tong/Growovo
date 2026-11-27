@@ -572,6 +572,23 @@ def draft(pid: str, *, hook: str = "", what: str = "", ask: str = "") -> Dict[st
 # 全局营销腔：任何平台出现这些词都判失败
 MARKETING = ("颠覆", "革命性", "极致", "赋能", "闭环", "抓手", "全面提升",
              "行业领先", "一站式解决方案", "深度赋能", "降本增效")
+# 英文促销/导流腔：只收明确的叫卖与导流动作，避免把技术写作判成广告。
+# 中文词表管不到英文帖，X、LinkedIn、GitHub 上照抄中文词表等于没检查。
+MARKETING_EN = re.compile(
+    r"(?:\b(?:buy|order|shop|act)\s+now\b"
+    r"|\bdon'?t\s+miss(?:\s+out)?\b"
+    r"|\blimited[\s-]time\b"
+    r"|\b\d{1,2}\s*%\s*off\b"
+    r"|\bhalf[\s-]price\b"
+    r"|\bclick\s+the\s+link\b"
+    r"|\blink\s+in\s+bio\b"
+    r"|\bswipe\s+up\b"
+    r"|\bdm\s+me\b"
+    r"|\bsign\s+up\s+today\b"
+    r"|\bget\s+yours\s+now\b"
+    r"|\bwhile\s+supplies\s+last\b"
+    r"|\bguaranteed\s+results?\b"
+    r"|\brisk[\s-]free\b)", re.I)
 # 留联系方式：内容平台的红线
 CONTACT = re.compile(r"(微信|vx|VX|加我|私我|公众号[：:]|↓↓↓|戳链接)")
 
@@ -653,9 +670,20 @@ def lint(pid: str, text: str, *, source_text: Optional[str] = None,
     problems: List[str] = []
     low = text or ""
 
+    if not low.strip():
+        # 空正文曾经返回"可以用"，调用方漏传正文时拿到假通过（2026-11-26 全量回归）。
+        return ["正文为空：空文本不能当作通过，先给要检查的文字"]
+
     for bad in MARKETING:
         if bad in low:
             problems.append(f"「{bad}」是广告词，这个平台读得出来")
+    seen_en = set()
+    for match in MARKETING_EN.finditer(low):
+        phrase = match.group(0).lower()
+        if phrase in seen_en:
+            continue
+        seen_en.add(phrase)
+        problems.append(f"「{match.group(0)}」是英文促销/导流表达，这个平台读得出来")
     for taboo in v["taboos"]:
         key = taboo.split("（")[0]
         if key and key in low:

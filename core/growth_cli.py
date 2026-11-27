@@ -16,6 +16,7 @@ from . import growth_cycle, risk_policy, growth_host
 from . import growth_cycle_resolution
 from . import growth_efficiency
 from .growth_goals import compile_goal
+from . import output_strategy
 
 
 def register(parser):
@@ -25,6 +26,34 @@ def register(parser):
         item.add_argument("--file", required=True)
         item.add_argument("--out", default="")
         item.add_argument("--json", action="store_true")
+    item = sub.add_parser("output-guide", help="逐项引导补齐执行策略输入")
+    item.add_argument("--file", required=True)
+    item.add_argument("--set", dest="set_field", default="")
+    item.add_argument("--value", default="")
+    item.add_argument("--interactive", action="store_true")
+    item = sub.add_parser("output-plan", help="编译目标、波次、对象、正文和备料计划")
+    item.add_argument("--file", required=True)
+    item.add_argument("--out", default="")
+    item.add_argument("--format", choices=("json", "md"), default="json")
+    item = sub.add_parser("output-lint", help="校验执行策略和物化供给")
+    item.add_argument("--file", required=True)
+    item.add_argument("--require-ready", action="store_true")
+    item = sub.add_parser("quality-allocate", help="按内容质量和真实结果分配探索与放量配额")
+    item.add_argument("--file", required=True)
+    item.add_argument("--events", default="", help="可选结果事件 JSON，按 campaign_id 补充分配证据")
+    item.add_argument("--complete", action="store_true", help="声明结果事件观察完整")
+    item = sub.add_parser("quality-funnel", help="投影动作到首用、接受结果和第二任务")
+    item.add_argument("--file", required=True)
+    item.add_argument("--complete", action="store_true", help="声明当前事件观察完整，零事件才可计为 observed_zero")
+    item = sub.add_parser("strategy-census", help="盘点策略语料、证据资格与使用边界")
+    item = sub.add_parser("strategy-select", help="按意图与业务条件选择动态策略")
+    item.add_argument("--file", required=True)
+    item = sub.add_parser("strategy-adjust", help="按真实结果调整下一机制和配额")
+    item.add_argument("--file", required=True)
+    item.add_argument("--outcomes", required=True)
+    item = sub.add_parser("preparation-status", help="只读查看备料任务和波次供给缺口")
+    item.add_argument("--file", required=True)
+    item.add_argument("--wave", default="")
     for name in ("status", "next", "attempts"):
         item = sub.add_parser(name)
         item.add_argument("service_id")
@@ -293,7 +322,8 @@ def handle(args, data_dir):
         "account": "default", "platform": "", "topic": "", "subscription": "",
         "watch_topic": "", "pubsub_subscription": "", "interval_seconds": 300,
         "once": False, "max_cycles": None, "webhook_port": 0, "gmail_sync": False, "thread_id": "", "wave": "",
-        "format": "json", "start": "", "end": "",
+        "format": "json", "start": "", "end": "", "set_field": "", "value": "",
+        "interactive": False, "require_ready": False,
     }
     for name, value in defaults.items():
         if not hasattr(args, name):
@@ -301,6 +331,69 @@ def handle(args, data_dir):
     try:
         if args.growth_action == "compile":
             _emit(compile_goal(_read(args.file)), args.out)
+        elif args.growth_action == "output-guide":
+            from .storage import atomic_write_text
+            draft_path = Path(args.file)
+            draft = _read(draft_path)
+            if args.set_field:
+                if not args.value:
+                    raise ValueError("--set 需要同时提供 --value JSON")
+                draft = output_strategy.apply_answer(
+                    draft, args.set_field, json.loads(args.value))
+                atomic_write_text(draft_path, json.dumps(draft, ensure_ascii=False, indent=2) + "\n")
+            if args.interactive:
+                while True:
+                    guided = output_strategy.guide(draft)
+                    if guided["ready"]:
+                        break
+                    question = guided["next_question"]
+                    print(question["question"], file=sys.stderr)
+                    print(question["why"], file=sys.stderr)
+                    print("示例：" + json.dumps(question["example"], ensure_ascii=False), file=sys.stderr)
+                    raw = input("请输入 JSON 答案（留空使用建议默认值）：").strip()
+                    value = question["suggested_default"] if not raw else json.loads(raw)
+                    draft = output_strategy.apply_answer(draft, question["field"], value)
+                    atomic_write_text(draft_path, json.dumps(draft, ensure_ascii=False, indent=2) + "\n")
+            _emit(output_strategy.guide(draft))
+        elif args.growth_action == "output-plan":
+            plan = output_strategy.compile_strategy(_read(args.file))
+            if args.format == "md":
+                text = output_strategy.render_strategy(plan)
+                if args.out:
+                    with Path(args.out).open("x", encoding="utf-8") as handle:
+                        handle.write(text)
+                print(text, end="")
+            else:
+                _emit(plan, args.out)
+        elif args.growth_action == "output-lint":
+            payload = _read(args.file)
+            plan = payload if payload.get("schema") == output_strategy.SCHEMA else output_strategy.compile_strategy(payload)
+            errors = output_strategy.lint_strategy(plan, require_ready=args.require_ready)
+            _emit({"ok": not errors, "errors": errors, "readiness": plan.get("readiness")})
+            if errors:
+                return 2
+        elif args.growth_action == "quality-allocate":
+            from . import growth_quality
+            payload = _read(args.file)
+            if args.events:
+                payload = growth_quality.attach_funnel_evidence(
+                    payload, _read(args.events), complete_observation=args.complete)
+            _emit(growth_quality.allocate(payload))
+        elif args.growth_action == "quality-funnel":
+            from . import growth_quality
+            _emit(growth_quality.project_funnel(_read(args.file), complete_observation=args.complete))
+        elif args.growth_action == "strategy-census":
+            from . import strategy_intelligence
+            _emit(strategy_intelligence.census())
+        elif args.growth_action == "strategy-select":
+            from . import strategy_intelligence
+            _emit(strategy_intelligence.select_strategy(_read(args.file)))
+        elif args.growth_action == "strategy-adjust":
+            from . import strategy_intelligence
+            _emit(strategy_intelligence.recommend(_read(args.file), _read(args.outcomes)))
+        elif args.growth_action == "preparation-status":
+            from . import preparation_runtime
+            _emit(preparation_runtime.status(data_dir, _read(args.file), args.wave))
         elif args.growth_action == "start":
             _emit(growth_service.start(data_dir, _read(args.file)), args.out)
         elif args.growth_action == "status":

@@ -70,5 +70,48 @@ class ProtectedContentTest(unittest.TestCase):
             self.assertIsNone(got["followers"])
 
 
+class ProtectedSuppressionSourceTest(unittest.TestCase):
+    """抑制不能只依赖 suppress.txt 的副本（2026-11-26 全量回归发现）。"""
+
+    def test_record_alone_suppresses_the_handle(self):
+        from core.gates import load_suppressions
+        with tempfile.TemporaryDirectory() as tmp:
+            data = Path(tmp)
+            (data / "state").mkdir()
+            (data / "state" / "protected-accounts.json").write_text(json.dumps({
+                "accounts": {"toscane": {"handle": "Toscane",
+                                         "reason": "protected_account"}}}),
+                encoding="utf-8")
+            self.assertFalse((data / "suppress.txt").exists())
+            suppressed = load_suppressions(data)
+            self.assertIn("Toscane", suppressed)
+            self.assertIn("@Toscane", suppressed)
+            self.assertTrue(protected_content.is_target_suppressed(
+                data, "https://x.com/Toscane/status/999"))
+
+    def test_damaged_record_fails_closed(self):
+        from core.gates import SuppressionIntegrityError, load_suppressions
+        with tempfile.TemporaryDirectory() as tmp:
+            data = Path(tmp)
+            (data / "state").mkdir()
+            (data / "state" / "protected-accounts.json").write_text(
+                '{"accounts": {"toscane": ', encoding="utf-8")
+            with self.assertRaises(SuppressionIntegrityError):
+                load_suppressions(data)
+
+    def test_union_does_not_change_other_targets(self):
+        from core.gates import Gate, GateError, load_suppressions
+        with tempfile.TemporaryDirectory() as tmp:
+            data = Path(tmp)
+            (data / "state").mkdir()
+            (data / "state" / "protected-accounts.json").write_text(json.dumps({
+                "accounts": {"toscane": {"handle": "Toscane"}}}), encoding="utf-8")
+            gate = Gate(suppress=load_suppressions(data))
+            with self.assertRaises(GateError):
+                gate.check(channel="x", action="reply", target="Toscane")
+            self.assertEqual("@healthy",
+                             gate.check(channel="x", action="reply", target="@healthy"))
+
+
 if __name__ == "__main__":
     unittest.main()

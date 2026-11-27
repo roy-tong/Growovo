@@ -48,6 +48,35 @@ def _signature(row):
     return digest([item[k] for k in ("id", "channel", "action", "target", "text", "actor")])
 
 
+def _strategy_item_id(row):
+    return str(row.get("strategy_item_id") or row.get("id") or "")
+
+
+def strategy_binding(config, job):
+    if not job.get("strategy"):
+        return None
+    from . import output_strategy
+    path = (Path(config).parent / job["strategy"]).resolve()
+    if not path.is_file():
+        raise ScopeError("strategy_missing")
+    document = json.loads(path.read_text(encoding="utf-8"))
+    if document.get("schema") != output_strategy.SCHEMA:
+        raise ScopeError("strategy_invalid")
+    actual = output_strategy.strategy_digest({key: value for key, value in document.items()
+                                               if key != "strategy_sha256"})
+    if actual != job.get("strategy_sha256"):
+        raise ScopeError("strategy_changed")
+    wave_id = str(job.get("wave") or job.get("id") or "")
+    item_ids = [str(item.get("id")) for item in document.get("items") or []
+                if str(item.get("wave_id") or "") == wave_id]
+    if job.get("strategy_item_ids") is not None:
+        requested = [str(value) for value in job["strategy_item_ids"]]
+        if set(requested) != set(item_ids):
+            raise ScopeError("strategy_item_scope_changed")
+        item_ids = requested
+    return {"path": str(path), "sha256": actual, "item_ids": item_ids}
+
+
 def _handle(value):
     return str(value or "").strip().lstrip("@").casefold()
 
@@ -61,6 +90,8 @@ def _policy_overrides(job, *, start=None, end=None):
         raise ScopeError("unknown_policy_override")
     if any(not isinstance(item, dict) for item in value.values()):
         raise ScopeError("invalid_policy_override")
+    if "content_rules" in (value.get("platforms") or {}):
+        raise ScopeError("invalid_policy_override:content_rules_must_be_top_level")
     window = value.get("window") or {}
     if window.get("start_at") or window.get("end_at"):
         try:
@@ -114,6 +145,7 @@ def approve(data, config, *, by="", preview=False):
             continue
         path = _queue(config, job)
         rows = [_normalize(row) for row in load_queue(path)]
+        binding = strategy_binding(config, job)
         if any(row["channel"] == "github" for row in rows):
             import os
             import shutil
@@ -150,6 +182,8 @@ def approve(data, config, *, by="", preview=False):
         items = {row["id"]: _signature(row) for row in rows}
         if len(items) != len(rows):
             raise ScopeError("duplicate_queue_item_id")
+        if binding and {_strategy_item_id(row) for row in rows} != set(binding["item_ids"]):
+            raise ScopeError("strategy_item_mismatch")
         if int(job.get("expire_after_sec", job.get("budget_sec", 3000))) <= 0:
             raise ScopeError("positive_window_required")
         from . import engagement_cycle as cycle
@@ -217,6 +251,7 @@ def approve(data, config, *, by="", preview=False):
                                  accounts=accounts, plan_id=job.get("plan_id"), plan_sha256=plan_fp,
                                  capacity=capacities[job["id"]], plan_spec=plan_spec,
                                  policy_overrides=overrides,
+                                 strategy_sha256=(binding or {}).get("sha256"),
                                  start=when.isoformat(), end=end.isoformat())
     if preview:
         return {"ok": True, "writes": 0, "capacity": capacities}
@@ -228,6 +263,13 @@ def approve(data, config, *, by="", preview=False):
     atomic_write_text(_record(data, config), json.dumps(record, ensure_ascii=False, sort_keys=True))
     return {"ok": True, "approved_jobs": len(scopes), "source_sha256": record["source"],
             "capacity": capacities}
+
+
+def _frozen_build_matches(data, record):
+    from . import scheduled_build
+    current_root = Path(__file__).resolve().parents[1]
+    expected_root = (Path(data).resolve() / "state" / "scheduled-builds" / record["build"]).resolve()
+    return current_root == expected_root and scheduled_build.fingerprint(current_root) == record["build"]
 
 
 @contextmanager
@@ -243,10 +285,16 @@ def activate(data, config, job):
     scope = record["jobs"].get(job["id"])
     if not scope or scope["job"] != digest(job_spec(job)) or scope["queue"] != str(path):
         raise ScopeError("scheduled_job_changed")
+    binding = strategy_binding(config, job)
+    if binding and scope.get("strategy_sha256") != binding["sha256"]:
+        raise ScopeError("strategy_changed")
     if record["workspace"] != str(Path(data).resolve()):
         raise ScopeError("scheduled_workspace_changed")
     if source_fingerprint(Path(__file__).resolve().parents[1])["sha256"] != record["source"]:
-        raise ScopeError("source_version_changed")
+        from . import scheduled_build
+        if not _frozen_build_matches(data, record):
+            raise ScopeError("source_version_changed")
+        scheduled_build.verify(data, record["build"])
     from .engagement_cycle import load_queue
     rows = load_queue(path)
     items = {row["id"]: _signature(row) for row in rows}
@@ -260,6 +308,8 @@ def activate(data, config, job):
     if len(items) != len(rows) or missing - consumed or any(
             scope["items"].get(key) != value for key, value in items.items()):
         raise ScopeError("scheduled_item_changed")
+    if binding and {_strategy_item_id(row) for row in rows} != set(binding["item_ids"]):
+        raise ScopeError("strategy_item_mismatch")
     start = datetime.fromisoformat(job["at"].replace("Z", "+00:00"))
     end = start + timedelta(seconds=int(job.get("expire_after_sec", job.get("budget_sec", 3000))))
     token = _active.set(dict(scope, job_id=job["id"], start=start, end=end, data=data, config=config, record=approval_path,
@@ -331,6 +381,23 @@ def pinned_build(data, config):
     if path.is_file():
         return json.loads(path.read_text()).get("build")
     return None
+
+def has_approval(data, config, job):
+    try:
+        path = _queue(config, job)
+        approval_path = _record(data, config)
+        if not approval_path.is_file():
+            return False
+        record = json.loads(approval_path.read_text())
+        scope = record.get("jobs", {}).get(job.get("id")) or {}
+        return bool(scope and scope.get("job") == digest(job_spec(job))
+                    and scope.get("queue") == str(path)
+                    and record.get("workspace") == str(Path(data).resolve())
+                    and record.get("source") == source_fingerprint(
+                        Path(__file__).resolve().parents[1])["sha256"])
+    except (OSError, ValueError, KeyError, json.JSONDecodeError):
+        return False
+
 
 def schedule_issue(data, config, settings):
     path = _record(data, config)

@@ -329,6 +329,18 @@ class ScheduledStabilityTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "unknown_policy_override"):
                     self.approve()
 
+    def test_content_rules_nested_in_platforms_is_rejected_with_a_precise_reason(self):
+        self.job["policy_overrides"] = {"platforms": {
+            "x": {"publish": {}}, "content_rules": {"x_publish": {"links_in_body": True}}}}
+        self.save()
+        with self.assertRaisesRegex(ValueError, "content_rules_must_be_top_level"):
+            self.approve()
+
+    def test_strategy_item_ids_can_map_campaign_scoped_queue_ids(self):
+        self.assertEqual("w01-item", scheduled_scope._strategy_item_id(
+            {"id": "campaign:w01-item", "strategy_item_id": "w01-item"}))
+        self.assertEqual("plain-item", scheduled_scope._strategy_item_id({"id": "plain-item"}))
+
     def test_github_dependency_missing_blocks_approval_before_any_wave(self):
         with patch("core.bridge.gh_post.GH", "/offline/missing-gh"):
             with self.assertRaisesRegex(ValueError, "scheduled_dependency_missing:gh"):
@@ -374,6 +386,17 @@ class ScheduledStabilityTests(unittest.TestCase):
                             for call in dispatch.call_args_list))
         self.assertEqual("succeeded", got["jobs"][0]["status"])
         self.assertEqual(6, got["jobs"][0]["business_result"]["execution"]["committed"])
+
+    def test_matching_frozen_build_can_activate_with_subset_manifest(self):
+        self.approve()
+        record = json.loads(scheduled_scope._record(self.data, self.config).read_text())
+        frozen_root = self.data / "state" / "scheduled-builds" / record["build"]
+        with patch("core.scheduled_scope.source_fingerprint", return_value={"sha256": "subset-manifest"}), \
+             patch("core.scheduled_scope._frozen_build_matches", return_value=True), \
+             patch("core.scheduled_build.verify", return_value=frozen_root) as verify:
+            with scheduled_scope.activate(self.data, self.config, self.job):
+                pass
+        verify.assert_called_once_with(self.data, record["build"])
 
     def test_pin_and_pre_dispatch_build_integrity(self):
         self.approve()

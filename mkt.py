@@ -3067,9 +3067,13 @@ def cmd_voice(args):
         print()
         print(f"长度：{d['length']}｜别这么写：" + "；".join(d["taboos"]))
     elif args.action == "lint":
-        text = args.text or ""
+        text = args.text or getattr(args, "body", "") or ""
         if args.file:
             text = Path(args.file).read_text(encoding="utf-8")
+        if not text.strip():
+            print("需要正文：用 --text 或位置参数传要检查的文字；空文本不能当作通过",
+                  file=sys.stderr)
+            return 2
         problems = voice.lint(args.platform, text)
         if not problems:
             print("这条可以用。")
@@ -3080,9 +3084,13 @@ def cmd_voice(args):
         return 2
     elif args.action == "plain":
         from core import expression
-        text = args.text or ""
+        text = args.text or getattr(args, "body", "") or ""
         if args.file:
             text = Path(args.file).read_text(encoding="utf-8")
+        if not text.strip():
+            print("需要正文：用 --text 或位置参数传要检查的文字；空文本不能当作通过",
+                  file=sys.stderr)
+            return 2
         if args.fix:
             fixed, _hits = expression.fix(text)
             print(fixed)
@@ -3440,6 +3448,25 @@ def cmd_cycle(args):
             _emit({"ok": False, "reason": str(exc)})
             return 2
         return 0
+    if args.action == "progress":
+        from core import business_progress
+        rows = business_progress.events(
+            DATA, job_id=str(getattr(args, "job_id", "") or ""),
+            wave_id=str(getattr(args, "wave", "") or ""),
+            event_type=str(getattr(args, "event_type", "") or ""),
+            limit=int(getattr(args, "limit", 20) or 20))
+        if getattr(args, "json", False):
+            _emit({"count": len(rows), "events": rows,
+                   "path": str(DATA / business_progress.FILENAME)})
+        elif not rows:
+            print("暂无业务进展记录。")
+        else:
+            for row in rows:
+                print(business_progress.render(
+                    row, include_technical=bool(getattr(args, "technical", False))))
+                print()
+        return 0
+
     if args.action == "report":
         if getattr(args, "file", ""):
             from core import cycle_scheduler
@@ -3499,6 +3526,9 @@ def cmd_cycle(args):
         got = cycle_scheduler.serve(
             DATA, args.file, go=go, once=bool(args.once), poll_sec=float(args.poll_sec),
             max_jobs=int(args.max_jobs or 1))
+        from core import business_progress
+        for progress in got.get("business_progress") or []:
+            print(business_progress.render(progress), file=sys.stderr)
         _emit(got)
         return 0 if got.get("ok") else 2
 
@@ -3522,6 +3552,10 @@ def cmd_cycle(args):
                                        job_id=str(getattr(args, "job_id", "") or ""))
         else:
             got = cycle_scheduler.status(DATA, args.file, now=_when())
+        if args.action == "jobs-tick":
+            from core import business_progress
+            for progress in got.get("business_progress") or []:
+                print(business_progress.render(progress), file=sys.stderr)
         _emit(got)
         return 0 if got.get("ok") else 2
 
@@ -6219,8 +6253,11 @@ def build_parser():
     a.add_argument("platform")
     a.add_argument("--hook", default=""); a.add_argument("--what", default=""); a.add_argument("--ask", default="")
     a = vsub.add_parser("lint", help="检查一段文字会不会被当成广告")
-    a.add_argument("platform"); a.add_argument("--text", default=""); a.add_argument("--file", default="")
+    a.add_argument("platform")
+    a.add_argument("body", nargs="?", default="", help="要检查的正文（也可用 --text）")
+    a.add_argument("--text", default=""); a.add_argument("--file", default="")
     a = vsub.add_parser("plain", help="检查有没有生造词：普通人第一次看到能不能看懂")
+    a.add_argument("body", nargs="?", default="", help="要检查的正文（也可用 --text）")
     a.add_argument("--text", default=""); a.add_argument("--file", default="")
     a.add_argument("--json", action="store_true"); a.add_argument("--fix", action="store_true")
     sp.set_defaults(fn=cmd_voice)
@@ -6334,6 +6371,14 @@ def build_parser():
     a = cysub.add_parser("quota", help="今夜与近一小时已用额度")
     a.add_argument("--now", default="", help="模拟当前时间，ISO 格式")
     cysub.add_parser("notifications", help="列出尚未确认投递的作业状态变化（只读）")
+    a = cysub.add_parser("progress", help="用业务语言查看配额、备料、证据和恢复决定（只读）")
+    a.add_argument("--limit", type=int, default=20)
+    a.add_argument("--job-id", default="")
+    a.add_argument("--wave", default="")
+    a.add_argument("--type", dest="event_type", default="",
+                   choices=["", "scope_check", "evidence_confirmation", "diagnosis",
+                            "recovery_decision", "preparation", "verification", "execution_result"])
+    a.add_argument("--technical", action="store_true", help="在人类可读输出中附技术原因")
     a = cysub.add_parser("ack-rate-limit", help="记录人工核验后的限流处置；不启动任务")
     a.add_argument("--night", required=True)
     a.add_argument("--channel", required=True, choices=["x", "github", "discord"])
@@ -6472,7 +6517,7 @@ def build_parser():
     register_runtime_commands(sub, runtime_handler=cmd_runtime, outreach_handler=cmd_outreach,
                               validation_handler=cmd_validation)
 
-    sp = sub.add_parser("growth", help="AI Growth Service：目标编译、持久服务、下一动作与结果评估")
+    sp = sub.add_parser("growth", help="AI Growth Service：目标编译、执行策略、备料调度、持久服务与结果评估")
     from core import growth_cli
     growth_cli.register(sp)
     sp.set_defaults(fn=cmd_growth)

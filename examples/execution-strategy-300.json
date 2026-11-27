@@ -1,0 +1,82 @@
+{
+  "schema": "growovo.execution-strategy-input/1",
+  "campaign": {
+    "id": "ovo-night-300",
+    "total_actions": 300,
+    "wave_count": 10,
+    "auto_approve_materialized_waves": false
+  },
+  "window": {
+    "start": "2026-11-26T20:00:00+08:00",
+    "end": "2026-11-27T07:00:00+08:00"
+  },
+  "accounts": {
+    "x": "@elliwoodtong",
+    "github": "roy-tong"
+  },
+  "products": [
+    {
+      "id": "askovo",
+      "name": "Askovo",
+      "url": "https://github.com/roy-tong/Askovo",
+      "outcomes": {
+        "primary": {"id": "decision_replay", "metric": "external_decision_replays", "target": 1},
+        "secondary": [{"id": "stars", "metric": "github_stars", "target_delta": 2}]
+      },
+      "audience": {
+        "role": "需要复审产品决定的产品经理和独立开发者",
+        "trigger": "旧产品决定缺少新证据复审"
+      },
+      "assets": {
+        "primary": {"id": "decision-replay-demo", "kind": "demo", "url": "https://github.com/roy-tong/Askovo", "cta": "run_decision_replay"}
+      },
+      "per_wave": {"x/publish": 1, "x/reply": 7, "github/reply": 1, "x/message": 1},
+      "original_themes": ["旧决定遇到新反证", "维持或改变决定", "公共复审挑战", "决定前后快照", "保留未知项", "第二次复审", "脱敏决定材料", "继续投入复审", "反证定位", "复审结果汇总"]
+    },
+    {
+      "id": "growovo",
+      "name": "Growovo",
+      "url": "https://github.com/roy-tong/Growovo",
+      "outcomes": {
+        "primary": {"id": "demo", "metric": "external_demo_runs", "target": 1},
+        "secondary": [{"id": "stars", "metric": "github_stars", "target_delta": 2}]
+      },
+      "audience": {
+        "role": "需要持续增长的独立开发者、一人公司和运营负责人",
+        "trigger": "无法分清增长动作、平台回执和真实业务结果"
+      },
+      "assets": {
+        "primary": {"id": "mkt-demo", "kind": "demo", "url": "https://github.com/roy-tong/Growovo", "cta": "run_demo"}
+      },
+      "per_wave": {"x/publish": 1, "x/reply": 7, "github/reply": 1, "x/message": 1},
+      "original_themes": ["动作不等于结果", "失败拦截", "未知回执", "授权边界", "结果卡", "入站优先", "第二批次", "人工接管", "真实Intake", "执行结果汇总"]
+    },
+    {
+      "id": "verovo",
+      "name": "Verovo",
+      "url": "https://github.com/roy-tong/Verovo",
+      "outcomes": {
+        "primary": {"id": "joint_recalculation", "metric": "qualified_maintainer_recalculation_responses", "target": 1},
+        "secondary": []
+      },
+      "audience": {
+        "role": "编码Agent、AI网关和用量成本工具的维护者",
+        "trigger": "工具调用、操作尝试和计费请求被混算"
+      },
+      "assets": {
+        "primary": {"id": "conformance-pack", "kind": "fixture", "url": "https://github.com/roy-tong/Verovo", "cta": "joint_recalculation"}
+      },
+      "per_wave": {"x/publish": 1, "x/reply": 4, "github/reply": 4, "x/message": 1},
+      "original_themes": ["工具调用与计费请求", "三种核验结论", "不可证明区", "操作与尝试", "CI fixture", "重定价估算", "上游修复", "样本来历", "联合复算", "计量发现汇总"]
+    }
+  ],
+  "preparation": {
+    "adapters": {},
+    "miners": {
+      "reply_topics": {"sources": ["github", "x"], "max_queries": 3, "per_query": 10},
+      "koc": {"sources": ["x"], "max_queries": 3, "per_query": 10},
+      "dm_prospects": {"sources": ["x"], "max_queries": 3, "per_query": 10}
+    }
+  },
+  "items": []
+}

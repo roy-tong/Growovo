@@ -420,7 +420,7 @@ TOOLS = [
     },
     {
         "name": "mkt_voice_lint",
-        "description": "检查一段文字在指定平台会不会被当成广告；返回问题列表，空表示可用。",
+        "description": "检查一段文字在指定平台会不会被当成广告；返回问题列表，空表示可用。空白文本会返回问题，不当通过。",
         "inputSchema": {"type": "object", "properties": {
             "platform": {"type": "string"}, "text": {"type": "string"}},
             "required": ["platform", "text"]},
