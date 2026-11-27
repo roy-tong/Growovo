@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Growovo: exactly-once execution is the wrong goal — Growovo</title>
+  <meta name="description" content="Approval fingerprints, capability derivation, attempt leases, durable ingress, and independent readback for authorized execution.">
+  <link rel="canonical" href="https://roy-tong.github.io/Growovo/blog/02-growovo-exactly-once-is-the-wrong-goal.html">
+  <meta property="og:type" content="article">
+  <meta property="og:site_name" content="Growovo">
+  <meta property="og:title" content="Growovo: exactly-once execution is the wrong goal">
+  <meta property="og:description" content="Approval fingerprints, capability derivation, attempt leases, durable ingress, and independent readback for authorized execution.">
+  <meta property="og:url" content="https://roy-tong.github.io/Growovo/blog/02-growovo-exactly-once-is-the-wrong-goal.html">
+  <meta name="twitter:card" content="summary">
+  <script type="application/ld+json">{"@context": "https://schema.org", "@type": "TechArticle", "headline": "Growovo: exactly-once execution is the wrong goal", "description": "Approval fingerprints, capability derivation, attempt leases, durable ingress, and independent readback for authorized execution.", "datePublished": "2026-11-24", "dateModified": "2026-11-24", "inLanguage": "en", "author": {"@type": "Person", "name": "Roy Tong", "url": "https://github.com/roy-tong"}, "mainEntityOfPage": "https://roy-tong.github.io/Growovo/blog/02-growovo-exactly-once-is-the-wrong-goal.html", "codeRepository": "https://github.com/roy-tong/Growovo", "isAccessibleForFree": true, "wordCount": 2208}</script>
+  <style>
+:root{--ink:#1a1d21;--muted:#5b6470;--line:#e4e7ec;--panel:#fafbfc;--accent:#0d6b3f;--mono:ui-monospace,SFMono-Regular,Menlo,monospace}
+body{background:#fff;color:var(--ink);font:16px/1.75 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;margin:0}
+a{color:var(--accent);text-decoration:none}a:hover{text-decoration:underline}
+.post-back,.post-k,.post-meta{font-family:var(--mono)}.post-k{color:var(--accent)}
+pre{background:var(--ink);color:#e8edf2}pre code{background:transparent;border:0;color:inherit}
+code{background:var(--panel);border:1px solid var(--line)}th{background:var(--panel)}
+.note{border-left:3px solid var(--accent);background:var(--panel)}
+
+*{box-sizing:border-box}html{scroll-behavior:smooth}.skip-link{position:absolute;left:12px;top:-60px;padding:8px 12px;background:Canvas;color:CanvasText;z-index:20}.skip-link:focus{top:12px}
+.post{max-width:860px;margin:0 auto;padding:52px 24px 72px}.post-back{display:inline-block;font-size:.78rem;letter-spacing:.08em;margin-bottom:28px}.post-k{font-size:.75rem;font-weight:600;letter-spacing:.12em;text-transform:uppercase;margin:0 0 12px}
+.post h1{font-size:clamp(2rem,5vw,3rem);line-height:1.16;letter-spacing:-.025em;margin:0 0 16px}.post-meta{font-size:.8rem;line-height:1.6;color:var(--muted);margin-bottom:36px}.post h2{font-size:1.45rem;line-height:1.3;margin:42px 0 14px;letter-spacing:-.01em}.post h3{font-size:1.08rem;margin:28px 0 10px}.post p{margin:0 0 18px}.post ul,.post ol{margin:0 0 20px;padding-left:1.5rem}.post li{margin-bottom:8px}.post blockquote{margin:0 0 20px;padding:10px 16px;color:var(--muted);border-left:3px solid var(--line)}
+.post pre{border-radius:8px;padding:16px 18px;overflow-x:auto;margin:0 0 20px;line-height:1.55;font-size:.88rem}.post code{font-family:var(--mono);font-size:.9em;border-radius:4px;padding:1px 5px;overflow-wrap:anywhere}.post pre code{display:block;border:0;padding:0;overflow-wrap:normal}.post table{width:100%;border-collapse:collapse;margin:0 0 20px;font-size:.92rem}.post th,.post td{text-align:left;padding:9px 11px;border-bottom:1px solid var(--line);vertical-align:top}.post th{font-weight:600}.table-scroll{overflow-x:auto;outline-offset:4px}.note{padding:12px 16px;border-radius:0 8px 8px 0;margin:0 0 20px}.post-footer{border-top:1px solid var(--line);margin-top:44px;padding-top:20px;color:var(--muted);font-size:.88rem}.post-footer ul{padding-left:1.2rem}.post-footer a{overflow-wrap:anywhere}
+.cards{display:grid;gap:18px;margin-top:28px}.card{border:1px solid var(--line);border-radius:10px;padding:22px}.card h2{font-size:1.3rem;margin:0 0 10px}.card p{color:var(--muted);margin:0 0 14px}.card .read{font-size:.85rem}.blog-links{margin-top:30px}.blog-links li{margin-bottom:10px}
+@media(max-width:640px){.post{padding:32px 18px 56px}.post h1{font-size:2rem}.post h2{font-size:1.3rem}.post table{font-size:.84rem}.post th,.post td{padding:8px}.post pre{font-size:.8rem;padding:13px}}
+@media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}}
+</style>
+</head>
+<body>
+<a class="skip-link" href="#content">Skip to article</a>
+<main class="post" id="content">
+  <nav aria-label="Article navigation"><a class="post-back" href="./">← GROWOVO TECHNICAL BLOG</a></nav>
+  <p class="post-k">Growovo · Engineering deep dive</p>
+  <h1>Growovo: exactly-once execution is the wrong goal</h1>
+  <p class="post-meta">24 November 2026 · 10 min read · 2,208 words · <a href="02-growovo-exactly-once-is-the-wrong-goal.md">Markdown source</a></p>
+  <article aria-label="Growovo: exactly-once execution is the wrong goal">
+<p><em>Approval fingerprints, capability derivation, attempt leases, durable ingress, and independent readback for authorized execution.</em></p>
+<blockquote>
+<p>Implementation boundary: this article covers the released Growovo core through 0.20.0 and an internal 24 November 2026 development tree. The SQLite growth runtime, GitHub App operator, Gmail two-way sync, and structured capability model described below are implemented and offline-tested in that development tree; they are not in a numbered release or on public <code>main</code> at the time of writing, and real GitHub App and Gmail write canaries have not been completed.</p>
+</blockquote>
+<p>A POST times out after the server has already created a comment. What should the worker do next?</p>
+<p>Retrying may create a duplicate. Marking the action as failed may record something that is no longer true. Reporting success would be optimistic in a different direction. The network cannot tell the worker which side of the timeout won the race, and no amount of local transaction logging changes that.</p>
+<p>This is why “exactly-once execution” is the wrong objective for an agent that writes to external systems. The useful objectives are more concrete:</p>
+<ul>
+<li>do not execute work whose approved intent has changed;</li>
+<li>do not issue a second attempt while the first outcome is unknown;</li>
+<li>make inbound processing idempotent even when delivery is repeated;</li>
+<li>verify external state through an independent read;</li>
+<li>preserve an unresolved outcome until a person or a read-only reconciliation can decide it.</li>
+</ul>
+<p>Growovo's recent work is organized around those objectives. The design is less glamorous than an autonomous growth daemon. It is also much more interesting from a reliability-engineering perspective.</p>
+<h2>Approval covers bytes, identity, and location</h2>
+<p>A <code>human_approved=true</code> flag says nothing about what was approved. Growovo replaces that ambiguity with an execution fingerprint over four inputs:</p>
+<pre tabindex="0"><code class="language-python">payload = {
+    &quot;plan&quot;: {k: v for k, v in plan.items() if k != &quot;review&quot;},
+    &quot;queues&quot;: resolved_queues_with_sorted_items,
+    &quot;workspace&quot;: resolved_workspace,
+    &quot;account&quot;: resolved_account,
+}
+fingerprint = sha256(canonical_json(payload))
+</code></pre>
+<p>The canonical form is Python JSON serialization with sorted keys and compact separators. Queue items are sorted before hashing, and resolved queue paths are included. Targets, bodies, actions, platforms, account, and workspace therefore all affect the fingerprint.</p>
+<p>Approval is not just a signature over this payload. Before writing it, <code>approve_plan</code> runs:</p>
+<pre tabindex="0"><code class="language-text">lint_plan
+→ load every declared queue (a missing queue is an error)
+→ lint_queue for each bound queue
+→ campaign.preflight for content and target gates
+→ compute execution fingerprint
+→ write plan.review
+→ save an approval snapshot
+→ append an event to approvals.jsonl
+</code></pre>
+<p>The resulting record includes <code>approved_by</code>, <code>approved_at</code>, optional expiry, <code>fingerprint_scope=plan+queue+account+workspace</code>, and a snapshot path. Execution recomputes the fingerprint. Editing the body, replacing a recipient, changing accounts, or moving the workspace invalidates the old approval.</p>
+<p>There is an explicit compatibility exception: legacy plans with <code>human_approved=true</code> but no fingerprint can still run and are marked <code>legacy</code>. That exception matters for a security review. It preserves old workspaces, but it is not equivalent to the stronger fingerprint guarantee.</p>
+<h2>Capability is a derived view, not a boolean</h2>
+<p>The development tree adds another layer between intent and execution. A capability record is keyed by:</p>
+<pre tabindex="0"><code class="language-text">(account, platform, action, route)
+</code></pre>
+<p>For each route, <code>read</code>, <code>write</code>, and <code>verify</code> are independent operations. The record stores separate <code>implemented</code>, <code>available</code>, and <code>verified</code> arrays, with two subset invariants:</p>
+<pre tabindex="0"><code class="language-text">verified ⊆ implemented
+available ⊆ implemented
+</code></pre>
+<p>Every verified operation needs a verification evidence reference and <code>last_verified_at</code>. Authorization must be <code>active</code>, have a non-empty scope, and be unexpired. Credentials are rejected recursively from capability records.</p>
+<p>Readiness is derived on every view:</p>
+<pre tabindex="0"><code class="language-python">missing = []
+for operation in required:
+    if not implemented(operation): missing.append(f&quot;{operation}_not_implemented&quot;)
+    elif not available(operation): missing.append(f&quot;{operation}_unavailable&quot;)
+    if not verified(operation):    missing.append(f&quot;{operation}_not_verified&quot;)
+
+executable = authorized_now and not paused_reason and not missing
+</code></pre>
+<p>This is intentionally more verbose than <code>available=true</code>. A GitHub App may be implemented, its token may work, and its write path may have passed a canary, while independent readback remains unverified. That route is not executable when <code>verify</code> is required. A paused account can block its own routes without disabling an unrelated healthy account.</p>
+<p>The action resolver walks <code>preferred_transports</code> in order. With a structured capability set, it returns the first matching route whose derived <code>executable</code> is true. Otherwise it returns the accumulated missing reasons, then either a manual work package or <code>LIVE_BLOCKED</code>, depending on the action's fallback policy. It does not silently turn a requested live action into a dry run. Preview is an explicit execution intent.</p>
+<p>MCP can read these capability records but cannot upsert its own verification claims. Otherwise an agent could improve its permission merely by describing it more confidently.</p>
+<h2>The durable unit is an attempt, not a queue row</h2>
+<p>The current runtime uses SQLite as its authoritative store. Its central tables reveal the intended failure model:</p>
+<pre tabindex="0"><code class="language-sql">attempts(
+  attempt_id TEXT PRIMARY KEY,
+  service_id TEXT,
+  action_id TEXT,
+  worker TEXT,
+  intent_sha256 TEXT,
+  status TEXT,
+  lease_expires_at INTEGER,
+  external INTEGER,
+  evidence_json TEXT,
+  ...
+)
+
+source_events(
+  source TEXT,
+  source_event_id TEXT,
+  service_id TEXT,
+  event_type TEXT,
+  payload_json TEXT,
+  processed INTEGER,
+  ...
+  PRIMARY KEY(source, source_event_id, service_id)
+)
+
+scheduled_jobs(
+  job_id TEXT,
+  intent_sha256 TEXT,
+  status TEXT,
+  result_json TEXT,
+  external INTEGER,
+  ...
+  PRIMARY KEY(job_id, intent_sha256)
+)
+</code></pre>
+<p>Services have a version number. Updates run under <code>BEGIN IMMEDIATE</code>, and the update succeeds only if the version read at the start still matches:</p>
+<pre tabindex="0"><code class="language-sql">UPDATE services
+SET service_json = ?, version = version + 1, updated_at = ?
+WHERE service_id = ? AND version = ?;
+</code></pre>
+<p>A zero-row update is a version conflict, not a last-writer-wins merge.</p>
+<p>Existing JSON and JSONL files remain compatibility projections. SQLite and the filesystem are not magically one atomic storage system; the design instead makes SQLite authoritative and the projections rebuildable. A scheduled job records its final result before writing the legacy state file, so a projection write failure does not cause a successful external job to execute again.</p>
+<h2>Expiry has different semantics for local and external work</h2>
+<p>Claiming an action creates an attempt with a UUID, a worker identity, a payload hash, and a lease. A second claimant sees the active attempt rather than creating another one; if its payload hashes differ, the result carries <code>intent_mismatch</code>.</p>
+<p>The action state machine is approximately:</p>
+<pre tabindex="0"><code class="language-text">pending ──claim──&gt; in_progress ──accepted evidence──&gt; completed
+                     │
+                     ├──────────────────────────────&gt; waiting_manual
+                     │
+                     ├─local attempt expired────────&gt; pending
+                     │
+                     └─external attempt expired─────&gt; waiting_verification
+                                                        │
+                                                        ├─one verified match──&gt; completed
+                                                        ├─zero matches────────&gt; unresolved
+                                                        └─multiple matches────&gt; manual review
+</code></pre>
+<p>The attempt table distinguishes <code>expired_retryable</code> from <code>expired_unknown</code>. Local side-effect-free work can return to <code>pending</code>. External work becomes <code>waiting_verification</code> and stays non-runnable. A completed, manually waiting, or verification-waiting action is not claimed again by the scheduler.</p>
+<p>This is the practical replacement for exactly-once fantasies: <strong>one active claim, explicit uncertainty, and read-only recovery.</strong></p>
+<p>The same rule applies to scheduled jobs with external effects. If a previous claim is still unresolved, the next scheduler tick returns <code>needs_reconciliation</code> instead of executing a duplicate.</p>
+<h2>Inbound events can be at-least-once; projection must be idempotent</h2>
+<p>GitHub App ingress starts with HMAC-SHA256 signature verification using <code>hmac.compare_digest</code>. The HTTP server accepts at most 1 MiB and binds to loopback by default. Supported events are restricted to opened Issues, created Issue comments, created Discussions, and created Discussion comments.</p>
+<p>Processing is a two-step durability protocol:</p>
+<ol>
+<li><code>INSERT OR IGNORE</code> the raw payload into <code>source_events</code> using <code>(source, source_event_id, service_id)</code> as the key.</li>
+<li>In a transaction, project the stored payload into the conversation model and mark that source event processed.</li>
+</ol>
+<p>A duplicate delivery is therefore a database duplicate, not a new conversation or action. If projection fails, the raw event remains pending and can be replayed. Conversation keys preserve the distinction between an Issue and a Discussion:</p>
+<pre tabindex="0"><code class="language-text">owner/repo#7                  # Issue and all of its comments
+owner/repo/discussion#12      # Discussion and all of its comments
+</code></pre>
+<p>Every interaction ID is retained. External text is tagged <code>untrusted_external_content</code>; receiving a webhook does not make its body an instruction to the agent.</p>
+<p>Gmail uses a different cursor mechanism with the same idempotency goal. Initial sync enumerates INBOX messages and records the maximum <code>historyId</code>. Incremental sync follows <code>history.list</code>, deduplicating message IDs within the run. A 404 for an expired history cursor triggers a full resync rather than an empty “success.” The cursor advances only after messages have been ingested and pending events replayed. Pub/Sub notifications are acknowledged only after the corresponding sync succeeds; a notification is treated as a hint to synchronize, not as the message itself.</p>
+<p>These mechanisms accept duplicate inputs so the system does not lose inputs. Durable identity and transactional projection prevent that choice from becoming duplicate business work.</p>
+<h2>Outbound success requires an independent read</h2>
+<p>The return value from a write API is an executor-observed receipt. It is useful, but it is not independent final-state evidence.</p>
+<p>The GitHub operator therefore follows a reply with an independent GET. The verification checks the comment ID or URL, body, author, and target Issue. Discussion replies follow the same pattern through GraphQL: <code>addDiscussionComment</code> must return a complete comment receipt, then <code>node(id: ...)</code> is queried independently. Gmail replies are checked through a separate thread/message read for thread, recipient, and body.</p>
+<p>Reconciliation never resends. It searches the external system:</p>
+<ul>
+<li>one matching object completes the original attempt;</li>
+<li>zero matches leave the outcome unresolved;</li>
+<li>multiple matches require human review.</li>
+</ul>
+<p>This rule also prevents an ambiguous read from becoming an excuse for another write.</p>
+<h2>Proof export keeps execution, final state, and business events apart</h2>
+<p>Growovo's read-only Proof exporter maps those evidence types to different levels.</p>
+<p>For every operation, a P0 check records the executor-observed result:</p>
+<ul>
+<li><code>committed</code> → <code>PASS</code>;</li>
+<li><code>failed</code> → <code>FAIL</code>;</li>
+<li><code>indeterminate</code> → <code>INDETERMINATE</code>;</li>
+<li>dry-run, rejected, and other non-executed states → <code>UNCHECKED</code>.</li>
+</ul>
+<p>A P2 final-state check is much stricter. The current <code>readback_ok</code> predicate requires a verified readback bound to the same operation, channel, action, target, full content hash, receipt identity, account, completion time, and readback source. Missing or mismatched evidence leaves P2 <code>UNCHECKED</code>; the executor's committed row cannot promote itself.</p>
+<p>External product events become P4 checks. A verified event can pass; an unverified one is <code>INDETERMINATE</code>. No events produces a P4 <code>UNCHECKED</code> coverage check. The bundle explicitly sets <code>causality=not_claimed</code>.</p>
+<p>The offline demo makes this concrete. I ran it in a temporary workspace and inspected <code>checks.json</code>:</p>
+<pre tabindex="0"><code class="language-text">summary-readable                 P1  PASS
+execution:&lt;committed operation&gt;  P0  PASS
+final-state:&lt;same operation&gt;     P2  UNCHECKED
+execution:&lt;dry-run operation&gt;    P0  UNCHECKED
+execution:&lt;rejected operation&gt;   P0  UNCHECKED
+execution:&lt;failed operation&gt;     P0  FAIL
+external-business-events         P4  UNCHECKED
+replay.status                        UNAVAILABLE
+replay.missing                     operations.jsonl
+</code></pre>
+<p>The committed sandbox operation does not receive P2 because an in-memory demo receipt is not independent external final state. One intentional failed fixture makes the overall proof <code>FAIL</code>. That is a more useful test than a uniformly green demonstration: it exercises aggregation, negative states, and the difference between readable evidence and a business result.</p>
+<p>You can reproduce the demo with:</p>
+<pre tabindex="0"><code class="language-bash">pipx install growovo
+mkt demo
+</code></pre>
+<p>Or inspect the <a href="https://roy-tong.github.io/Growovo/examples/controlled-run.en.html">controlled-run page</a>.</p>
+<h2>Business observations need matching pairs</h2>
+<p>Execution evidence is only one layer. Growovo 0.20.0 distinguishes <code>owner_declared</code>, <code>observed</code>, and <code>independently_verified</code> business observations. Stronger observations require hash-bound evidence, subject identity, and metric-definition versions. Independent verification additionally needs an independent control domain, authority, verified result, and review receipt.</p>
+<p>Before-and-after comparisons require the same observation pair, subject, and definitions, with baseline time before final time. A later baseline invalidates the old pair rather than retroactively improving the story. A valid delta still carries no causal claim.</p>
+<p>This distinction came from an operational lesson. One internal handoff recorded 503 committed actions across X, GitHub, and Discord in twelve waves, alongside zero star growth in the three OVO repositories and no readable external user count. That was not a controlled experiment, but it made one measurement error untenable: treating executor-produced volume as user value.</p>
+<p>The second batch is therefore a separate evidence event. It should test whether suppression, identity, unresolved receipts, capability state, and metric definitions survive a new authorized input set. Repeating the same fixture proves determinism, not continued usefulness.</p>
+<h2>What the implementation proves so far</h2>
+<p>The released 0.18.1 boundary rejects all scripted non-API X browser writes before vendor execution, quota reservation, or committed-ledger append. Local operator authorization and a logged-in browser are not treated as platform permission. Read-only collection, explicit previews, drafts, and human operation remain separate.</p>
+<p>For this article I also ran the development-tree capability, concurrent-domain, signed GitHub golden-chain, and Gmail tests: 13 passed. They cover independent read/write/verify requirements, expiry and account isolation, SQLite authority without compatibility JSON, duplicate signed webhook submission, independent Gmail readback, history-404 recovery, and Pub/Sub acknowledgement after successful sync.</p>
+<p>Those tests use temporary directories, simulated platform transports, and local HTTP/SQLite flows. They do not establish a real GitHub App or Gmail write canary, user activation, or revenue. The next engineering milestone is correspondingly narrow: run those canaries against authorized targets and compare their external readbacks with the attempts already stored. Reliability claims should grow at the same speed as the evidence.</p>
+<h3>Source and verification links</h3>
+<ul>
+<li><a href="https://github.com/roy-tong/Growovo/blob/main/core/approval.py"><code>approval.py</code>: execution fingerprints and approval snapshots</a></li>
+<li><a href="https://github.com/roy-tong/Growovo/blob/main/core/proof_export.py"><code>proof_export.py</code>: P0/P2/P4 mapping and readback predicate</a></li>
+<li><a href="https://github.com/roy-tong/Growovo/blob/main/core/business_observations.py"><code>business_observations.py</code>: observation grades and comparison pairs</a></li>
+<li><a href="https://github.com/roy-tong/Growovo/blob/main/docs/feature-status.md">Growovo implementation status, including development-tree boundaries</a></li>
+<li><a href="https://roy-tong.github.io/Growovo/examples/controlled-run.en.html">Controlled-run example</a></li>
+<li><a href="https://github.com/roy-tong/Growovo/blob/main/CHANGELOG.md">Growovo changelog</a></li>
+</ul>
+  </article>
+  <footer class="post-footer">
+    <p><strong>Also in this Growovo series</strong></p>
+    <ul><li><a href="05-growovo-a-scheduler-that-knows-when-not-to-send.html">Growovo: a scheduler that knows when not to send</a> — Eligibility filters, stable action identity, UTC budgets, stale-draft pruning, adaptive ordering, and channel recovery.</li></ul>
+    <p><a href="./">Blog index</a> · <a href="02-growovo-exactly-once-is-the-wrong-goal.md">Download Markdown</a> · <a href="https://github.com/roy-tong/Growovo">Source repository</a></p>
+  </footer>
+</main>
+</body>
+</html>

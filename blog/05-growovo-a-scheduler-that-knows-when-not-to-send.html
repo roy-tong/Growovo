@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Growovo: a scheduler that knows when not to send — Growovo</title>
+  <meta name="description" content="Eligibility filters, stable action identity, UTC budgets, stale-draft pruning, adaptive ordering, and channel recovery.">
+  <link rel="canonical" href="https://roy-tong.github.io/Growovo/blog/05-growovo-a-scheduler-that-knows-when-not-to-send.html">
+  <meta property="og:type" content="article">
+  <meta property="og:site_name" content="Growovo">
+  <meta property="og:title" content="Growovo: a scheduler that knows when not to send">
+  <meta property="og:description" content="Eligibility filters, stable action identity, UTC budgets, stale-draft pruning, adaptive ordering, and channel recovery.">
+  <meta property="og:url" content="https://roy-tong.github.io/Growovo/blog/05-growovo-a-scheduler-that-knows-when-not-to-send.html">
+  <meta name="twitter:card" content="summary">
+  <script type="application/ld+json">{"@context": "https://schema.org", "@type": "TechArticle", "headline": "Growovo: a scheduler that knows when not to send", "description": "Eligibility filters, stable action identity, UTC budgets, stale-draft pruning, adaptive ordering, and channel recovery.", "datePublished": "2026-11-24", "dateModified": "2026-11-24", "inLanguage": "en", "author": {"@type": "Person", "name": "Roy Tong", "url": "https://github.com/roy-tong"}, "mainEntityOfPage": "https://roy-tong.github.io/Growovo/blog/05-growovo-a-scheduler-that-knows-when-not-to-send.html", "codeRepository": "https://github.com/roy-tong/Growovo", "isAccessibleForFree": true, "wordCount": 1566}</script>
+  <style>
+:root{--ink:#1a1d21;--muted:#5b6470;--line:#e4e7ec;--panel:#fafbfc;--accent:#0d6b3f;--mono:ui-monospace,SFMono-Regular,Menlo,monospace}
+body{background:#fff;color:var(--ink);font:16px/1.75 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;margin:0}
+a{color:var(--accent);text-decoration:none}a:hover{text-decoration:underline}
+.post-back,.post-k,.post-meta{font-family:var(--mono)}.post-k{color:var(--accent)}
+pre{background:var(--ink);color:#e8edf2}pre code{background:transparent;border:0;color:inherit}
+code{background:var(--panel);border:1px solid var(--line)}th{background:var(--panel)}
+.note{border-left:3px solid var(--accent);background:var(--panel)}
+
+*{box-sizing:border-box}html{scroll-behavior:smooth}.skip-link{position:absolute;left:12px;top:-60px;padding:8px 12px;background:Canvas;color:CanvasText;z-index:20}.skip-link:focus{top:12px}
+.post{max-width:860px;margin:0 auto;padding:52px 24px 72px}.post-back{display:inline-block;font-size:.78rem;letter-spacing:.08em;margin-bottom:28px}.post-k{font-size:.75rem;font-weight:600;letter-spacing:.12em;text-transform:uppercase;margin:0 0 12px}
+.post h1{font-size:clamp(2rem,5vw,3rem);line-height:1.16;letter-spacing:-.025em;margin:0 0 16px}.post-meta{font-size:.8rem;line-height:1.6;color:var(--muted);margin-bottom:36px}.post h2{font-size:1.45rem;line-height:1.3;margin:42px 0 14px;letter-spacing:-.01em}.post h3{font-size:1.08rem;margin:28px 0 10px}.post p{margin:0 0 18px}.post ul,.post ol{margin:0 0 20px;padding-left:1.5rem}.post li{margin-bottom:8px}.post blockquote{margin:0 0 20px;padding:10px 16px;color:var(--muted);border-left:3px solid var(--line)}
+.post pre{border-radius:8px;padding:16px 18px;overflow-x:auto;margin:0 0 20px;line-height:1.55;font-size:.88rem}.post code{font-family:var(--mono);font-size:.9em;border-radius:4px;padding:1px 5px;overflow-wrap:anywhere}.post pre code{display:block;border:0;padding:0;overflow-wrap:normal}.post table{width:100%;border-collapse:collapse;margin:0 0 20px;font-size:.92rem}.post th,.post td{text-align:left;padding:9px 11px;border-bottom:1px solid var(--line);vertical-align:top}.post th{font-weight:600}.table-scroll{overflow-x:auto;outline-offset:4px}.note{padding:12px 16px;border-radius:0 8px 8px 0;margin:0 0 20px}.post-footer{border-top:1px solid var(--line);margin-top:44px;padding-top:20px;color:var(--muted);font-size:.88rem}.post-footer ul{padding-left:1.2rem}.post-footer a{overflow-wrap:anywhere}
+.cards{display:grid;gap:18px;margin-top:28px}.card{border:1px solid var(--line);border-radius:10px;padding:22px}.card h2{font-size:1.3rem;margin:0 0 10px}.card p{color:var(--muted);margin:0 0 14px}.card .read{font-size:.85rem}.blog-links{margin-top:30px}.blog-links li{margin-bottom:10px}
+@media(max-width:640px){.post{padding:32px 18px 56px}.post h1{font-size:2rem}.post h2{font-size:1.3rem}.post table{font-size:.84rem}.post th,.post td{padding:8px}.post pre{font-size:.8rem;padding:13px}}
+@media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}}
+</style>
+</head>
+<body>
+<a class="skip-link" href="#content">Skip to article</a>
+<main class="post" id="content">
+  <nav aria-label="Article navigation"><a class="post-back" href="./">← GROWOVO TECHNICAL BLOG</a></nav>
+  <p class="post-k">Growovo · Engineering deep dive</p>
+  <h1>Growovo: a scheduler that knows when not to send</h1>
+  <p class="post-meta">24 November 2026 · 7 min read · 1,566 words · <a href="05-growovo-a-scheduler-that-knows-when-not-to-send.md">Markdown source</a></p>
+  <article aria-label="Growovo: a scheduler that knows when not to send">
+<p><em>Eligibility filters, stable action identity, UTC budgets, stale-draft pruning, adaptive ordering, and channel recovery.</em></p>
+<p>A scheduler's most informative output is often a skipped row with a precise reason.</p>
+<p><code>already_done</code> means the target ledger says this reply already exists. <code>target_isolated</code> means an earlier incident made the target unsafe. <code>stale_row</code> means the approved moment has passed. <code>daily_quota_exhausted</code> means scheduling the row would only fail later. These are not error strings to be hidden behind a progress bar. They are the control plane.</p>
+<p>Growovo's engagement cycle treats planning as a deterministic eligibility computation before any browser action is considered. Only after that computation does an adaptive executor decide which eligible row to run next. This separation makes two kinds of bugs distinguishable: a row that should never have been eligible, and an eligible row whose live order was inefficient.</p>
+<h2>Action identity must survive editing</h2>
+<p>Before filtering, queue rows are normalized into a common shape: channel, action, target, text, actor, and source. Reply identity is based on channel, action, and target; original-post identity also includes the first 60 characters of text.</p>
+<p>The stable queue ID is:</p>
+<pre tabindex="0"><code class="language-python">text_part = &quot;&quot; if action == &quot;reply&quot; else text[:60]
+raw = f&quot;{channel}|{action}|{target}|{text_part}&quot;
+stable_id = &quot;q:&quot; + sha1(raw)[:12]
+</code></pre>
+<p>A reply can be rewritten without becoming a new business action. This matters for operations logs and deduplication: filling an empty inbox draft or improving its wording must not produce two independent-looking attempts to answer the same thread. Original posts need different treatment because the same account may intentionally publish different content to the same destination.</p>
+<p>Deduplication uses the same semantics. Two reply rows for one target are duplicates even if their text differs. The ledger check then answers a separate question: has a committed reply already been observed for that target? Queue duplication and external execution history are related but not interchangeable.</p>
+<h2>Planning is a pipeline of refusals</h2>
+<p>The planner reads committed ledger history, current policy, queue content, and local budgets. Its filter order makes the failure modes inspectable:</p>
+<div class="table-scroll" role="region" aria-label="Scrollable table" tabindex="0"><table>
+<thead>
+<tr>
+<th>Stage</th>
+<th>Representative refusal</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Channel hold</td>
+<td><code>channel_hold</code></td>
+</tr>
+<tr>
+<td>Draft age</td>
+<td><code>stale_row</code></td>
+</tr>
+<tr>
+<td>Supported action</td>
+<td><code>unsupported</code></td>
+</tr>
+<tr>
+<td>Content present and allowed</td>
+<td><code>text_empty</code>, content-rule reason</td>
+</tr>
+<tr>
+<td>Target contract</td>
+<td><code>target_required</code>, <code>channel_not_allowed</code></td>
+</tr>
+<tr>
+<td>Queue and target identity</td>
+<td><code>duplicate_in_queue</code>, <code>target_isolated</code>, <code>already_done</code></td>
+</tr>
+<tr>
+<td>Configured budgets</td>
+<td><code>night_quota_exhausted</code>, <code>hour_quota_exhausted</code>, <code>daily_quota_exhausted</code></td>
+</tr>
+<tr>
+<td>Independent safety cap</td>
+<td><code>safety_cap_missing</code>, <code>safety_cap_exhausted</code></td>
+</tr>
+<tr>
+<td>Wave composition</td>
+<td><code>wave_target_met</code>, <code>actor_cap</code>, <code>wave_cap</code></td>
+</tr>
+<tr>
+<td>Time budget</td>
+<td><code>wave_budget</code></td>
+</tr>
+</tbody>
+</table></div>
+<p>Every rejected row is returned with channel, action, target, and reason. Planning itself has no side effects.</p>
+<p>Only committed rows with <code>transport=browser-attach</code> or a legacy blank transport consume nightly and hourly usage. Failed actions do not consume the same counters. Per-person caps apply to replies, not original posts; otherwise publishing three original posts as the owner would exhaust the supposed “two external people per night” budget.</p>
+<p>Two budget layers are deliberately independent. Setting <code>quota.enforce=false</code> disables the configured nightly/hourly quota refusal, but it does not disable the independent safety-cap layer. A policy change intended to reduce accidental scheduling friction cannot silently remove the final stop condition.</p>
+<h2>Budget days are an accounting decision</h2>
+<p>A nightly window from 19:00 to 07:00 crosses local midnight. Splitting usage by local calendar date creates two bad outcomes: early evening inherits usage from that morning, while midnight appears to offer a fresh daily allowance.</p>
+<p>The default budget boundary is therefore UTC midnight, 08:00 in Shanghai, so the whole night shares one budget day. Legacy local-date files that overlap the UTC window are added conservatively instead of being ignored during migration. A caller can explicitly choose <code>day_boundary=local</code>; the state filename changes so the two accounting systems are not confused.</p>
+<p>Per-run slicing is mechanical:</p>
+<pre tabindex="0"><code class="language-python">Throttle(...).slice_batches(&quot;email&quot;, &quot;message&quot;, 120)
+# cap = 50 → [range(0, 50), range(50, 100), range(100, 120)]
+</code></pre>
+<p>The actual lengths are <code>[50, 50, 20]</code>. This is different from <code>check_run</code>, which refuses the whole batch above the cap. Slicing lets the caller continue with deferred rows rather than treating capacity as an all-or-nothing failure.</p>
+<p>Reservation happens before the external write under a cross-process lock. If the write then fails or becomes unknown, the reservation remains consumed. That is conservative on purpose: an unknown external result cannot be treated as unused capacity and immediately spent again.</p>
+<p>These are local operating budgets, not claims about a platform's official limits. The code keeps separate reference values for official limits and uses its own lower budgets for planning.</p>
+<h2>Stale drafts expire; conversations do not</h2>
+<p>The default non-inbox draft lifetime is twelve hours. The age comes from <code>queued_at</code>; legacy rows can fall back to midnight of a <code>night-YYYYMMDD</code> campaign. Rows with neither timestamp are treated as fresh rather than being discarded without evidence.</p>
+<p>Inbox replies never expire through this rule. An old inbound question is still a conversation that needs handling, although its content and platform state still require review. This avoids a common automation bug: pruning the people who answered while retaining a fresh batch of cold promotional copy.</p>
+<p>Dry runs report stale rows without changing the queue. A real run prunes stale non-inbox rows, while deferred rows remain available for a later wave. The difference between “expired content” and “temporarily unrunnable content” is therefore preserved in storage.</p>
+<h2>The static plan is not the live order</h2>
+<p>Once rows are eligible, <code>choose_next</code> recomputes readiness after every action:</p>
+<pre tabindex="0"><code class="language-python">channel_ready = last_channel[channel] + channel_gap
+global_ready = last_any + global_gap
+ready = max(channel_ready, global_ready)
+</code></pre>
+<p>The winner is selected by three ordered rules:</p>
+<ol>
+<li>earliest <code>ready</code> timestamp;</li>
+<li>inbox row wins a tie;</li>
+<li>the row with the shortest observed duration wins a remaining tie.</li>
+</ol>
+<p>Duration estimates use an exponential moving average:</p>
+<pre tabindex="0"><code class="language-python">new_average = old_average * 0.75 + observed_seconds * 0.25
+</code></pre>
+<p>A row with no duration observation does not invent a fast estimate. A positive measured duration only wins against an unknown or longer duration.</p>
+<p>I called the selector directly with two equal-ready rows. The actual decisions were:</p>
+<pre tabindex="0"><code class="language-text">queue row + inbox row at the same ready time
+→ x / inbox_first
+
+30.0-second GitHub row + 12.5-second X row at the same ready time
+→ x / 12.5 seconds / shortest_observed_duration
+</code></pre>
+<p>This is why the dry-run plan is an initial reservation rather than a promise of final execution order. A deferred channel is removed from the live pending set, allowing another channel to use the gap without reducing configured cooldowns. Every adaptive decision and its timing inputs are recorded in the wave summary.</p>
+<p>Background supply prefetch is similarly constrained. Read-only discovery can run beside execution when new candidates are needed, but X search is marked <code>shared_browser_tab</code> and is not run concurrently with the sending tab. Prefetch failure does not rewrite action results.</p>
+<h2>A channel needs a circuit breaker, not a retry loop</h2>
+<p>Stop state has three values:</p>
+<pre tabindex="0"><code class="language-text">closed     no stop file; normal scheduling allowed
+open       cooling, unresolved, or unreadable timestamp; no sends
+half_open  cooldown elapsed; at most one probe action this wave
+</code></pre>
+<p>A stop file without a readable timestamp stays <code>open</code>: the system cannot prove that cooling has finished. If an external result is <code>indeterminate</code>, the stop record carries <code>requires_human_resolution</code> and an unresolved reference. While the original ledger row remains indeterminate, later waves stay open.</p>
+<p>After cooldown, the wave keeps only one probe for the channel and defers the rest with <code>stop_probe_pending</code>. A committed probe clears the stop file. Any other result keeps it. The system does not redirect the same content through another channel to make the failure less visible.</p>
+<p>Infrastructure absence is deliberately different from a platform stop. A missing or hidden browser tab defers that channel without creating a stop file or charging an action. Other channels continue. An unknown external outcome, by contrast, stops the affected channel pending named resolution.</p>
+<h2>A second batch tests the reasons, not just the count</h2>
+<p>The next authorized batch is useful only if it preserves these distinctions. It should show whether a rewritten reply keeps its identity, whether suppression and target isolation still win over fresh content, whether unresolved results block another attempt, and whether a new day inherits the correct legacy usage.</p>
+<p>Useful second-batch evidence includes:</p>
+<ul>
+<li>skipped rows and their reason codes, not only committed counts;</li>
+<li>queue IDs before and after draft edits;</li>
+<li>reserved versus actually observed actions;</li>
+<li>stale and deferred rows left in storage;</li>
+<li>adaptive scheduling decisions;</li>
+<li>stop states before and after any probe;</li>
+<li>human reconciliation minutes.</li>
+</ul>
+<p>I ran the engagement-cycle suite for this article: 69 tests passed. They cover reply identity after rewrites, already-replied targets, actor caps, stale pruning, daily and hourly budgets, missing tabs, unknown-result stops, one-probe recovery, queue locking, adaptive timing, and second-wave behavior. The transports and accounts are simulated; these tests establish scheduling behavior, not platform effectiveness or growth outcomes.</p>
+<p>The design tradeoff is that a Growovo wave may choose to do very little. An empty send count can mean missing eligibility, insufficient evidence, a closed budget, or a deliberate stop. A good scheduler makes those states more visible, rather than treating them as a quota that must be filled.</p>
+<h3>Source and verification links</h3>
+<ul>
+<li><a href="https://github.com/roy-tong/Growovo/blob/main/core/engagement_cycle.py"><code>engagement_cycle.py</code>: eligibility, identity, adaptive ordering, and stop recovery</a></li>
+<li><a href="https://github.com/roy-tong/Growovo/blob/main/core/throttle.py"><code>throttle.py</code>: UTC budget accounting, slicing, and reservation</a></li>
+<li><a href="https://github.com/roy-tong/Growovo/blob/main/core/inbox_replies.py"><code>inbox_replies.py</code>: inbound reply collection</a></li>
+<li><a href="https://github.com/roy-tong/Growovo/blob/main/core/supply_prefetch.py"><code>supply_prefetch.py</code>: constrained read-ahead</a></li>
+<li><a href="https://github.com/roy-tong/Growovo/blob/main/tests/test_engagement_cycle.py">Engagement-cycle tests</a></li>
+<li><a href="https://github.com/roy-tong/Growovo/blob/main/docs/feature-status.md">Growovo implementation status</a></li>
+</ul>
+  </article>
+  <footer class="post-footer">
+    <p><strong>Also in this Growovo series</strong></p>
+    <ul><li><a href="02-growovo-exactly-once-is-the-wrong-goal.html">Growovo: exactly-once execution is the wrong goal</a> — Approval fingerprints, capability derivation, attempt leases, durable ingress, and independent readback for authorized execution.</li></ul>
+    <p><a href="./">Blog index</a> · <a href="05-growovo-a-scheduler-that-knows-when-not-to-send.md">Download Markdown</a> · <a href="https://github.com/roy-tong/Growovo">Source repository</a></p>
+  </footer>
+</main>
+</body>
+</html>
