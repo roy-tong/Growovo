@@ -1,5 +1,24 @@
 # Changelog
 
+## 1.0.0 — 2026-11-27
+
+### Added
+
+- Guided execution strategies, three preparation branches, exact wave quotas, campaign-scoped queue IDs, duplicate-target and surplus guards, mapped recovery scopes and precise scheduler approval.
+- Business-readable progress records with fact, impact, next action, evidence and technical appendix. Deferred probes and channel blockers are translated into actionable business language.
+- Audience and content quality scoring, communication hooks, outcome funnels and experiment allocation with exploration and evidence-backed scaling.
+- Dynamic strategy intelligence with 20 mechanism cards, 594 experience records, contextual selection, missing-input explanations and outcome-based adjustment across exploration, quality revision, asset improvement, retention loops, scaling and channel recovery.
+
+### Fixed
+
+- Scheduled waves use frozen builds, exact policy overrides, valid approval checks and shared queue consumption without false version or item-change failures.
+- Account quotas resolve by observed account and action, while browser reads share the active write lease and upstream partial completion no longer blocks independent later waves.
+- Original-link policy overrides are validated before approval, zero quotas are omitted, and terminal jobs receive honest settlement cards and undelivered notification counts.
+
+### Verification
+
+- 2789 offline tests and the zero-network demo pass. Real CLI validates dynamic allocation and strategy adjustment; the technical blog and unified product entry are included. External business growth, production workers, DM writes and causal adoption remain separate acceptance gates.
+
 ## 0.23.1rc3 — 2026-11-26
 
 ### Fixed

@@ -13,10 +13,10 @@ Growovo 是一项 AI Native 增长服务，面向独立开发者、开源维护�
 
 ```bash
 # 稳定版
-<!--OVO:growovo-stable-->pipx install growovo==0.23.0
+<!--OVO:growovo-stable-->pipx install growovo==1.0.0
 mkt demo<!--/OVO:growovo-stable-->
 # 预发行验收版
-<!--OVO:growovo-preview-->pipx install growovo==0.23.1rc3
+<!--OVO:growovo-preview-->pipx install growovo==1.0.0
 mkt demo<!--/OVO:growovo-preview-->
 # 零网络零账号：授权、离线回执、三次拦截和结果卡；写入 ./data/demo
 ```
