@@ -1,0 +1,32 @@
+{
+  "schema": "ovo.strategy-source-classification/1",
+  "observed_at": "2026-11-27T17:53:39+08:00",
+  "cutoff_platform_operations": "2025-11-27",
+  "sources": 15710,
+  "focus_sources": 4800,
+  "eligible_for_fulltext": 2931,
+  "eligible_recent": 2628,
+  "eligible_archival_method": 303,
+  "excluded_stale_platform": 1869,
+  "by_time_status": {
+    "method_current": 684,
+    "platform_current": 1944,
+    "platform_stale": 1869,
+    "method_archival": 303,
+    "out_of_target_scope": 10910
+  },
+  "by_scope": {
+    "account_operations": 171,
+    "content_operations": 44,
+    "content_planning": 125,
+    "kol_koc_operations": 782,
+    "new_media_marketing": 1809
+  },
+  "by_layer": {
+    "methodology_candidate": 314,
+    "platform_operations": 1944,
+    "methodology": 673
+  },
+  "output": "/Users/tongxiarui/Documents/AI 工作台/01-商业项目/ovo family/ai输出/GTM与增长/OVO-下午45-20261127/mining/strategy-sources-classified.jsonl",
+  "boundary": "Classification governs research eligibility only; it does not accept any strategy claim."
+}
