@@ -114,6 +114,41 @@ def _shortfall(strategy, state, wave_id):
     return gaps
 
 
+def _surplus(strategy, state, wave_id):
+    wave = _wave(strategy, wave_id)
+    if not wave:
+        return {}
+    counts = {}
+    for item in _eligible_items(strategy, state, wave_id):
+        key = (item["product"], "%s/%s" % (item.get("platform") or item.get("channel"), item["action"]))
+        counts[key] = counts.get(key, 0) + 1
+    surplus = {}
+    for (product, action), actual in counts.items():
+        required = (wave["allocations"].get(product) or {}).get(action, 0)
+        if actual > required:
+            surplus["%s/%s" % (product, action)] = actual - required
+    return surplus
+
+
+def _scope_errors(strategy, state):
+    counts = {}
+    active = set()
+    for wave_id, bucket in (state.get("supply") or {}).items():
+        wave_status = (state.get("waves") or {}).get(wave_id, {}).get("status", "pending")
+        for item in bucket.get("items") or []:
+            if output_strategy._item_errors(item, strategy) or item.get("action") not in {"reply", "message"}:
+                continue
+            target = item.get("target") or {}
+            destination = (target.get("handle") if item.get("action") == "message"
+                           else target.get("url") or target.get("handle"))
+            identity = (item.get("platform") or item.get("channel"), item.get("action"),
+                        str(destination or "").lstrip("@").casefold())
+            counts[identity] = counts.get(identity, 0) + 1
+            if wave_status not in {"sent", "waiting_verification", "reconciled", "completed"}:
+                active.add(identity)
+    return ["duplicate_target"] if any(counts[identity] > 1 for identity in active) else []
+
+
 def _queue_row(item):
     row = copy.deepcopy(item)
     target = item.get("target") or {}
@@ -135,6 +170,11 @@ def _queue_row(item):
 
 def _freeze(data_dir, strategy, state, wave_id):
     items = [_queue_row(item) for item in _eligible_items(strategy, state, wave_id)]
+    campaign_id = str(strategy["campaign"]["id"])
+    for row in items:
+        row["strategy_item_id"] = row["id"]
+        row["id"] = "%s:%s" % (campaign_id, row["id"])
+        row["campaign_id"] = campaign_id
     snapshot = {
         "schema": "growovo.wave-supply-snapshot/1",
         "campaign_id": strategy["campaign"]["id"],
@@ -160,6 +200,8 @@ def _result(data_dir, strategy, state, wave, wave_status, executed=0):
         "wave_id": wave_id,
         "wave_status": wave_status,
         "shortfall": shortfall,
+        "surplus": _surplus(strategy, state, wave_id) if wave else {},
+        "scope_errors": _scope_errors(strategy, state) if wave else [],
         "snapshot": copy.deepcopy(snapshot),
         "executed": executed,
         "external_writes": 0,
@@ -279,6 +321,10 @@ def advance(data_dir, strategy, now, runner=None, max_tasks=2):
     wave_id = wave["id"]
     wave_state = state.setdefault("waves", {}).setdefault(wave_id, {"status": "pending"})
     shortfall = _shortfall(strategy, state, wave_id)
+    if _surplus(strategy, state, wave_id) or _scope_errors(strategy, state):
+        wave_state["status"] = "supply_scope_invalid"
+        save_state(data_dir, strategy, state)
+        return _result(data_dir, strategy, state, wave, "supply_scope_invalid")
     if not shortfall and not wave_state.get("snapshot"):
         wave_state["snapshot"] = _freeze(data_dir, strategy, state, wave_id)
     if wave_state.get("status") in {"sent", "waiting_verification"}:

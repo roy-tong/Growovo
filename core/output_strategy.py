@@ -85,6 +85,10 @@ FIELD_SPECS = [
      lambda p: _question("product.per_wave", "这个产品每波分别要多少原创、回帖和私信？",
                          "动作结构决定需要准备哪些素材，以及每波什么时候可以发送。",
                          {"x/publish": 1, "x/reply": 7, "github/reply": 1, "x/message": 1})),
+    ("campaign.quality_floor", lambda p: isinstance((p.get("campaign") or {}).get("quality_floor"), int),
+     lambda p: _question("campaign.quality_floor", "用于放量的素材最低质量分是多少？建议 70 分。",
+                         "可发送和值得放量是不同门槛，质量分用于筛选对象与内容，不预测转化。",
+                         70)),
 ]
 
 
@@ -214,8 +218,10 @@ def compile_strategy(payload):
         at = start + dt.timedelta(hours=index)
         if at >= end:
             raise ValueError("波次数量超出活动窗口")
-        allocations = {product["id"] if product.get("id") else ids[position]: copy.deepcopy(product["per_wave"])
-                       for position, product in enumerate(products)}
+        allocations = {
+            product["id"] if product.get("id") else ids[position]: {
+                key: value for key, value in product["per_wave"].items() if value}
+            for position, product in enumerate(products)}
         waves.append({
             "id": "w%02d" % (index + 1),
             "at": at.isoformat(),
@@ -241,6 +247,14 @@ def compile_strategy(payload):
         if text:
             content["sha256"] = hashlib.sha256(text.encode("utf-8")).hexdigest()
             item["content"] = content
+    from . import growth_quality
+    for item in items:
+        item["quality"] = growth_quality.evaluate_item(item, {"outcomes": {product.get("id", ids[index]): product.get("outcomes")
+                                                                          for index, product in enumerate(products)},
+                                                              "assets": {product.get("id", ids[index]): product.get("assets")
+                                                                         for index, product in enumerate(products)}})
+    planned_items = [item for item in items if not item.get("replaces")]
+    recovery_count = len(items) - len(planned_items)
     document = {
         "schema": SCHEMA,
         "campaign": dict(campaign, products=ids, window=copy.deepcopy(payload["window"]),
@@ -261,11 +275,13 @@ def compile_strategy(payload):
         "waves": waves,
         "items": items,
         "preparation": copy.deepcopy(payload.get("preparation") or {"tasks": []}),
+        "execution_results": copy.deepcopy(payload.get("execution_results") or []),
         "readiness": {
             "required": total,
-            "materialized": len(items),
+            "materialized": len(planned_items),
             "eligible": 0,
-            "missing": total - len(items),
+            "missing": total - len(planned_items),
+            "recovery_items": recovery_count,
             "by_action": by_action,
             "by_product": by_product,
         },
@@ -273,8 +289,21 @@ def compile_strategy(payload):
     from . import preparation_plan
     document["preparation"] = preparation_plan.build_preparation_plan(document)
     document["readiness"]["eligible"] = sum(
-        1 for item in items if not _item_errors(item, document))
+        1 for item in planned_items if not _item_errors(item, document))
     document["readiness"]["missing"] = max(0, total - document["readiness"]["eligible"])
+    quality_floor = int(campaign.get("quality_floor") or 0)
+    quality_scores = [int((item.get("quality") or {}).get("score") or 0) for item in planned_items]
+    document["readiness"]["quality"] = {
+        "floor": quality_floor, "evaluated": len(quality_scores),
+        "average": round(sum(quality_scores) / len(quality_scores), 2) if quality_scores else None,
+        "below_floor": sum(1 for item in planned_items
+                           if not _item_errors(item, document)
+                           and int((item.get("quality") or {}).get("score") or 0) < quality_floor),
+        "eligible": sum(1 for item in planned_items if not _item_errors(item, document)
+                        and int((item.get("quality") or {}).get("score") or 0) >= quality_floor),
+    }
+    document["readiness"]["independent_channel_acceptance"] = [
+        key for key in by_action if key == "x/message" and by_action[key]]
     document["strategy_sha256"] = strategy_digest({key: value for key, value in document.items()
                                                    if key != "strategy_sha256"})
     return document
@@ -337,6 +366,8 @@ def lint_strategy(document, require_ready=False):
     targets = set()
     dm_handles = set()
     per_wave = {}
+    recoveries = [item for item in items if item.get("replaces")]
+    planned_items = [item for item in items if item not in recoveries]
     for item in items:
         for problem in _item_errors(item, document):
             if problem not in errors:
@@ -358,11 +389,12 @@ def lint_strategy(document, require_ready=False):
             if identity in targets:
                 errors.append("duplicate_target")
             targets.add(identity)
-        wave_id = item.get("wave_id")
-        product = item.get("product")
-        key = "%s/%s" % (item.get("platform") or item.get("channel"), action)
-        per_wave.setdefault((wave_id, product), {}).setdefault(key, 0)
-        per_wave[(wave_id, product)][key] += 1
+        if item in planned_items:
+            wave_id = item.get("wave_id")
+            product = item.get("product")
+            key = "%s/%s" % (item.get("platform") or item.get("channel"), action)
+            per_wave.setdefault((wave_id, product), {}).setdefault(key, 0)
+            per_wave[(wave_id, product)][key] += 1
     for wave in document.get("waves") or []:
         for product, allocation in (wave.get("allocations") or {}).items():
             actual = per_wave.get((wave.get("id"), product), {})
@@ -370,10 +402,19 @@ def lint_strategy(document, require_ready=False):
                 errors.append("wave_allocation_mismatch")
             if actual.get("x/publish", 0) > 1:
                 errors.append("original_quota_exceeded")
+    if recoveries:
+        results = document.get("execution_results")
+        if not isinstance(results, list) or not results:
+            errors.append("recovery_results_required")
+        else:
+            from . import recovery_scope
+            errors.extend(recovery_scope.validate(recoveries, planned_items, results))
     if require_ready:
         required = int((document.get("readiness") or {}).get("required") or 0)
-        if len(items) != required:
+        if len(planned_items) != required:
             errors.append("item_count_mismatch")
+        if int(((document.get("readiness") or {}).get("quality") or {}).get("below_floor") or 0):
+            errors.append("quality_below_floor")
     return list(dict.fromkeys(errors))
 
 
@@ -406,11 +447,22 @@ def render_strategy(document):
         lines.append("- 待生成原创标题与正文，并用 my-voice 审查当前正文哈希。")
         lines.append("- 待挖掘回帖话题、KOC，审查回复策略并生成对应回复。")
         lines.append("- 待挖掘私信对象，核验资格并生成一对一邀请。")
+    quality = readiness.get("quality") or {}
+    lines.extend(["", "## 质量与渠道门", ""])
+    lines.append("- 质量门=%s，平均分=%s，低于门槛=%s，达到门槛=%s；评分只用于筛选，不预测转化。" % (
+        quality.get("floor"), quality.get("average"), quality.get("below_floor"), quality.get("eligible")))
+    if readiness.get("independent_channel_acceptance"):
+        lines.append("- 以下渠道仍需独立验收，不能仅凭素材齐备计入可完成量：%s。" % (
+            "、".join(readiness["independent_channel_acceptance"])))
     lines.extend(["", "## 对象与正文", ""])
     if document.get("items"):
         for item in document["items"]:
             lines.append("### %s · %s · %s/%s" % (
                 item.get("id"), item.get("product"), item.get("platform"), item.get("action")))
+            quality = item.get("quality") or {}
+            lines.append("质量分：%s；钩子：%s；问题：%s" % (
+                quality.get("score"), (quality.get("communication") or {}).get("hook_type"),
+                "、".join(quality.get("issues") or []) or "无"))
             lines.append("```json")
             lines.append(json.dumps({"target": item.get("target"), "content": item.get("content")},
                                     ensure_ascii=False, indent=2))

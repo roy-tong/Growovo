@@ -10,6 +10,8 @@ from .job_kernel import JobStateMachine, JobStore, TERMINAL, DEPENDENCY_OK
 from .business_result import build_business_result
 from . import scheduled_scope
 from . import preparation_runtime
+from . import schedule_recovery
+from . import business_progress
 
 
 def _wave_log(message):
@@ -246,7 +248,13 @@ def status(data_dir, config_path, *, now=None) -> Dict[str, Any]:
     output = []
     for row in rows:
         counts[row["status"]] = counts.get(row["status"], 0) + 1
-        output.append({key: value for key, value in row.items() if key != "state"})
+        projected = {key: value for key, value in row.items() if key != "state"}
+        stored = row.get("state") or {}
+        approval_valid = (stored.get("reason") == "wave_approval_required"
+                          and scheduled_scope.has_approval(data_dir, config_path, row))
+        projected["recovery"] = schedule_recovery.decide(
+            row, stored, approval_valid=approval_valid)
+        output.append(projected)
     due = [row for row in output if row["kind"] == "wave" and _now(row["at"]) <= _now(now)]
     terminal = [row for row in due if row["status"] in TERMINAL]
     settled = [row for row in terminal if row.get("business_result")]
@@ -275,6 +283,25 @@ def _notifications(data_dir):
         return {"pending": None, "error": str(exc)[:200]}
 
 
+def _preparation_summary(preparation):
+    if not preparation:
+        return None
+    keys = ("status", "wave_id", "wave_status", "shortfall", "surplus", "scope_errors", "executed",
+            "external_writes", "state_path", "eligible", "reason")
+    summary = {key: preparation[key] for key in keys if key in preparation}
+    snapshot = preparation.get("snapshot")
+    if snapshot:
+        summary["snapshot"] = {key: snapshot[key] for key in ("sha256", "path") if key in snapshot}
+        summary["snapshot"]["item_count"] = len(snapshot.get("items") or [])
+    if "tasks" in preparation:
+        summary["tasks"] = [{
+            "id": task.get("id"), "status": task.get("status"), "runner": task.get("runner"),
+            "depends_on": task.get("depends_on") or [], "supply_keys": task.get("supply_keys") or [],
+            "attempt_count": len(task.get("attempts") or []),
+        } for task in preparation["tasks"]]
+    return summary
+
+
 def _advance_preparation(data_dir, config_path, config, current):
     if not config.get("strategy"):
         return None
@@ -283,9 +310,24 @@ def _advance_preparation(data_dir, config_path, config, current):
         return None
     path = Path(config_path).parent / config["strategy"]
     strategy = json.loads(path.read_text(encoding="utf-8"))
-    return preparation_runtime.advance(
+    summary = _preparation_summary(preparation_runtime.advance(
         data_dir, strategy, current,
-        max_tasks=max(1, int(settings.get("max_tasks_per_tick") or 2)))
+        max_tasks=max(1, int(settings.get("max_tasks_per_tick") or 2))))
+    wave_id = str(summary.get("wave_id") or "")
+    job = next((row for row in config["jobs"] if row.get("kind") == "wave"
+                and str(row.get("wave") or row.get("id") or "") == wave_id), None)
+    if job:
+        summary["job_id"] = str(job["id"])
+    return summary
+
+
+def _record_business_progress(data_dir, event, events, errors, now):
+    try:
+        row = business_progress.record(data_dir, event, now=now)
+        if row.get("recorded"):
+            events.append(row)
+    except (OSError, RuntimeError, ValueError) as exc:
+        errors.append(str(exc)[:300])
 
 
 def tick(data_dir, config_path, *, now=None, go: bool = False, executor=None, max_jobs: int = 1,
@@ -300,7 +342,7 @@ def tick(data_dir, config_path, *, now=None, go: bool = False, executor=None, ma
         preparation = None
         if config.get("strategy") and (config.get("preparation") or {}).get("enabled"):
             strategy = json.loads((Path(config_path).parent / config["strategy"]).read_text(encoding="utf-8"))
-            preparation = preparation_runtime.status(data_dir, strategy)
+            preparation = _preparation_summary(preparation_runtime.status(data_dir, strategy))
         _, rows = _view(data_dir, config, current)
         all_rows = rows
         rows = _select_job(rows, job_id)
@@ -326,7 +368,13 @@ def tick(data_dir, config_path, *, now=None, go: bool = False, executor=None, ma
         handle.close()
         return {"ok": False, "reason": "scheduler_already_running", "jobs": [], "executed": 0}
     try:
+        progress_events = []
+        progress_errors = []
         preparation = _advance_preparation(data_dir, config_path, config, current)
+        if preparation:
+            _record_business_progress(
+                data_dir, business_progress.from_preparation(preparation),
+                progress_events, progress_errors, current.isoformat())
         state, rows = _view(data_dir, config, current)
         all_rows = rows
         rows = _select_job(rows, job_id)
@@ -353,14 +401,15 @@ def tick(data_dir, config_path, *, now=None, go: bool = False, executor=None, ma
                            if dependencies.get(dep) not in _dependencies_ok(row)]
                 preparation_status = str((preparation or {}).get("wave_status") or "")
                 supply_blocked = (row.get("kind") == "wave" and config.get("strategy")
-                                  and preparation_status == "preparing")
+                                  and preparation_status in {"preparing", "supply_scope_invalid"})
                 approval_blocked = (row.get("kind") == "wave" and config.get("strategy")
                                     and preparation_status == "waiting_wave_approval"
                                     and not scheduled_scope.has_approval(data_dir, config_path, row))
                 if supply_blocked or approval_blocked:
                     current_status = "blocked"
-                    result = {"ok": False, "reason": ("supply_not_ready" if supply_blocked
-                                                       else "wave_approval_required")}
+                    result = {"ok": False, "reason": (
+                        preparation_status if preparation_status == "supply_scope_invalid"
+                        else "supply_not_ready" if supply_blocked else "wave_approval_required")}
                 elif missing or executed >= max(1, int(max_jobs)):
                     current_status = "blocked" if missing else "deferred"
                     result = {"ok": False, "reason": "dependency_not_succeeded" if missing else "tick_job_limit"}
@@ -426,6 +475,13 @@ def tick(data_dir, config_path, *, now=None, go: bool = False, executor=None, ma
             state["jobs"][row["id"]] = stored
             row["status"] = current_status
             _save_state(data_dir, state)
+            if row.get("kind") == "wave":
+                approval_valid = (stored.get("reason") == "wave_approval_required"
+                                  and scheduled_scope.has_approval(data_dir, config_path, row))
+                recovery = schedule_recovery.decide(row, stored, approval_valid=approval_valid)
+                _record_business_progress(
+                    data_dir, business_progress.from_job(row, result["business_result"], recovery),
+                    progress_events, progress_errors, current.isoformat())
             row["state"] = stored
             output.append({key: value for key, value in row.items() if key != "state"})
         return {"ok": all(row["status"] not in {
@@ -433,6 +489,9 @@ def tick(data_dir, config_path, *, now=None, go: bool = False, executor=None, ma
                 } for row in output),
                 "apply": True, "jobs": output, "executed": executed, "changes": changes,
                 "preparation": preparation,
+                "business_progress": progress_events,
+                "business_progress_path": str(Path(data_dir) / business_progress.FILENAME),
+                "business_progress_errors": progress_errors,
                 "state_path": str(state_path(data_dir))}
     finally:
         fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
@@ -444,12 +503,17 @@ def serve(data_dir, config_path, *, go=True, once=False, poll_sec=5.0, max_jobs=
     """Run due jobs without a chat session; external schedulers may still invoke --once."""
     import time
     started = time.monotonic()
+    progress_events = []
+    progress_errors = []
 
     def finish(payload):
-        return dict(payload, operations={
-            "host_agent": "not_used", "scheduler_token_usage": 0,
-            "other_token_usage": "not_measured",
-            "elapsed_sec": round(time.monotonic() - started, 3)})
+        return dict(payload, business_progress=progress_events,
+                    business_progress_path=str(Path(data_dir) / business_progress.FILENAME),
+                    business_progress_errors=progress_errors,
+                    operations={
+                        "host_agent": "not_used", "scheduler_token_usage": 0,
+                        "other_token_usage": "not_measured",
+                        "elapsed_sec": round(time.monotonic() - started, 3)})
 
     clock = clock or (lambda: dt.datetime.now().astimezone())
     sleeper = sleeper or time.sleep
@@ -466,6 +530,8 @@ def serve(data_dir, config_path, *, go=True, once=False, poll_sec=5.0, max_jobs=
         got = tick(data_dir, config_path, now=current, go=True, executor=executor,
                    max_jobs=max_jobs)
         changes.extend(got.get("changes") or [])
+        progress_events.extend(got.get("business_progress") or [])
+        progress_errors.extend(got.get("business_progress_errors") or [])
         executed += int(got.get("executed") or 0)
         if once:
             view = status(data_dir, config_path, now=current)
@@ -486,7 +552,8 @@ def serve(data_dir, config_path, *, go=True, once=False, poll_sec=5.0, max_jobs=
                                changes=changes, executed=executed))
         blocked = [row for row in rows
                    if row["status"] == "blocked" and _now(row["at"]) <= current]
-        if blocked and not got.get("executed"):
+        preparation_progress = int(((got.get("preparation") or {}).get("executed")) or 0)
+        if blocked and not got.get("executed") and not preparation_progress:
             return finish(dict(got, ok=False, reason="no_runnable_jobs", jobs=rows,
                                changes=changes, executed=executed))
         sleeper(poll_sec)

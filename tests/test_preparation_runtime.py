@@ -95,6 +95,70 @@ class PreparationRuntimeTest(unittest.TestCase):
             self.tmp.name, self.strategy, "w01")
         self.assertEqual("preparing", done["wave_status"])
 
+    def test_over_supplied_wave_cannot_freeze_or_send(self):
+        items = ready_items(self.strategy, "w01")
+        extra = json.loads(json.dumps(items[0]))
+        extra["id"] = "w01-unplanned-extra"
+        items.append(extra)
+        state = preparation_runtime.load_state(self.tmp.name, self.strategy)
+        state["supply"] = {"w01": {"items": items}}
+        preparation_runtime.save_state(self.tmp.name, self.strategy, state)
+        result = preparation_runtime.advance(
+            self.tmp.name, self.strategy, "2026-11-26T20:00:00+08:00",
+            runner=lambda *args: self.fail("超配素材不能进入发送"), max_tasks=2)
+        self.assertEqual("supply_scope_invalid", result["wave_status"])
+        self.assertIsNone(result["snapshot"])
+        self.assertEqual({"askovo/x/publish": 1}, result["surplus"])
+        self.assertEqual(0, result["external_writes"])
+
+    def test_duplicate_target_cannot_freeze_even_when_action_count_matches(self):
+        items = ready_items(self.strategy, "w01")
+        items[2] = json.loads(json.dumps(items[1]))
+        items[2]["id"] = "w01-duplicate-target"
+        state = preparation_runtime.load_state(self.tmp.name, self.strategy)
+        state["supply"] = {"w01": {"items": items}}
+        preparation_runtime.save_state(self.tmp.name, self.strategy, state)
+        result = preparation_runtime.advance(
+            self.tmp.name, self.strategy, "2026-11-26T20:00:00+08:00",
+            runner=lambda *args: self.fail("重复目标不能进入发送"), max_tasks=2)
+        self.assertEqual("supply_scope_invalid", result["wave_status"])
+        self.assertEqual({}, result["surplus"])
+        self.assertEqual(["duplicate_target"], result["scope_errors"])
+        self.assertIsNone(result["snapshot"])
+
+    def test_reconciled_duplicate_history_does_not_block_later_recovery(self):
+        first = ready_items(self.strategy, "w01")
+        second = ready_items(self.strategy, "w02")
+        second[1]["target"] = json.loads(json.dumps(first[1]["target"]))
+        third = ready_items(self.strategy, "w03")
+        for item in third:
+            if item["action"] == "reply":
+                item["target"]["url"] += "/w03"
+        state = preparation_runtime.load_state(self.tmp.name, self.strategy)
+        state["supply"] = {"w01": {"items": first}, "w02": {"items": second},
+                           "w03": {"items": third}}
+        state["waves"]["w01"] = {"status": "reconciled"}
+        state["waves"]["w02"] = {"status": "reconciled"}
+        preparation_runtime.save_state(self.tmp.name, self.strategy, state)
+        result = preparation_runtime.advance(
+            self.tmp.name, self.strategy, "2026-11-26T19:00:00+08:00",
+            runner=lambda *args: {"ok": True, "items": []}, max_tasks=1)
+        self.assertNotEqual("supply_scope_invalid", result["wave_status"])
+        self.assertEqual([], result["scope_errors"])
+
+    def test_queue_ids_are_campaign_scoped_and_keep_strategy_ids(self):
+        state = preparation_runtime.load_state(self.tmp.name, self.strategy)
+        state["supply"] = {"w01": {"items": ready_items(self.strategy, "w01")}}
+        preparation_runtime.save_state(self.tmp.name, self.strategy, state)
+        result = preparation_runtime.advance(
+            self.tmp.name, self.strategy, "2026-11-26T20:00:00+08:00",
+            runner=lambda *args: self.fail("齐备时必须停止备料"), max_tasks=2)
+        first = result["snapshot"]["items"][0]
+        self.assertTrue(first["id"].startswith("ovo-night-300:"))
+        self.assertNotEqual(first["id"], first["strategy_item_id"])
+        self.assertEqual("ovo-night-300", first["campaign_id"])
+        self.assertEqual("w01-askovo-x-publish-0", first["strategy_item_id"])
+
     def test_ready_future_wave_shifts_preparation_to_next_deficient_wave(self):
         state = preparation_runtime.load_state(self.tmp.name, self.strategy)
         state["supply"] = {"w01": {"items": ready_items(self.strategy, "w01")}}

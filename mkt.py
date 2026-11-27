@@ -3448,6 +3448,25 @@ def cmd_cycle(args):
             _emit({"ok": False, "reason": str(exc)})
             return 2
         return 0
+    if args.action == "progress":
+        from core import business_progress
+        rows = business_progress.events(
+            DATA, job_id=str(getattr(args, "job_id", "") or ""),
+            wave_id=str(getattr(args, "wave", "") or ""),
+            event_type=str(getattr(args, "event_type", "") or ""),
+            limit=int(getattr(args, "limit", 20) or 20))
+        if getattr(args, "json", False):
+            _emit({"count": len(rows), "events": rows,
+                   "path": str(DATA / business_progress.FILENAME)})
+        elif not rows:
+            print("暂无业务进展记录。")
+        else:
+            for row in rows:
+                print(business_progress.render(
+                    row, include_technical=bool(getattr(args, "technical", False))))
+                print()
+        return 0
+
     if args.action == "report":
         if getattr(args, "file", ""):
             from core import cycle_scheduler
@@ -3507,6 +3526,9 @@ def cmd_cycle(args):
         got = cycle_scheduler.serve(
             DATA, args.file, go=go, once=bool(args.once), poll_sec=float(args.poll_sec),
             max_jobs=int(args.max_jobs or 1))
+        from core import business_progress
+        for progress in got.get("business_progress") or []:
+            print(business_progress.render(progress), file=sys.stderr)
         _emit(got)
         return 0 if got.get("ok") else 2
 
@@ -3530,6 +3552,10 @@ def cmd_cycle(args):
                                        job_id=str(getattr(args, "job_id", "") or ""))
         else:
             got = cycle_scheduler.status(DATA, args.file, now=_when())
+        if args.action == "jobs-tick":
+            from core import business_progress
+            for progress in got.get("business_progress") or []:
+                print(business_progress.render(progress), file=sys.stderr)
         _emit(got)
         return 0 if got.get("ok") else 2
 
@@ -6345,6 +6371,14 @@ def build_parser():
     a = cysub.add_parser("quota", help="今夜与近一小时已用额度")
     a.add_argument("--now", default="", help="模拟当前时间，ISO 格式")
     cysub.add_parser("notifications", help="列出尚未确认投递的作业状态变化（只读）")
+    a = cysub.add_parser("progress", help="用业务语言查看配额、备料、证据和恢复决定（只读）")
+    a.add_argument("--limit", type=int, default=20)
+    a.add_argument("--job-id", default="")
+    a.add_argument("--wave", default="")
+    a.add_argument("--type", dest="event_type", default="",
+                   choices=["", "scope_check", "evidence_confirmation", "diagnosis",
+                            "recovery_decision", "preparation", "verification", "execution_result"])
+    a.add_argument("--technical", action="store_true", help="在人类可读输出中附技术原因")
     a = cysub.add_parser("ack-rate-limit", help="记录人工核验后的限流处置；不启动任务")
     a.add_argument("--night", required=True)
     a.add_argument("--channel", required=True, choices=["x", "github", "discord"])

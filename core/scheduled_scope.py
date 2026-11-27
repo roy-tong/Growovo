@@ -48,6 +48,10 @@ def _signature(row):
     return digest([item[k] for k in ("id", "channel", "action", "target", "text", "actor")])
 
 
+def _strategy_item_id(row):
+    return str(row.get("strategy_item_id") or row.get("id") or "")
+
+
 def strategy_binding(config, job):
     if not job.get("strategy"):
         return None
@@ -86,6 +90,8 @@ def _policy_overrides(job, *, start=None, end=None):
         raise ScopeError("unknown_policy_override")
     if any(not isinstance(item, dict) for item in value.values()):
         raise ScopeError("invalid_policy_override")
+    if "content_rules" in (value.get("platforms") or {}):
+        raise ScopeError("invalid_policy_override:content_rules_must_be_top_level")
     window = value.get("window") or {}
     if window.get("start_at") or window.get("end_at"):
         try:
@@ -176,7 +182,7 @@ def approve(data, config, *, by="", preview=False):
         items = {row["id"]: _signature(row) for row in rows}
         if len(items) != len(rows):
             raise ScopeError("duplicate_queue_item_id")
-        if binding and set(items) != set(binding["item_ids"]):
+        if binding and {_strategy_item_id(row) for row in rows} != set(binding["item_ids"]):
             raise ScopeError("strategy_item_mismatch")
         if int(job.get("expire_after_sec", job.get("budget_sec", 3000))) <= 0:
             raise ScopeError("positive_window_required")
@@ -302,7 +308,7 @@ def activate(data, config, job):
     if len(items) != len(rows) or missing - consumed or any(
             scope["items"].get(key) != value for key, value in items.items()):
         raise ScopeError("scheduled_item_changed")
-    if binding and set(scope["items"]) != set(binding["item_ids"]):
+    if binding and {_strategy_item_id(row) for row in rows} != set(binding["item_ids"]):
         raise ScopeError("strategy_item_mismatch")
     start = datetime.fromisoformat(job["at"].replace("Z", "+00:00"))
     end = start + timedelta(seconds=int(job.get("expire_after_sec", job.get("budget_sec", 3000))))

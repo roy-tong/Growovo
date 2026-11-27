@@ -329,6 +329,18 @@ class ScheduledStabilityTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "unknown_policy_override"):
                     self.approve()
 
+    def test_content_rules_nested_in_platforms_is_rejected_with_a_precise_reason(self):
+        self.job["policy_overrides"] = {"platforms": {
+            "x": {"publish": {}}, "content_rules": {"x_publish": {"links_in_body": True}}}}
+        self.save()
+        with self.assertRaisesRegex(ValueError, "content_rules_must_be_top_level"):
+            self.approve()
+
+    def test_strategy_item_ids_can_map_campaign_scoped_queue_ids(self):
+        self.assertEqual("w01-item", scheduled_scope._strategy_item_id(
+            {"id": "campaign:w01-item", "strategy_item_id": "w01-item"}))
+        self.assertEqual("plain-item", scheduled_scope._strategy_item_id({"id": "plain-item"}))
+
     def test_github_dependency_missing_blocks_approval_before_any_wave(self):
         with patch("core.bridge.gh_post.GH", "/offline/missing-gh"):
             with self.assertRaisesRegex(ValueError, "scheduled_dependency_missing:gh"):

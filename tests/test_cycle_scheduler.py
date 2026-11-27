@@ -101,6 +101,7 @@ class CycleSchedulerTests(unittest.TestCase):
         got = cycle_scheduler.tick(self.data, self.config, now=NOW, go=False, executor=execute)
         self.assertEqual("dry-run", got["jobs"][0]["status"])
         self.assertFalse(cycle_scheduler.state_path(self.data).exists())
+        self.assertFalse((self.data / "business-progress.jsonl").exists())
 
     def test_cli_jobs_tick_dry_run_does_not_write_state(self):
         self.jobs([self.job("wave")])
@@ -145,6 +146,21 @@ class CycleSchedulerTests(unittest.TestCase):
         self.assertEqual(3, card["execution"]["external_writes"])
         self.assertEqual("not_measured", card["business_outcome"])
         self.assertIn("不能判定业务增长", card["headline"])
+        from core import business_progress
+        progress = business_progress.events(self.data, wave_id="wave")
+        self.assertEqual("evidence_confirmation", progress[-1]["event_type"])
+        self.assertIn("不证明首用、Star、粉丝或业务增长", progress[-1]["impact"])
+
+    def test_business_result_preserves_probe_deferrals_as_blockers(self):
+        from core.business_result import build_business_result
+        card = build_business_result(
+            {"id": "w02", "kind": "wave"},
+            {"ok": True, "results": [], "deferred": [
+                {"channel": "github", "action": "reply", "reason": "stop_probe_pending"},
+                {"channel": "github", "action": "reply", "reason": "stop_probe_pending"},
+            ]})
+        self.assertEqual(2, card["execution"]["deferred"])
+        self.assertEqual({"stop_probe_pending": 2}, card["blockers"])
 
     def test_business_result_marks_empty_wave_as_supply_blocked(self):
         self.jobs([self.job("wave")])

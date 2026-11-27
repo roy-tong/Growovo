@@ -314,9 +314,57 @@ mkt growth preparation-status --file execution-plan.json --wave w01
 }
 ```
 
-`jobs-serve` 在 tick 间有界推进备料。波次缺料时只推进缺失支线并返回 `supply_not_ready`；合格后冻结独立快照，默认等待 `jobs-approve` 的精确范围批准。发送和回读完成后恢复后续备料。dry-run 只读显示备料状态，不运行 miner 或 adapter。429、撤权、验证码、身份异常、未知回执和安全停止优先于备料循环，不能用继续挖掘掩盖执行故障。
+`jobs-serve` 在 tick 间有界推进备料。波次缺料时只推进缺失支线并返回 `supply_not_ready`；本轮备料有进展时继续循环，不提前报 `no_runnable_jobs`。合格后冻结独立快照，默认等待 `jobs-approve` 的精确范围批准。发送和回读完成后恢复后续备料。dry-run 只读显示备料状态，不运行 miner 或 adapter。429、撤权、验证码、身份异常、未知回执和安全停止优先于备料循环，不能用继续挖掘掩盖执行故障。
+
+冻结不仅检查缺料，也检查每产品／平台／动作的超额和当前／未来波次重复 reply/message 目标；reply 按帖子／Issue URL，message 优先按 handle。已结算旧波次只作历史触达对照，不会单独卡住新补位。问题以 `supply_scope_invalid`、`surplus` 和 `scope_errors` 返回，不能拿多出的素材发送。补位项必须显式填写 `replaces`，lint 根据 `execution_results` 核验原项可补位、产品／平台／动作一致、目标未触达且一对一。补位数量单列，不抵扣原始 `materialized / eligible / missing`。
+
+调度报告的 `recovery.action` 区分 `wait`、`retry_same_job`、`approve_same_job`、`reload_job`、`diagnose_build`、`reconcile` 和 `new_recovery_job`。只有带 `retry_of` 且原审批范围与窗口仍有效的过期作业允许新建恢复作业；其他失败不换 campaign 或作业 ID 掩盖。tick 的 preparation 输出只含缺口、原因、任务状态、快照哈希／条数和状态路径，完整素材与 attempts 仍在状态文件中，不在每次输出里重复传输。
 
 当前实现不证明任何特定外部 miner、X DM 写路线、内容生成器或 my-voice reviewer 已完成生产验收。真实活动仍需分别核验 adapter、账号动作能力、合格素材和实际回执。
+
+## 6.2 业务进展记录
+
+`business-progress.jsonl` 使用 `growovo.business-progress/1`，把运行状态翻译成业务人员可读的“事实、影响、下一步”。类型包括配额核准、证据确认、问题定位、恢复决定、备料进展、修复验证和执行结果；计数、证据路径和技术附录保留在同一记录。它由确定性运行状态生成，不把平台 committed 升级为首用或增长。
+
+```bash
+mkt cycle progress --wave w08
+mkt cycle progress --type recovery_decision --limit 20
+mkt cycle progress --json
+mkt cycle progress --technical
+```
+
+默认中文输出隐藏技术错误码；`--technical` 显式显示。`jobs-tick`／`jobs-serve` 的新业务进展走 stderr，JSON 输出保持 stdout。dry-run 不写业务进展；连续相同状态去重；日志故障单列，不改写平台结果。详细语义见 `docs/scheduled-batches.md`。
+
+## 6.3 对象、内容质量与规模增量分配
+
+`growovo.execution-quality/1` 为每个策略 item 计算目标匹配分、内容分、问题列表和沟通钩子。默认建议放量质量分为 70；`readiness.eligible` 只表示可发送，`readiness.quality.eligible` 才表示达到放量门槛。评分是启发式审查，不是转化预测。`campaign.quality_floor` 可设置门槛，`output-lint --require-ready` 会阻断低于门槛的素材。
+
+沟通钩子包括 `recalculate_together`、`reproduce_failure`、`review_offer`、`compare_accepted_results` 和 `task_offer`，分别给输入、复现步骤、可观察结果和低门槛 CTA。目标是减少泛话题、通用 `I would` 和缺少可执行帮助的回复，而不是限制规模。
+
+`growovo.outcome-funnel/1` 分开记录 committed、合格互动、资产点击、首用、接受结果、关注／Star 和第二任务。观察不完整时比率为 UNKNOWN；完整观察中的零事件才记 `observed_zero`。`growovo.experiment-allocation/1` 默认保留 20% 高质量探索，其余按质量与真实结果放量，不平均分配产品。结果事件可按 `campaign_id` 自动补入分配证据。
+
+```bash
+mkt growth quality-funnel --file examples/growth-outcome-events.json --complete
+mkt growth quality-allocate --file examples/growth-quality-allocation.json \
+  --events examples/growth-outcome-events.json --complete
+```
+
+队列 ID 使用 `campaign:item` 并保留 `strategy_item_id`，跨活动审计不再依赖时间过滤。零配额在编译时省略；`content_rules` 错嵌进 `platforms` 会在批准前拒绝。业务进展会把 GitHub 403、半开延后、私信 unsupported 和原创链接问题翻成中文事实与下一步，deferred 同步进入业务结果卡。
+
+## 6.4 动态策略研究、选择与调整
+
+`core/strategy_intelligence.py` 复用 `core/tactics.py` 的 20 个机制族和 `core/experience.py` 的 594 条经验记录，不把任何单一路线写成长期默认策略。每张策略卡包含意图、阶段、渠道、所需资产、证据出处、语料实例和使用边界。当前正式策略 eligible 为 0，60 条只能进入内容实践／限定实验；原始语料规模不代表策略有效性。
+
+`growovo.strategy-decision/1` 按意图、阶段、渠道、质量和接受结果排序，返回前三候选、选择理由和缺失输入。结果调整分别映射到 `explore`、`revise_quality`、`switch_audience_or_hook`、`improve_asset`、`improve_first_task`、`build_retention_loop`、`scale_up` 和 `recover_channel`；倍率只约束下一轮实验，不覆盖账号和安全门。
+
+```bash
+mkt growth strategy-census
+mkt growth strategy-select --file examples/strategy-context.json
+mkt growth strategy-adjust --file examples/strategy-context.json \
+  --outcomes examples/strategy-outcomes.json
+```
+
+机制与证据图谱见 `docs/strategy-atlas.md`。选择分数是上下文匹配度，调整依据是当前观察，不证明策略的外部效度或因果效果。
 
 ## 7. MCP
 

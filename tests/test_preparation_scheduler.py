@@ -78,6 +78,24 @@ class PreparationSchedulerTest(unittest.TestCase):
             self.assertEqual("blocked", got["jobs"][0]["status"])
             executor.assert_not_called()
 
+    def test_over_supply_is_blocked_with_its_own_reason(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            config = self.config(tmp, at="2029-01-01T20:00:00+08:00")
+            executor = mock.Mock()
+            with mock.patch("core.cycle_scheduler.preparation_runtime.advance", return_value={
+                    "executed": 0, "external_writes": 0, "wave_status": "supply_scope_invalid",
+                    "wave_id": "w01", "surplus": {"askovo/x/publish": 1}}):
+                got = cycle_scheduler.tick(tmp, config, now="2029-01-01T20:00:00+08:00",
+                                           go=True, executor=executor)
+            stored = json.loads(cycle_scheduler.state_path(tmp).read_text())
+            self.assertEqual("supply_scope_invalid", stored["jobs"]["w01"]["reason"])
+            self.assertEqual("scope_check", got["business_progress"][0]["event_type"])
+            self.assertIn("多 1 条", got["business_progress"][0]["fact"])
+            from core import business_progress
+            logged = business_progress.events(tmp, wave_id="w01")
+            self.assertEqual(2, len(logged))
+            executor.assert_not_called()
+
     def test_dry_run_reports_preparation_without_running_adapters(self):
         with tempfile.TemporaryDirectory() as tmp:
             config = self.config(tmp)
@@ -104,6 +122,77 @@ class PreparationSchedulerTest(unittest.TestCase):
                 got = cycle_scheduler.tick(tmp, config, now="2029-01-01T20:00:00+08:00",
                                            go=True, executor=mock.Mock(return_value=result))
             self.assertEqual("succeeded", got["jobs"][0]["status"])
+
+    def test_tick_preparation_output_is_a_bounded_summary(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            config = self.config(tmp)
+            preparation = {
+                "executed": 1, "external_writes": 0, "wave_status": "preparing", "wave_id": "w01",
+                "shortfall": {"askovo/x/reply": 7}, "surplus": {}, "state_path": "state.json",
+                "snapshot": {"sha256": "abc", "path": "wave.json", "items": [{"text": "x" * 10000}]},
+                "state": {"tasks": {"large": {"attempts": [{"output": "x" * 10000}]}}},
+                "tasks": [{"id": "mine", "status": "ready", "attempts": [{"output": "x" * 10000}]}],
+            }
+            with mock.patch("core.cycle_scheduler.preparation_runtime.advance", return_value=preparation):
+                got = cycle_scheduler.tick(tmp, config, now="2029-01-01T20:00:00+08:00", go=True)
+            summary = got["preparation"]
+            self.assertNotIn("state", summary)
+            self.assertNotIn("items", summary["snapshot"])
+            self.assertEqual(1, summary["snapshot"]["item_count"])
+            self.assertNotIn("attempts", summary["tasks"][0])
+            self.assertLess(len(json.dumps(summary)), 2000)
+
+    def test_serve_continues_when_supply_is_blocked_but_preparation_progressed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            config = self.config(tmp, at="2029-01-01T20:00:00+08:00")
+            calls = []
+            preparations = iter([
+                {"executed": 1, "external_writes": 0, "wave_status": "preparing", "wave_id": "w01"},
+                {"executed": 0, "external_writes": 0, "wave_status": "ready_to_send", "wave_id": "w01"},
+            ])
+            result = {"ok": True, "planned": 1, "committed": 1, "failed": 0,
+                      "indeterminate": 0, "results": [{"result": "committed", "channel": "x",
+                      "action": "publish"}]}
+            with mock.patch("core.cycle_scheduler.preparation_runtime.advance",
+                            side_effect=lambda *args, **kwargs: next(preparations)), \
+                 mock.patch("core.cycle_scheduler.preparation_runtime.mark_wave_sent"), \
+                 mock.patch("core.cycle_scheduler.preparation_runtime.mark_wave_reconciled"):
+                got = cycle_scheduler.serve(
+                    tmp, config, executor=lambda *args: calls.append(args) or result,
+                    poll_sec=0.01, clock=lambda: __import__("datetime").datetime.fromisoformat(
+                        "2029-01-01T20:00:00+08:00"))
+            self.assertEqual("schedule_finished", got["reason"])
+            self.assertEqual(1, len(calls))
+
+    def test_progress_logging_failure_does_not_change_execution_receipt(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            config = self.config(tmp, at="2029-01-01T20:00:00+08:00")
+            result = {"ok": True, "planned": 1, "committed": 1, "failed": 0,
+                      "indeterminate": 0, "results": [{"result": "committed",
+                      "channel": "x", "action": "publish"}]}
+            with mock.patch("core.cycle_scheduler.preparation_runtime.advance",
+                            return_value={"executed": 0, "external_writes": 0,
+                                          "wave_status": "ready_to_send", "wave_id": "w01"}), \
+                 mock.patch("core.cycle_scheduler.preparation_runtime.mark_wave_sent"), \
+                 mock.patch("core.cycle_scheduler.preparation_runtime.mark_wave_reconciled"), \
+                 mock.patch("core.cycle_scheduler.business_progress.record",
+                            side_effect=RuntimeError("disk full")):
+                got = cycle_scheduler.tick(tmp, config, now="2029-01-01T20:00:00+08:00",
+                                           go=True, executor=mock.Mock(return_value=result))
+            self.assertEqual(1, got["jobs"][0]["business_result"]["execution"]["committed"])
+            self.assertTrue(got["business_progress_errors"])
+
+    def test_status_exposes_same_job_recovery_for_approval_failure(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            config = self.config(tmp)
+            state = {"jobs": {"w01": {
+                "intent": scheduled_scope.digest(scheduled_scope.job_spec(
+                    cycle_scheduler._load_config(config)["jobs"][0])),
+                "status": "blocked", "reason": "wave_approval_required"}}}
+            cycle_scheduler._save_state(tmp, state)
+            got = cycle_scheduler.status(tmp, config)
+            self.assertEqual("approve_same_job", got["jobs"][0]["recovery"]["action"])
+            self.assertFalse(got["jobs"][0]["recovery"]["new_job_allowed"])
 
     def test_successful_wave_marks_preparation_reconciled(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -38,6 +38,19 @@ def register(parser):
     item = sub.add_parser("output-lint", help="校验执行策略和物化供给")
     item.add_argument("--file", required=True)
     item.add_argument("--require-ready", action="store_true")
+    item = sub.add_parser("quality-allocate", help="按内容质量和真实结果分配探索与放量配额")
+    item.add_argument("--file", required=True)
+    item.add_argument("--events", default="", help="可选结果事件 JSON，按 campaign_id 补充分配证据")
+    item.add_argument("--complete", action="store_true", help="声明结果事件观察完整")
+    item = sub.add_parser("quality-funnel", help="投影动作到首用、接受结果和第二任务")
+    item.add_argument("--file", required=True)
+    item.add_argument("--complete", action="store_true", help="声明当前事件观察完整，零事件才可计为 observed_zero")
+    item = sub.add_parser("strategy-census", help="盘点策略语料、证据资格与使用边界")
+    item = sub.add_parser("strategy-select", help="按意图与业务条件选择动态策略")
+    item.add_argument("--file", required=True)
+    item = sub.add_parser("strategy-adjust", help="按真实结果调整下一机制和配额")
+    item.add_argument("--file", required=True)
+    item.add_argument("--outcomes", required=True)
     item = sub.add_parser("preparation-status", help="只读查看备料任务和波次供给缺口")
     item.add_argument("--file", required=True)
     item.add_argument("--wave", default="")
@@ -359,6 +372,25 @@ def handle(args, data_dir):
             _emit({"ok": not errors, "errors": errors, "readiness": plan.get("readiness")})
             if errors:
                 return 2
+        elif args.growth_action == "quality-allocate":
+            from . import growth_quality
+            payload = _read(args.file)
+            if args.events:
+                payload = growth_quality.attach_funnel_evidence(
+                    payload, _read(args.events), complete_observation=args.complete)
+            _emit(growth_quality.allocate(payload))
+        elif args.growth_action == "quality-funnel":
+            from . import growth_quality
+            _emit(growth_quality.project_funnel(_read(args.file), complete_observation=args.complete))
+        elif args.growth_action == "strategy-census":
+            from . import strategy_intelligence
+            _emit(strategy_intelligence.census())
+        elif args.growth_action == "strategy-select":
+            from . import strategy_intelligence
+            _emit(strategy_intelligence.select_strategy(_read(args.file)))
+        elif args.growth_action == "strategy-adjust":
+            from . import strategy_intelligence
+            _emit(strategy_intelligence.recommend(_read(args.file), _read(args.outcomes)))
         elif args.growth_action == "preparation-status":
             from . import preparation_runtime
             _emit(preparation_runtime.status(data_dir, _read(args.file), args.wave))
