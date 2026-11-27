@@ -24,7 +24,7 @@ A general agent chooses the operating path. Growovo preserves authorization, ide
 
 ```bash
 # Stable
-<!--OVO:growovo-stable-->pipx install growovo==0.23.0
+<!--OVO:growovo-stable-->pipx install growovo==1.0.0
 mkt demo<!--/OVO:growovo-stable-->
 # Preview
 <!--OVO:growovo-preview-->pipx install growovo==1.0.0
