@@ -41,12 +41,14 @@ DEFAULT_POLICY = {
             "publish": {"min_gap_sec": 90, "per_hour": 10, "per_night": 90},
             "reply": {"min_gap_sec": 90, "per_hour": 20, "per_night": 180},
         },
-        "github": {"reply": {"min_gap_sec": 20, "per_hour": 15, "per_night": 135}},
+        "github": {"reply": {"min_gap_sec": 45, "per_hour": 15, "per_night": 135}},
         "discord": {"publish": {"min_gap_sec": 25, "per_hour": 9, "per_night": 108},
                     "reply": {"min_gap_sec": 25, "per_hour": 6, "per_night": 60}},
     },
     "interleave": {"priority": ["x", "github", "discord"], "min_gap_sec": 15,
-                   "max_actions_per_wave": 51},
+                   "max_actions_per_wave": 51,
+                   "max_consecutive_per_channel": 2,
+                   "rotation_gap_sec": 120},
     "inbox": {"per_actor_cap": 2, "lookback_hours": 36, "auto_collect": False,
               "order": ["x", "github", "discord"]},
     "queue": {"max_age_hours": 12},
@@ -200,11 +202,54 @@ def expected_duration(durations: Dict[str, Any], channel: str, action: str) -> f
     return max(0.0, float(row.get("seconds") or 0.0))
 
 
+def interleave_rules(policy: Dict[str, Any]):
+    """同平台连续动作上限与轮换间隔；0 表示不启用。"""
+    cfg = policy.get("interleave") or {}
+    return (max(0, int(cfg.get("max_consecutive_per_channel") or 0)),
+            max(0, int(cfg.get("rotation_gap_sec") or 0)))
+
+
+def recent_streak(ledger, policy: Dict[str, Any], *, now: _dt.datetime):
+    """从账本恢复最近一段连续的同平台已提交动作。
+
+    只看 rotation_gap_sec 内的记录；超过这个间隔视为自然中断，避免把上一波
+    很早以前的动作带进本波。返回 (channel, count)；没有则 ("", 0)。
+    """
+    max_consec, rotation = interleave_rules(policy)
+    if not max_consec or not rotation:
+        return "", 0
+    cutoff = now.timestamp() - rotation
+    channel = ""
+    count = 0
+    for row in reversed(ledger.all()):
+        if str(row.get("result") or "") != "committed":
+            continue
+        when = _parse(row.get("ts"), now.tzinfo)
+        if not when or when.timestamp() < cutoff:
+            break
+        current = str(row.get("channel") or "")
+        if not current:
+            continue
+        if not channel:
+            channel, count = current, 1
+        elif current == channel:
+            count += 1
+        else:
+            break
+    return channel, min(count, max_consec)
+
+
 def choose_next(rows: List[Dict[str, Any]], policy: Dict[str, Any], *, now: _dt.datetime,
                 last_channel: Dict[str, float], last_any: float,
-                durations: Dict[str, Any]) -> Tuple[int, float, Dict[str, Any]]:
-    """在硬间隔内实时选下一条：最早可执行，通知优先，同分取实测较短任务。"""
+                durations: Dict[str, Any], last_channel_name: str = "",
+                streak_count: int = 0) -> Tuple[int, float, Dict[str, Any]]:
+    """在硬间隔内实时选下一条：最早可执行，通知优先，同分取实测较短任务。
+
+    streak_count 是最近一段连续同平台动作数；达到上限后，该平台要等
+    rotation_gap_sec 才能再排，让其他平台先插入。
+    """
     global_gap = int((policy.get("interleave") or {}).get("min_gap_sec") or 0)
+    max_consec, rotation_gap = interleave_rules(policy)
     best: Optional[Tuple[int, float, Dict[str, Any]]] = None
     for index, raw in enumerate(rows):
         row = _normalize(raw)
@@ -213,11 +258,17 @@ def choose_next(rows: List[Dict[str, Any]], policy: Dict[str, Any], *, now: _dt.
         channel_ready = previous + channel_gap(policy, channel) if previous else 0.0
         global_ready = float(last_any) + global_gap if last_any else 0.0
         ready = max(channel_ready, global_ready)
+        blocked = bool(max_consec and channel == last_channel_name
+                       and streak_count >= max_consec)
+        if blocked:
+            base = previous or now.timestamp()
+            ready = max(ready, base + rotation_gap)
         decision = {"channel": channel, "action": row["action"],
                     "target": row["target"], "ready_at": ready,
                     "wait_sec": max(0, int(ready - now.timestamp())),
                     "expected_duration_sec": expected_duration(
                         durations, channel, row["action"]),
+                    "rotation_break": blocked,
                     "reason": "earliest_ready"}
         if best is None:
             best = (index, ready, decision)
@@ -541,6 +592,8 @@ def plan(queue: List[Dict[str, Any]], policy: Dict[str, Any], *, ledger: Ledger,
         last_at[channel] = max(last_at.get(channel, 0.0), stamp)
         last_any = max(last_any, stamp)
     global_gap = int((policy.get("interleave") or {}).get("min_gap_sec") or 0)
+    max_consec, rotation_gap = interleave_rules(policy)
+    streak_channel, streak = recent_streak(ledger, policy, now=now)
     planned: Dict[str, int] = {}
     actors: Dict[str, int] = dict(used["actors"])
 
@@ -715,10 +768,17 @@ def plan(queue: List[Dict[str, Any]], policy: Dict[str, Any], *, ledger: Ledger,
             _reject(row, "wave_cap")
             continue
 
+        if row["channel"] != streak_channel:
+            streak = 0
+        blocked = bool(max_consec and row["channel"] == streak_channel
+                       and streak >= max_consec)
         gap = channel_gap(policy, row["channel"])
         earliest = max(now.timestamp(), last_at.get(row["channel"], 0.0) + gap)
         if global_gap:
             earliest = max(earliest, last_any + global_gap)
+        if blocked:
+            base = last_at.get(row["channel"]) or now.timestamp()
+            earliest = max(earliest, base + rotation_gap)
         if runtime_gates and not night_start(_dt.datetime.fromtimestamp(earliest, tz=now.tzinfo), policy):
             _reject(row, "outside_window")
             continue
@@ -728,10 +788,16 @@ def plan(queue: List[Dict[str, Any]], policy: Dict[str, Any], *, ledger: Ledger,
         at = _dt.datetime.fromtimestamp(earliest, tz=now.tzinfo)
         scheduled.append(dict(row, scheduled_at=at.isoformat(timespec="seconds"),
                               delay_sec=int(earliest - now.timestamp()),
+                              rotation_break=blocked,
                               quota_key=lookup))
         effective_policy.allow(row)
         last_at[row["channel"]] = earliest
         last_any = earliest
+        if row["channel"] == streak_channel:
+            streak = 1 if blocked else streak + 1
+        else:
+            streak_channel = row["channel"]
+            streak = 1
         planned[lookup] = planned.get(lookup, 0) + 1
         if actor_key:
             actors[actor_key] = actors.get(actor_key, 0) + 1
@@ -1293,13 +1359,22 @@ def _run(data_dir, *, go: bool = False, queue_path=None, max_actions: int = 0,
     night = night_key(start)
     wave = wave_id or now.strftime("%H%M")
     campaign = "night-%s-w%s" % (night, wave)
-    from .run_manifest import SourceVersionChanged, assert_source_stable
-    try:
-        assert_source_stable(data_dir, night=night, source_dir=Path(__file__).resolve().parents[1])
-    except SourceVersionChanged as exc:
-        return {"ok": False, "reason": "source_version_changed",
-                "expected_source_sha256": exc.expected, "actual_source_sha256": exc.actual,
-                "night": night, "wave": wave, "campaign": campaign}
+    from .run_manifest import SourceVersionChanged, assert_source_stable, source_fingerprint
+    source_dir = Path(__file__).resolve().parents[1]
+    approved_source = scheduled_scope.approved_source_sha256()
+    if approved_source:
+        actual_source = source_fingerprint(source_dir)["sha256"]
+        if actual_source != approved_source:
+            return {"ok": False, "reason": "source_version_changed",
+                    "expected_source_sha256": approved_source, "actual_source_sha256": actual_source,
+                    "night": night, "wave": wave, "campaign": campaign}
+    else:
+        try:
+            assert_source_stable(data_dir, night=night, source_dir=source_dir)
+        except SourceVersionChanged as exc:
+            return {"ok": False, "reason": "source_version_changed",
+                    "expected_source_sha256": exc.expected, "actual_source_sha256": exc.actual,
+                    "night": night, "wave": wave, "campaign": campaign}
     from .runtime import RunContext
     context = RunContext.create(data_dir, campaign, wave, now=now,
                                 metadata={"bridge_session": used_session})
@@ -1531,6 +1606,7 @@ def _run(data_dir, *, go: bool = False, queue_path=None, max_actions: int = 0,
         channel = key.split("/")[0]
         last_channel[channel] = max(last_channel.get(channel, 0.0), when.timestamp())
     last_any = max(last_channel.values()) if last_channel else 0.0
+    streak_channel, streak_count = recent_streak(ledger, policy, now=now)
     summary["scheduler"] = {"mode": "adaptive", "durations": observed_durations,
                             "decisions": []}
 
@@ -1563,7 +1639,8 @@ def _run(data_dir, *, go: bool = False, queue_path=None, max_actions: int = 0,
                 break
             index, ready_at, decision = choose_next(
                 pending, policy, now=_now(), last_channel=last_channel,
-                last_any=last_any, durations=observed_durations)
+                last_any=last_any, durations=observed_durations,
+                last_channel_name=streak_channel, streak_count=streak_count)
             row = pending.pop(index)
             wait = ready_at - _now().timestamp()
             if wait > 0:
@@ -1582,6 +1659,13 @@ def _run(data_dir, *, go: bool = False, queue_path=None, max_actions: int = 0,
             started = max(ready_at, _now().timestamp())
             last_channel[row["channel"]] = started
             last_any = started
+            if decision.get("rotation_break"):
+                streak_count = 0
+            if row["channel"] == streak_channel:
+                streak_count += 1
+            else:
+                streak_channel = row["channel"]
+                streak_count = 1
             summary["scheduler"]["decisions"].append(dict(
                 decision, started_at=_dt.datetime.fromtimestamp(
                     started, tz=now.tzinfo).isoformat(timespec="seconds")))

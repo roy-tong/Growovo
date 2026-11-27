@@ -67,6 +67,28 @@ class ChooseNextTest(unittest.TestCase):
         self.assertEqual(ready_at, NOW.timestamp() + 15)
         self.assertEqual(decision["reason"], "earliest_ready")
 
+    def test_third_same_channel_waits_rotation_gap(self):
+        rows = [row("github", "reply", "a/b#1")]
+        index, ready_at, decision = cycle.choose_next(
+            rows, cycle.DEFAULT_POLICY, now=NOW,
+            last_channel={"github": NOW.timestamp()}, last_any=NOW.timestamp(),
+            durations={}, last_channel_name="github", streak_count=2)
+        self.assertEqual(index, 0)
+        self.assertTrue(decision["rotation_break"])
+        self.assertEqual(ready_at, NOW.timestamp() + 120)
+
+    def test_other_channel_takes_turn_after_two_same_channel(self):
+        rows = [row("x", "reply", "https://x.com/a/status/1"),
+                row("github", "reply", "a/b#1")]
+        index, _, decision = cycle.choose_next(
+            rows, cycle.DEFAULT_POLICY, now=NOW,
+            last_channel={"x": NOW.timestamp(),
+                          "github": NOW.timestamp() - 60},
+            last_any=NOW.timestamp(), durations={},
+            last_channel_name="x", streak_count=2)
+        self.assertEqual(rows[index]["channel"], "github")
+        self.assertFalse(decision["rotation_break"])
+
     def test_ready_tie_prefers_shorter_observed_action(self):
         rows = [row("x", "publish"), row("discord", "publish", "123")]
         durations = {"x/publish": {"seconds": 60, "samples": 2},

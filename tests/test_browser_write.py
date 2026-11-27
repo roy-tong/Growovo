@@ -305,6 +305,64 @@ class ChannelTargetFailureTest(unittest.TestCase):
         self.assertEqual(second["reason"], "already_done_content")
         self.assertEqual(len(rows), 1)
 
+    def test_github_403_on_locked_issue_isolates_target(self):
+        fake = mock.Mock()
+        fake.ensure_managed_tab.return_value = 11
+        fake.observe_identity.return_value = {"handle": "owner"}
+        with tempfile.TemporaryDirectory() as tmp, \
+                mock.patch.object(browser_write, "BrowserAttach", return_value=fake), \
+                mock.patch.object(browser_write, "require_owner_attested_browser_write",
+                                  return_value={"route": "test"}), \
+                mock.patch("core.throttle.Throttle.reserve", return_value=None), \
+                mock.patch.object(browser_write.gh_post, "post",
+                                  return_value={"ok": False, "err": "403 Forbidden"}), \
+                mock.patch.object(browser_write.gh_post, "issue",
+                                  return_value={"ok": True, "locked": True, "state": "open"}):
+            got = browser_write.execute(
+                "github", "reply", Path(tmp), text="body", target="a/b#1",
+                go=True, log=lambda *_: None)
+            rows = browser_write._ledger(tmp).all()
+
+        self.assertEqual(got["ledger_result"], "target_rejected")
+        self.assertTrue(got["target_isolated"])
+        self.assertEqual(rows[-1]["result"], "target_rejected")
+
+    def test_github_403_on_open_issue_stops_channel(self):
+        fake = mock.Mock()
+        fake.ensure_managed_tab.return_value = 11
+        fake.observe_identity.return_value = {"handle": "owner"}
+        with tempfile.TemporaryDirectory() as tmp, \
+                mock.patch.object(browser_write, "BrowserAttach", return_value=fake), \
+                mock.patch.object(browser_write, "require_owner_attested_browser_write",
+                                  return_value={"route": "test"}), \
+                mock.patch("core.throttle.Throttle.reserve", return_value=None), \
+                mock.patch.object(browser_write.gh_post, "post",
+                                  return_value={"ok": False, "err": "403 Forbidden"}), \
+                mock.patch.object(browser_write.gh_post, "issue",
+                                  return_value={"ok": True, "locked": False, "state": "open"}):
+            with self.assertRaises(browser_write.StopChannel):
+                browser_write.execute(
+                    "github", "reply", Path(tmp), text="body", target="a/b#2",
+                    go=True, log=lambda *_: None)
+
+    def test_github_403_when_issue_state_unknown_stops_channel(self):
+        fake = mock.Mock()
+        fake.ensure_managed_tab.return_value = 11
+        fake.observe_identity.return_value = {"handle": "owner"}
+        with tempfile.TemporaryDirectory() as tmp, \
+                mock.patch.object(browser_write, "BrowserAttach", return_value=fake), \
+                mock.patch.object(browser_write, "require_owner_attested_browser_write",
+                                  return_value={"route": "test"}), \
+                mock.patch("core.throttle.Throttle.reserve", return_value=None), \
+                mock.patch.object(browser_write.gh_post, "post",
+                                  return_value={"ok": False, "err": "403 Forbidden"}), \
+                mock.patch.object(browser_write.gh_post, "issue",
+                                  return_value={"ok": False, "err": "timeout"}):
+            with self.assertRaises(browser_write.StopChannel):
+                browser_write.execute(
+                    "github", "reply", Path(tmp), text="body", target="a/b#3",
+                    go=True, log=lambda *_: None)
+
     def test_single_github_422_isolates_target_without_stopping_channel(self):
         fake = mock.Mock()
         fake.ensure_managed_tab.return_value = 11

@@ -18,8 +18,8 @@ import sys
 GH = os.environ.get("MKT_GH_BIN") or shutil.which("gh") or "/Users/tongxiarui/.local/bin/gh"
 
 
-def run(args, stdin=None):
-    p = subprocess.run([GH] + args, capture_output=True, text=True, input=stdin, timeout=120)
+def run(args, stdin=None, timeout=120):
+    p = subprocess.run([GH] + args, capture_output=True, text=True, input=stdin, timeout=timeout)
     if p.returncode != 0:
         return {"ok": False, "err": (p.stderr or p.stdout).strip()[:600], "code": p.returncode}
     return {"ok": True, "out": p.stdout.strip()}
@@ -52,12 +52,13 @@ def verify(repo, issue, prefix):
             "count": len(hits)}
 
 
-def issue(repo, num):
-    r = run(["api", "repos/%s/issues/%s" % (repo, num)])
+def issue(repo, num, timeout=20):
+    r = run(["api", "repos/%s/issues/%s" % (repo, num)], timeout=timeout)
     if not r["ok"]:
         return r
     d = json.loads(r["out"])
     return {"ok": True, "title": d.get("title"), "state": d.get("state"),
+            "locked": bool(d.get("locked")),
             "comments": d.get("comments"), "author": (d.get("user") or {}).get("login"),
             "created_at": d.get("created_at"), "body": (d.get("body") or "")[:2500],
             "url": d.get("html_url"), "labels": [l.get("name") for l in d.get("labels", [])]}

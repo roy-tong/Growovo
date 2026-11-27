@@ -71,6 +71,38 @@ def _hit_stop_word(channel: str, text: str) -> str:
     return ""
 
 
+def _github_issue_ref(target: str):
+    """从 Issue URL 或 owner/repo#123 提取 (repo, number)。"""
+    text = str(target or "").strip()
+    match = re.search(r"github\.com/([^/\s]+)/([^/\s]+)/issues/(\d+)", text, re.I)
+    if match:
+        return "%s/%s" % (match.group(1), match.group(2)), match.group(3)
+    match = re.match(r"^([^/\s#]+)/([^#\s]+)#(\d+)$", text)
+    if match:
+        return "%s/%s" % (match.group(1), match.group(2)), match.group(3)
+    return None
+
+
+def _github_issue_unavailable(target: str):
+    """403 出现时回查目标：True=锁定/关闭，False=开放，None=查不到。
+
+    锁定或关闭的 Issue 返回 403 是目标级失败，不应停掉整条 GitHub 渠道；
+    开放目标仍返回 403，或状态查不到时，保守按渠道级风控处理。
+    """
+    ref = _github_issue_ref(target)
+    if not ref:
+        return None
+    try:
+        info = gh_post.issue(ref[0], ref[1])
+    except Exception:
+        return None
+    if not info.get("ok"):
+        return None
+    if info.get("locked"):
+        return True
+    return str(info.get("state") or "").lower() != "open"
+
+
 def _suppressed(data_dir, target: str) -> bool:
     return is_target_suppressed(data_dir, target)
 
@@ -403,6 +435,21 @@ def execute(channel: str, action: str, data_dir, *, text: str, target: Optional[
     stop_word = _hit_stop_word(channel, engine_text if not result["ok"] else "")
     if stop_word and not result["ok"]:
         detail = "页面出现风控关键词 %r" % stop_word
+        if channel == "github" and stop_word == "403" and \
+                _github_issue_unavailable(target) is True:
+            # 锁定或关闭的 Issue 返回 403 是目标级失败：隔离这个目标，继续下一个。
+            # 开放目标仍 403，或状态查不到时，走下面的渠道级停手。
+            ledger.append(channel=channel, transport="browser-attach", action=action,
+                          campaign=campaign, target=str(target or "-"), result="target_rejected",
+                          ref=ref, detail="GitHub 403：目标 Issue 已锁定或关闭",
+                          identity_handle=identity["handle"], actor=actor)
+            action_claims.finish(data_dir, key=claim_key, result="target_rejected")
+            result["ledger_result"] = "target_rejected"
+            result["result"] = "target_rejected"
+            result["target_isolated"] = True
+            result["error"] = "目标 Issue 已锁定或关闭，403 按目标级失败隔离，不再重试"
+            log("[%s/%s] target_rejected %s" % (channel, action, result["error"]))
+            return result
         if channel == "github" and stop_word == "422":
             # 422 多为该条正文/目标被拒（重复内容、已关闭、触发过滤），属目标级失败：
             # 隔离这个目标，不把整条 GitHub 渠道停掉。只有窗口内多个不同目标都 422，

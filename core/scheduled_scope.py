@@ -313,7 +313,7 @@ def activate(data, config, job):
     start = datetime.fromisoformat(job["at"].replace("Z", "+00:00"))
     end = start + timedelta(seconds=int(job.get("expire_after_sec", job.get("budget_sec", 3000))))
     token = _active.set(dict(scope, job_id=job["id"], start=start, end=end, data=data, config=config, record=approval_path,
-                             approval_digest=digest(record)))
+                             approval_digest=digest(record), source_sha256=str(record.get("source") or "")))
     try:
         check_window()
         yield path, scope["capacity"]
@@ -365,6 +365,11 @@ def check_identity(channel, handle):
 def job_id():
     scope = _active.get()
     return scope["job_id"] if scope else None
+
+
+def approved_source_sha256():
+    scope = _active.get() or {}
+    return str(scope.get("source_sha256") or "")
 
 
 def targets():
