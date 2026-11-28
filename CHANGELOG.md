@@ -1,5 +1,23 @@
 # Changelog
 
+## 1.0.2 — 2026-11-28
+
+### Added
+
+- Wave completion receipts report targets, committed actions, attainment, failures, unknown outcomes, skips, deferrals, supply gaps, channel breakdowns and the next action on stderr without changing JSON stdout.
+- The prioritized cross-functional review queue now includes 120 sources and its pool and queue summaries. These records remain unreviewed and do not enter the qualified experience count.
+
+### Fixed
+
+- Same-platform execution stops after two consecutive actions and rotates through another platform or waits 120 seconds. GitHub replies use a 45-second minimum gap; X replies use 120 seconds and original posts use 300 seconds. Cross-wave streaks are restored from the ledger.
+- GitHub 403 responses check the target first: locked or closed issues are isolated without stopping healthy targets; open or unknown targets still stop the channel conservatively.
+- X reply waits and write retries are more tolerant of slow pages. Discord accepts an empty author only when confirmation and text presence are both available, and uses a 60-second publishing gap.
+- Scheduler recovery expires stale reconciliation records after two hours, supports preflight 30 minutes before a wave, and allows a 3600-second wave budget. Strategy continuation and product priority remain contextual rather than fixed across scenarios.
+
+### Verification
+
+- 2809 offline tests and the zero-network demo pass locally. The feature-branch GitHub tests also pass on Python 3.9 and 3.11. No real account sends, production worker acceptance or external business outcome are implied by these checks.
+
 ## 1.0.0 — 2026-11-27
 
 ### Added

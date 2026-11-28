@@ -632,7 +632,7 @@ def plan(queue: List[Dict[str, Any]], policy: Dict[str, Any], *, ledger: Ledger,
                                     key=lambda r: 0 if content_rules.in_focus(r, focus) else 1)
         if rest.get("discord"):
             rest["discord"] = _interleave_by_target(rest["discord"])
-        # 非通知行按动作键逐条轮转：X 的 90 秒间隔足以让 GitHub/Discord
+        # 非通知行按动作键逐条轮转：X 的渠道间隔足以让 GitHub/Discord
         # 插进空档，不会像整块轮转那样把非 X 渠道挤到 50 分钟预算之外。
         buckets: Dict[str, List[Dict[str, Any]]] = {}
         key_order: List[str] = []
@@ -757,7 +757,7 @@ def plan(queue: List[Dict[str, Any]], policy: Dict[str, Any], *, ledger: Ledger,
         wave_target = int(targets.get(lookup) or 0)
         if wave_target and planned.get(lookup, 0) >= wave_target:
             # 波次构成目标（10/20/15/9），不是配额上限：先保证每个动作键拿到
-            # 自己的份额，X 的 90 秒间隔才不会把 GitHub/Discord 挤出预算。
+            # 自己的份额，X 的渠道间隔才不会把 GitHub/Discord 挤出预算。
             _reject(row, "wave_target_met")
             continue
         actor_key = row["actor"].lower() if row["action"] == "reply" else ""

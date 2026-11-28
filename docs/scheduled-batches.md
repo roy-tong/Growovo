@@ -41,7 +41,7 @@ mkt --workspace "$WORKSPACE" cycle notifications
 
 夜间批量执行采用一次性 run 目录：`build_night_480_v3.py` 从供给池并行筛目标并生成队列、唯一 item id 和 jobs 配置，避免审批后修改已冻结文件。流程是“生成 run 目录 → jobs-approve 冻结 → 单个 jobs-serve 执行”，禁止在一个已批准 run 上追加渠道或替换队列；要加任务就新建 run id，不并发起第二个调度器。预检失败和锁冲突按恢复语义重试，不再直接退出。
 
-同一平台默认最多连续执行 2 条动作；达到上限后，调度器优先插入其他平台的动作，没有其他平台可插时等待 `rotation_gap_sec`（默认 120 秒）再继续。GitHub 回帖最小间隔为 45 秒，X 回帖保持 90 秒；波次开始时还会从账本恢复最近 120 秒内的连续段，跨波也不会出现同平台 3 连快速动作。作业需要临时改变节奏时，用 `policy_overrides.interleave` 显式覆盖 `max_consecutive_per_channel` 和 `rotation_gap_sec`，不要口头声明例外。
+同一平台默认最多连续执行 2 条动作；达到上限后，调度器优先插入其他平台的动作，没有其他平台可插时等待 `rotation_gap_sec`（默认 120 秒）再继续。GitHub 回帖最小间隔为 45 秒，X 回帖为 120 秒、原创为 300 秒；波次开始时还会从账本恢复最近 120 秒内的连续段，跨波也不会出现同平台 3 连快速动作。作业需要临时改变节奏时，用 `policy_overrides.interleave` 显式覆盖 `max_consecutive_per_channel` 和 `rotation_gap_sec`，不要口头声明例外。
 
 预检会逐个尝试同站点的存活标签页，直到找到可读登录账号，不再把第一个登录页当成整个渠道不可用。`jobs-serve` 遇到 `scheduler_already_running` 会等待下一次 tick；到期作业因预检或登录态暂时不可用时继续轮询，只有全部终态才退出。恢复执行仍以已批准队列和账本去重为准，重启调度器不会重复发送。
 
