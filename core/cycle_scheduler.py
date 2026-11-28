@@ -361,6 +361,51 @@ def _record_business_progress(data_dir, event, events, errors, now):
         errors.append(str(exc)[:300])
 
 
+def _print_wave_receipt(job, business_result, progress_event):
+    """波次完成后输出任务报告回执，告诉用户目标、完成量和缺口。"""
+    import sys
+    execution = business_result.get("execution") or {}
+    target = int(execution.get("target") or 0)
+    committed = int(execution.get("committed") or 0)
+    failed = int(execution.get("failed") or 0)
+    indeterminate = int(execution.get("indeterminate") or 0)
+    skipped = int(execution.get("skipped") or 0)
+    deferred = int(execution.get("deferred") or 0)
+    gap = int(execution.get("gap") or 0)
+    attainment = float(execution.get("attainment_rate") or 0.0)
+
+    # 分渠道统计
+    by_channel = execution.get("by_channel_action") or {}
+    channel_parts = []
+    for key, value in sorted(by_channel.items()):
+        if value:
+            channel_parts.append("%s %d" % (key, value))
+    channel_text = "、".join(channel_parts) if channel_parts else "无"
+
+    # 业务结果状态
+    business_outcome = business_result.get("business_outcome") or "not_included"
+    outcome_labels = {
+        "not_included": "未测量",
+        "not_measured": "未测量",
+        "measured": "已测量",
+        "verified": "已验证",
+    }
+    outcome_text = outcome_labels.get(business_outcome, business_outcome)
+
+    # 输出回执到 stderr，避免干扰 JSON stdout
+    out = sys.stderr
+    out.write("\n" + "=" * 60 + "\n")
+    out.write("【任务回执】%s\n" % job.get("id"))
+    out.write("目标：%d 条 | 完成：%d 条 | 完成率：%.1f%%\n" % (target, committed, attainment * 100))
+    out.write("失败：%d | 未知：%d | 跳过：%d | 延后：%d | 缺口：%d\n" % (failed, indeterminate, skipped, deferred, gap))
+    out.write("分渠道：%s\n" % channel_text)
+    out.write("业务结果：%s\n" % outcome_text)
+    if progress_event.get("next_action"):
+        out.write("下一步：%s\n" % progress_event["next_action"])
+    out.write("=" * 60 + "\n\n")
+    out.flush()
+
+
 def tick(data_dir, config_path, *, now=None, go: bool = False, executor=None, max_jobs: int = 1,
          job_id: str = ""):
     config = _load_config(config_path)
@@ -510,9 +555,11 @@ def tick(data_dir, config_path, *, now=None, go: bool = False, executor=None, ma
                 approval_valid = (stored.get("reason") == "wave_approval_required"
                                   and scheduled_scope.has_approval(data_dir, config_path, row))
                 recovery = schedule_recovery.decide(row, stored, approval_valid=approval_valid)
+                progress_event = business_progress.from_job(row, result["business_result"], recovery)
                 _record_business_progress(
-                    data_dir, business_progress.from_job(row, result["business_result"], recovery),
+                    data_dir, progress_event,
                     progress_events, progress_errors, current.isoformat())
+                _print_wave_receipt(row, result["business_result"], progress_event)
             row["state"] = stored
             output.append({key: value for key, value in row.items() if key != "state"})
         return {"ok": all(row["status"] not in {
