@@ -122,7 +122,38 @@ class PlanTest(unittest.TestCase):
                 for i in range(3)]
         got = self.plan(rows)
         delays = [r["delay_sec"] for r in got["scheduled"]]
-        self.assertEqual(delays, [0, 90, 180])
+        self.assertEqual(delays, [0, 90, 210])
+
+    def test_same_platform_pauses_after_two_consecutive_actions(self):
+        rows = [row("github", "reply", "a/b#%d" % i, actor="u%d" % i)
+                for i in range(5)]
+        got = self.plan(rows)
+        delays = [r["delay_sec"] for r in got["scheduled"]]
+        self.assertEqual(delays, [0, 45, 165, 210, 330])
+        self.assertEqual([r.get("rotation_break") for r in got["scheduled"]],
+                         [False, False, True, False, True])
+
+    def test_mixed_platforms_never_run_three_in_a_row(self):
+        rows = []
+        for i in range(4):
+            rows.append(row("x", "reply", "https://x.com/a/status/%d" % i, actor="x%d" % i))
+            rows.append(row("github", "reply", "a/b#%d" % i, actor="g%d" % i))
+        got = self.plan(rows)
+        chans = [r["channel"] for r in got["scheduled"]]
+        self.assertEqual(len(chans), 8)
+        for index in range(len(chans) - 2):
+            self.assertFalse(chans[index] == chans[index + 1] == chans[index + 2])
+
+    def test_recent_streak_carries_across_waves(self):
+        write_rows(self.data / "ledger.jsonl", [
+            row("github", "reply", "a/b#1", ts="2026-11-20T22:03:30+08:00"),
+            row("github", "reply", "a/b#2", ts="2026-11-20T22:04:00+08:00"),
+        ])
+        channel, count = cycle.recent_streak(
+            self.ledger, cycle.DEFAULT_POLICY, now=self.now)
+        self.assertEqual((channel, count), ("github", 2))
+        got = self.plan([row("github", "reply", "a/b#3", actor="new")])
+        self.assertGreaterEqual(got["scheduled"][0]["delay_sec"], 60)
 
     def test_actor_cap_two_per_night(self):
         write_rows(self.data / "ledger.jsonl", [
