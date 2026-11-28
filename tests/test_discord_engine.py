@@ -110,6 +110,50 @@ def _handlers(**overrides):
     return list(values.items())
 
 
+class ReadbackFallbackTest(unittest.TestCase):
+    def test_no_new_row_but_text_present_is_committed(self):
+        out, _ev, _call = _reply(_handlers(**{
+            "mine: mine.length, lastId": (lambda: {"mine": 2, "lastId": "111",
+                         "lastText": "answer", "author": "Tongroy", "replyTo": "222"}),
+            "present": {"present": True, "lastId": None, "lastText": "answer",
+                        "author": "Tongroy"}}))
+        self.assertTrue(out["ok"], out)
+        self.assertTrue(out["confirmed"])
+        self.assertIsNone(out["serverId"])
+        self.assertTrue(out["readback"]["text_present"])
+
+    def test_no_new_row_and_no_text_stays_indeterminate(self):
+        out, _ev, _call = _reply(_handlers(**{
+            "mine: mine.length, lastId": (lambda: {"mine": 2, "lastId": "111",
+                         "lastText": "answer", "author": "Tongroy", "replyTo": "222"}),
+            "present": {"present": False}}))
+        self.assertFalse(out["ok"])
+        self.assertEqual(out["err"], "no new message row after Enter")
+
+    def test_readback_scrolls_to_bottom(self):
+        out, ev_mock, _call = _reply(_handlers(**{
+            "mine: mine.length, lastId": (lambda: {"mine": 2, "lastId": "111",
+                         "lastText": "answer", "author": "Tongroy", "replyTo": "222"}),
+            "present": {"present": True, "lastId": None, "lastText": "answer",
+                        "author": "Tongroy"}}))
+        self.assertTrue(out["ok"])
+        self.assertTrue(any("scrollHeight" in c.args[1] for c in ev_mock.call_args_list))
+
+
+class GroupedReadbackTest(unittest.TestCase):
+    def test_readback_walks_back_to_group_author(self):
+        for script in (discord_engine.SENT, discord_engine.TEXT_PRESENT):
+            self.assertIn("for (let i = mine.length - 1", script)
+            self.assertIn("candidate", script)
+            self.assertIn('class*="username"', script)
+
+    def test_grouped_author_is_accepted(self):
+        self.assertTrue(discord_engine._valid_readback(
+            {"mine": 2, "lastId": "111"},
+            {"mine": 3, "lastId": "9001", "lastText": "answer", "author": "Tongroy"},
+            "answer", author="Tongroy"))
+
+
 class ReplyTest(unittest.TestCase):
     """原生回复：找不到目标行/菜单项/回复条时都必须停手，不输入正文。"""
 
@@ -220,6 +264,50 @@ def _handlers(**overrides):
     }
     values.update(overrides)
     return list(values.items())
+
+
+class ReadbackFallbackTest(unittest.TestCase):
+    def test_no_new_row_but_text_present_is_committed(self):
+        out, _ev, _call = _reply(_handlers(**{
+            "mine: mine.length, lastId": (lambda: {"mine": 2, "lastId": "111",
+                         "lastText": "answer", "author": "Tongroy", "replyTo": "222"}),
+            "present": {"present": True, "lastId": None, "lastText": "answer",
+                        "author": "Tongroy"}}))
+        self.assertTrue(out["ok"], out)
+        self.assertTrue(out["confirmed"])
+        self.assertIsNone(out["serverId"])
+        self.assertTrue(out["readback"]["text_present"])
+
+    def test_no_new_row_and_no_text_stays_indeterminate(self):
+        out, _ev, _call = _reply(_handlers(**{
+            "mine: mine.length, lastId": (lambda: {"mine": 2, "lastId": "111",
+                         "lastText": "answer", "author": "Tongroy", "replyTo": "222"}),
+            "present": {"present": False}}))
+        self.assertFalse(out["ok"])
+        self.assertEqual(out["err"], "no new message row after Enter")
+
+    def test_readback_scrolls_to_bottom(self):
+        out, ev_mock, _call = _reply(_handlers(**{
+            "mine: mine.length, lastId": (lambda: {"mine": 2, "lastId": "111",
+                         "lastText": "answer", "author": "Tongroy", "replyTo": "222"}),
+            "present": {"present": True, "lastId": None, "lastText": "answer",
+                        "author": "Tongroy"}}))
+        self.assertTrue(out["ok"])
+        self.assertTrue(any("scrollHeight" in c.args[1] for c in ev_mock.call_args_list))
+
+
+class GroupedReadbackTest(unittest.TestCase):
+    def test_readback_walks_back_to_group_author(self):
+        for script in (discord_engine.SENT, discord_engine.TEXT_PRESENT):
+            self.assertIn("for (let i = mine.length - 1", script)
+            self.assertIn("candidate", script)
+            self.assertIn('class*="username"', script)
+
+    def test_grouped_author_is_accepted(self):
+        self.assertTrue(discord_engine._valid_readback(
+            {"mine": 2, "lastId": "111"},
+            {"mine": 3, "lastId": "9001", "lastText": "answer", "author": "Tongroy"},
+            "answer", author="Tongroy"))
 
 
 class ReplyTest(unittest.TestCase):

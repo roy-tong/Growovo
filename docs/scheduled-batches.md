@@ -39,7 +39,11 @@ mkt --workspace "$WORKSPACE" cycle notifications
 
 预检只读。它按账号、当前队列、已知停止记录、窗口、间隔和已有账本列出每个作业的可排量、缺口、准备负责人及截止时间。未来入站、外部配额变化和平台最终回执需要在当波重新观察。负责人复核队列和接单量后执行 jobs-approve，命令会冻结当前程序、作业窗口、账号与各队列项的正文摘要。Python 解释器、已安装的第三方依赖和宿主浏览器沿用部署环境。定时器按到期时刻调用独立 job-id，写前读取实时停止、身份及额度。正常的队列消费可跨进程恢复。包含 GitHub 动作的批次在批准前检查实际 gh 可执行文件，不把缺命令留到发送时。
 
+夜间批量执行采用一次性 run 目录：`build_night_480_v3.py` 从供给池并行筛目标并生成队列、唯一 item id 和 jobs 配置，避免审批后修改已冻结文件。流程是“生成 run 目录 → jobs-approve 冻结 → 单个 jobs-serve 执行”，禁止在一个已批准 run 上追加渠道或替换队列；要加任务就新建 run id，不并发起第二个调度器。预检失败和锁冲突按恢复语义重试，不再直接退出。
+
 同一平台默认最多连续执行 2 条动作；达到上限后，调度器优先插入其他平台的动作，没有其他平台可插时等待 `rotation_gap_sec`（默认 120 秒）再继续。GitHub 回帖最小间隔为 45 秒，X 回帖保持 90 秒；波次开始时还会从账本恢复最近 120 秒内的连续段，跨波也不会出现同平台 3 连快速动作。作业需要临时改变节奏时，用 `policy_overrides.interleave` 显式覆盖 `max_consecutive_per_channel` 和 `rotation_gap_sec`，不要口头声明例外。
+
+预检会逐个尝试同站点的存活标签页，直到找到可读登录账号，不再把第一个登录页当成整个渠道不可用。`jobs-serve` 遇到 `scheduler_already_running` 会等待下一次 tick；到期作业因预检或登录态暂时不可用时继续轮询，只有全部终态才退出。恢复执行仍以已批准队列和账本去重为准，重启调度器不会重复发送。
 
 用户明确要求立即执行或调整业务节奏时，在作业中填写 `policy_overrides`，而不是口头声明例外。支持 `window`、`platforms`、`interleave`、`queue`、`inbox` 和 `content_rules`；例如 `window.start_at/end_at` 使用带时区的精确 ISO 时间，并必须覆盖作业的 at 和截止时间。链接要求、渠道间隔、作者上限等因此可与本批业务目标一致。未知字段、安全停止层和额度安全层不能通过这个入口绕过；429、撤权、验证码、未知回执、空正文和重复动作仍按原规则处理。
 
@@ -51,7 +55,7 @@ jobs-tick 的 changes 提供本次新增的状态变化、阻断原因和下一�
 
 `jobs-tick`／`jobs-serve` 会把配额、备料、证据和恢复决定追加到工作区 `business-progress.jsonl`，同时用中文打印到 stderr；stdout 的 JSON 和技术日志不变。`cycle progress` 默认只读展示业务语言，`--json` 返回 `growovo.business-progress/1`，`--technical` 才把错误码加入中文输出。连续相同状态不重复追加，dry-run 不写业务进展文件。
 
-每条业务进展包含：类型、已确认事实、业务影响、下一步、波次计数、证据路径和技术附录。类型有 `scope_check`（配额核准）、`evidence_confirmation`（证据确认）、`diagnosis`（问题定位）、`recovery_decision`（恢复决定）、`preparation`（备料进展）、`verification`（修复验证）和 `execution_result`（执行结果）。它回答“任务现在怎样、接下来做什么”，不是平台回执，也不是首用、Star、粉丝或收入证据。GitHub 403 会先回查目标 Issue：锁定或关闭的目标按目标级失败隔离，渠道继续；开放目标仍 403 或状态查不到时，按渠道级风控停手。半开延后、DM unsupported 和原创链接阻断会直接翻成中文事实与下一步，deferred 同步进入业务结果卡。业务日志写入失败会单列 `business_progress_errors`，不改写已发生的平台结果，也不自动重发。
+每条业务进展包含：类型、已确认事实、业务影响、下一步、波次计数、证据路径和技术附录。类型有 `scope_check`（配额核准）、`evidence_confirmation`（证据确认）、`diagnosis`（问题定位）、`recovery_decision`（恢复决定）、`preparation`（备料进展）、`verification`（修复验证）和 `execution_result`（执行结果）。它回答“任务现在怎样、接下来做什么”，不是平台回执，也不是首用、Star、粉丝或收入证据。GitHub 403 会先回查目标 Issue：锁定或关闭的目标按目标级失败隔离，渠道继续；开放目标仍 403 或状态查不到时，按渠道级风控停手。半开延后、DM unsupported 和原创链接阻断会直接翻成中文事实与下一步，deferred 同步进入业务结果卡。业务日志写入失败会单列 `business_progress_errors`，不改写已发生的平台结果，也不自动重发。 Discord 回读在 Enter 后会滚到底部并轮询新行；虚拟列表还没挂出新行时，再用正文存在性兜底，已发出的消息不再因为回读慢而被误判为 indeterminate 并停批。
 
 ```text
 [配额核准] w08 备料超出范围：Verovo GitHub 回帖多 1 条；尚未外发。

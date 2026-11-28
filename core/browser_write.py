@@ -395,7 +395,13 @@ def execute(channel: str, action: str, data_dir, *, text: str, target: Optional[
         if channel == "discord" and result["ok"]:
             actual_author = str(out.get("author") or "").strip().lstrip("@").casefold()
             expected_author = str(identity["handle"] or "").strip().lstrip("@").casefold()
-            if not actual_author or actual_author != expected_author:
+            readback = out.get("readback") or {}
+            # TEXT_PRESENT 兜底已确认正文存在且状态为 confirmed 时，DOM 作者选择器可能失效；
+            # 此时接受空 author，但保留 readback 证据供复核。
+            text_confirmed = bool(readback.get("confirmed") and readback.get("text_present"))
+            if not actual_author and text_confirmed:
+                pass
+            elif not actual_author or actual_author != expected_author:
                 result["ok"] = False
                 result.pop("receipt", None)
                 result["error"] = ("readback_identity_mismatch" if actual_author

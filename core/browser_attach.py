@@ -203,6 +203,26 @@ class BrowserAttach:
         href = str(((env.get("data") or {}).get("value")) or "")
         return any(href.startswith(prefix) for prefix in SITES.get(site, ()))
 
+    def alive_site_tabs(self, site: str, prefer_visible: bool = False) -> List[int]:
+        """该站点所有存活标签页，按可见性优先排序。
+
+        预检要逐个尝试登录态，而不是拿第一个页面就判定不可用；登录页和
+        已登录页同时存在时，必须继续尝试后面的标签页。
+        """
+        alive: List[int] = []
+        for row in self._site_tabs(site):
+            tab = int(row["tabId"])
+            if self._tab_alive(tab, site):
+                alive.append(tab)
+        if not alive:
+            borrowed = self._borrow_site_tab(site)
+            return [borrowed] if borrowed is not None else []
+        if prefer_visible:
+            visible = [tab for tab in alive if self.probe_visibility(tab) == "visible"]
+            if visible:
+                return visible
+        return alive
+
     def attach_site(self, site: str, prefer_visible: bool = False) -> int:
         """接管该站点已有标签页；prefer_visible 时优先选前台可见标签页。
 
@@ -211,21 +231,9 @@ class BrowserAttach:
         只复用探活通过的标签；会话里没有存活页时先尝试借用用户已打开的同站
         页，仍没有才报 tab_not_found。
         """
-        alive: List[int] = []
-        for row in self._site_tabs(site):
-            tab = int(row["tabId"])
-            if self._tab_alive(tab, site):
-                alive.append(tab)
-                if not prefer_visible:
-                    return tab
+        alive = self.alive_site_tabs(site, prefer_visible=prefer_visible)
         if alive:
-            for tab in alive:
-                if self.probe_visibility(tab) == "visible":
-                    return tab
             return alive[0]
-        borrowed = self._borrow_site_tab(site)
-        if borrowed is not None:
-            return borrowed
         raise BridgeError("tab_not_found", "浏览器里没有可用的 %s 标签页" % site)
 
     def ensure_tab(self, site: str, url: str, group_title: Optional[str] = None,
