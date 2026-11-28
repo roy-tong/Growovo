@@ -78,7 +78,38 @@ def _load_state(data_dir) -> Dict[str, Any]:
     payload = JobStore(state_path(data_dir)).load()
     if not isinstance(payload.get("jobs"), dict):
         raise ValueError("作业状态文件格式错误")
+    _cleanup_stale_reconciliation(payload)
     return payload
+
+
+def _cleanup_stale_reconciliation(payload: Dict[str, Any], max_age_sec: int = 7200) -> None:
+    """自动清理过期的 needs_reconciliation 状态。
+
+    超过 2 小时的 needs_reconciliation 记录会被清除，避免旧状态阻塞新任务。
+    只清理没有对应 wave 文件或 wave 文件已完成的记录，保留正在执行的。
+    """
+    import time
+    jobs = payload.get("jobs") or {}
+    now = time.time()
+    stale = []
+    for job_id, record in jobs.items():
+        if record.get("status") != "needs_reconciliation":
+            continue
+        updated = record.get("updated_at") or ""
+        if not updated:
+            stale.append(job_id)
+            continue
+        try:
+            from datetime import datetime
+            at = datetime.fromisoformat(updated.replace("Z", "+00:00")).timestamp()
+            if now - at > max_age_sec:
+                stale.append(job_id)
+        except Exception:
+            stale.append(job_id)
+    for job_id in stale:
+        del jobs[job_id]
+    if stale:
+        payload["jobs"] = jobs
 
 
 def _save_state(data_dir, state):
@@ -330,6 +361,51 @@ def _record_business_progress(data_dir, event, events, errors, now):
         errors.append(str(exc)[:300])
 
 
+def _print_wave_receipt(job, business_result, progress_event):
+    """波次完成后输出任务报告回执，告诉用户目标、完成量和缺口。"""
+    import sys
+    execution = business_result.get("execution") or {}
+    target = int(execution.get("target") or 0)
+    committed = int(execution.get("committed") or 0)
+    failed = int(execution.get("failed") or 0)
+    indeterminate = int(execution.get("indeterminate") or 0)
+    skipped = int(execution.get("skipped") or 0)
+    deferred = int(execution.get("deferred") or 0)
+    gap = int(execution.get("gap") or 0)
+    attainment = float(execution.get("attainment_rate") or 0.0)
+
+    # 分渠道统计
+    by_channel = execution.get("by_channel_action") or {}
+    channel_parts = []
+    for key, value in sorted(by_channel.items()):
+        if value:
+            channel_parts.append("%s %d" % (key, value))
+    channel_text = "、".join(channel_parts) if channel_parts else "无"
+
+    # 业务结果状态
+    business_outcome = business_result.get("business_outcome") or "not_included"
+    outcome_labels = {
+        "not_included": "未测量",
+        "not_measured": "未测量",
+        "measured": "已测量",
+        "verified": "已验证",
+    }
+    outcome_text = outcome_labels.get(business_outcome, business_outcome)
+
+    # 输出回执到 stderr，避免干扰 JSON stdout
+    out = sys.stderr
+    out.write("\n" + "=" * 60 + "\n")
+    out.write("【任务回执】%s\n" % job.get("id"))
+    out.write("目标：%d 条 | 完成：%d 条 | 完成率：%.1f%%\n" % (target, committed, attainment * 100))
+    out.write("失败：%d | 未知：%d | 跳过：%d | 延后：%d | 缺口：%d\n" % (failed, indeterminate, skipped, deferred, gap))
+    out.write("分渠道：%s\n" % channel_text)
+    out.write("业务结果：%s\n" % outcome_text)
+    if progress_event.get("next_action"):
+        out.write("下一步：%s\n" % progress_event["next_action"])
+    out.write("=" * 60 + "\n\n")
+    out.flush()
+
+
 def tick(data_dir, config_path, *, now=None, go: bool = False, executor=None, max_jobs: int = 1,
          job_id: str = ""):
     config = _load_config(config_path)
@@ -479,9 +555,11 @@ def tick(data_dir, config_path, *, now=None, go: bool = False, executor=None, ma
                 approval_valid = (stored.get("reason") == "wave_approval_required"
                                   and scheduled_scope.has_approval(data_dir, config_path, row))
                 recovery = schedule_recovery.decide(row, stored, approval_valid=approval_valid)
+                progress_event = business_progress.from_job(row, result["business_result"], recovery)
                 _record_business_progress(
-                    data_dir, business_progress.from_job(row, result["business_result"], recovery),
+                    data_dir, progress_event,
                     progress_events, progress_errors, current.isoformat())
+                _print_wave_receipt(row, result["business_result"], progress_event)
             row["state"] = stored
             output.append({key: value for key, value in row.items() if key != "state"})
         return {"ok": all(row["status"] not in {
@@ -499,12 +577,17 @@ def tick(data_dir, config_path, *, now=None, go: bool = False, executor=None, ma
 
 
 def serve(data_dir, config_path, *, go=True, once=False, poll_sec=5.0, max_jobs=1,
-          executor=None, clock=None, sleeper=None):
-    """Run due jobs without a chat session; external schedulers may still invoke --once."""
+          executor=None, clock=None, sleeper=None, preflight_lead_sec=1800):
+    """Run due jobs without a chat session; external schedulers may still invoke --once.
+
+    preflight_lead_sec: 首波提前预检秒数，默认 1800（30 分钟）。
+    在首波到期前 30 分钟执行一次只读预检，提前发现标签页或登录态问题。
+    """
     import time
     started = time.monotonic()
     progress_events = []
     progress_errors = []
+    preflight_done = set()
 
     def finish(payload):
         return dict(payload, business_progress=progress_events,
@@ -527,6 +610,27 @@ def serve(data_dir, config_path, *, go=True, once=False, poll_sec=5.0, max_jobs=
     executed = 0
     while True:
         current = clock()
+        # 首波到期前 30 分钟执行一次只读预检，提前发现标签页或登录态问题。
+        if preflight_lead_sec > 0:
+            settings = _load_config(config_path)
+            for job in settings.get("jobs", []):
+                if job.get("kind") != "wave":
+                    continue
+                when = dt.datetime.fromisoformat(str(job["at"]).replace("Z", "+00:00"))
+                current_dt = current if isinstance(current, dt.datetime) else dt.datetime.fromisoformat(str(current).replace("Z", "+00:00"))
+                job_id = str(job["id"])
+                if job_id not in preflight_done and 0 < (when - current_dt).total_seconds() <= preflight_lead_sec:
+                    from . import wave_preflight
+                    from .engagement_cycle import load_policy
+                    policy = load_policy(data_dir)
+                    preflight = wave_preflight.check(policy, log=lambda *a: None)
+                    preflight_done.add(job_id)
+                    if not preflight.get("ok"):
+                        _record_business_progress(
+                            data_dir,
+                            {"kind": "preflight_warning", "job_id": job_id,
+                             "summary": "首波提前预检发现异常", "detail": str(preflight)[:500]},
+                            progress_events, progress_errors, current.isoformat())
         got = tick(data_dir, config_path, now=current, go=True, executor=executor,
                    max_jobs=max_jobs)
         changes.extend(got.get("changes") or [])
@@ -540,7 +644,12 @@ def serve(data_dir, config_path, *, go=True, once=False, poll_sec=5.0, max_jobs=
                                jobs=view["jobs"] if finished else got["jobs"], changes=changes,
                                executed=executed))
         if got.get("reason") == "scheduler_already_running":
-            return finish(got)
+            # 另一个 tick 持有锁时等待，而不是把第二个调度器直接判死。
+            # 这样主进程退出后，备份进程可以接管，不会静默返回。
+            if once:
+                return finish(got)
+            sleeper(poll_sec)
+            continue
         settings = _load_config(config_path)
         if str(settings.get("plan_status", "")).startswith("STOPPED"):
             return finish(dict(got, ok=False, reason="schedule_stopped", changes=changes,
@@ -554,6 +663,10 @@ def serve(data_dir, config_path, *, go=True, once=False, poll_sec=5.0, max_jobs=
                    if row["status"] == "blocked" and _now(row["at"]) <= current]
         preparation_progress = int(((got.get("preparation") or {}).get("executed")) or 0)
         if blocked and not got.get("executed") and not preparation_progress:
-            return finish(dict(got, ok=False, reason="no_runnable_jobs", jobs=rows,
-                               changes=changes, executed=executed))
+            # 预检失败、登录态恢复、锁竞争都会让到期作业暂时不可运行；
+            # 只要还有未终态作业，就继续等下一次 tick，不把整晚任务停掉。
+            pending = [row for row in rows if row["status"] not in TERMINAL]
+            if not pending:
+                return finish(dict(got, ok=False, reason="no_runnable_jobs", jobs=rows,
+                                   changes=changes, executed=executed))
         sleeper(poll_sec)

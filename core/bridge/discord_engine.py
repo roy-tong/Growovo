@@ -101,13 +101,44 @@ SENT = r"""(() => {
   const mine = rows.filter(li => li.id.indexOf('chat-messages-' + cid + '-') === 0);
   const last = mine[mine.length - 1];
   const content = last && (last.querySelector('div[id^="message-content-"]') || last);
-  const author = last && last.querySelector('[class*="username"], [class*="author"]');
+  // Discord groups consecutive messages from the same author: continuation rows
+  // do not carry a username node. Walk back to the nearest group header.
+  let author = last && last.querySelector('[class*="username"], [class*="author"]');
+  if (!author) {
+    for (let i = mine.length - 1; i >= 0; i--) {
+      const candidate = mine[i].querySelector('[class*="username"], [class*="author"]');
+      if (candidate) { author = candidate; break; }
+    }
+  }
   const replyLink = last && last.querySelector('a[href*="/channels/"]');
   const replyTo = last && (last.getAttribute('data-reply-to') ||
     (replyLink ? String(replyLink.getAttribute('href') || '').split('/').pop() : ''));
   return {mine: mine.length, lastId: last ? last.id.split('-').pop() : null,
           lastText: clean(content ? content.textContent : ''),
           author: clean(author ? author.textContent : ''), replyTo: replyTo || null};
+})()"""
+
+
+TEXT_PRESENT = r"""(() => {
+  const cid = %s, needle = %s;
+  const clean = s => String(s || '').replace(/\s+/g, ' ').trim();
+  const rows = Array.from(document.querySelectorAll('li[id^="chat-messages-"]'));
+  const mine = rows.filter(li => li.id.indexOf('chat-messages-' + cid + '-') === 0);
+  const last = mine[mine.length - 1];
+  const body = last && (last.querySelector('div[id^="message-content-"]') || last);
+  // Discord groups consecutive messages from the same author: continuation rows
+  // do not carry a username node. Walk back to the nearest group header.
+  let author = last && last.querySelector('[class*="username"], [class*="author"]');
+  if (!author) {
+    for (let i = mine.length - 1; i >= 0; i--) {
+      const candidate = mine[i].querySelector('[class*="username"], [class*="author"]');
+      if (candidate) { author = candidate; break; }
+    }
+  }
+  const found = mine.some(li => clean(li.innerText).includes(needle));
+  return {present: found, lastId: last ? last.id.split('-').pop() : null,
+          lastText: clean(body ? body.textContent : ''),
+          author: clean(author ? author.textContent : '')};
 })()"""
 
 
@@ -337,7 +368,8 @@ def _submit(tab, channel, text, dry, out):
 
     got = {}
     t2 = time.time()
-    while time.time() - t2 < 8.0:
+    while time.time() - t2 < 12.0:
+        wb.ev(tab, SCROLL_BOTTOM)
         got = wb.ev(tab, SENT % json.dumps(channel)).get("value") or {}
         if _new_row(base, got):
             break
@@ -359,6 +391,16 @@ def _submit(tab, channel, text, dry, out):
         out["readback"] = dict(got, confirmed=out["confirmed"], lastIdAfter=again.get("lastId"))
         out["ok"] = bool(out["confirmed"])
     if not out["ok"]:
+        # 虚拟列表可能还没把新行挂进 DOM；滚到底部后再用正文存在性兜底。
+        present = wb.ev(tab, TEXT_PRESENT % (json.dumps(channel), json.dumps(text[:80]))).get("value") or {}
+        if present.get("present"):
+            out["ok"] = True
+            out["confirmed"] = True
+            out["serverId"] = present.get("lastId")
+            out["author"] = present.get("author")
+            out["content"] = present.get("lastText")
+            out["readback"] = dict(got, confirmed=True, text_present=True)
+            return out
         out["composerAfter"] = wb.ev(tab, LEN % json.dumps(COMPOSER)).get("value") or {}
         out["err"] = "no new message row after Enter"
     return out

@@ -357,6 +357,7 @@ class ScheduledStabilityTests(unittest.TestCase):
             "start_at": (self.now - dt.timedelta(minutes=1)).isoformat(),
             "end_at": (self.now + dt.timedelta(minutes=5)).isoformat(),
         }, "content_rules": {"x_publish": {"links_in_body": True}},
+           "interleave": {"max_consecutive_per_channel": 0, "rotation_gap_sec": 0},
            "platforms": {"x": {"publish": {"min_gap_sec": 0, "per_hour": 10, "per_night": 90},
                                   "reply": {"min_gap_sec": 0}}}}
         self.save()
@@ -386,6 +387,46 @@ class ScheduledStabilityTests(unittest.TestCase):
                             for call in dispatch.call_args_list))
         self.assertEqual("succeeded", got["jobs"][0]["status"])
         self.assertEqual(6, got["jobs"][0]["business_result"]["execution"]["committed"])
+
+    def test_signed_wave_ignores_stale_day_source_baseline(self):
+        self.job["policy_overrides"] = {"window": {
+            "start_at": (self.now - dt.timedelta(minutes=1)).isoformat(),
+            "end_at": (self.now + dt.timedelta(minutes=5)).isoformat(),
+        }}
+        self.save()
+        self.approve()
+        record = json.loads(scheduled_scope._record(self.data, self.config).read_text())
+        state = self.data / "state"
+        state.mkdir(parents=True, exist_ok=True)
+        (state / ("night-source-%s.json" % self.now.date().isoformat())).write_text(
+            json.dumps({"source_sha256": "stale-morning-build"}))
+
+        def adapter(**kwargs):
+            return {"ok": True, "result": "committed", "ledger_result": "committed",
+                    "ref": "offline-%s" % kwargs["target"]}
+
+        with patch("core.run_manifest.source_fingerprint", return_value={"sha256": record["source"]}), \
+                patch("core.platform_compliance.owner_attested_active", return_value=True), \
+                patch("core.action_gateway.execute", side_effect=adapter), \
+                patch.object(cycle.time, "sleep"), \
+                patch.object(cycle, "_now", return_value=self.now):
+            got = cycle_scheduler.tick(self.data, self.config, go=True)
+        self.assertEqual("completed_with_errors", got["jobs"][0]["status"], got)
+        self.assertEqual(1, got["jobs"][0]["business_result"]["execution"]["committed"])
+        self.assertNotIn("source_version_changed", [change["reason"] for change in got["changes"]])
+
+    def test_signed_wave_still_blocks_when_approved_source_changed(self):
+        self.job["policy_overrides"] = {"window": {
+            "start_at": (self.now - dt.timedelta(minutes=1)).isoformat(),
+            "end_at": (self.now + dt.timedelta(minutes=5)).isoformat(),
+        }}
+        self.save()
+        self.approve()
+        with patch("core.run_manifest.source_fingerprint", return_value={"sha256": "unapproved-current"}):
+            got = cycle_scheduler.tick(self.data, self.config, go=True)
+        self.assertEqual("failed", got["jobs"][0]["status"])
+        self.assertEqual("source_version_changed", got["changes"][0]["reason"])
+        self.assertEqual(0, got["jobs"][0]["business_result"]["execution"]["external_writes"])
 
     def test_matching_frozen_build_can_activate_with_subset_manifest(self):
         self.approve()

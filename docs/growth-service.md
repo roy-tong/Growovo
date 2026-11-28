@@ -353,7 +353,7 @@ mkt growth quality-allocate --file examples/growth-quality-allocation.json \
 
 ## 6.4 动态策略研究、选择与调整
 
-`core/strategy_intelligence.py` 复用 `core/tactics.py` 的 20 个机制族和 `core/experience.py` 的 594 条经验记录，不把任何单一路线写成长期默认策略。每张策略卡包含意图、阶段、渠道、所需资产、证据出处、语料实例和使用边界。当前正式策略 eligible 为 0，60 条只能进入内容实践／限定实验；原始语料规模不代表策略有效性。
+`core/strategy_intelligence.py` 复用 `core/tactics.py` 的 20 个机制族和 `core/experience.py` 的 606 条经验记录，不把任何单一路线写成长期默认策略。每张策略卡包含意图、阶段、渠道、所需资产、证据出处、语料实例和使用边界。当前正式策略 eligible 为 2，62 条可进入内容实践，其余记录只用于限定实验或候选发现；原始语料规模不代表策略有效性。
 
 `growovo.strategy-decision/1` 按意图、阶段、渠道、质量和接受结果排序，返回前三候选、选择理由和缺失输入。结果调整分别映射到 `explore`、`revise_quality`、`switch_audience_or_hook`、`improve_asset`、`improve_first_task`、`build_retention_loop`、`scale_up` 和 `recover_channel`；倍率只约束下一轮实验，不覆盖账号和安全门。
 

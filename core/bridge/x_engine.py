@@ -787,7 +787,7 @@ CLEAR_BOX = r"""(() => {
 })()"""
 
 
-def _wait_box(tab, timeout=8.0):
+def _wait_box(tab, timeout=15.0):
     """Poll for a visible reply composer; a hidden tab cannot wait in-page."""
     t0 = time.time()
     last = {}
@@ -795,14 +795,14 @@ def _wait_box(tab, timeout=8.0):
         last = wb.ev(tab, BOX).get("value") or {}
         if last.get("found"):
             return last
-        time.sleep(0.2)
+        time.sleep(0.3)
     return last
 
 
 def _write_text(tab, text):
     """Clear, fill, verify one copy. A retry clears again, so text never doubles."""
     out = {"attempts": []}
-    for attempt in range(2):
+    for attempt in range(3):
         wb.ev(tab, CLEAR_BOX)
         t1 = time.time()
         try:
@@ -816,6 +816,8 @@ def _write_text(tab, text):
             return dict(out, ok=True, len=got.get("len"))
         if got.get("len") and int(got["len"]) > len(text) * 1.5:
             continue  # doubled text: clear again and rewrite
+        # 给页面更多时间响应，特别是网络较慢或风控干预时
+        time.sleep(1.0)
     return dict(out, ok=False, err="fill did not land", len=(out["attempts"] or [{}])[-1].get("len"))
 
 

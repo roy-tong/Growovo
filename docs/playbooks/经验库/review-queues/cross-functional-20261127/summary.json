@@ -1,0 +1,49 @@
+{
+  "schema": "ovo.strategy-review-queue/1",
+  "observed_at": "2026-11-27T18:32:26+08:00",
+  "selected": 120,
+  "by_business_scope": {
+    "content_operations": 24,
+    "content_planning": 24,
+    "account_operations": 24,
+    "kol_koc_operations": 24,
+    "new_media_marketing": 24
+  },
+  "by_knowledge_layer": {
+    "methodology": 35,
+    "methodology_candidate": 14,
+    "platform_operations": 71
+  },
+  "by_time_status": {
+    "method_archival": 22,
+    "method_current": 27,
+    "platform_current": 71
+  },
+  "by_function": {
+    "marketing": 41,
+    "other": 48,
+    "gtm": 22,
+    "b2b_sales": 1,
+    "consumer_sales": 2,
+    "user_growth": 2,
+    "user_operations": 4
+  },
+  "by_domain": {
+    "blog.hubspot.com": 21,
+    "www.socialpilot.co": 12,
+    "buffer.com": 10,
+    "www.sendible.com": 18,
+    "www.socialinsider.io": 25,
+    "www.socialmediatoday.com": 10,
+    "www.postplanner.com": 6,
+    "review.firstround.com": 1,
+    "www.traackr.com": 14,
+    "www.reforge.com": 1,
+    "close.com": 2
+  },
+  "metadata_fetched": 120,
+  "metadata_failed": 0,
+  "errors": [],
+  "output": "/Users/tongxiarui/Documents/AI 工作台/01-商业项目/ovo family/ai输出/GTM与增长/OVO-下午45-20261127/mining/strategy-review-queue.jsonl",
+  "boundary": "Priority source review queue; page title/meta only. Not accepted strategy claims or performance evidence."
+}

@@ -49,31 +49,37 @@ def check(policy: Dict[str, Any], *, attach=None, session: Optional[str] = None,
             out["ok"] = False
             log("[preflight/%s] preflight_error：%s" % (site, row["detail"]))
             continue
-        row["tab"] = tab
-        url = _page_url(attach, tab)
-        row["url"] = url[:400]
-        if "/login" in url or "/signin" in url or "/session" in url:
-            row.update(reason="login_required", detail="页面停在登录页：%s" % url[:200])
+        candidates = (attach.alive_site_tabs(site)
+                      if hasattr(attach, "alive_site_tabs") else [tab])
+        if not candidates:
+            row.update(reason="tab_not_found", detail="没有可用标签页")
             out["channels"][site] = row
             out["ok"] = False
-            log("[preflight/%s] login_required：%s" % (site, row["detail"]))
+            log("[preflight/%s] tab_not_found" % site)
             continue
-        try:
-            identity = attach.observe_identity(site, tab)
-            row.update(ok=True, handle=identity.get("handle") or "")
-        except BridgeError as exc:
-            reason = "login_required" if exc.code == "identity_unavailable" else (
-                exc.code or "identity_error")
-            row.update(reason=reason, detail=str(exc)[:200])
+        last_error = None
+        for tab in candidates:
+            url = _page_url(attach, tab)
+            row["tab"] = tab
+            row["url"] = url[:400]
+            if "/login" in url or "/signin" in url or "/session" in url:
+                last_error = ("login_required", "页面停在登录页：%s" % url[:200])
+                continue
+            try:
+                identity = attach.observe_identity(site, tab)
+                row.update(ok=True, handle=identity.get("handle") or "")
+                break
+            except BridgeError as exc:
+                last_error = ("login_required" if exc.code == "identity_unavailable"
+                              else (exc.code or "identity_error"), str(exc)[:200])
+            except Exception as exc:  # noqa: BLE001 - 同上
+                last_error = ("identity_error", str(exc)[:200])
+        else:
+            reason, detail = last_error or ("login_required", "没有可读的登录账号")
+            row.update(reason=reason, detail=detail)
             out["channels"][site] = row
             out["ok"] = False
             log("[preflight/%s] %s：%s" % (site, reason, row["detail"]))
-            continue
-        except Exception as exc:  # noqa: BLE001 - 同上
-            row.update(reason="identity_error", detail=str(exc)[:200])
-            out["channels"][site] = row
-            out["ok"] = False
-            log("[preflight/%s] identity_error：%s" % (site, row["detail"]))
             continue
         out["channels"][site] = row
     return out
